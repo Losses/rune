@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
@@ -23,14 +24,19 @@ import 'file_dialog_model.dart';
 import 'file_dialog_names.dart';
 import 'file_dialog_thumbnails.dart';
 import 'widgets/address_bar.dart';
+import 'widgets/drag_handle.dart';
 import 'widgets/file_dialog_menu_button.dart';
 import 'widgets/items_view.dart';
 import 'widgets/navigation_pane.dart';
+import 'widgets/view_menu.dart';
 
 /// Room left above and below the dialog's body for its title, footer and
 /// the window around it.
 const double _chromeHeight = 260;
-const double _navigationPaneWidth = 220;
+
+/// The navigation pane is dragged no narrower than this, and no wider than
+/// half the dialog.
+const double _narrowestPane = 140;
 
 /// Rune's file dialog, laid out as the Windows 11 common item dialog: an
 /// address bar with history buttons and search, a command row, the
@@ -80,6 +86,9 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   /// on this navigator, inside the dialog's keyboard barrier.
   final _navigator = GlobalKey<NavigatorState>();
   BuildContext? _pageContext;
+
+  /// The navigation pane's width when its edge started being dragged.
+  double _paneAtDragStart = 0;
 
   @override
   void initState() {
@@ -154,6 +163,8 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       FileDialogPathNotFoundNotice(:final typed) => s.fileDialogPathNotFound(
         typed,
       ),
+      FileDialogFolderNotFoundNotice(:final typed) =>
+        s.fileDialogFolderNotFound(typed),
     };
     await showErrorDialog(
       context: _pageContext ?? context,
@@ -202,6 +213,50 @@ class FileDialogWindowState extends State<FileDialogWindow> {
 
   /// Open a context menu for an item, or for the folder.
   void _openContextMenu(FileDialogEntry? entry, Offset globalPosition) {
+    _showMenu(
+      globalPosition,
+      (context) =>
+          entry == null ? _folderMenu(context) : _itemMenu(context, entry),
+    );
+  }
+
+  /// File Explorer's menu on the details header: fitting columns to their
+  /// contents, and which columns show. Fitting one column is offered only
+  /// on a column.
+  void _openColumnMenu(FileDialogColumn? column, Offset globalPosition) {
+    _showMenu(globalPosition, (context) {
+      final s = S.of(context);
+      return [
+        if (column != null)
+          MenuFlyoutItem(
+            text: Text(s.fileDialogSizeColumnToFit),
+            onPressed: () => _items.currentState?.sizeColumnToFit(column),
+          ),
+        MenuFlyoutItem(
+          text: Text(s.fileDialogSizeAllColumnsToFit),
+          onPressed: () => _items.currentState?.sizeAllColumnsToFit(),
+        ),
+        const MenuFlyoutSeparator(),
+        for (final each in FileDialogColumn.values)
+          MenuFlyoutItem(
+            leading: _checkMark(!controller.hiddenColumns.contains(each)),
+            text: Text(fileDialogColumnLabel(s, each)),
+            // The name is always shown.
+            onPressed: each == FileDialogColumn.name
+                ? null
+                : () => controller.setColumnShown(
+                    each,
+                    controller.hiddenColumns.contains(each),
+                  ),
+          ),
+      ];
+    });
+  }
+
+  void _showMenu(
+    Offset globalPosition,
+    List<MenuFlyoutItemBase> Function(BuildContext context) items,
+  ) {
     final target = _menuTarget.currentContext?.findRenderObject() as RenderBox?;
     // Menus open on the dialog's own navigator.
     final navigator = _navigator.currentContext?.findRenderObject();
@@ -210,11 +265,7 @@ class FileDialogWindowState extends State<FileDialogWindow> {
     unawaited(
       _menu.showFlyout(
         position: position,
-        builder: (context) => MenuFlyout(
-          items: entry == null
-              ? _folderMenu(context)
-              : _itemMenu(context, entry),
-        ),
+        builder: (context) => MenuFlyout(items: items(context)),
       ),
     );
   }
@@ -293,55 +344,44 @@ class FileDialogWindowState extends State<FileDialogWindow> {
     ];
   }
 
-  String _viewLabel(BuildContext context, FileDialogViewMode mode) {
-    final s = S.of(context);
-    return switch (mode) {
-      FileDialogViewMode.extraLargeIcons => s.fileDialogExtraLargeIcons,
-      FileDialogViewMode.largeIcons => s.fileDialogLargeIcons,
-      FileDialogViewMode.mediumIcons => s.fileDialogMediumIcons,
-      FileDialogViewMode.smallIcons => s.fileDialogSmallIcons,
-      FileDialogViewMode.list => s.fileDialogList,
-      FileDialogViewMode.details => s.fileDialogDetails,
-      FileDialogViewMode.tiles => s.fileDialogTiles,
-      FileDialogViewMode.content => s.fileDialogContent,
-    };
-  }
+  /// The leading column of a choice in a context menu, as WinUI's radio
+  /// menu items draw it: a dot before the current choice, then its icon.
+  static Widget _radioMark(bool chosen, {IconData? icon}) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      SizedBox(
+        width: 12,
+        child: chosen
+            ? const Icon(Symbols.fiber_manual_record, size: 6, fill: 1)
+            : null,
+      ),
+      if (icon != null) ...[const SizedBox(width: 4), Icon(icon, size: 16)],
+    ],
+  );
 
-  static IconData _viewIcon(FileDialogViewMode mode) => switch (mode) {
-    FileDialogViewMode.extraLargeIcons => Symbols.photo_size_select_actual,
-    FileDialogViewMode.largeIcons => Symbols.grid_view,
-    FileDialogViewMode.mediumIcons => Symbols.apps,
-    FileDialogViewMode.smallIcons => Symbols.view_comfy,
-    FileDialogViewMode.list => Symbols.view_column,
-    FileDialogViewMode.details => Symbols.view_list,
-    FileDialogViewMode.tiles => Symbols.view_module,
-    FileDialogViewMode.content => Symbols.view_agenda,
-  };
-
-  /// A radio choice in a menu, marked with a dot as Windows 11 marks it.
-  static Widget? _radio(bool chosen) =>
-      chosen ? const Icon(Symbols.fiber_manual_record, size: 8, fill: 1) : null;
+  /// The leading column of a setting that is on or off: a check mark when
+  /// it is on.
+  static Widget _checkMark(bool on) => SizedBox(
+    width: 16,
+    child: on ? const Icon(Symbols.check, size: 16) : null,
+  );
 
   List<MenuFlyoutItemBase> _viewItems(BuildContext context) {
     final s = S.of(context);
     return [
-      for (final (index, mode) in FileDialogViewMode.values.indexed)
+      for (final (index, view) in FileDialogView.named.indexed)
         MenuFlyoutItem(
-          leading: Icon(_viewIcon(mode), size: 16),
-          text: Text(_viewLabel(context, mode)),
-          trailing:
-              _radio(controller.viewMode == mode) ??
-              _Accelerator('Ctrl+Shift+${index + 1}'),
-          onPressed: () => controller.setViewMode(mode),
+          leading: _radioMark(
+            controller.view == view,
+            icon: fileDialogViewIcon(view),
+          ),
+          text: Text(fileDialogViewLabel(context, view)),
+          trailing: _Accelerator('Ctrl+Shift+${index + 1}'),
+          onPressed: () => controller.setView(view),
         ),
       const MenuFlyoutSeparator(),
       MenuFlyoutItem(
-        leading: Icon(
-          controller.showHidden
-              ? Symbols.check_box
-              : Symbols.check_box_outline_blank,
-          size: 16,
-        ),
+        leading: _checkMark(controller.showHidden),
         text: Text(s.fileDialogHiddenItems),
         onPressed: () => controller.setShowHidden(!controller.showHidden),
       ),
@@ -351,24 +391,20 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   List<MenuFlyoutItemBase> _sortItems(BuildContext context) {
     final s = S.of(context);
     final sort = controller.sort;
-    MenuFlyoutItem column(FileDialogSortColumn value, String label) =>
-        MenuFlyoutItem(
-          leading: _radio(sort.column == value) ?? const SizedBox(width: 8),
-          text: Text(label),
-          onPressed: () =>
-              controller.setSort(FileDialogSort(value, sort.ascending)),
-        );
     MenuFlyoutItem order(bool ascending, String label) => MenuFlyoutItem(
-      leading: _radio(sort.ascending == ascending) ?? const SizedBox(width: 8),
+      leading: _radioMark(sort.ascending == ascending),
       text: Text(label),
       onPressed: () =>
           controller.setSort(FileDialogSort(sort.column, ascending)),
     );
     return [
-      column(FileDialogSortColumn.name, s.fileDialogName),
-      column(FileDialogSortColumn.dateModified, s.fileDialogDateModified),
-      column(FileDialogSortColumn.type, s.type),
-      column(FileDialogSortColumn.size, s.fileDialogSize),
+      for (final column in FileDialogColumn.values)
+        MenuFlyoutItem(
+          leading: _radioMark(sort.column == column),
+          text: Text(fileDialogColumnLabel(s, column)),
+          onPressed: () =>
+              controller.setSort(FileDialogSort(column, sort.ascending)),
+        ),
       const MenuFlyoutSeparator(),
       order(true, s.fileDialogAscending),
       order(false, s.fileDialogDescending),
@@ -413,13 +449,13 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       ): _copyPath,
       const SingleActivator(LogicalKeyboardKey.keyN, alt: true): () =>
           _fileNameFocus.requestFocus(),
-      for (final (index, mode) in FileDialogViewMode.values.indexed)
+      for (final (index, view) in FileDialogView.named.indexed)
         SingleActivator(
           LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + index),
           control: true,
           shift: true,
         ): () =>
-            controller.setViewMode(mode),
+            controller.setView(view),
     };
   }
 
@@ -592,39 +628,12 @@ class FileDialogWindowState extends State<FileDialogWindow> {
             editFocus: _addressFocus,
           ),
         ),
-        iconButton(
-          s.refresh,
-          Symbols.refresh,
-          controller.current == null ? null : () => controller.refresh(),
-        ),
         if (!narrow) ...[
           const SizedBox(width: 4),
           SizedBox(width: 220, child: search),
         ],
       ],
     );
-
-    Widget menuButton(
-      String label,
-      IconData icon,
-      List<MenuFlyoutItemBase> items,
-    ) => narrow
-        ? Tooltip(
-            message: label,
-            child: Semantics(
-              label: label,
-              button: true,
-              child: DropDownButton(
-                leading: Icon(icon, size: 16),
-                items: items,
-              ),
-            ),
-          )
-        : DropDownButton(
-            leading: Icon(icon, size: 16),
-            title: Text(label),
-            items: items,
-          );
 
     final newFolder = Button(
       onPressed: controller.hasEntries ? () => _newFolder() : null,
@@ -659,13 +668,7 @@ class FileDialogWindowState extends State<FileDialogWindow> {
           const SizedBox(width: 8),
         ] else
           const Spacer(),
-        menuButton(s.sortBy, Symbols.sort, _sortItems(context)),
-        const SizedBox(width: 8),
-        menuButton(
-          s.fileDialogView,
-          _viewIcon(controller.viewMode),
-          _viewItems(context),
-        ),
+        _ViewButton(controller: controller),
       ],
     );
 
@@ -676,6 +679,7 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       thumbnails: _thumbnails,
       focusNode: _itemsFocus,
       onContextMenu: _openContextMenu,
+      onColumnMenu: _openColumnMenu,
     );
 
     final body = SizedBox(
@@ -690,22 +694,52 @@ class FileDialogWindowState extends State<FileDialogWindow> {
             child: FlyoutTarget(
               key: _menuTarget,
               controller: _menu.controller,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (!narrow) ...[
-                    SizedBox(
-                      width: _navigationPaneWidth,
-                      child: FileDialogNavigationPane(
-                        controller: controller,
-                        names: names,
-                      ),
-                    ),
-                    const Divider(direction: Axis.vertical),
-                    const SizedBox(width: 4),
-                  ],
-                  Expanded(child: items),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final widest = math.max(_narrowestPane, width / 2);
+                  final pane = (width * controller.navigationShare).clamp(
+                    _narrowestPane,
+                    widest,
+                  );
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!narrow) ...[
+                        SizedBox(
+                          width: pane,
+                          child: FileDialogNavigationPane(
+                            controller: controller,
+                            names: names,
+                          ),
+                        ),
+                        // The line between the pane and the items, dragged
+                        // to share the width as in File Explorer.
+                        FileDialogDragHandle(
+                          onStart: () => _paneAtDragStart = pane,
+                          onDrag: (distance) => controller.setNavigationShare(
+                            (_paneAtDragStart + distance).clamp(
+                                  _narrowestPane,
+                                  widest,
+                                ) /
+                                width,
+                          ),
+                          onEnd: () => controller.setNavigationShare(
+                            controller.navigationShare,
+                            save: true,
+                          ),
+                          child: const SizedBox(
+                            width: 9,
+                            child: Center(
+                              child: Divider(direction: Axis.vertical),
+                            ),
+                          ),
+                        ),
+                      ],
+                      Expanded(child: items),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -735,6 +769,8 @@ class FileDialogWindowState extends State<FileDialogWindow> {
 /// The bottom of the dialog: the file name box, the file type box and the
 /// buttons.
 class _Footer extends StatelessWidget {
+  static const _buttonWidth = BoxConstraints(minWidth: 120);
+
   const _Footer({
     required this.controller,
     required this.fileNameFocus,
@@ -792,6 +828,12 @@ class _Footer extends StatelessWidget {
       ],
     );
 
+    final ok = FilledButton(
+      onPressed: controller.current == null ? null : () => controller.submit(),
+      child: Text(okLabel),
+    );
+    final cancel = Button(onPressed: onCancel, child: Text(s.cancel));
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -824,15 +866,19 @@ class _Footer extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 12),
-        ResponsiveDialogActions(
-          FilledButton(
-            onPressed: controller.current == null
-                ? null
-                : () => controller.submit(),
-            child: Text(okLabel),
+        if (narrow)
+          ResponsiveDialogActions(ok, cancel)
+        else
+          // As in Windows: the buttons at the end, as wide as their labels
+          // need, however wide the dialog is.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              ConstrainedBox(constraints: _buttonWidth, child: ok),
+              const SizedBox(width: 8),
+              ConstrainedBox(constraints: _buttonWidth, child: cancel),
+            ],
           ),
-          Button(onPressed: onCancel, child: Text(s.cancel)),
-        ),
       ],
     );
   }
@@ -853,6 +899,60 @@ class _Accelerator extends StatelessWidget {
         keys,
         style: theme.typography.caption?.copyWith(
           color: theme.resources.textFillColorSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+/// The view button, as in Windows' file dialogs: pressing it steps to the
+/// next view, its arrow opens the view slider.
+class _ViewButton extends StatelessWidget {
+  const _ViewButton({required this.controller});
+
+  final FileDialogController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final theme = FluentTheme.of(context);
+    return SplitButton(
+      onInvoked: () => controller.setView(controller.view.next),
+      flyout: FileDialogViewMenu(controller: controller),
+      secondaryBuilder: (context, showFlyout, flyoutController) => Tooltip(
+        message: s.fileDialogMoreOptions,
+        child: HoverButton(
+          onPressed: showFlyout,
+          semanticLabel: s.fileDialogMoreOptions,
+          builder: (context, states) => FlyoutTarget(
+            controller: flyoutController,
+            child: Container(
+              color: ButtonThemeData.buttonColor(
+                context,
+                flyoutController.isOpen ? {WidgetState.pressed} : states,
+                transparentWhenNone: true,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              alignment: Alignment.center,
+              child: const ChevronDown(),
+            ),
+          ),
+        ),
+      ),
+      child: Tooltip(
+        message: s.fileDialogChangeView,
+        child: Semantics(
+          label: s.fileDialogChangeView,
+          button: true,
+          excludeSemantics: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Icon(
+              fileDialogViewIcon(controller.view),
+              size: 16,
+              color: theme.resources.textFillColorPrimary,
+            ),
+          ),
         ),
       ),
     );

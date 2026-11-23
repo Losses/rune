@@ -18,7 +18,8 @@ const double _crumbPadding = 8;
 /// The address bar of the file dialog, as in File Explorer: the folder's
 /// path as segments with a chevron after each that lists its subfolders,
 /// and, when clicked on its empty part or with Ctrl+L, Alt+D or F4, a text
-/// box to type a path into.
+/// box to type a path into. Its refresh button sits at its end, and stays
+/// there while a path is typed.
 class FileDialogAddressBar extends StatefulWidget {
   const FileDialogAddressBar({
     super.key,
@@ -99,6 +100,7 @@ class FileDialogAddressBarState extends State<FileDialogAddressBar> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final refresh = _RefreshButton(controller: widget.controller);
     if (_editing) {
       return SizedBox(
         height: _barHeight,
@@ -111,6 +113,7 @@ class FileDialogAddressBarState extends State<FileDialogAddressBar> {
             onSubmitted: _submit,
             autocorrect: false,
             enableSuggestions: false,
+            suffix: refresh,
           ),
         ),
       );
@@ -122,6 +125,37 @@ class FileDialogAddressBarState extends State<FileDialogAddressBar> {
         controller: widget.controller,
         names: widget.names,
         onEdit: edit,
+        trailing: refresh,
+      ),
+    );
+  }
+}
+
+/// Refreshes the folder shown. Clicking it leaves a path being typed in
+/// the box, as buttons do not take the focus from a click.
+class _RefreshButton extends StatelessWidget {
+  const _RefreshButton({required this.controller});
+
+  final FileDialogController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = S.of(context).refresh;
+    return Tooltip(
+      message: '$label (F5)',
+      child: Semantics(
+        label: label,
+        button: true,
+        excludeSemantics: true,
+        child: IconButton(
+          style: const ButtonStyle(
+            padding: WidgetStatePropertyAll(EdgeInsets.all(6)),
+          ),
+          icon: const Icon(Symbols.refresh, size: 16),
+          onPressed: controller.current == null
+              ? null
+              : () => controller.refresh(),
+        ),
       ),
     );
   }
@@ -132,11 +166,13 @@ class _Crumbs extends StatelessWidget {
     required this.controller,
     required this.names,
     required this.onEdit,
+    required this.trailing,
   });
 
   final FileDialogController controller;
   final FileDialogNames names;
   final VoidCallback onEdit;
+  final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -200,6 +236,8 @@ class _Crumbs extends StatelessWidget {
               },
             ),
           ),
+          trailing,
+          const SizedBox(width: 2),
         ],
       ),
     );
@@ -345,7 +383,7 @@ class _Crumbs extends StatelessWidget {
           (entry) =>
               isFolder(entry) && (controller.showHidden || !entry.hidden),
         ),
-        const FileDialogSort(FileDialogSortColumn.name, true),
+        const FileDialogSort(FileDialogColumn.name, true),
       );
       return [for (final entry in folders) (entry.location, entry.name)];
     } catch (_) {

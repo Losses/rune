@@ -164,7 +164,9 @@ void main() {
   });
   setUp(() async {
     for (final key in [
-      'file_dialog_view_mode',
+      'file_dialog_view',
+      'file_dialog_columns',
+      'file_dialog_navigation_share',
       'file_dialog_sort',
       'file_dialog_show_hidden',
       'file_dialog_last_folder',
@@ -227,7 +229,7 @@ void main() {
       );
       await harness.controller.start();
       harness.controller.setSort(
-        const FileDialogSort(FileDialogSortColumn.name, false),
+        const FileDialogSort(FileDialogColumn.name, false),
       );
       expect(harness.names, [
         'Album 10',
@@ -428,6 +430,70 @@ void main() {
       harness.controller.fileName.clear();
       await harness.controller.submit();
       expect(harness.accepted.last.location, _at('/home/Music/Album 10'));
+    });
+
+    test('the folder box names the folder opened after a selection', () async {
+      final harness = await opened(FileDialogMode.pickFolder);
+      final controller = harness.controller;
+      expect(controller.fileName.text, 'Music');
+      controller.select(_at('/home/Music/Album 2'));
+      expect(controller.fileName.text, 'Album 2');
+      // Opening the selected folder: the box names it, and picking takes
+      // it rather than an "Album 2" inside it.
+      await controller.navigate(_at('/home/Music/Album 2'));
+      expect(controller.fileName.text, 'Album 2');
+      await controller.submit();
+      expect(harness.notices, isEmpty);
+      expect(controller.fileName.text, 'Album 2');
+      expect(harness.accepted.last.location, _at('/home/Music/Album 2'));
+      // Back out with nothing selected: the box names the folder shown.
+      await controller.navigate(_at('/home'));
+      controller.clearSelection();
+      expect(controller.fileName.text, 'home');
+      // A typed name is still looked up where the dialog is.
+      controller.fileName.text = 'Nowhere';
+      await controller.submit();
+      expect(harness.notices.single, isA<FileDialogFolderNotFoundNotice>());
+    });
+  });
+
+  group('preferences', () {
+    Future<FileDialogController> reopened() async {
+      final harness = _Harness(
+        FileDialogOptions(
+          mode: FileDialogMode.openFile,
+          initialFolder: _at('/home/Music'),
+        ),
+        _music(),
+      );
+      await harness.controller.start();
+      return harness.controller;
+    }
+
+    test('the view, columns and pane share survive the dialog', () async {
+      final first = await reopened();
+      expect(first.view, FileDialogView.details);
+      first.setView(FileDialogView.icons(150));
+      first.setColumnWidth(FileDialogColumn.name, 300);
+      first.setColumnShown(FileDialogColumn.type, false);
+      // The name cannot be switched off.
+      first.setColumnShown(FileDialogColumn.name, false);
+      first.setNavigationShare(0.3, save: true);
+      // Closing writes what a burst of changes left pending.
+      first.dispose();
+
+      final second = await reopened();
+      expect(second.view, FileDialogView.icons(150));
+      expect(second.columnWidths, {FileDialogColumn.name: 300});
+      expect(second.hiddenColumns, {FileDialogColumn.type});
+      expect(second.navigationShare, 0.3);
+      second.setColumnWidth(FileDialogColumn.name, null);
+      second.setColumnShown(FileDialogColumn.type, true);
+      second.dispose();
+
+      final third = await reopened();
+      expect(third.columnWidths, isEmpty);
+      expect(third.hiddenColumns, isEmpty);
     });
   });
 

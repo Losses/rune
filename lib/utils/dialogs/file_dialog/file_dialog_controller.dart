@@ -9,7 +9,9 @@ import '../../settings_manager.dart';
 import 'file_dialog.dart';
 import 'file_dialog_model.dart';
 
-const _viewModeKey = 'file_dialog_view_mode';
+const _viewKey = 'file_dialog_view';
+const _columnsKey = 'file_dialog_columns';
+const _navigationShareKey = 'file_dialog_navigation_share';
 const _sortKey = 'file_dialog_sort';
 const _hiddenKey = 'file_dialog_show_hidden';
 const _lastFolderKey = 'file_dialog_last_folder';
@@ -67,9 +69,16 @@ class FileDialogFileNotFoundNotice extends FileDialogNotice {
   final String typed;
 }
 
-/// A typed path names a folder that does not exist.
+/// A typed path goes through a folder that does not exist.
 class FileDialogPathNotFoundNotice extends FileDialogNotice {
   const FileDialogPathNotFoundNotice(this.typed);
+
+  final String typed;
+}
+
+/// When picking folders: the typed name is not a folder there.
+class FileDialogFolderNotFoundNotice extends FileDialogNotice {
+  const FileDialogFolderNotFoundNotice(this.typed);
 
   final String typed;
 }
@@ -116,9 +125,22 @@ class FileDialogController extends ChangeNotifier {
   final _back = <FileDialogLocation>[];
   final _forward = <FileDialogLocation>[];
 
-  FileDialogViewMode viewMode = FileDialogViewMode.details;
-  FileDialogSort sort = const FileDialogSort(FileDialogSortColumn.name, true);
+  FileDialogView view = FileDialogView.details;
+  FileDialogSort sort = const FileDialogSort(FileDialogColumn.name, true);
   bool showHidden = false;
+
+  /// Widths of the details columns that were resized; the others keep
+  /// their default, and the name fills the room left until it is resized.
+  final columnWidths = <FileDialogColumn, double>{};
+
+  /// Details columns switched off from the header's menu. The name is
+  /// always shown.
+  final hiddenColumns = <FileDialogColumn>{};
+
+  /// The navigation pane's share of the dialog's width, as last dragged.
+  double navigationShare = defaultNavigationShare;
+
+  static const defaultNavigationShare = 0.22;
   int fileTypeIndex;
 
   /// Selected items, and the one a range selection starts from.
@@ -130,6 +152,11 @@ class FileDialogController extends ChangeNotifier {
 
   /// The item being renamed in place.
   FileDialogLocation? renaming;
+
+  /// When picking folders: the folder the name box names, and the name it
+  /// shows for it. That is the selected folder, or the folder being shown
+  /// when none is selected, and picking with the name unchanged picks it.
+  (FileDialogLocation, String)? _namedFolder;
 
   bool _disposed = false;
 
@@ -221,18 +248,44 @@ class FileDialogController extends ChangeNotifier {
 
   Future<void> _restorePreferences() async {
     final settings = SettingsManager();
-    final mode = await settings.getValue<String>(_viewModeKey);
-    viewMode = FileDialogViewMode.values.firstWhere(
-      (value) => value.name == mode,
-      orElse: () => FileDialogViewMode.details,
-    );
+    view =
+        FileDialogView.fromStorageName(
+          await settings.getValue<String>(_viewKey),
+        ) ??
+        FileDialogView.details;
+    final columns = await settings.getValue<Map<dynamic, dynamic>>(_columnsKey);
+    if (columns != null) {
+      FileDialogColumn? column(Object? name) => FileDialogColumn.values
+          .where((value) => value.name == name)
+          .firstOrNull;
+      final widths = columns['widths'];
+      if (widths is Map) {
+        for (final MapEntry(:key, :value) in widths.entries) {
+          final known = column(key);
+          if (known != null && value is num) {
+            columnWidths[known] = value.toDouble();
+          }
+        }
+      }
+      final hidden = columns['hidden'];
+      if (hidden is List) {
+        hiddenColumns.addAll(
+          hidden
+              .map(column)
+              .whereType<FileDialogColumn>()
+              .where((value) => value != FileDialogColumn.name),
+        );
+      }
+    }
+    final share = await settings.getValue<num>(_navigationShareKey);
+    if (share != null) navigationShare = share.toDouble();
     final sortValue = await settings.getValue<String>(_sortKey);
     if (sortValue != null) {
       final [column, order] = '$sortValue:'.split(':').take(2).toList();
       sort = FileDialogSort(
-        FileDialogSortColumn.values.firstWhere(
+        FileDialogColumn.values.firstWhere(
           (value) => value.name == column,
-          orElse: () => FileDialogSortColumn.name,
+          orElse: () => FileDialogColumn.name,
         ),
         order != 'descending',
       );
@@ -329,6 +382,7 @@ class FileDialogController extends ChangeNotifier {
       anchor = select;
       focused = select;
     }
+    if (changed && picksFolders) _syncFileName();
     unawaited(_rememberFolder(location));
     _notify();
     return true;
@@ -379,9 +433,83 @@ class FileDialogController extends ChangeNotifier {
     if (location != null) await _show(location);
   }
 
-  void setViewMode(FileDialogViewMode mode) {
-    viewMode = mode;
-    unawaited(SettingsManager().setValue(_viewModeKey, mode.name));
+  void setView(FileDialogView next) {
+    if (next == view) return;
+    view = next;
+    _saveLater(_viewKey, () => view.storageName);
+    _notify();
+  }
+
+  /// Settings written once a burst of changes (a zoom, a column drag) has
+  /// settled, or when the dialog closes.
+  final _pendingSaves = <String, (Timer, Object Function())>{};
+
+  void _saveLater(String key, Object Function() value) {
+    _pendingSaves[key]?.$1.cancel();
+    _pendingSaves[key] = (
+      Timer(const Duration(milliseconds: 300), () => _saveNow(key)),
+      value,
+    );
+  }
+
+  void _saveNow(String key) {
+    final pending = _pendingSaves.remove(key);
+    if (pending == null) return;
+    pending.$1.cancel();
+    unawaited(SettingsManager().setValue(key, pending.$2()));
+  }
+
+  /// Resize a details column; null gives it back its default width, and
+  /// the name back the room the others leave.
+  void setColumnWidth(FileDialogColumn column, double? width) {
+    if (width == null) {
+      columnWidths.remove(column);
+    } else {
+      columnWidths[column] = width;
+    }
+    _saveColumns();
+    _notify();
+  }
+
+  /// Resize several details columns at once, as Size All Columns to Fit
+  /// does.
+  void setColumnWidths(Map<FileDialogColumn, double> widths) {
+    columnWidths.addAll(widths);
+    _saveColumns();
+    _notify();
+  }
+
+  void setColumnShown(FileDialogColumn column, bool shown) {
+    if (column == FileDialogColumn.name) return;
+    if (shown) {
+      hiddenColumns.remove(column);
+    } else {
+      hiddenColumns.add(column);
+    }
+    _saveColumns();
+    _notify();
+  }
+
+  void _saveColumns() {
+    _saveLater(
+      _columnsKey,
+      () => {
+        'widths': {
+          for (final MapEntry(:key, :value) in columnWidths.entries)
+            key.name: value,
+        },
+        'hidden': [for (final column in hiddenColumns) column.name],
+      },
+    );
+  }
+
+  /// Set the navigation pane's share of the width while it is dragged;
+  /// [save] keeps it for the next dialog once the drag ends.
+  void setNavigationShare(double share, {bool save = false}) {
+    navigationShare = share;
+    if (save) {
+      unawaited(SettingsManager().setValue(_navigationShareKey, share));
+    }
     _notify();
   }
 
@@ -473,6 +601,7 @@ class FileDialogController extends ChangeNotifier {
 
   void clearSelection() {
     selection.clear();
+    if (picksFolders) _syncFileName();
     _notify();
   }
 
@@ -530,7 +659,16 @@ class FileDialogController extends ChangeNotifier {
     final files = selected.where((entry) => !isFolder(entry)).toList();
     if (picksFolders) {
       final folders = selected.where(isFolder).toList();
-      if (folders.length == 1) fileName.text = folders.first.name;
+      final shown = current;
+      final named = folders.length == 1
+          ? (folders.first.location, folders.first.name)
+          : shown == null
+          ? null
+          : (shown, nameOf(shown));
+      if (named != null) {
+        fileName.text = named.$2;
+        _namedFolder = named;
+      }
       return;
     }
     if (files.isEmpty) return;
@@ -563,6 +701,14 @@ class FileDialogController extends ChangeNotifier {
     final typed = fileName.text.trim();
 
     if (picksFolders) {
+      // The name the dialog put in the box stands for its folder: after
+      // opening a folder the box names it, and its name is not looked up
+      // inside it.
+      final named = _namedFolder;
+      if (named != null && typed == named.$2) {
+        _accept([named.$1]);
+        return;
+      }
       if (typed.isEmpty) {
         final folders = selectedEntries.where(isFolder).toList();
         _accept([folders.isEmpty ? location : folders.first.location]);
@@ -634,7 +780,7 @@ class FileDialogController extends ChangeNotifier {
         }
       case FileDialogPathTarget.file:
         if (picksFolders) {
-          unawaited(onNotice(FileDialogPathNotFoundNotice(typed)));
+          unawaited(onNotice(FileDialogFolderNotFoundNotice(typed)));
         } else if (saves) {
           if (await confirmReplace(nameOf(resolved.location))) {
             _accept([resolved.location]);
@@ -646,7 +792,7 @@ class FileDialogController extends ChangeNotifier {
         if (saves) {
           _accept([resolved.location]);
         } else if (picksFolders) {
-          unawaited(onNotice(FileDialogPathNotFoundNotice(typed)));
+          unawaited(onNotice(FileDialogFolderNotFoundNotice(typed)));
         } else {
           unawaited(onNotice(FileDialogFileNotFoundNotice(typed)));
         }
@@ -751,6 +897,7 @@ class FileDialogController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _pendingSaves.keys.toList().forEach(_saveNow);
     fileName.dispose();
     search.dispose();
     super.dispose();

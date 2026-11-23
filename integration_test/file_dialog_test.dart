@@ -187,7 +187,7 @@ void main() {
     await _chord(tester, LogicalKeyboardKey.keyN, control: true, shift: true);
     final rename = find.descendant(
       of: find.byType(FileDialogItemsView),
-      matching: find.byType(TextBox),
+      matching: find.byType(EditableText),
     );
     await flow.expectVisible(tester, rename);
     await _shot(tester, '05-new-folder-rename');
@@ -215,13 +215,31 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     // The name can be corrected right away: the box has the focus back.
     await _shot(tester, '06b-after-explanation');
-    final renameBox = tester.widget<TextBox>(rename);
-    expect(renameBox.focusNode?.hasFocus, isTrue);
+    final renameBox = tester.widget<EditableText>(rename);
+    expect(renameBox.focusNode.hasFocus, isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(find.byType(FileDialogWindow), findsOneWidget);
     expect(rename, findsNothing);
     expect(Directory('${workspace.path}/Albums/Rips').existsSync(), isTrue);
+
+    // A second, slow click on the selected name renames it, as in File
+    // Explorer, with the text where the name was.
+    final ripsName = tester.getTopLeft(_item('Rips'));
+    await _click(tester, _item('Rips'));
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    await _click(tester, _item('Rips'));
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    await flow.expectVisible(tester, rename);
+    final editing = tester.state<EditableTextState>(rename).renderEditable;
+    final firstLetter = editing.localToGlobal(
+      editing.getLocalRectForCaret(const TextPosition(offset: 0)).topLeft,
+    );
+    expect(firstLetter.dx, closeTo(ripsName.dx, 1));
+    expect(firstLetter.dy, closeTo(ripsName.dy, 1));
+    await _shot(tester, '06c-slow-click-rename');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(tester, rename);
 
     // Back at the top, the file type box lets every file through.
     await _chord(tester, LogicalKeyboardKey.arrowUp, alt: true);
@@ -310,12 +328,36 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await flow.expectAbsent(tester, find.text(labels.fileDialogCopyAsPath));
     await expectOneDialog();
-    await tester.tap(find.text(labels.fileDialogView));
+    // The view button's arrow opens the view slider.
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Tooltip && widget.message == labels.fileDialogMoreOptions,
+      ),
+    );
     await flow.expectVisible(tester, find.text(labels.fileDialogTiles));
+    await _shot(tester, '07c-view-slider');
     await _chord(tester, LogicalKeyboardKey.keyO, control: true);
     await expectOneDialog();
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await flow.expectAbsent(tester, find.text(labels.fileDialogTiles));
+    await expectOneDialog();
+    // The details header's menu.
+    await tester.tap(
+      find.text(labels.fileDialogName).first,
+      buttons: kSecondaryButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await flow.expectVisible(
+      tester,
+      find.text(labels.fileDialogSizeColumnToFit),
+    );
+    await _shot(tester, '07d-header-menu');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await flow.expectAbsent(
+      tester,
+      find.text(labels.fileDialogSizeColumnToFit),
+    );
     await expectOneDialog();
     // Alt+N goes to the file name box, as in Windows.
     await _chord(tester, LogicalKeyboardKey.keyN, alt: true);
@@ -414,10 +456,22 @@ void main() {
       find.widgetWithText(FilledButton, labels.fileDialogSelectFolder),
       findsOneWidget,
     );
-    await _chord(tester, LogicalKeyboardKey.keyL, control: true);
-    await flow.expectVisible(tester, address);
-    await _submitText(tester, address, '${workspace.path}/Albums');
+    // Selecting a folder names it in the folder box; opening it keeps it
+    // named there, and picking takes the folder opened rather than one of
+    // the same name inside it.
+    await _click(tester, _item('Albums'));
+    final folderBox = find
+        .descendant(
+          of: find.byType(FileDialogWindow),
+          matching: find.byType(TextBox),
+        )
+        .last;
+    expect(tester.widget<TextBox>(folderBox).controller!.text, 'Albums');
+    // Long enough after the click that it does not join the double click.
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    await _doubleClick(tester, _item('Albums'));
     await flow.expectVisible(tester, _item('Live 2019'));
+    expect(tester.widget<TextBox>(folderBox).controller!.text, 'Albums');
     // Folders only: the song in Albums is not listed.
     expect(_item('song.ogg'), findsNothing);
     await _shot(tester, '10-pick-folder');

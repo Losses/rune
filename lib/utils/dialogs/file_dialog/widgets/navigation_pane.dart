@@ -9,6 +9,10 @@ import '../file_dialog_icons.dart';
 import '../file_dialog_model.dart';
 import '../file_dialog_names.dart';
 
+/// The room after a pinned folder's pin: the 12 px Fluent's scroll bar
+/// takes over the pane's edge while hovered, and a gap of 4 px.
+const double _pinEndSpace = 16;
+
 /// The navigation pane of the file dialog: Quick Access with the folders
 /// pinned in the system's file browser, and This Device with the account's
 /// folders and the drives. Every folder opens into its subfolders.
@@ -77,11 +81,20 @@ class _FileDialogNavigationPaneState extends State<FileDialogNavigationPane> {
             Expanded(
               child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
+            // Clear of the scroll bar that appears over the pane's edge.
             if (pinned)
-              Icon(
-                Symbols.keep,
-                size: 14,
-                color: FluentTheme.of(context).resources.textFillColorSecondary,
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: 8,
+                  end: _pinEndSpace,
+                ),
+                child: Icon(
+                  Symbols.keep,
+                  size: 14,
+                  color: FluentTheme.of(
+                    context,
+                  ).resources.textFillColorSecondary,
+                ),
               ),
           ],
         ),
@@ -168,7 +181,7 @@ class _FileDialogNavigationPaneState extends State<FileDialogNavigationPane> {
         (entry) =>
             isFolder(entry) && (widget.controller.showHidden || !entry.hidden),
       ),
-      const FileDialogSort(FileDialogSortColumn.name, true),
+      const FileDialogSort(FileDialogColumn.name, true),
     );
     if (!mounted) return;
     setState(() {

@@ -1955,7 +1955,7 @@
       }
     }
   },
-  "fileDialogPathNotFound": "The folder of {name} does not exist. Check the path and try again.",
+  "fileDialogPathNotFound": "The path {name} does not exist. Check the path and try again.",
   "@fileDialogPathNotFound": {
     "placeholders": {
       "name": {
@@ -1963,6 +1963,18 @@
       }
     }
   },
+  "fileDialogFolderNotFound": "The folder {name} does not exist. Check the folder name and try again.",
+  "@fileDialogFolderNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogSizeColumnToFit": "Size Column to Fit",
+  "fileDialogSizeAllColumnsToFit": "Size All Columns to Fit",
+  "fileDialogChangeView": "Change Your View",
+  "fileDialogMoreOptions": "More Options",
   "fileDialogPermissionDenied": "You do not have permission to access {location}.",
   "@fileDialogPermissionDenied": {
     "placeholders": {

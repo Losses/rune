@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' show DateFormat, Intl;
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../bindings/bindings.dart';
@@ -17,12 +17,18 @@ import '../file_dialog_controller.dart';
 import '../file_dialog_model.dart';
 import '../file_dialog_names.dart';
 import '../file_dialog_thumbnails.dart';
+import 'drag_handle.dart';
 import 'item_icon.dart';
 
 /// Opens a context menu for an item, or for the folder when [entry] is
 /// null, at a position in global coordinates.
 typedef FileDialogContextMenuCallback =
     void Function(FileDialogEntry? entry, Offset globalPosition);
+
+/// Opens the details header's menu, for [column] when the pointer was on
+/// one, at a position in global coordinates.
+typedef FileDialogColumnMenuCallback =
+    void Function(FileDialogColumn? column, Offset globalPosition);
 
 const double _rowHeight = 28;
 
@@ -35,9 +41,30 @@ const double _contentRowHeight = 60;
 const Duration _doubleClick = Duration(milliseconds: 500);
 const Duration _typeAheadPause = Duration(seconds: 1);
 
-/// The item area of the file dialog in all eight File Explorer layouts,
-/// with mouse, touch and keyboard selection, type-ahead and renaming in
-/// place.
+/// The room before a row's content: the selection bar and its margins.
+const double _rowLead = 10;
+
+/// A cell's padding on each side in the details layout.
+const double _cellPadding = 8;
+
+/// The name column's icon and the gap after it.
+const double _nameIcon = 16 + 8;
+
+/// The narrowest a name may get before a narrow view drops other columns.
+const double _narrowestName = 160;
+const double _narrowestColumn = 40;
+
+/// The room an editable text keeps after its text for the caret: the
+/// rename box's 1 px caret and Flutter's 1 px gap.
+const double _caretRoom = 2;
+
+/// The scroll one notch of a mouse wheel makes: Flutter reports about 53
+/// logical pixels a notch on Linux and 60 on Windows.
+const double _wheelNotch = 50;
+
+/// The item area of the file dialog in all of File Explorer's layouts, with
+/// mouse, touch and keyboard selection, type-ahead, renaming in place and
+/// zooming with Ctrl and the mouse wheel.
 class FileDialogItemsView extends StatefulWidget {
   const FileDialogItemsView({
     super.key,
@@ -46,6 +73,7 @@ class FileDialogItemsView extends StatefulWidget {
     required this.thumbnails,
     required this.focusNode,
     required this.onContextMenu,
+    required this.onColumnMenu,
   });
 
   final FileDialogController controller;
@@ -53,6 +81,7 @@ class FileDialogItemsView extends StatefulWidget {
   final FileDialogThumbnails thumbnails;
   final FocusNode focusNode;
   final FileDialogContextMenuCallback onContextMenu;
+  final FileDialogColumnMenuCallback onColumnMenu;
 
   @override
   State<FileDialogItemsView> createState() => FileDialogItemsViewState();
@@ -67,11 +96,33 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   int _perLine = 1;
   double _viewport = 0;
 
+  /// The item area's width, for fitting the details columns to it.
+  double _width = 0;
+
   DateTime _lastClick = DateTime.fromMillisecondsSinceEpoch(0);
   FileDialogLocation? _lastClicked;
 
+  /// When anything in the items was last pressed, for telling a click that
+  /// renames from one that is part of a double click.
+  DateTime _lastPress = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// The item whose name the pointer went down on; set by the name, whose
+  /// handler runs before the item's.
+  FileDialogLocation? _nameHit;
+
+  /// Renaming that starts once no second click follows.
+  Timer? _renameTimer;
+
   String _typed = '';
   Timer? _typedTimer;
+
+  /// The width of the column whose divider is being dragged, when the drag
+  /// started.
+  double _columnAtDragStart = 0;
+
+  /// Wheel notches turned with Ctrl held that did not change the view yet.
+  double _zoomNotches = 0;
+  Timer? _zoomIdle;
 
   /// Set by an item's pointer handler, which runs before the background's,
   /// so a click on an item does not also count as a click on empty space.
@@ -93,10 +144,6 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
   void _notePointer(PointerDeviceKind kind) {
     if (kind != _pointer && mounted) setState(() => _pointer = kind);
   }
-
-  double _dateWidth = 160;
-  double _typeWidth = 130;
-  double _sizeWidth = 96;
 
   FileDialogController get _controller => widget.controller;
 
@@ -133,6 +180,8 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     _vertical.dispose();
     _horizontal.dispose();
     _typedTimer?.cancel();
+    _renameTimer?.cancel();
+    _zoomIdle?.cancel();
     super.dispose();
   }
 
@@ -151,14 +200,14 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
 
   // Keyboard.
 
-  bool get _columnMajor => _controller.viewMode == FileDialogViewMode.list;
+  FileDialogLayout get _layout => _controller.view.layout;
 
-  bool get _isGrid {
-    final mode = _controller.viewMode;
-    return mode.isGrid ||
-        mode == FileDialogViewMode.smallIcons ||
-        mode == FileDialogViewMode.tiles;
-  }
+  bool get _columnMajor => _layout == FileDialogLayout.list;
+
+  bool get _isGrid =>
+      _layout == FileDialogLayout.icons ||
+      _layout == FileDialogLayout.smallIcons ||
+      _layout == FileDialogLayout.tiles;
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
@@ -265,12 +314,12 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     return extent <= 0 ? 1 : (_viewport / extent).floor();
   }
 
-  double _lineExtent() => switch (_controller.viewMode) {
-    FileDialogViewMode.details => _rowExtent,
-    FileDialogViewMode.content => _contentRowHeight,
-    FileDialogViewMode.tiles => _tileHeight,
-    FileDialogViewMode.smallIcons || FileDialogViewMode.list => _smallRowExtent,
-    final mode => _gridCellHeight(mode),
+  double _lineExtent() => switch (_layout) {
+    FileDialogLayout.details => _rowExtent,
+    FileDialogLayout.content => _contentRowHeight,
+    FileDialogLayout.tiles => _tileHeight,
+    FileDialogLayout.smallIcons || FileDialogLayout.list => _smallRowExtent,
+    FileDialogLayout.icons => _gridCellHeight(_controller.view.iconSize),
   };
 
   /// Scroll so the focused item is in view.
@@ -306,10 +355,17 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
 
   void _pointerDown(PointerDownEvent event, FileDialogEntry entry) {
     _itemHit = true;
+    final onName = _nameHit == entry.location;
+    _nameHit = null;
     _notePointer(event.kind);
     // A finger selects when it lifts (see [_tap]), so a scroll that starts
     // on an item neither selects nor opens it.
     if (_isTouch(event.kind)) return;
+    final now = DateTime.now();
+    final quiet = now.difference(_lastPress) >= _doubleClick;
+    _lastPress = now;
+    _renameTimer?.cancel();
+    final hadFocus = widget.focusNode.hasFocus;
     widget.focusNode.requestFocus();
     if (event.buttons == kSecondaryButton) {
       if (!_controller.selection.contains(entry.location)) {
@@ -320,7 +376,6 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     }
     if (event.buttons != kPrimaryButton) return;
     if (_controller.renaming == entry.location) return;
-    final now = DateTime.now();
     final again =
         _lastClicked == entry.location &&
         now.difference(_lastClick) < _doubleClick;
@@ -330,6 +385,11 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
       return;
     }
     final keys = HardwareKeyboard.instance;
+    final modified =
+        keys.isControlPressed || keys.isMetaPressed || keys.isShiftPressed;
+    final aloneBefore =
+        _controller.selection.length == 1 &&
+        _controller.selection.contains(entry.location);
     _controller.select(
       entry.location,
       toggle: keys.isControlPressed || keys.isMetaPressed,
@@ -337,6 +397,17 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     );
     _lastClick = now;
     _lastClicked = entry.location;
+    // File Explorer: a click on the name of the item selected alone, with
+    // no other click a double-click time before or after it, renames it.
+    if (onName && aloneBefore && hadFocus && quiet && !modified) {
+      _renameTimer = Timer(_doubleClick, () {
+        if (!mounted) return;
+        final selection = _controller.selection;
+        if (selection.length == 1 && selection.contains(entry.location)) {
+          _controller.startRename();
+        }
+      });
+    }
   }
 
   /// A tap of a finger or pen: a folder opens at once, as in touch file
@@ -359,8 +430,11 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
       _itemHit = false;
       return;
     }
+    _nameHit = null;
     _notePointer(event.kind);
     if (_isTouch(event.kind)) return;
+    _lastPress = DateTime.now();
+    _renameTimer?.cancel();
     widget.focusNode.requestFocus();
     if (event.buttons == kSecondaryButton) {
       widget.onContextMenu(null, event.position);
@@ -375,6 +449,134 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     if (_isTouch(details.kind)) {
       _controller.clearSelection();
     }
+  }
+
+  /// Ctrl and the mouse wheel zoom, as in File Explorer: icons change size
+  /// smoothly, and below Medium icons each notch is the next layout.
+  void _pointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final keys = HardwareKeyboard.instance;
+    if (!keys.isControlPressed && !keys.isMetaPressed) return;
+    // The views' scroll physics refuse the scroll while Ctrl is held, so
+    // this is the only handler for it.
+    GestureBinding.instance.pointerSignalResolver.register(event, (event) {
+      zoom((event as PointerScrollEvent).scrollDelta.dy / _wheelNotch);
+    });
+  }
+
+  /// Zoom by [notches] of the mouse wheel: down (positive) for smaller
+  /// items.
+  void zoom(double notches) {
+    _zoomIdle?.cancel();
+    _zoomIdle = Timer(
+      const Duration(milliseconds: 400),
+      () => _zoomNotches = 0,
+    );
+    _zoomNotches = (_zoomNotches + notches).clamp(-2.0, 2.0);
+    final view = _controller.view;
+    final next = view.zoomed(_zoomNotches);
+    if (next != view) {
+      _zoomNotches = 0;
+      _controller.setView(next);
+    }
+  }
+
+  // Details columns.
+
+  /// The details columns shown, in order, with their widths in a view
+  /// [width] wide. The name fills the room the others leave until it is
+  /// resized; a view too narrow for that drops columns, the type first,
+  /// then the size, then the date, keeping the name readable.
+  List<(FileDialogColumn, double)> _detailsColumns(double width) {
+    final controller = _controller;
+    double widthOf(FileDialogColumn column) =>
+        controller.columnWidths[column] ?? column.defaultWidth;
+    final others = [
+      for (final column in FileDialogColumn.values)
+        if (column != FileDialogColumn.name &&
+            !controller.hiddenColumns.contains(column))
+          column,
+    ];
+    final name = controller.columnWidths[FileDialogColumn.name];
+    if (name != null) {
+      return [
+        (FileDialogColumn.name, name),
+        for (final column in others) (column, widthOf(column)),
+      ];
+    }
+    double room() =>
+        width -
+        _rowLead -
+        others.fold(0.0, (total, column) => total + widthOf(column));
+    for (final drop in const [
+      FileDialogColumn.type,
+      FileDialogColumn.size,
+      FileDialogColumn.dateModified,
+    ]) {
+      if (room() >= _narrowestName) break;
+      others.remove(drop);
+    }
+    return [
+      (FileDialogColumn.name, math.max(room(), _narrowestName)),
+      for (final column in others) (column, widthOf(column)),
+    ];
+  }
+
+  String _cellText(FileDialogColumn column, FileDialogEntry entry) =>
+      switch (column) {
+        FileDialogColumn.name => entry.name,
+        FileDialogColumn.dateModified => _date(context, entry),
+        FileDialogColumn.type => widget.names.entryType(entry),
+        FileDialogColumn.size =>
+          isFolder(entry) ? '' : detailsSize(entry.size.toInt()),
+      };
+
+  /// The width that shows [column]'s header and every value in it whole.
+  double _fittedWidth(FileDialogColumn column) {
+    final s = S.of(context);
+    // The style the rows inherit (see [build]).
+    final style = DefaultTextStyle.of(
+      context,
+    ).style.merge(FluentTheme.of(context).typography.body);
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String text) {
+      if (text.isEmpty) return 0;
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        maxLines: 1,
+        textDirection: direction,
+        textScaler: scaler,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    // The header leaves room for the sort arrow.
+    var widest =
+        measure(fileDialogColumnLabel(s, column)) + 18 + _cellPadding * 2;
+    // The name's cell starts with its icon and pads only its end.
+    final around = column == FileDialogColumn.name
+        ? _nameIcon + _cellPadding
+        : _cellPadding * 2;
+    for (final entry in _controller.visibleEntries) {
+      widest = math.max(widest, around + measure(_cellText(column, entry)));
+    }
+    return widest.ceilToDouble();
+  }
+
+  /// Size All Columns to Fit, as File Explorer's header menu offers.
+  void sizeAllColumnsToFit() {
+    _controller.setColumnWidths({
+      for (final (column, _) in _detailsColumns(_width))
+        column: _fittedWidth(column),
+    });
+  }
+
+  /// Size Column to Fit, as File Explorer's header menu offers.
+  void sizeColumnToFit(FileDialogColumn column) {
+    _controller.setColumnWidth(column, _fittedWidth(column));
   }
 
   // Building.
@@ -409,7 +611,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     } else {
       body = LayoutBuilder(
         builder: (context, constraints) =>
-            _layout(context, constraints, entries),
+            _layoutItems(context, constraints, entries),
       );
     }
 
@@ -425,6 +627,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
         child: Listener(
           behavior: HitTestBehavior.opaque,
           onPointerDown: _backgroundPointerDown,
+          onPointerSignal: _pointerSignal,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: _backgroundTap,
@@ -440,42 +643,44 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     );
   }
 
-  Widget _layout(
+  Widget _layoutItems(
     BuildContext context,
     BoxConstraints constraints,
     List<FileDialogEntry> entries,
   ) {
-    final mode = _controller.viewMode;
-    _viewport = mode == FileDialogViewMode.list
+    final view = _controller.view;
+    _width = constraints.maxWidth;
+    _viewport = view.layout == FileDialogLayout.list
         ? constraints.maxWidth
         : constraints.maxHeight;
-    switch (mode) {
-      case FileDialogViewMode.details:
+    switch (view.layout) {
+      case FileDialogLayout.details:
         _perLine = 1;
         return _details(context, constraints, entries);
-      case FileDialogViewMode.content:
+      case FileDialogLayout.content:
         _perLine = 1;
         return Scrollbar(
           controller: _vertical,
           child: ListView.builder(
             controller: _vertical,
+            physics: const _ZoomablePhysics(),
             itemExtent: _contentRowHeight,
             itemCount: entries.length,
             itemBuilder: (context, index) => _item(
               entries[index],
-              (selected) => _ContentRow(
+              _ContentRow(
                 entry: entries[index],
                 names: widget.names,
                 thumbnails: widget.thumbnails,
                 date: _date(context, entries[index]),
-                renaming: _renameField(entries[index]),
+                name: _name(entries[index]),
                 wide: constraints.maxWidth >= 480,
               ),
               row: true,
             ),
           ),
         );
-      case FileDialogViewMode.list:
+      case FileDialogLayout.list:
         final rows = math.max(
           1,
           (constraints.maxHeight / _smallRowExtent).floor(),
@@ -485,6 +690,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
           controller: _horizontal,
           child: GridView.builder(
             controller: _horizontal,
+            physics: const _ZoomablePhysics(),
             scrollDirection: Axis.horizontal,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: rows,
@@ -493,16 +699,16 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
             itemCount: entries.length,
             itemBuilder: (context, index) => _item(
               entries[index],
-              (selected) => _SmallRow(
+              _SmallRow(
                 entry: entries[index],
                 names: widget.names,
-                renaming: _renameField(entries[index]),
+                name: _name(entries[index]),
               ),
               row: true,
             ),
           ),
         );
-      case FileDialogViewMode.smallIcons:
+      case FileDialogLayout.smallIcons:
         final columns = math.max(
           1,
           (constraints.maxWidth / _listCellWidth).floor(),
@@ -512,14 +718,11 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
           columns,
           _smallRowExtent,
           entries,
-          (entry) => _SmallRow(
-            entry: entry,
-            names: widget.names,
-            renaming: _renameField(entry),
-          ),
+          (entry) =>
+              _SmallRow(entry: entry, names: widget.names, name: _name(entry)),
           row: true,
         );
-      case FileDialogViewMode.tiles:
+      case FileDialogLayout.tiles:
         final columns = math.max(
           1,
           (constraints.maxWidth / _tileWidth).floor(),
@@ -533,33 +736,34 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
             entry: entry,
             names: widget.names,
             thumbnails: widget.thumbnails,
-            renaming: _renameField(entry),
+            name: _name(entry),
           ),
         );
-      case FileDialogViewMode.mediumIcons ||
-          FileDialogViewMode.largeIcons ||
-          FileDialogViewMode.extraLargeIcons:
-        final width = _gridCellWidth(mode);
-        final columns = math.max(1, (constraints.maxWidth / width).floor());
+      case FileDialogLayout.icons:
+        final size = view.iconSize;
+        final columns = math.max(
+          1,
+          (constraints.maxWidth / _gridCellWidth(size)).floor(),
+        );
         _perLine = columns;
         return _grid(
           columns,
-          _gridCellHeight(mode),
+          _gridCellHeight(size),
           entries,
           (entry) => _IconCell(
             entry: entry,
             names: widget.names,
             thumbnails: widget.thumbnails,
-            size: mode.iconSize,
-            renaming: _renameField(entry),
+            size: size,
+            name: _name(entry, centered: true),
           ),
         );
     }
   }
 
-  static double _gridCellWidth(FileDialogViewMode mode) => mode.iconSize + 40;
+  static double _gridCellWidth(double iconSize) => iconSize + 40;
 
-  static double _gridCellHeight(FileDialogViewMode mode) => mode.iconSize + 56;
+  static double _gridCellHeight(double iconSize) => iconSize + 56;
 
   Widget _grid(
     int columns,
@@ -572,6 +776,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
       controller: _vertical,
       child: GridView.builder(
         controller: _vertical,
+        physics: const _ZoomablePhysics(),
         padding: const EdgeInsets.all(4),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columns,
@@ -581,7 +786,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
         ),
         itemCount: entries.length,
         itemBuilder: (context, index) =>
-            _item(entries[index], (selected) => cell(entries[index]), row: row),
+            _item(entries[index], cell(entries[index]), row: row),
       ),
     );
   }
@@ -591,70 +796,80 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     BoxConstraints constraints,
     List<FileDialogEntry> entries,
   ) {
-    // A narrow view drops columns, the type first, then the size, keeping
-    // the name readable: 40 for the selection bar and icon, 160 for the
-    // name at its narrowest.
-    var room = constraints.maxWidth - 40 - 160;
-    double? fit(double width) {
-      if (room < width) return null;
-      room -= width;
-      return width;
-    }
-
-    final date = fit(_dateWidth);
-    final size = fit(_sizeWidth);
-    final type = fit(_typeWidth);
-    final columns = _DetailsColumns(date, type, size);
-    return Column(
-      children: [
-        _DetailsHeader(
-          columns: columns,
-          sort: _controller.sort,
-          onSort: (column) =>
-              _controller.setSort(_controller.sort.toggled(column)),
-          onResize: (column, delta) => setState(() {
-            switch (column) {
-              case FileDialogSortColumn.dateModified:
-                _dateWidth = (_dateWidth - delta).clamp(60, 400);
-              case FileDialogSortColumn.type:
-                _typeWidth = (_typeWidth - delta).clamp(60, 400);
-              case FileDialogSortColumn.size:
-                _sizeWidth = (_sizeWidth - delta).clamp(60, 400);
-              case FileDialogSortColumn.name:
-                break;
-            }
-          }),
-        ),
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, inner) {
-              _viewport = inner.maxHeight;
-              return Scrollbar(
-                controller: _vertical,
-                child: ListView.builder(
+    final columns = _detailsColumns(constraints.maxWidth);
+    final total = columns.fold(_rowLead, (sum, column) => sum + column.$2);
+    final content = SizedBox(
+      width: math.max(total, constraints.maxWidth),
+      height: constraints.maxHeight,
+      child: Column(
+        children: [
+          _DetailsHeader(
+            onPointerDown: (_) {
+              _itemHit = true;
+              _renameTimer?.cancel();
+            },
+            columns: columns,
+            sort: _controller.sort,
+            label: (column) => fileDialogColumnLabel(S.of(context), column),
+            onSort: (column) =>
+                _controller.setSort(_controller.sort.toggled(column)),
+            onResizeStart: (column, width) => _columnAtDragStart = width,
+            onResize: (column, distance) => _controller.setColumnWidth(
+              column,
+              math.max(
+                column == FileDialogColumn.name
+                    ? _nameIcon + _cellPadding * 2
+                    : _narrowestColumn,
+                _columnAtDragStart + distance,
+              ),
+            ),
+            onFit: sizeColumnToFit,
+            onMenu: widget.onColumnMenu,
+          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, inner) {
+                _viewport = inner.maxHeight;
+                return ListView.builder(
                   controller: _vertical,
+                  physics: const _ZoomablePhysics(),
                   itemExtent: _rowExtent,
                   itemCount: entries.length,
                   itemBuilder: (context, index) {
                     final entry = entries[index];
                     return _item(
                       entry,
-                      (selected) => _DetailsRow(
+                      _DetailsRow(
                         entry: entry,
                         names: widget.names,
                         columns: columns,
-                        date: _date(context, entry),
-                        renaming: _renameField(entry),
+                        name: _name(entry),
+                        cell: (column) => _cellText(column, entry),
                       ),
                       row: true,
                     );
                   },
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
+        ],
+      ),
+    );
+    // The header and rows scroll sideways together when the columns are
+    // wider than the view; the vertical scroll bar stays at the view's edge.
+    return Scrollbar(
+      controller: _horizontal,
+      child: Scrollbar(
+        controller: _vertical,
+        notificationPredicate: (notification) => notification.depth == 1,
+        child: SingleChildScrollView(
+          controller: _horizontal,
+          physics: const _ZoomablePhysics(),
+          scrollDirection: Axis.horizontal,
+          child: content,
         ),
-      ],
+      ),
     );
   }
 
@@ -670,30 +885,68 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     return DateFormat.yMd(locale).add_Hm().format(time);
   }
 
-  Widget? _renameField(FileDialogEntry entry) {
-    if (_controller.renaming != entry.location) return null;
-    return _RenameField(
-      key: ValueKey(entry.location),
-      name: entry.name,
-      selectStemOnly: !isFolder(entry),
-      onCommit: (name) async {
-        final done = await _controller.commitRename(name);
-        if (done) widget.focusNode.requestFocus();
-        return done;
-      },
-      onCancel: () {
-        _controller.cancelRename();
-        widget.focusNode.requestFocus();
-      },
+  /// An item's name, or the box renaming it in its place with its text
+  /// where the name was. A click on the name itself starts renaming (see
+  /// [_pointerDown]); the icon and the space beside the name do not.
+  Widget _name(FileDialogEntry entry, {bool centered = false}) {
+    final align = centered ? TextAlign.center : TextAlign.start;
+    final Widget name;
+    if (_controller.renaming == entry.location) {
+      final field = _RenameField(
+        key: ValueKey(entry.location),
+        name: entry.name,
+        selectStemOnly: !isFolder(entry),
+        textAlign: align,
+        singleLine: !centered,
+        onCommit: (name) async {
+          final done = await _controller.commitRename(name);
+          if (done) widget.focusNode.requestFocus();
+          return done;
+        },
+        onCancel: () {
+          _controller.cancelRename();
+          widget.focusNode.requestFocus();
+        },
+      );
+      // The box keeps room for the caret after the text. A centred name
+      // gets that room on top of the label's width, and as much before the
+      // text, so its lines are centred where the label's were.
+      name = centered
+          ? LayoutBuilder(
+              builder: (context, constraints) => OverflowBox(
+                alignment: Alignment.topCenter,
+                minWidth: 0,
+                maxWidth: constraints.maxWidth + _caretRoom * 2,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(start: _caretRoom),
+                  child: field,
+                ),
+              ),
+            )
+          : field;
+    } else {
+      name = Listener(
+        onPointerDown: (_) => _nameHit = entry.location,
+        child: Text(
+          entry.name,
+          maxLines: centered ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: align,
+        ),
+      );
+    }
+    return Align(
+      alignment: centered
+          ? Alignment.topCenter
+          : AlignmentDirectional.centerStart,
+      widthFactor: centered ? null : 1,
+      heightFactor: centered ? null : 1,
+      child: name,
     );
   }
 
   /// One item with its selection, hover, focus and pointer behaviour.
-  Widget _item(
-    FileDialogEntry entry,
-    Widget Function(bool selected) child, {
-    required bool row,
-  }) {
+  Widget _item(FileDialogEntry entry, Widget child, {required bool row}) {
     final selected = _controller.selection.contains(entry.location);
     final focused =
         widget.focusNode.hasFocus &&
@@ -711,7 +964,7 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
         _controller.select(entry.location);
         widget.onContextMenu(entry, position);
       },
-      child: child(selected),
+      child: child,
     );
   }
 
@@ -721,6 +974,32 @@ class FileDialogItemsViewState extends State<FileDialogItemsView> {
     return parts.join(', ');
   }
 }
+
+/// Scrolling as usual, except while Ctrl is held: then the mouse wheel
+/// zooms the items instead (see [FileDialogItemsViewState.zoom]).
+class _ZoomablePhysics extends ScrollPhysics {
+  const _ZoomablePhysics({super.parent});
+
+  @override
+  _ZoomablePhysics applyTo(ScrollPhysics? ancestor) =>
+      _ZoomablePhysics(parent: buildParent(ancestor));
+
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) {
+    final keys = HardwareKeyboard.instance;
+    if (keys.isControlPressed || keys.isMetaPressed) return false;
+    return super.shouldAcceptUserOffset(position);
+  }
+}
+
+/// A details column's header.
+String fileDialogColumnLabel(AppLocalizations s, FileDialogColumn column) =>
+    switch (column) {
+      FileDialogColumn.name => s.fileDialogName,
+      FileDialogColumn.dateModified => s.fileDialogDateModified,
+      FileDialogColumn.type => s.type,
+      FileDialogColumn.size => s.fileDialogSize,
+    };
 
 /// Explains why a folder or item could not be read or changed.
 String describeFileDialogError(
@@ -823,9 +1102,7 @@ class _ItemFrameState extends State<_ItemFrame> {
         onExit: (_) => setState(() => _hovered = false),
         child: Listener(
           behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) {
-            widget.onPointerDown(event);
-          },
+          onPointerDown: widget.onPointerDown,
           child: GestureDetector(
             onTapUp: widget.onTap,
             onLongPressStart: (details) =>
@@ -849,7 +1126,7 @@ class _ItemFrameState extends State<_ItemFrame> {
                             height: 14,
                             margin: const EdgeInsetsDirectional.only(
                               start: 2,
-                              end: 5,
+                              end: _rowLead - 5,
                             ),
                             decoration: BoxDecoration(
                               color: widget.selected
@@ -871,38 +1148,58 @@ class _ItemFrameState extends State<_ItemFrame> {
   }
 }
 
-/// The widths of the details columns beside the name; a column the view
-/// has no room for is null and left out.
-class _DetailsColumns {
-  const _DetailsColumns(this.date, this.type, this.size);
-
-  final double? date;
-  final double? type;
-  final double? size;
-}
-
+/// The details header: a cell per column that sorts by it, a divider at
+/// each column's end that resizes the column when dragged and fits it to
+/// its contents when double-clicked, and File Explorer's header menu on a
+/// right click.
 class _DetailsHeader extends StatelessWidget {
   const _DetailsHeader({
+    required this.onPointerDown,
     required this.columns,
     required this.sort,
+    required this.label,
     required this.onSort,
+    required this.onResizeStart,
     required this.onResize,
+    required this.onFit,
+    required this.onMenu,
   });
 
-  final _DetailsColumns columns;
+  /// Every press on the header, so the item area does not also take it
+  /// for a press on its empty space.
+  final void Function(PointerDownEvent event) onPointerDown;
+  final List<(FileDialogColumn, double)> columns;
   final FileDialogSort sort;
-  final void Function(FileDialogSortColumn column) onSort;
-  final void Function(FileDialogSortColumn column, double delta) onResize;
+  final String Function(FileDialogColumn column) label;
+  final void Function(FileDialogColumn column) onSort;
+
+  /// A column's divider started being dragged, the column [width] wide.
+  final void Function(FileDialogColumn column, double width) onResizeStart;
+
+  /// The divider is [distance] past where the drag started.
+  final void Function(FileDialogColumn column, double distance) onResize;
+  final void Function(FileDialogColumn column) onFit;
+  final FileDialogColumnMenuCallback onMenu;
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     final theme = FluentTheme.of(context);
-    Widget header(FileDialogSortColumn column, String label, {double? width}) {
+    final secondary = theme.resources.textFillColorSecondary;
+
+    Widget menuOn(FileDialogColumn? column, Widget child) => Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) {
+        if (event.buttons == kSecondaryButton) onMenu(column, event.position);
+      },
+      child: child,
+    );
+
+    Widget header(FileDialogColumn column, double width) {
       final active = sort.column == column;
+      final text = label(column);
       final cell = HoverButton(
         onPressed: () => onSort(column),
-        semanticLabel: label,
+        semanticLabel: text,
         builder: (context, states) => Container(
           height: _rowHeight,
           color: ButtonThemeData.uncheckedInputColor(
@@ -910,20 +1207,18 @@ class _DetailsHeader extends StatelessWidget {
             states,
             transparentWhenNone: true,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: _cellPadding),
           child: Row(
-            mainAxisAlignment: column == FileDialogSortColumn.size
+            mainAxisAlignment: column == FileDialogColumn.size
                 ? MainAxisAlignment.end
                 : MainAxisAlignment.start,
             children: [
               Flexible(
                 child: Text(
-                  label,
+                  text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: theme.resources.textFillColorSecondary,
-                  ),
+                  style: TextStyle(color: secondary),
                 ),
               ),
               if (active) ...[
@@ -933,65 +1228,58 @@ class _DetailsHeader extends StatelessWidget {
                       ? Symbols.keyboard_arrow_up
                       : Symbols.keyboard_arrow_down,
                   size: 14,
-                  color: theme.resources.textFillColorSecondary,
+                  color: secondary,
                 ),
               ],
             ],
           ),
         ),
       );
-      final resizable = width == null
-          ? Expanded(child: cell)
-          : SizedBox(
-              width: width,
-              child: Stack(
-                children: [
-                  Positioned.fill(child: cell),
-                  // Dragging a column's start edge resizes it, as in Windows.
-                  Positioned(
-                    left: 0,
-                    top: 4,
-                    bottom: 4,
-                    width: 6,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.resizeColumn,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragUpdate: (details) =>
-                            onResize(column, details.delta.dx),
-                        child: Center(
-                          child: Container(
-                            width: 1,
-                            color: theme.resources.dividerStrokeColorDefault,
-                          ),
-                        ),
-                      ),
+      return SizedBox(
+        width: width,
+        child: menuOn(
+          column,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(child: cell),
+              // The divider on the column's end, as in File Explorer.
+              PositionedDirectional(
+                end: 0,
+                top: 4,
+                bottom: 4,
+                width: 6,
+                child: FileDialogDragHandle(
+                  onStart: () => onResizeStart(column, width),
+                  onDrag: (distance) => onResize(column, distance),
+                  onDoubleTap: () => onFit(column),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: Container(
+                      width: 1,
+                      color: theme.resources.dividerStrokeColorDefault,
                     ),
                   ),
-                ],
+                ),
               ),
-            );
-      return resizable;
+            ],
+          ),
+        ),
+      );
     }
 
-    return Container(
-      height: _rowHeight,
-      // Lines up with the rows past their selection bar.
-      padding: const EdgeInsetsDirectional.only(start: 10),
-      child: Row(
-        children: [
-          header(FileDialogSortColumn.name, s.fileDialogName),
-          if (columns.date case final width?)
-            header(
-              FileDialogSortColumn.dateModified,
-              s.fileDialogDateModified,
-              width: width,
-            ),
-          if (columns.type case final width?)
-            header(FileDialogSortColumn.type, s.type, width: width),
-          if (columns.size case final width?)
-            header(FileDialogSortColumn.size, s.fileDialogSize, width: width),
-        ],
+    return Listener(
+      onPointerDown: onPointerDown,
+      child: SizedBox(
+        height: _rowHeight,
+        child: Row(
+          children: [
+            // Lines up with the rows past their selection bar.
+            menuOn(null, const SizedBox(width: _rowLead, height: _rowHeight)),
+            for (final (column, width) in columns) header(column, width),
+            Expanded(child: menuOn(null, const SizedBox.expand())),
+          ],
+        ),
       ),
     );
   }
@@ -1002,59 +1290,62 @@ class _DetailsRow extends StatelessWidget {
     required this.entry,
     required this.names,
     required this.columns,
-    required this.date,
-    required this.renaming,
+    required this.name,
+    required this.cell,
   });
 
   final FileDialogEntry entry;
   final FileDialogNames names;
-  final _DetailsColumns columns;
-  final String date;
-  final Widget? renaming;
+  final List<(FileDialogColumn, double)> columns;
+  final Widget name;
+  final String Function(FileDialogColumn column) cell;
 
   @override
   Widget build(BuildContext context) {
     final secondary = TextStyle(
       color: FluentTheme.of(context).resources.textFillColorSecondary,
     );
-    Widget cell(String text, double width, {bool end = false}) => SizedBox(
-      width: width,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: end ? TextAlign.end : TextAlign.start,
-          style: secondary,
-        ),
-      ),
-    );
     return Opacity(
       opacity: entry.hidden ? 0.6 : 1,
       child: Row(
         children: [
-          FileDialogItemIcon(
-            entry: entry,
-            names: names,
-            size: 16,
-            thumbnails: null,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child:
-                renaming ??
-                Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          if (columns.date case final width?) cell(date, width),
-          if (columns.type case final width?)
-            cell(names.entryType(entry), width),
-          if (columns.size case final width?)
-            cell(
-              isFolder(entry) ? '' : detailsSize(entry.size.toInt()),
-              width,
-              end: true,
+          for (final (column, width) in columns)
+            SizedBox(
+              width: width,
+              child: column == FileDialogColumn.name
+                  ? Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        end: _cellPadding,
+                      ),
+                      child: Row(
+                        children: [
+                          FileDialogItemIcon(
+                            entry: entry,
+                            names: names,
+                            size: 16,
+                            thumbnails: null,
+                          ),
+                          const SizedBox(width: _nameIcon - 16),
+                          Expanded(child: name),
+                        ],
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: _cellPadding,
+                      ),
+                      child: Text(
+                        cell(column),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: column == FileDialogColumn.size
+                            ? TextAlign.end
+                            : TextAlign.start,
+                        style: secondary,
+                      ),
+                    ),
             ),
+          const Spacer(),
         ],
       ),
     );
@@ -1065,12 +1356,12 @@ class _SmallRow extends StatelessWidget {
   const _SmallRow({
     required this.entry,
     required this.names,
-    required this.renaming,
+    required this.name,
   });
 
   final FileDialogEntry entry;
   final FileDialogNames names;
-  final Widget? renaming;
+  final Widget name;
 
   @override
   Widget build(BuildContext context) {
@@ -1085,11 +1376,7 @@ class _SmallRow extends StatelessWidget {
             thumbnails: null,
           ),
           const SizedBox(width: 8),
-          Expanded(
-            child:
-                renaming ??
-                Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
+          Expanded(child: name),
         ],
       ),
     );
@@ -1102,14 +1389,14 @@ class _IconCell extends StatelessWidget {
     required this.names,
     required this.thumbnails,
     required this.size,
-    required this.renaming,
+    required this.name,
   });
 
   final FileDialogEntry entry;
   final FileDialogNames names;
   final FileDialogThumbnails thumbnails;
   final double size;
-  final Widget? renaming;
+  final Widget name;
 
   @override
   Widget build(BuildContext context) {
@@ -1126,16 +1413,7 @@ class _IconCell extends StatelessWidget {
               thumbnails: thumbnails,
             ),
             const SizedBox(height: 4),
-            Expanded(
-              child:
-                  renaming ??
-                  Text(
-                    entry.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-            ),
+            Expanded(child: name),
           ],
         ),
       ),
@@ -1148,13 +1426,13 @@ class _Tile extends StatelessWidget {
     required this.entry,
     required this.names,
     required this.thumbnails,
-    required this.renaming,
+    required this.name,
   });
 
   final FileDialogEntry entry;
   final FileDialogNames names;
   final FileDialogThumbnails thumbnails;
-  final Widget? renaming;
+  final Widget name;
 
   @override
   Widget build(BuildContext context) {
@@ -1179,12 +1457,7 @@ class _Tile extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  renaming ??
-                      Text(
-                        entry.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                  name,
                   Text(
                     names.entryType(entry),
                     maxLines: 1,
@@ -1209,7 +1482,7 @@ class _ContentRow extends StatelessWidget {
     required this.names,
     required this.thumbnails,
     required this.date,
-    required this.renaming,
+    required this.name,
     required this.wide,
   });
 
@@ -1217,7 +1490,7 @@ class _ContentRow extends StatelessWidget {
   final FileDialogNames names;
   final FileDialogThumbnails thumbnails;
   final String date;
-  final Widget? renaming;
+  final Widget name;
 
   /// Whether there is room for the date and size beside the name.
   final bool wide;
@@ -1252,12 +1525,7 @@ class _ContentRow extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  renaming ??
-                      Text(
-                        entry.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                  name,
                   Text(names.entryType(entry), style: secondary, maxLines: 1),
                 ],
               ),
@@ -1292,19 +1560,27 @@ class _ContentRow extends StatelessWidget {
   }
 }
 
-/// The name of an item being renamed: the name without its extension is
-/// selected, Enter or leaving the box keeps the new name, Escape drops it.
+/// The name of an item being renamed, edited where it was shown: the text
+/// stays where the name was and the box is drawn just outside it, as File
+/// Explorer's is. The name without its extension is selected, Enter or
+/// leaving the box keeps the new name, Escape drops it.
 class _RenameField extends StatefulWidget {
   const _RenameField({
     super.key,
     required this.name,
     required this.selectStemOnly,
+    required this.textAlign,
+    required this.singleLine,
     required this.onCommit,
     required this.onCancel,
   });
 
   final String name;
   final bool selectStemOnly;
+  final TextAlign textAlign;
+
+  /// Rows keep the name on one line; icons let it wrap as their label does.
+  final bool singleLine;
   final Future<bool> Function(String name) onCommit;
   final VoidCallback onCancel;
 
@@ -1312,11 +1588,23 @@ class _RenameField extends StatefulWidget {
   State<_RenameField> createState() => _RenameFieldState();
 }
 
-class _RenameFieldState extends State<_RenameField> {
+class _RenameFieldState extends State<_RenameField>
+    implements TextSelectionGestureDetectorBuilderDelegate {
   late final _text = TextEditingController(text: widget.name);
-  final _focus = FocusNode();
+  final _focus = FocusNode(debugLabel: 'file dialog rename');
+  final _editable = GlobalKey<EditableTextState>();
+  late final _gestures = TextSelectionGestureDetectorBuilder(delegate: this);
   bool _committing = false;
   bool _cancelled = false;
+
+  @override
+  GlobalKey<EditableTextState> get editableTextKey => _editable;
+
+  @override
+  bool get forcePressEnabled => false;
+
+  @override
+  bool get selectionEnabled => true;
 
   @override
   void initState() {
@@ -1353,6 +1641,29 @@ class _RenameFieldState extends State<_RenameField> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final style = DefaultTextStyle.of(context).style;
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final editable = EditableText(
+      key: _editable,
+      controller: _text,
+      focusNode: _focus,
+      style: style,
+      textAlign: widget.textAlign,
+      maxLines: widget.singleLine ? 1 : null,
+      keyboardType: TextInputType.text,
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => _commit(),
+      autocorrect: false,
+      enableSuggestions: false,
+      cursorColor: style.color ?? theme.resources.textFillColorPrimary,
+      cursorWidth: 1,
+      backgroundCursorColor: theme.resources.textFillColorDisabled,
+      selectionColor: accent.withValues(alpha: 0.4),
+      selectionControls: fluentTextSelectionControls,
+      rendererIgnoresPointer: true,
+      mouseCursor: SystemMouseCursors.text,
+    );
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () {
@@ -1360,13 +1671,33 @@ class _RenameFieldState extends State<_RenameField> {
           widget.onCancel();
         },
       },
-      child: TextBox(
-        controller: _text,
-        focusNode: _focus,
-        onSubmitted: (_) => _commit(),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        autocorrect: false,
-        enableSuggestions: false,
+      // As wide as the name, so the box hugs it; the box sits just outside
+      // the text so the text does not move.
+      child: IntrinsicWidth(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: -3,
+              right: -3,
+              top: -2,
+              bottom: -2,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.resources.solidBackgroundFillColorBase,
+                    border: Border.all(color: accent),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+            _gestures.buildGestureDetector(
+              behavior: HitTestBehavior.translucent,
+              child: editable,
+            ),
+          ],
+        ),
       ),
     );
   }
