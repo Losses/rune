@@ -666,9 +666,11 @@ mod scan_task_tests {
     use crate::utils::RinfRustSignal;
     use database::actions::metadata::{MissingHostFilePolicy, ScanOptions, scan_audio_library};
     use database::library_registry::{LibraryRegistry, create_replica};
+    use futures::poll;
     use sea_orm::ConnectionTrait;
     use std::fs;
     use std::sync as std_sync;
+    use std::task::Poll;
     use tempfile::TempDir;
     use tokio::{
         sync::{Notify, mpsc::unbounded_channel, oneshot},
@@ -1400,6 +1402,107 @@ mod scan_task_tests {
             }
         ));
         cancel.await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cancel_of_an_old_run_does_not_replace_the_restarted_run() -> Result<()> {
+        let owner = Arc::new(StdMutex::new(LibraryTaskOwner::default()));
+        let capture = Arc::new(Capture::default());
+        let (old_running, old_token) = owner
+            .lock()
+            .unwrap()
+            .start("library", LibraryTaskKind::Scan)?;
+        let LibraryTaskState::ScanRunning {
+            run_id: old_run, ..
+        } = old_running.clone()
+        else {
+            anyhow::bail!("expected a running scan");
+        };
+        capture.broadcast(&LibraryTaskStateChanged {
+            state: old_running.clone(),
+        });
+        let (stopped_tx, stopped_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let worker = task::spawn(async move {
+            old_token.cancelled().await;
+            let _ = stopped_tx.send(());
+            let _ = release_rx.await;
+        });
+        owner
+            .lock()
+            .unwrap()
+            .attach_worker("library", LibraryTaskKind::Scan, &old_run, worker);
+
+        // Two independently admitted request sources both capture the old
+        // run's cancelled state before they wait for its worker to stop.
+        let first = CancelTaskRequest {
+            call_id: None,
+            record_id: "library".into(),
+            r#type: CancelTaskType::ScanAudioLibrary,
+        };
+        let second = CancelTaskRequest {
+            call_id: None,
+            record_id: "library".into(),
+            r#type: CancelTaskType::ScanAudioLibrary,
+        };
+        let mut first_cancel =
+            Box::pin(first.handle((owner.clone(), capture.clone()), None, &first));
+        let mut second_cancel =
+            Box::pin(second.handle((owner.clone(), capture.clone()), None, &second));
+        assert!(matches!(poll!(first_cancel.as_mut()), Poll::Pending));
+        assert!(matches!(poll!(second_cancel.as_mut()), Poll::Pending));
+        timeout(TEST_DEADLINE, stopped_rx).await??;
+
+        let _ = release_tx.send(());
+        let first_response = first_cancel.await?.unwrap();
+        assert!(matches!(
+            first_response.state,
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Cancelled,
+                ..
+            }
+        ));
+
+        // The old worker has stopped, so a new run can start while the second
+        // cancel is still waiting to resume.
+        let (restarted, restarted_token) = owner
+            .lock()
+            .unwrap()
+            .start("library", LibraryTaskKind::Scan)?;
+        let LibraryTaskState::ScanRunning {
+            run_id: new_run, ..
+        } = restarted.clone()
+        else {
+            anyhow::bail!("expected a running scan");
+        };
+        capture.broadcast(&LibraryTaskStateChanged {
+            state: restarted.clone(),
+        });
+
+        let second_response = second_cancel.await?.unwrap();
+
+        assert_eq!(second_response.state, restarted);
+        assert_eq!(
+            owner
+                .lock()
+                .unwrap()
+                .current("library", LibraryTaskKind::Scan),
+            restarted
+        );
+        assert!(!restarted_token.is_cancelled());
+        let states = capture.states();
+        let restarted_at = states
+            .iter()
+            .position(|state| state.run_id() == Some(new_run.as_str()))
+            .expect("the restarted run was broadcast");
+        assert!(
+            states[restarted_at..]
+                .iter()
+                .all(|state| state.run_id() != Some(old_run.as_str())),
+            "a late cancel broadcast the old run after the restart: {states:?}"
+        );
+        assert_ne!(old_run, new_run);
         Ok(())
     }
 }
