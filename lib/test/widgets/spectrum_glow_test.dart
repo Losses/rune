@@ -49,18 +49,31 @@ class _Bars extends CustomPainter {
   bool shouldRepaint(_Bars oldDelegate) => true;
 }
 
-Widget _framed(Key key, Widget bars) => Directionality(
-  textDirection: TextDirection.ltr,
-  child: Align(
-    alignment: Alignment.topLeft,
-    child: RepaintBoundary(
-      key: key,
-      child: SizedBox(
-        width: _width + 2 * _margin,
-        height: _height + 2 * _margin,
-        child: Padding(padding: const EdgeInsets.all(_margin), child: bars),
+Widget _framed(Key key, Widget bars, {double height = _height}) =>
+    Directionality(
+      textDirection: TextDirection.ltr,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: RepaintBoundary(
+          key: key,
+          child: SizedBox(
+            width: _width + 2 * _margin,
+            height: height + 2 * _margin,
+            child: Padding(padding: const EdgeInsets.all(_margin), child: bars),
+          ),
+        ),
       ),
+    );
+
+/// The old glow: [_Bars] under the blur filter and the opacity layer.
+Widget _blurredBars(List<double> values) => Opacity(
+  opacity: SpectrumGlow.glowOpacity,
+  child: ImageFiltered(
+    imageFilter: ui.ImageFilter.blur(
+      sigmaX: SpectrumGlow.blurSigma,
+      sigmaY: SpectrumGlow.blurSigma,
     ),
+    child: CustomPaint(painter: _Bars(values)),
   ),
 );
 
@@ -156,21 +169,7 @@ void main() {
       final bars = FFTBars()..values = values;
       addTearDown(bars.dispose);
 
-      await tester.pumpWidget(
-        _framed(
-          before,
-          Opacity(
-            opacity: SpectrumGlow.glowOpacity,
-            child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(
-                sigmaX: SpectrumGlow.blurSigma,
-                sigmaY: SpectrumGlow.blurSigma,
-              ),
-              child: CustomPaint(painter: _Bars(values)),
-            ),
-          ),
-        ),
-      );
+      await tester.pumpWidget(_framed(before, _blurredBars(values)));
       final drawn = await _pixels(tester, before);
 
       await tester.pumpWidget(
@@ -214,10 +213,47 @@ void main() {
     );
   });
 
-  testWidgets('the glow is worked out in an image of the bars\' area at its '
-      'resolution, a third of a pixel for each logical pixel unless told', (
-    tester,
-  ) async {
+  testWidgets('the halves above and below the middle line meet without a '
+      'seam where the line crosses a row of pixels', (tester) async {
+    final program = (await tester.runAsync(
+      () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
+    ))!;
+    final glow = SpectrumGlow(program.fragmentShader());
+    addTearDown(glow.dispose);
+    final values = _playerSpectrum(3);
+    final bars = FFTBars()..values = values;
+    addTearDown(bars.dispose);
+    const before = Key('before'), after = Key('after');
+
+    // A box 161 high puts the middle line through the middle of a row.
+    await tester.pumpWidget(_framed(before, _blurredBars(values), height: 161));
+    final drawn = await _pixels(tester, before);
+    await tester.pumpWidget(
+      _framed(
+        after,
+        CustomPaint(painter: FFTPainter(bars, _color, glow)),
+        height: 161,
+      ),
+    );
+    final drawing = await _pixels(tester, after);
+
+    // The bounds of the comparison above. Drawing the halves antialiased
+    // darkens the row the line crosses, by 49 levels here, and flipping the
+    // lower half about a line a pixel off leaves a row empty: either breaks
+    // these bounds.
+    final difference = _compare(drawn, drawing);
+    expect(
+      difference.largest <= 5 &&
+          difference.overTwo <= 0.025 &&
+          difference.lost == 0,
+      isTrue,
+      reason: '$difference',
+    );
+  });
+
+  testWidgets('the glow is worked out in an image of the upper half of the '
+      'bars\' area at its resolution, a third of a pixel for each logical '
+      'pixel unless told', (tester) async {
     final program = (await tester.runAsync(
       () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
     ))!;
@@ -225,10 +261,10 @@ void main() {
     addTearDown(bars.dispose);
 
     // 64 bars over 640 pixels are 10 wide, and the bar of 0.6 reaches 48 up
-    // and down from the middle at 80; the area is that grown by 3 deviations,
-    // 36: from -41 to 671 across and from -4 to 164 down, 712 by 168. At a
-    // third it is grown to whole pixels of the image, from -42 to 672 and
-    // from -6 to 165: 238 by 57.
+    // from the middle at 80; the upper half of the area is that grown by 3
+    // deviations, 36: from -41 to 671 across and from -4 down to the middle,
+    // 712 by 84. At a third it is grown to whole pixels of the image, from
+    // -42 to 672 across and 84 up from the middle: 238 by 28.
     final sizes = <String, Size?>{};
     for (final (name, glow) in [
       ('2', SpectrumGlow(program.fragmentShader(), resolution: 2)),
@@ -245,9 +281,9 @@ void main() {
       sizes[name] = glow.lastImageSize;
     }
     expect(sizes, {
-      '2': const Size(1424, 336),
-      '1': const Size(712, 168),
-      'default': const Size(238, 57),
+      '2': const Size(1424, 168),
+      '1': const Size(712, 84),
+      'default': const Size(238, 28),
     });
   });
 }

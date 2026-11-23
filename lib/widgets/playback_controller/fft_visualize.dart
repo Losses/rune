@@ -240,8 +240,9 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 /// area the blur filter drew into: a frame repaints no more of the screen than
 /// the glow reaches, so a quiet spectrum repaints a low strip.
 ///
-/// The shader draws into an image of the area, which is then drawn over it
-/// scaled up. A blur of 12 leaves no detail finer than a few pixels, so the
+/// The shader draws the upper half of the area into an image. The image is
+/// drawn scaled up over that half, and flipped over the lower half, which
+/// mirrors it. A blur of 12 leaves no detail finer than a few pixels, so the
 /// image has [resolution] pixels for each logical pixel, 4 for each deviation:
 /// a third, on every screen. The shader then works out a ninth of the pixels,
 /// and no pixel moves by more than 2 levels of 255 from the glow at the full
@@ -303,21 +304,21 @@ class SpectrumGlow {
     }
     if (tallest == 0) return;
 
-    // The image covers the area the blur filter drew into, grown to whole
-    // pixels of the image, so that at a resolution of 1 on a screen of 1 pixel
-    // for each logical pixel, its pixels are the screen's.
+    // The glow below the middle line is the glow above it upside down. The
+    // image covers the upper half of the area the blur filter drew into, and
+    // is drawn a second time flipped over the lower half, so the shader works
+    // out half the pixels. The half is grown to whole pixels of the image,
+    // counted up from the middle line, where the two halves meet.
     final reach = 3 * blurSigma;
     final left = ((-barWidth / 2 - reach) * resolution).floor();
-    final top = ((middle - tallest - reach) * resolution).floor();
     final right = (((count - 0.5) * barWidth + reach) * resolution).ceil();
-    final bottom = ((middle + tallest + reach) * resolution).ceil();
     final width = right - left;
-    final height = bottom - top;
-    final area = Rect.fromLTRB(
+    final height = ((tallest + reach) * resolution).ceil();
+    final upper = Rect.fromLTRB(
       left / resolution,
-      top / resolution,
+      middle - height / resolution,
       right / resolution,
-      bottom / resolution,
+      middle,
     );
 
     // The shader reads the coordinates before the scaling, so each pixel of
@@ -325,17 +326,27 @@ class SpectrumGlow {
     final recorder = ui.PictureRecorder();
     Canvas(recorder)
       ..scale(resolution)
-      ..translate(-area.left, -area.top)
-      ..drawRect(area, Paint()..shader = _shader);
+      ..translate(-upper.left, -upper.top)
+      ..drawRect(upper, Paint()..shader = _shader);
     final picture = recorder.endRecording();
     final image = picture.toImageSync(width, height);
     picture.dispose();
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-      area,
-      Paint()..filterQuality = FilterQuality.low,
-    );
+    final source = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
+    // Antialiased, the two halves would each cover part of a row of pixels
+    // that the middle line crosses, and blending one over the other would
+    // leave that row darker. Without, each pixel is in one half. The image's
+    // other edges are 3 deviations from the bars, where the glow is under
+    // half a level.
+    final paint = Paint()
+      ..filterQuality = FilterQuality.low
+      ..isAntiAlias = false;
+    canvas
+      ..drawImageRect(image, source, upper, paint)
+      ..save()
+      ..translate(0, 2 * middle)
+      ..scale(1, -1)
+      ..drawImageRect(image, source, upper, paint)
+      ..restore();
     _lastImage?.dispose();
     _lastImage = image;
   }
