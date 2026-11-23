@@ -130,10 +130,9 @@ where
             api_secret,
         } => (Some(api_key.clone()), Some(api_secret.clone())),
     };
+    let mut scrobbler = scrobbler.lock().await;
     let result = scrobbler
-        .lock()
-        .await
-        .authenticate(
+        .authenticate_staged(
             &request.service_id.clone().into(),
             &pending.credential.username,
             &secrets.password,
@@ -143,7 +142,16 @@ where
         )
         .await;
     match result {
-        Ok(()) => store_authenticated_credential(store, pending).await,
+        Ok(()) => match store_authenticated_credential(store, pending).await {
+            Ok(reference) => {
+                scrobbler.commit_staged_authentication().await;
+                Ok(reference)
+            }
+            Err(error) => {
+                scrobbler.discard_staged_authentication().await;
+                Err(error)
+            }
+        },
         Err(error) => Err(ExpectedRequestError::ScrobbleAuthentication {
             failure: authentication_failure(error, &secrets),
         }
@@ -374,7 +382,7 @@ mod tests {
     };
     use simple_channel::{SimpleReceiver, SimpleSender};
     use std::fs;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
     use tokio::sync::Mutex;
     use uuid::Uuid;
@@ -405,6 +413,24 @@ mod tests {
         }
     }
 
+    fn break_credential_writes(directory: &std::path::Path) {
+        let entries = directory.join("credentials.enc");
+        fs::remove_file(&entries).unwrap();
+        fs::create_dir(&entries).unwrap();
+    }
+
+    fn track() -> ScrobblingTrack {
+        ScrobblingTrack {
+            library_id: None,
+            artist: "artist".into(),
+            track: "track".into(),
+            album: None,
+            album_artist: None,
+            duration: Some(60.0),
+            timestamp: None,
+        }
+    }
+
     fn password_login_for(
         username: &str,
         password: &str,
@@ -424,7 +450,13 @@ mod tests {
     struct TestScrobbler {
         inner: MockScrobblingManager,
         reject: bool,
+        active: Option<String>,
+        staged: Option<String>,
         usernames: Vec<String>,
+        commits: usize,
+        discards: usize,
+        scrobbled_as: Vec<String>,
+        statuses: StdMutex<Vec<Option<String>>>,
     }
 
     impl TestScrobbler {
@@ -432,33 +464,44 @@ mod tests {
             Self {
                 inner: MockScrobblingManager::new(),
                 reject: false,
+                active: None,
+                staged: None,
                 usernames: Vec::new(),
+                commits: 0,
+                discards: 0,
+                scrobbled_as: Vec::new(),
+                statuses: StdMutex::new(Vec::new()),
             }
         }
 
         fn rejecting() -> Self {
             Self {
-                inner: MockScrobblingManager::new(),
                 reject: true,
-                usernames: Vec::new(),
+                ..Self::accepting()
             }
+        }
+
+        fn with_active(mut self, username: &str) -> Self {
+            self.active = Some(username.to_owned());
+            self
         }
     }
 
     #[async_trait]
     impl ScrobblingServiceManager for TestScrobbler {
         async fn send_login_status(&self) {
+            self.statuses.lock().unwrap().push(self.active.clone());
             self.inner.send_login_status().await;
         }
 
-        async fn authenticate(
+        async fn authenticate_staged(
             &mut self,
-            service: &ScrobblingService,
+            _service: &ScrobblingService,
             username: &str,
-            password: &str,
-            api_key: Option<String>,
-            api_secret: Option<String>,
-            enable_retry: bool,
+            _password: &str,
+            _api_key: Option<String>,
+            _api_secret: Option<String>,
+            _enable_retry: bool,
         ) -> Result<()> {
             self.usernames.push(username.to_owned());
             if self.reject {
@@ -467,16 +510,21 @@ mod tests {
                 }
                 .into());
             }
-            self.inner
-                .authenticate(
-                    service,
-                    username,
-                    password,
-                    api_key,
-                    api_secret,
-                    enable_retry,
-                )
-                .await
+            self.staged = Some(username.to_owned());
+            Ok(())
+        }
+
+        async fn commit_staged_authentication(&mut self) {
+            if let Some(username) = self.staged.take() {
+                self.active = Some(username);
+            }
+            self.commits += 1;
+            self.send_login_status().await;
+        }
+
+        async fn discard_staged_authentication(&mut self) {
+            self.staged = None;
+            self.discards += 1;
         }
 
         async fn update_now_playing(
@@ -505,6 +553,8 @@ mod tests {
             track: ScrobblingTrack,
             listened: Duration,
         ) {
+            self.scrobbled_as
+                .push(self.active.clone().unwrap_or_default());
             self.inner.scrobble(service, track, listened).await;
         }
 
@@ -705,6 +755,84 @@ mod tests {
         assert_eq!(
             secrets_from_credential(&saved).unwrap().password,
             "new-password"
+        );
+    }
+
+    #[tokio::test]
+    async fn credential_write_failure_keeps_the_active_login() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CredentialStore::open(directory.path());
+        let previous = store
+            .put(credential("alice", "old-password"))
+            .await
+            .unwrap();
+        break_credential_writes(directory.path());
+        let scrobbler = Mutex::new(TestScrobbler::accepting().with_active("alice"));
+        let request = password_login_for("bob", "new-password", Some(previous));
+
+        let error = authenticate_and_store(&store, &scrobbler, &request)
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::ScrobbleAuthentication {
+                failure: ScrobbleAuthenticationFailure::Other {
+                    detail: "Could not read or store scrobble credentials".into(),
+                },
+            })
+        );
+        let mut scrobbler = scrobbler.lock().await;
+        assert_eq!(scrobbler.active.as_deref(), Some("alice"));
+        assert!(scrobbler.staged.is_none());
+        assert_eq!(scrobbler.commits, 0);
+        assert_eq!(scrobbler.discards, 1);
+        assert!(
+            scrobbler.statuses.lock().unwrap().is_empty(),
+            "a failed credential write must not publish a login change"
+        );
+        scrobbler
+            .scrobble(ScrobblingService::ListenBrainz, track(), Duration::ZERO)
+            .await;
+        assert_eq!(
+            scrobbler.scrobbled_as,
+            ["alice"],
+            "scrobbles must keep going to the still-active login"
+        );
+    }
+
+    #[tokio::test]
+    async fn credential_write_success_activates_the_new_login() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CredentialStore::open(directory.path());
+        let previous = store
+            .put(credential("alice", "old-password"))
+            .await
+            .unwrap();
+        let scrobbler = Mutex::new(TestScrobbler::accepting().with_active("alice"));
+        let request = password_login_for("bob", "new-password", Some(previous));
+
+        let reference = authenticate_and_store(&store, &scrobbler, &request)
+            .await
+            .unwrap();
+
+        assert_eq!(reference, previous);
+        let mut scrobbler = scrobbler.lock().await;
+        assert_eq!(scrobbler.active.as_deref(), Some("bob"));
+        assert!(scrobbler.staged.is_none());
+        assert_eq!(scrobbler.commits, 1);
+        assert_eq!(scrobbler.discards, 0);
+        assert_eq!(
+            *scrobbler.statuses.lock().unwrap(),
+            [Some("bob".to_owned())]
+        );
+        scrobbler
+            .scrobble(ScrobblingService::ListenBrainz, track(), Duration::ZERO)
+            .await;
+        assert_eq!(
+            scrobbler.scrobbled_as,
+            ["bob"],
+            "scrobbles must use the login whose credential was stored"
         );
     }
 

@@ -119,7 +119,38 @@ pub trait ScrobblingServiceManager: Send + Sync {
         api_key: Option<String>,
         api_secret: Option<String>,
         enable_retry: bool,
+    ) -> Result<()> {
+        self.authenticate_staged(
+            service,
+            username,
+            password,
+            api_key,
+            api_secret,
+            enable_retry,
+        )
+        .await?;
+        self.commit_staged_authentication().await;
+        Ok(())
+    }
+    /// Authenticates `service` and stages the client without activating it.
+    ///
+    /// The current login stays active until [`Self::commit_staged_authentication`]
+    /// is called. A failed staged authentication leaves the current login active.
+    async fn authenticate_staged(
+        &mut self,
+        service: &ScrobblingService,
+        username: &str,
+        password: &str,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        enable_retry: bool,
     ) -> Result<()>;
+    /// Activates the staged client, flushes queued submissions to it, and
+    /// publishes the new login state.
+    async fn commit_staged_authentication(&mut self);
+    /// Drops the staged client without activating it or sending it queued
+    /// submissions. The current login stays active.
+    async fn discard_staged_authentication(&mut self);
     /// Reports that `track` started playing on `service`.
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack);
     /// Restores a saved session key for `service`.
@@ -161,6 +192,7 @@ pub struct ScrobblingManager {
     login_status_sender: Arc<SimpleSender<Vec<LoginStatus>>>,
 
     is_authenticating: bool,
+    staged: Option<StagedAuthentication>,
     now_playing_cache: VecDeque<ScrobblingTrack>,
     scrobble_cache: VecDeque<(ScrobblingTrack, Duration)>,
 }
@@ -171,6 +203,12 @@ pub struct ScrobblingCredential {
     pub password: String,
     pub api_key: Option<String>,
     pub api_secret: Option<String>,
+}
+
+enum StagedAuthentication {
+    LastFm(LastFmClient),
+    LibreFm(LibreFmClient),
+    ListenBrainz(ListenBrainzClient),
 }
 
 fn redact_authentication_secrets(
@@ -264,6 +302,7 @@ impl ScrobblingManager {
             login_status_sender: Arc::new(login_status_sender),
 
             is_authenticating: false,
+            staged: None,
             now_playing_cache: VecDeque::with_capacity(1),
             scrobble_cache: VecDeque::with_capacity(48),
         }
@@ -388,7 +427,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
         self.login_status_sender.send(statuses);
     }
 
-    async fn authenticate(
+    async fn authenticate_staged(
         &mut self,
         service: &ScrobblingService,
         username: &str,
@@ -397,6 +436,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
         api_secret: Option<String>,
         enable_retry: bool,
     ) -> Result<()> {
+        self.staged = None;
         self.is_authenticating = true;
         let mut attempts = 0;
 
@@ -420,8 +460,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                             match LastFmClient::new(api_key, api_secret) {
                                 Ok(mut client) => {
                                     client.authenticate(username, password).await.map(|_| {
-                                        self.lastfm = Some(client);
-                                        self.lastfm_error = None;
+                                        self.staged = Some(StagedAuthentication::LastFm(client));
                                     })
                                 }
                                 Err(error) => Err(error),
@@ -432,24 +471,19 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 ScrobblingService::LibreFm => {
                     let mut client = LibreFmClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
-                        self.librefm = Some(client);
-                        self.librefm_error = None;
+                        self.staged = Some(StagedAuthentication::LibreFm(client));
                     })
                 }
                 ScrobblingService::ListenBrainz => {
                     let mut client = ListenBrainzClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
-                        self.listenbrainz = Some(client);
-                        self.listenbrainz_error = None;
+                        self.staged = Some(StagedAuthentication::ListenBrainz(client));
                     })
                 }
             };
 
             match result {
                 Ok(_) => {
-                    self.is_authenticating = false;
-                    self.process_cache().await;
-                    self.send_login_status().await;
                     info!("Authenticated to {}", { service });
                     break;
                 }
@@ -481,6 +515,35 @@ impl ScrobblingServiceManager for ScrobblingManager {
             }
         }
         Ok(())
+    }
+
+    async fn commit_staged_authentication(&mut self) {
+        let Some(staged) = self.staged.take() else {
+            return;
+        };
+        match staged {
+            StagedAuthentication::LastFm(client) => {
+                self.lastfm = Some(client);
+                self.lastfm_error = None;
+            }
+            StagedAuthentication::LibreFm(client) => {
+                self.librefm = Some(client);
+                self.librefm_error = None;
+            }
+            StagedAuthentication::ListenBrainz(client) => {
+                self.listenbrainz = Some(client);
+                self.listenbrainz_error = None;
+            }
+        }
+        self.is_authenticating = false;
+        self.process_cache().await;
+        self.send_login_status().await;
+    }
+
+    async fn discard_staged_authentication(&mut self) {
+        self.staged = None;
+        self.is_authenticating = false;
+        self.process_cache().await;
     }
 
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack) {
@@ -847,7 +910,7 @@ impl ScrobblingServiceManager for MockScrobblingManager {
         self.login_status_sender.send(Vec::new());
     }
 
-    async fn authenticate(
+    async fn authenticate_staged(
         &mut self,
         _service: &ScrobblingService,
         _username: &str,
@@ -858,6 +921,14 @@ impl ScrobblingServiceManager for MockScrobblingManager {
     ) -> Result<()> {
         // Mock implementation: always succeed
         Ok(())
+    }
+
+    async fn commit_staged_authentication(&mut self) {
+        // Mock implementation: nothing to activate
+    }
+
+    async fn discard_staged_authentication(&mut self) {
+        // Mock implementation: nothing to discard
     }
 
     async fn update_now_playing(&mut self, _service: &ScrobblingService, _track: ScrobblingTrack) {
@@ -916,7 +987,8 @@ mod tests {
 
     use super::{
         ActionType, ScrobblingManager, ScrobblingService, ScrobblingServiceManager,
-        classify_authentication_error, listen_qualifies, redact_authentication_secrets,
+        StagedAuthentication, classify_authentication_error, listen_qualifies,
+        redact_authentication_secrets,
     };
     use crate::{
         ScrobblingAuthFailure, ScrobblingTrack,
@@ -931,6 +1003,13 @@ mod tests {
             duration: Some(seconds),
             ..sample_track()
         }
+    }
+
+    fn lastfm_client(base_url: String, session_key: &str) -> LastFmClient {
+        let mut client = LastFmClient::new("api-key".into(), "api-secret".into()).unwrap();
+        client.base_url = base_url;
+        client.session_key = Some(session_key.into());
+        client
     }
 
     #[test]
@@ -964,6 +1043,93 @@ mod tests {
             detail,
             "upstream response echoed <redacted>, <redacted>, <redacted>"
         );
+    }
+
+    #[tokio::test]
+    async fn discard_staged_authentication_keeps_the_active_client() {
+        let (old_url, old_count, old_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+        let (new_url, new_count, new_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+
+        let mut manager = ScrobblingManager::new(1, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm_client(old_url, "old-session"));
+        manager.staged = Some(StagedAuthentication::LastFm(lastfm_client(
+            new_url,
+            "new-session",
+        )));
+        manager.is_authenticating = true;
+        let status = manager.subscribe_login_status();
+        manager.scrobble_all(sample_track(), Duration::from_secs(30));
+
+        manager.discard_staged_authentication().await;
+
+        timeout(Duration::from_secs(5), old_server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(old_count.load(Ordering::SeqCst), 1);
+        assert_eq!(new_count.load(Ordering::SeqCst), 0);
+        assert!(
+            timeout(Duration::from_millis(50), status.recv())
+                .await
+                .is_err(),
+            "discarding a staged login must not publish a login change"
+        );
+        assert!(manager.staged.is_none());
+        assert!(manager.lastfm.is_some());
+        new_server.abort();
+    }
+
+    #[tokio::test]
+    async fn commit_staged_authentication_activates_the_staged_client() {
+        let (old_url, old_count, old_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+        let (new_url, new_count, new_server) = spawn_sequence_server(vec![(
+            "200 OK",
+            r#"{"scrobbles":{"@attr":{"accepted":1,"ignored":0}}}"#.to_string(),
+        )])
+        .await;
+
+        let mut manager = ScrobblingManager::new(1, Duration::from_millis(1));
+        manager.lastfm = Some(lastfm_client(old_url, "old-session"));
+        manager.staged = Some(StagedAuthentication::LastFm(lastfm_client(
+            new_url,
+            "new-session",
+        )));
+        manager.is_authenticating = true;
+        let status = manager.subscribe_login_status();
+        manager.scrobble_all(sample_track(), Duration::from_secs(30));
+
+        manager.commit_staged_authentication().await;
+
+        timeout(Duration::from_secs(5), new_server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_count.load(Ordering::SeqCst), 1);
+        assert_eq!(old_count.load(Ordering::SeqCst), 0);
+        let statuses = timeout(Duration::from_secs(5), status.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            statuses.iter().any(|status| {
+                status.service == ScrobblingService::LastFm && status.is_available
+            })
+        );
+        assert!(manager.staged.is_none());
+        assert!(manager.lastfm.is_some());
+        old_server.abort();
     }
 
     #[tokio::test]
