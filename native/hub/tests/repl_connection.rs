@@ -69,6 +69,7 @@ async fn run_client(home: &Path, args: &[&str]) -> Result<Output> {
             .env("XDG_CONFIG_HOME", config_home(home))
             .current_dir(home)
             .stdin(Stdio::null())
+            .kill_on_drop(true)
             .output(),
     )
     .await
@@ -85,6 +86,7 @@ async fn run_server_command(home: &Path, args: &[&str]) -> Result<Output> {
             .env("XDG_CONFIG_HOME", config_home(home))
             .current_dir(home)
             .stdin(Stdio::null())
+            .kill_on_drop(true)
             .output(),
     )
     .await
@@ -104,6 +106,7 @@ async fn run_repl(home: &Path, port: u16) -> Result<Output> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .context("spawn rune-client repl")?;
     let mut stdin = child.stdin.take().context("client stdin")?;
