@@ -20,7 +20,7 @@ const _color = Color(0xFF0078D4);
 /// two narrow bars share a pixel, blending their partial coverage one after
 /// the other loses some of it: 512 bars over 640 pixels lost 12% of the glow,
 /// in seams up to 31 levels darker. One path covers each pixel by the bars'
-/// true area, which the shader works out.
+/// true area, which the shaders work out.
 class _Bars extends CustomPainter {
   _Bars(this.values);
 
@@ -76,6 +76,23 @@ Widget _blurredBars(List<double> values) => Opacity(
     child: CustomPaint(painter: _Bars(values)),
   ),
 );
+
+typedef _Glows = SpectrumGlow Function({double resolution});
+
+/// Loads the glow's two shaders, and gives glows that draw with them.
+Future<_Glows> _glows(WidgetTester tester) async {
+  final programs = (await tester.runAsync(
+    () => Future.wait([
+      ui.FragmentProgram.fromAsset('lib/shaders/spectrum_bars.frag'),
+      ui.FragmentProgram.fromAsset('lib/shaders/spectrum_glow.frag'),
+    ]),
+  ))!;
+  return ({double resolution = 4 / SpectrumGlow.blurSigma}) => SpectrumGlow(
+    programs[0].fragmentShader(),
+    programs[1].fragmentShader(),
+    resolution: resolution,
+  );
+}
 
 Future<Uint8List> _pixels(WidgetTester tester, Key key) async {
   final boundary =
@@ -139,6 +156,45 @@ List<double> _playerSpectrum(int seed) {
   return [for (final value in weighted) value / peak];
 }
 
+/// The share of a Gaussian of deviation 1 that lies below [z], with erf by
+/// Abramowitz and Stegun 7.1.26 (error under 1.5e-7).
+double _below(double z) {
+  final x = z / sqrt2;
+  final a = x.abs();
+  final t = 1 / (1 + 0.3275911 * a);
+  final erf =
+      1 -
+      (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t -
+                      0.284496736) *
+                  t +
+              0.254829592) *
+          t *
+          exp(-a * a);
+  return 0.5 + 0.5 * (x < 0 ? -erf : erf);
+}
+
+/// The glow's alpha in levels of 255 at ([x], [y]) in the bars' box, worked
+/// out from what it is: the bars under a Gaussian blur of
+/// [SpectrumGlow.blurSigma], faded to [SpectrumGlow.glowOpacity]. Bars more
+/// than 5 deviations away across add under 3e-7 each and are left out.
+double _exactAlpha(List<double> values, double x, double y) {
+  const sigma = SpectrumGlow.blurSigma;
+  const middle = _height / 2;
+  final barWidth = _width / values.length;
+  var glow = 0.0;
+  for (var i = 0; i < values.length; i++) {
+    final left = (i - 0.5) * barWidth;
+    if (left + barWidth < x - 5 * sigma || left > x + 5 * sigma) continue;
+    final h = values[i] * _height / 2;
+    final across =
+        _below((left + barWidth - x) / sigma) - _below((left - x) / sigma);
+    final along =
+        _below((middle + h - y) / sigma) - _below((middle - h - y) / sigma);
+    glow += across * along;
+  }
+  return 255 * SpectrumGlow.glowOpacity * glow;
+}
+
 void main() {
   final cases = <String, List<double>>{
     'music': _spectrum(1),
@@ -150,15 +206,13 @@ void main() {
     'quiet': List.generate(64, (i) => 0.04 * (i % 5)),
   };
 
-  testWidgets('the shader draws the glow the blurred, faded bars drew, and '
+  testWidgets('the shaders draw the glow the blurred, faded bars drew, and '
       'drawing it at a third of the resolution changes it by 2 levels at most', (
     tester,
   ) async {
-    final program = (await tester.runAsync(
-      () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
-    ))!;
-    final glow = SpectrumGlow(program.fragmentShader());
-    final fullGlow = SpectrumGlow(program.fragmentShader(), resolution: 1);
+    final glows = await _glows(tester);
+    final glow = glows();
+    final fullGlow = glows(resolution: 1);
     addTearDown(glow.dispose);
     addTearDown(fullGlow.dispose);
     final results = <String, _Difference>{};
@@ -187,12 +241,11 @@ void main() {
     }
 
     // The blur filter is itself an approximation of a Gaussian (in tests,
-    // Skia's software blur), which the shader computes to 3 deviations: they
+    // Skia's software blur), which the shaders compute to 3 deviations: they
     // differ by up to 5 levels, along the edges of the glow, in about 2% of
-    // the pixels. Drawing the bars half a pixel off, a deviation of 11, an
-    // opacity of 1, the middle line a pixel off, the glow only to 2
-    // deviations, or the shader's sum only to 2 deviations breaks one of
-    // these bounds.
+    // the pixels. Shaders given a deviation of 11, the glow at an opacity of
+    // 1, the middle line a pixel off, or the bars blurred up and down or
+    // across only to 2 deviations breaks one of these bounds.
     expect(
       results.values.every(
         (r) => r.largest <= 5 && r.overTwo <= 0.025 && r.lost == 0,
@@ -213,12 +266,64 @@ void main() {
     );
   });
 
+  testWidgets(
+    'the two passes draw the bars\' Gaussian blur within 1.5 '
+    'levels of it worked out exactly, at the full resolution and at a third',
+    (tester) async {
+      final glows = await _glows(tester);
+      final largest = <String, double>{};
+
+      for (final MapEntry(key: name, value: values) in cases.entries) {
+        for (final (label, glow) in [
+          ('full', glows(resolution: 1)),
+          ('third', glows()),
+        ]) {
+          addTearDown(glow.dispose);
+          final bars = FFTBars()..values = values;
+          addTearDown(bars.dispose);
+          final key = Key('$name $label');
+          await tester.pumpWidget(
+            _framed(key, CustomPaint(painter: FFTPainter(bars, _color, glow))),
+          );
+          final pixels = await _pixels(tester, key);
+          final columns = (_width + 2 * _margin).toInt();
+          var difference = 0.0;
+          // Every third pixel across and down.
+          for (var row = 0; row < _height + 2 * _margin; row += 3) {
+            for (var column = 0; column < columns; column += 3) {
+              final alpha = pixels[(row * columns + column) * 4 + 3];
+              final exact = _exactAlpha(
+                values,
+                column + 0.5 - _margin,
+                row + 0.5 - _margin,
+              );
+              difference = max(difference, (alpha - exact).abs());
+            }
+          }
+          largest['$name, $label'] = difference;
+        }
+      }
+
+      // Rounding the glow to whole levels moves it by up to half a level, and
+      // the image of the first pass by up to another half (0.92 at the most
+      // here); scaling the image up from a third moves a pixel by a little more
+      // (1.11 at the most). Sharing each bar with its own column alone (a box
+      // for the tent), a tent half as wide, weights 2% heavy, a blur across of
+      // 2 deviations, or the columns read half a pixel off breaks these bounds.
+      expect(
+        largest.entries.every(
+          (r) => r.value <= (r.key.endsWith('full') ? 1.25 : 1.5),
+        ),
+        isTrue,
+        reason: '$largest',
+      );
+    },
+  );
+
   testWidgets('the halves above and below the middle line meet without a '
       'seam where the line crosses a row of pixels', (tester) async {
-    final program = (await tester.runAsync(
-      () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
-    ))!;
-    final glow = SpectrumGlow(program.fragmentShader());
+    final glows = await _glows(tester);
+    final glow = glows();
     addTearDown(glow.dispose);
     final values = _playerSpectrum(3);
     final bars = FFTBars()..values = values;
@@ -254,9 +359,7 @@ void main() {
   testWidgets('the glow is worked out in an image of the upper half of the '
       'bars\' area at its resolution, a third of a pixel for each logical '
       'pixel unless told', (tester) async {
-    final program = (await tester.runAsync(
-      () => ui.FragmentProgram.fromAsset('lib/shaders/spectrum.frag'),
-    ))!;
+    final glows = await _glows(tester);
     final bars = FFTBars()..values = cases['a lone bar']!;
     addTearDown(bars.dispose);
 
@@ -267,9 +370,9 @@ void main() {
     // -42 to 672 across and 84 up from the middle: 238 by 28.
     final sizes = <String, Size?>{};
     for (final (name, glow) in [
-      ('2', SpectrumGlow(program.fragmentShader(), resolution: 2)),
-      ('1', SpectrumGlow(program.fragmentShader(), resolution: 1)),
-      ('default', SpectrumGlow(program.fragmentShader())),
+      ('2', glows(resolution: 2)),
+      ('1', glows(resolution: 1)),
+      ('default', glows()),
     ]) {
       addTearDown(glow.dispose);
       await tester.pumpWidget(
