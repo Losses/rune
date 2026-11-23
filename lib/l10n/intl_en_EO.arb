@@ -1537,6 +1537,7 @@
   "libraryUntrusted": "Ĉi tiu aparato ne estas fidata.",
   "libraryInvalidSource": "Ĉi tiu dosierujo ne povas esti biblioteko.",
   "libraryStorageFailure": "La biblioteko ne povis esti konservita.",
+  "libraryShareStoreUnavailable": "La komuna konservejo ne atingeblas. La sinkronigo aŭtomate reprovos.",
   "libraryRemoteNotAuthorized": "La aparato ne rajtigis ĉi tiun konekton.",
   "libraryRemoteUnreachable": "La aparato ne atingeblas.",
   "libraryRemoteProtocolFailure": "La aparato sendis nekongruan respondon.",

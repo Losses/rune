@@ -1600,6 +1600,7 @@
   "libraryUntrusted": "Diesem Gerät wird nicht vertraut.",
   "libraryInvalidSource": "Dieser Ordner kann nicht als Bibliothek verwendet werden.",
   "libraryStorageFailure": "Die Bibliothek konnte nicht gespeichert werden.",
+  "libraryShareStoreUnavailable": "Der gemeinsame Speicher ist nicht erreichbar. Die Synchronisierung wird automatisch wiederholt.",
   "libraryRemoteNotAuthorized": "Das Gerät hat diese Verbindung nicht autorisiert.",
   "libraryRemoteUnreachable": "Das Gerät ist nicht erreichbar.",
   "libraryRemoteProtocolFailure": "Das Gerät hat eine inkompatible Antwort gesendet.",
