@@ -133,6 +133,7 @@ env_logger = "0.11.8"
 rust_decimal = "1.36.0"
 rust_decimal_macros = "1.36.0"
 migration = { path = "../../migration" }
+simple_channel = { path = "../../simple-channel" }
 tempfile = "3.17.1"
 rcgen = "0.13.2"
 
