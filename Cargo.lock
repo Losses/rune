@@ -4438,6 +4438,7 @@ version = "0.1.0"
 dependencies = [
  "analysis",
  "anyhow",
+ "cmake",
  "fsio",
  "fsio_media_source",
  "futures",

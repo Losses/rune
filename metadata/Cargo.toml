@@ -28,5 +28,8 @@ futures = "0.3.30"
 
 media-compute = { path = "../media-compute" }
 
+[build-dependencies]
+cmake = "0.1"
+
 [lints]
 workspace = true

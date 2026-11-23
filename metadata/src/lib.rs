@@ -6,3 +6,4 @@ pub mod genre;
 pub mod reader;
 pub mod scanner;
 pub mod streaming;
+pub mod taglib;
