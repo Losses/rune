@@ -176,34 +176,162 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
     ) -> Result<Option<Self::Response>> {
         let policy = request.missing_host_file.into();
         let mut current = settings.write().await;
-        let changed = current.listen != request.listen;
+        // The setting describes the listener, so reconcile the listener on every request
+        // instead of only when the stored value changes: an earlier attempt may have saved
+        // the setting without starting the listener. Persist only after the listener reached
+        // the requested state, so a failed attempt leaves the saved and displayed setting
+        // equal to the state that is actually served.
+        if request.listen {
+            let manager = manager.ok_or(ExpectedRequestError::Unavailable {
+                what: "server manager",
+            })?;
+            if !manager.is_running() {
+                let info = load_device_info(Path::new(&**config), run_mode).await?;
+                manager
+                    .start_sync(
+                        ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
+                        discovery::DiscoveryParams { device_info: info },
+                    )
+                    .await?;
+            }
+        } else if let Some(manager) = manager.as_ref()
+            && manager.is_running()
+        {
+            manager.stop().await?;
+        }
         let next = SyncSettings {
             listen: request.listen,
             missing_host_file: policy,
         };
         next.save(Path::new(&**config))?;
         *current = next;
-        if changed {
-            let manager = manager.ok_or(ExpectedRequestError::Unavailable {
-                what: "server manager",
-            })?;
-            if request.listen {
-                if !manager.is_running() {
-                    let info = load_device_info(Path::new(&**config), run_mode).await?;
-                    manager
-                        .start_sync(
-                            ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
-                            discovery::DiscoveryParams { device_info: info },
-                        )
-                        .await?;
-                }
-            } else if manager.is_running() {
-                manager.stop().await?;
-            }
-        }
         Ok(Some(Self::Response {
             call_id: None,
             request_id: request.request_id.clone(),
         }))
+    }
+}
+
+#[cfg(all(test, not(target_os = "android")))]
+mod tests {
+    use super::*;
+    use crate::messages::{GetSyncSettingsRequest, MissingHostFilePolicy, SetSyncSettingsRequest};
+    use crate::server::utils::device::RunMode;
+    use crate::utils::LocalGuiBroadcaster;
+    use anyhow::Context;
+    use database::actions::metadata::MissingHostFilePolicy as SavedMissingHostFilePolicy;
+    use std::net::{SocketAddr, TcpListener};
+
+    async fn set_sync_settings(
+        node: &Arc<NodeContext>,
+        listen: bool,
+        missing_host_file: MissingHostFilePolicy,
+    ) -> Result<()> {
+        let request = SetSyncSettingsRequest {
+            request_id: "set-sync-settings".into(),
+            listen,
+            missing_host_file,
+            call_id: None,
+        };
+        request
+            .handle(
+                (
+                    Arc::clone(&node.sync_settings),
+                    Arc::clone(&node.config_path),
+                    node.server_manager.get().cloned(),
+                    node.run_mode,
+                ),
+                None,
+                &request,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    /// What the Devices page loads and shows.
+    async fn shown_settings(
+        node: &Arc<NodeContext>,
+    ) -> Result<crate::messages::GetSyncSettingsResponse> {
+        let request = GetSyncSettingsRequest {
+            request_id: "get-sync-settings".into(),
+            call_id: None,
+        };
+        request
+            .handle(Arc::clone(&node.sync_settings), None, &request)
+            .await?
+            .context("sync settings response")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_enable_keeps_the_setting_off_and_the_retry_starts_the_listener() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config = Arc::new(dir.path().to_string_lossy().into_owned());
+        crate::test_node::disable_sync_listener(dir.path())?;
+        let node = NodeContext::new(
+            &config,
+            &config,
+            Arc::new(LocalGuiBroadcaster),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
+        let manager = node.manager()?;
+        assert!(!manager.is_running());
+
+        // The paired sync listener always binds the default device port, so holding it here
+        // makes an enable request fail at the socket bind, before the listener runs.
+        let occupied = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], DEFAULT_DEVICE_PORT)))
+            .context("occupy the paired sync port")?;
+        for attempt in 1..=2 {
+            let error = set_sync_settings(&node, true, MissingHostFilePolicy::RemoveEverywhere)
+                .await
+                .err()
+                .unwrap_or_else(|| {
+                    panic!("attempt {attempt}: enabling while the paired sync port is occupied")
+                });
+            assert!(
+                format!("{error:#}").contains("Failed to bind sync server"),
+                "attempt {attempt}: {error:#}"
+            );
+        }
+        assert!(!manager.is_running());
+        assert!(
+            !SyncSettings::load(dir.path()).listen,
+            "a failed enable left the saved setting enabled without a listener"
+        );
+        assert!(
+            !shown_settings(&node).await?.listen,
+            "a failed enable left the shown setting enabled without a listener"
+        );
+        drop(occupied);
+
+        set_sync_settings(&node, true, MissingHostFilePolicy::RemoveEverywhere).await?;
+        assert!(manager.is_running());
+        assert!(SyncSettings::load(dir.path()).listen);
+        assert!(shown_settings(&node).await?.listen);
+
+        // The same enable request succeeds without starting a second listener.
+        set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote).await?;
+        assert!(manager.is_running());
+        let shown = shown_settings(&node).await?;
+        assert!(shown.listen);
+        assert!(matches!(
+            shown.missing_host_file,
+            MissingHostFilePolicy::KeepAsRemote
+        ));
+
+        set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote).await?;
+        assert!(!manager.is_running());
+        let saved = SyncSettings::load(dir.path());
+        assert!(!saved.listen);
+        assert_eq!(
+            saved.missing_host_file,
+            SavedMissingHostFilePolicy::KeepAsRemote
+        );
+        assert!(!shown_settings(&node).await?.listen);
+
+        node.shutdown().await?;
+        Ok(())
     }
 }
