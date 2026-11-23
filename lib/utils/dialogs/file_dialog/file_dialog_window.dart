@@ -34,6 +34,9 @@ import 'widgets/view_menu.dart';
 /// the window around it.
 const double _chromeHeight = 260;
 
+/// Room between the title and the toolbar, added to the dialog's own.
+const double _belowTitle = 12;
+
 /// The navigation pane is dragged no narrower than this, and no wider than
 /// half the dialog.
 const double _narrowestPane = 140;
@@ -686,6 +689,10 @@ class FileDialogWindowState extends State<FileDialogWindow> {
       height: bodyHeight,
       child: Column(
         children: [
+          // Other dialogs follow their title with text; this one starts with
+          // bordered controls, which need as much room below the title as
+          // the dialog leaves above it.
+          const SizedBox(height: _belowTitle),
           toolbar,
           const SizedBox(height: 8),
           commands,
