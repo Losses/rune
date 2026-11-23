@@ -100,6 +100,7 @@ impl AppleMusicGateway {
             source,
             password: password.clone(),
             jukebox: Mutex::new(HashMap::new()),
+            links: Mutex::new(None),
         });
         let app = Router::new()
             .route("/rest/{endpoint}", get(handle))
@@ -156,6 +157,16 @@ struct Gateway {
     /// them again. The lock also runs player commands one at a time: each reads the player's
     /// state and then changes it.
     jukebox: Mutex<HashMap<String, Child>>,
+    /// The ids of the library's albums and artists by name, read once. MusicKit names a song's
+    /// album and artist but gives their ids only for one more request per song.
+    links: Mutex<Option<Arc<Links>>>,
+}
+
+#[derive(Default)]
+struct Links {
+    albums: HashMap<(String, String), String>,
+    album_titles: HashMap<String, String>,
+    artists: HashMap<String, String>,
 }
 
 async fn handle(
@@ -399,6 +410,64 @@ impl Gateway {
             .map_err(|error| Failure::generic(format!("Unexpected Apple Music reply: {error}")))
     }
 
+    /// The album and artist ids by name. A failed read is not kept, so the next song tries
+    /// again; until then songs go without the ids.
+    async fn links(&self) -> Arc<Links> {
+        let mut links = self.links.lock().await;
+        if let Some(links) = links.as_ref() {
+            return Arc::clone(links);
+        }
+        let albums: Result<Vec<SourceAlbum>, Failure> = self.everything("albums").await;
+        let artists: Result<Vec<SourceArtist>, Failure> = self.everything("artists").await;
+        let (Ok(albums), Ok(artists)) = (albums, artists) else {
+            return Arc::new(Links::default());
+        };
+        let mut read = Links::default();
+        for album in albums {
+            read.album_titles
+                .insert(album.title.clone(), album.id.clone());
+            read.albums
+                .insert((album.title, album.artist.unwrap_or_default()), album.id);
+        }
+        for artist in artists {
+            read.artists.insert(artist.name, artist.id);
+        }
+        let read = Arc::new(read);
+        *links = Some(Arc::clone(&read));
+        read
+    }
+
+    /// A song as the client lists it, with the ids of its album and artist found by name.
+    async fn child(&self, song: SourceSong) -> Child {
+        let mut child = Child::from(song);
+        if child.album_id.is_some() && child.artist_id.is_some() {
+            return child;
+        }
+        let links = self.links().await;
+        let artist = child.artist.clone().unwrap_or_default();
+        if child.album_id.is_none()
+            && let Some(album) = &child.album
+        {
+            child.album_id = links
+                .albums
+                .get(&(album.clone(), artist.clone()))
+                .or_else(|| links.album_titles.get(album))
+                .cloned();
+        }
+        if child.artist_id.is_none() {
+            child.artist_id = links.artists.get(&artist).cloned();
+        }
+        child
+    }
+
+    async fn children(&self, songs: impl IntoIterator<Item = SourceSong>) -> Vec<Child> {
+        let mut children = Vec::new();
+        for song in songs {
+            children.push(self.child(song).await);
+        }
+        children
+    }
+
     /// The artwork a cover id names, or `None` when there is none to show.
     async fn cover(&self, params: &Params) -> Option<Vec<u8>> {
         let id = params.required("id").ok()?;
@@ -494,14 +563,14 @@ impl Gateway {
                     .call(json!({ "op": "album", "id": params.required("id")? }))
                     .await?;
                 let mut album = AlbumEntry::from(detail.album);
-                album.song = Some(detail.songs.into_iter().map(Child::from).collect());
+                album.song = Some(self.children(detail.songs).await);
                 Ok(json!({ "album": album }))
             }
             "getSong" => {
                 let song: SourceSong = self
                     .call(json!({ "op": "song", "id": params.required("id")? }))
                     .await?;
-                Ok(json!({ "song": Child::from(song) }))
+                Ok(json!({ "song": self.child(song).await }))
             }
             "getPlaylists" => {
                 let playlists: Vec<SourcePlaylist> = self.everything("playlists").await?;
@@ -513,7 +582,7 @@ impl Gateway {
                 let detail: SourcePlaylistDetail = self
                     .call(json!({ "op": "playlist", "id": params.required("id")? }))
                     .await?;
-                let entry: Vec<Child> = detail.songs.into_iter().map(Child::from).collect();
+                let entry = self.children(detail.songs).await;
                 let mut playlist = PlaylistEntry::from(detail.playlist);
                 playlist.song_count = count(entry.len());
                 playlist.entry = Some(entry);
@@ -535,7 +604,7 @@ impl Gateway {
                 let span = total.saturating_sub(size) + 1;
                 let offset = (Uuid::new_v4().as_u128() % span as u128) as usize;
                 let songs: Vec<SourceSong> = self.page("songs", offset, size).await?;
-                let song: Vec<Child> = songs.into_iter().map(Child::from).collect();
+                let song = self.children(songs).await;
                 Ok(json!({ "randomSongs": { "song": song } }))
             }
             "getStarred2" => Ok(json!({ "starred2": {} })),
@@ -555,8 +624,7 @@ impl Gateway {
         let term = search_term(params.get("query").unwrap_or_default());
         if term.is_empty() {
             let song: Vec<SourceSong> = self.page("songs", songs.offset, songs.count).await?;
-            let mut result =
-                json!({ "song": song.into_iter().map(Child::from).collect::<Vec<_>>() });
+            let mut result = json!({ "song": self.children(song).await });
             if albums.count > 0 {
                 let album: Vec<SourceAlbum> =
                     self.page("albums", albums.offset, albums.count).await?;
@@ -584,7 +652,7 @@ impl Gateway {
             self.call(json!({ "op": "search", "term": term, "limit": limit }))
                 .await?
         };
-        let song: Vec<Child> = songs.take(found.songs).map(Child::from).collect();
+        let song = self.children(songs.take(found.songs)).await;
         let album: Vec<AlbumEntry> = albums.take(found.albums).map(AlbumEntry::from).collect();
         let artist: Vec<ArtistEntry> = artists.take(found.artists).map(ArtistEntry::from).collect();
         Ok(json!({ "searchResult3": { "song": song, "album": album, "artist": artist } }))
@@ -655,7 +723,7 @@ impl Gateway {
                 .call(json!({ "op": "songsById", "ids": unread }))
                 .await?;
             for song in songs {
-                let song = Child::from(song);
+                let song = self.child(song).await;
                 queue_songs.insert(song.id.clone(), song);
             }
         }
@@ -1312,7 +1380,11 @@ mod tests {
         assert_eq!(ids, PLAYLIST);
         assert_eq!(playlist.song_count, Some(2));
 
-        assert_eq!(client.song("s2").await.unwrap().title, "Beta");
+        let song = client.song("s2").await.unwrap();
+        assert_eq!(song.title, "Beta");
+        // MusicKit named only the album and artist; their ids were found by those names.
+        assert_eq!(song.album_id.as_deref(), Some("al1"));
+        assert_eq!(song.artist_id.as_deref(), Some("ar1"));
         let (kind, _) = server_error(client.song("gone").await.unwrap_err());
         assert_eq!(kind, SubsonicServerError::NotFound);
         assert!(!client.scan_status().await.unwrap().scanning);

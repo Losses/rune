@@ -497,7 +497,13 @@ private actor AppleMusicJukebox {
 
     func start() async throws -> JukeboxSnapshot {
         if !songs.isEmpty {
-            try await play()
+            do {
+                try await play()
+            } catch {
+                // The entry the queue stands on cannot be played; the ones after it are tried.
+                guard let current = currentIndex() else { throw error }
+                try await playFirstPlayable(from: current + 1, offset: 0)
+            }
         }
         return snapshot()
     }
@@ -517,15 +523,42 @@ private actor AppleMusicJukebox {
     }
 
     private func start(at index: Int, offset: TimeInterval, play: Bool) async throws {
-        player.queue = try playerQueue(startingAt: index)
-        if offset > 0 {
-            // The new entry is prepared first: a position set before it is loaded may not apply.
-            try await player.prepareToPlay()
-            player.playbackTime = offset
+        guard play else {
+            player.queue = try playerQueue(startingAt: index)
+            if offset > 0 {
+                // The new entry is prepared first: a position set before it is loaded may not apply.
+                try await player.prepareToPlay()
+                player.playbackTime = offset
+            }
+            return
         }
-        if play {
-            try await self.play()
+        try await playFirstPlayable(from: index, offset: offset)
+    }
+
+    // Some songs of a library cannot be loaded by Apple's player at all. Like the Music app, the
+    // queue then moves on to the next song that can, within a few tries so a library that
+    // cannot play (no subscription, no network) fails quickly.
+    private func playFirstPlayable(from index: Int, offset: TimeInterval) async throws {
+        var failure: Error = AppleMusicFailure(kind: "unplayable", detail: "Apple Music cannot play this song")
+        var tries = 0
+        var candidate = index
+        while candidate < songs.count, tries < 10 {
+            defer { candidate += 1 }
+            guard songs[candidate].playParameters != nil else { continue }
+            tries += 1
+            player.queue = try playerQueue(startingAt: candidate)
+            do {
+                if candidate == index, offset > 0 {
+                    try await player.prepareToPlay()
+                    player.playbackTime = offset
+                }
+                try await player.play()
+                return
+            } catch {
+                failure = AppleMusicFailure(kind: "unplayable", detail: "Apple Music could not play this song: \(error.localizedDescription)")
+            }
         }
+        throw failure
     }
 
     // The player's entries are the playable songs in order. The current one is found by its place
