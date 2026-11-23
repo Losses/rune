@@ -243,7 +243,7 @@ async fn assert_upgrade_contract(db: &DatabaseConnection, populated: &Populated,
 
     // Artwork identity follows the stored body digest; the track reference follows it.
     let artwork =
-        migration::catalog_identity::artwork(&blake3::hash(ARTWORK_BODY).to_hex().to_string())
+        migration::catalog_identity::artwork(blake3::hash(ARTWORK_BODY).to_hex().as_str())
             .to_string();
     assert_eq!(
         text(db, "SELECT source_uuid FROM media_cover_art WHERE id=203").await,
