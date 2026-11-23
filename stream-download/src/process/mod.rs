@@ -20,6 +20,7 @@ use std::io::{self, Read, Write};
 use std::mem;
 use std::pin::Pin;
 use std::process::{Child, ChildStdout, Stdio};
+use std::sync::mpsc;
 use std::task::Poll;
 
 use bytes::Bytes;
@@ -27,6 +28,7 @@ pub use command_builder::*;
 pub use ffmpeg::*;
 use futures_util::Stream;
 use tempfile::NamedTempFile;
+use tokio::sync::oneshot;
 use tracing::{debug, error, warn};
 pub use yt_dlp::*;
 
@@ -235,6 +237,7 @@ impl ProcessStreamParams {
 pub struct ProcessStream {
     stream: AsyncReadStream<tokio::process::ChildStdout>,
     command: SpawnedCommand,
+    pipeline_reaper: Option<oneshot::Receiver<()>>,
 }
 
 impl ProcessStream {
@@ -267,16 +270,52 @@ impl ProcessStream {
     }
 
     /// Terminates and waits for the pipeline commands before the last one.
+    ///
+    /// The reaper runs on a thread of its own instead of the shared blocking pool: a blocking
+    /// reader can hold every pool slot while it waits for this stream to finish, and a reaper
+    /// queued behind it would never run. The receiver is kept so a cancelled `on_finish` waits
+    /// for the same reaper on its next call instead of publishing completion early.
     async fn reap_pipeline_children(&mut self) {
-        let children = mem::take(&mut self.command.pipeline_children);
-        if children.is_empty() {
-            return;
+        if self.pipeline_reaper.is_none() {
+            let children = mem::take(&mut self.command.pipeline_children);
+            if children.is_empty() {
+                return;
+            }
+            let (done_tx, done_rx) = oneshot::channel();
+            // Hand the children to the thread after it starts, so a failed spawn leaves them
+            // here to be reaped instead of dropping them unwaited.
+            let (job_tx, job_rx) = mpsc::sync_channel(1);
+            let spawned = std::thread::Builder::new()
+                .name("stream-download-pipeline-reaper".into())
+                .spawn(move || {
+                    let Ok(children) = job_rx.recv() else {
+                        return;
+                    };
+                    SpawnedCommand::reap_children(children);
+                    let _ = done_tx.send(());
+                });
+            match spawned {
+                Ok(_) => match job_tx.send(children) {
+                    Ok(()) => self.pipeline_reaper = Some(done_rx),
+                    Err(mpsc::SendError(children)) => {
+                        SpawnedCommand::reap_children(children);
+                        return;
+                    }
+                },
+                Err(e) => {
+                    error!("error starting pipeline reaper thread: {e:?}");
+                    SpawnedCommand::reap_children(children);
+                    return;
+                }
+            }
         }
-        if let Err(e) =
-            tokio::task::spawn_blocking(move || SpawnedCommand::reap_children(children)).await
+
+        if let Some(reaper) = self.pipeline_reaper.as_mut()
+            && let Err(e) = reaper.await
         {
             error!("error reaping pipeline processes: {e:?}");
         }
+        self.pipeline_reaper = None;
     }
 }
 
@@ -294,6 +333,7 @@ impl SourceStream for ProcessStream {
         Ok(Self {
             stream: AsyncReadStream::new(stdout, content_length),
             command,
+            pipeline_reaper: None,
         })
     }
 

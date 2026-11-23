@@ -55,10 +55,16 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   for the intermediate children once the last command exits or the stream is cancelled, and
   `CommandBuilder::spawn` kills and waits for the children it already started when a later
   command cannot be spawned. Dropping a spawned command or process stream does the same for
-  any child that has not been reaped yet. Tests: `src/process/pipeline_tests.rs`
-  (`--features process`, which adds `libc` as a dev-dependency to observe reaping with
-  `waitpid`); on unpatched 0.24.5 all three tests fail because the intermediate child keeps
-  running.
+  any child that has not been reaped yet. The reaper runs on a thread of its own rather than
+  the shared blocking pool, so readers that hold every blocking slot while waiting for
+  completion cannot stall it, and its completion receiver is kept across a cancelled
+  `on_finish` call so completion and stderr cleanup wait for the same reaper next time. Tests:
+  `src/process/pipeline_tests.rs` (`--features process`, which adds `libc` as a dev-dependency
+  to observe reaping with `waitpid`). The failed-spawn test runs in a process of its own and
+  requires `waitpid(-1, WNOHANG)` to report `ECHILD`, so both a running child and a zombie
+  fail it; another test holds the only blocking-pool slot. On unpatched 0.24.5 the completion,
+  cancellation and spawn-failure tests fail because the intermediate child keeps running, and
+  the blocking-pool test times out.
 - Adaptive storage capacity (`src/storage/adaptive.rs`, `src/storage/mod.rs`, and
   `from_create_stream` in `src/lib.rs`): a stream of unknown length uses a ring of the buffer
   size, but the provider reported no capacity, so a read or seek larger than the ring was not

@@ -179,58 +179,113 @@ async fn cancelling_a_pipeline_reaps_a_long_running_intermediate() {
     child.assert_reaped("cancelled pipeline");
 }
 
+#[test]
+fn reaping_does_not_queue_behind_a_full_blocking_pool() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .expect("build test runtime");
+    runtime.block_on(async {
+        // Hold the only blocking-pool slot while the stream finishes. The reaper must not need
+        // a pool slot of its own, or completion would wait for this slot forever.
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let blocker = spawn_blocking(move || {
+            started_tx.send(()).expect("signal blocker started");
+            let _ = release_rx.recv();
+        });
+        started_rx.recv().expect("blocker started");
+
+        let files = test_files("blocking-pool");
+        let stream = pipeline_stream(
+            intermediate(&files, true),
+            Command::new("cat"),
+            Settings::default(),
+        )
+        .await;
+        let handle = stream.handle();
+
+        let completed = timeout(PEER_STEP_TIMEOUT, handle.wait_for_completion()).await;
+        let _ = release_tx.send(());
+        let _ = blocker.await;
+        completed.expect("pipeline completion must not wait for a blocking-pool slot");
+
+        let pid = wait_for_pid(&files.pid_file).await;
+        ObservedChild::new(pid).assert_reaped("pipeline with a full blocking pool");
+    });
+}
+
 #[cfg(target_os = "linux")]
-#[tokio::test]
-async fn a_failed_later_spawn_reaps_the_started_pipeline_children() {
-    let files = test_files("spawn-failure");
+#[test]
+fn a_failed_later_spawn_reaps_the_started_pipeline_children() {
+    let exe = std::env::current_exe().expect("current test binary");
+    let output = std::process::Command::new(exe)
+        .args([
+            "--exact",
+            "process::pipeline_tests::failed_spawn_reaping_helper",
+            "--nocapture",
+        ])
+        .env("STREAM_DOWNLOAD_SPAWN_FAILURE_HELPER", "1")
+        .output()
+        .expect("run the failed-spawn helper");
+    assert!(
+        output.status.success(),
+        "failed-spawn helper exited with {:?}\nstdout: {}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Runs the failed-spawn scenario in a process of its own, where `waitpid(-1, WNOHANG)` sees
+/// only the pipeline child. It returns early when the normal suite runs it directly.
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_spawn_reaping_helper() {
+    if std::env::var_os("STREAM_DOWNLOAD_SPAWN_FAILURE_HELPER").is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("create helper directory");
+    let marker = dir.path().join("marker");
+    fs::write(&marker, []).expect("create marker file");
     let intermediate = Command::new("sh")
         .args(["-c", "exec tail -f \"$1\"", "sh"])
-        .arg(files.marker.as_os_str());
+        .arg(marker.as_os_str());
     let spawn_result = ProcessStreamParams::new(
         CommandBuilder::new(intermediate)
             .pipe(Command::new("stream-download-test-missing-command")),
     );
-
-    let pids = processes_with_marker(&files.marker);
-    for pid in &pids {
-        unsafe {
-            libc::kill(*pid, libc::SIGKILL);
-            libc::waitpid(*pid, ptr::null_mut(), 0);
-        }
-    }
-
     assert!(
         spawn_result.is_err(),
         "spawning a missing command must fail"
     );
-    assert!(
-        pids.is_empty(),
-        "children started before the failed spawn are still alive: {pids:?}"
-    );
-}
 
-/// Finds the children of this test that still carry the unique marker in their argv. The scan does
-/// not rely on the child having written its pid before the later command failed to spawn.
-#[cfg(target_os = "linux")]
-fn processes_with_marker(marker: &Path) -> Vec<libc::pid_t> {
-    use std::os::unix::ffi::OsStrExt;
-
-    let marker = marker.as_os_str().as_bytes();
-    let mut pids = Vec::new();
-    for entry in fs::read_dir("/proc").expect("read /proc").flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<libc::pid_t>().ok())
-        else {
+    // A zero means a child is still running; a pid means it exited and was not waited for.
+    // ECHILD is the only answer that proves every started child was reaped. Poll until the
+    // killed child has had time to become a zombie, so the unreaped-exit case is observed too.
+    let deadline = std::time::Instant::now() + PEER_STEP_TIMEOUT;
+    let waited = loop {
+        let mut status = 0;
+        let waited = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+        if waited == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "started pipeline child is still running"
+            );
+            std::thread::sleep(Duration::from_millis(1));
             continue;
-        };
-        let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
-            continue;
-        };
-        if cmdline.split(|byte| *byte == 0).any(|arg| arg == marker) {
-            pids.push(pid);
         }
+        break waited;
+    };
+    if waited > 0 {
+        eprintln!("started pipeline child exited but was not reaped");
+        std::process::exit(2);
     }
-    pids
+    let error = io::Error::last_os_error();
+    assert_eq!(
+        error.raw_os_error(),
+        Some(libc::ECHILD),
+        "unexpected waitpid error: {error}"
+    );
 }
