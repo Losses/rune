@@ -70,6 +70,9 @@ const AUDIO_RESET: u8 = 5;
 const AUDIO_STALL: u8 = 6;
 const SLOW_LINK: u8 = 7;
 
+// Keep the slow-link time budget independent of the other fault-injection scenarios.
+static NETWORK_SCENARIO: Mutex<()> = Mutex::const_new(());
+
 #[derive(Default)]
 struct Faults {
     mode: AtomicU8,
@@ -282,6 +285,7 @@ fn album_scope() -> Scope {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
+    let _scenario = NETWORK_SCENARIO.lock().await;
     let a = Replica::new(None).await?;
     let library = a.store.identity().await?.namespace;
     let b = Replica::new(Some(library)).await?;
@@ -458,6 +462,7 @@ async fn page_interruptions_preserve_prefix_and_peer_progress() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> Result<()> {
+    let _scenario = NETWORK_SCENARIO.lock().await;
     let source = Replica::new(None).await?;
     fs::copy(fixtures::audio_fixture(), source.root().join("one.ogg"))?;
     fs::copy(
@@ -656,6 +661,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn slow_link_converges_after_three_outages_with_edits() -> Result<()> {
+    let _scenario = NETWORK_SCENARIO.lock().await;
     let started = Instant::now();
     let source = Replica::new(None).await?;
     let target = Replica::new(Some(source.store.identity().await?.namespace)).await?;
