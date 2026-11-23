@@ -102,7 +102,7 @@ use crate::{
     request_owner::Implementation,
     rpc::{Slot, UnsupportedReason, dispatch_gui_request},
     server::api::fetch_device_info_at_port,
-    session::store::SessionState,
+    session::store::{SessionState, StoredInterruptedItem},
     utils::{GlobalParams, subsonic_binding_for_playback},
 };
 use database::actions::{
@@ -8875,12 +8875,10 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         .context("inserted block")?;
     let store = b_dir.path().join("sessions/local.json");
     let interrupted = wait_until("persisted handoff block", || async {
-        Ok(crate::session::store::SessionState::read(&store)?.handoff_block(block))
+        Ok(SessionState::read(&store)?.handoff_block(block))
     })
     .await?;
-    let crate::session::store::StoredInterruptedItem::Item { item, position, .. } =
-        interrupted.interrupted
-    else {
+    let StoredInterruptedItem::Item { item, position, .. } = interrupted.interrupted else {
         anyhow::bail!("playing target was not captured");
     };
     assert_eq!(Some(PlayingItem::from(item)), target_before.item);
