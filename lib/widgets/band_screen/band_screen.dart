@@ -109,14 +109,20 @@ class BandScreenState extends State<BandScreen> {
 
     final isUserGenerated = userGenerated(data.collectionType);
 
+    final direction =
+        deviceType == DeviceType.band || deviceType == DeviceType.belt
+            ? Axis.horizontal
+            : Axis.vertical;
+
     return InfiniteList(
-      scrollDirection:
-          deviceType == DeviceType.band || deviceType == DeviceType.belt
-              ? Axis.horizontal
-              : Axis.vertical,
+      scrollDirection: direction,
       scrollController: scrollController,
       itemCount: flattenItems.length,
-      loadingBuilder: (context) => const InfiniteListLoading(),
+      // Nothing is drawn at the end while the next page loads.
+      loadingBuilder: (context) => flattenItems.isEmpty
+          ? const InfiniteListLoading()
+          : const SizedBox.shrink(),
+      cacheExtent: lazyLoadCacheExtent(context, direction),
       centerLoading: true,
       centerEmpty: true,
       isLoading: data.isLoading,

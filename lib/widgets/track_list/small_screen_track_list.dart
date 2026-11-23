@@ -70,12 +70,8 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
         itemBuilder: (context, index) {
           final item = widget.getItem(index);
 
-          if (item == null) {
-            return const SizedBox(
-              height: 64,
-              child: Center(child: ProgressRing()),
-            );
-          }
+          // A track that has not loaded leaves its row blank.
+          if (item == null) return const SizedBox(height: 64);
 
           return ManagedTurntileScreenItem(
             groupId: 0,

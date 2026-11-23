@@ -136,7 +136,11 @@ class TurntileScreenImplementationState
           } else {
             return InfiniteList(
               itemCount: data.items.length,
-              loadingBuilder: (context) => const InfiniteListLoading(),
+              // Nothing is drawn at the end while the next page loads.
+              loadingBuilder: (context) => data.items.isEmpty
+                  ? const InfiniteListLoading()
+                  : const SizedBox.shrink(),
+              cacheExtent: lazyLoadCacheExtent(context, Axis.vertical),
               centerLoading: true,
               centerEmpty: true,
               isLoading: data.isLoading,

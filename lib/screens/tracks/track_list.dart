@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -19,7 +20,19 @@ import '../../providers/responsive_providers.dart';
 class TrackListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
 
-  const TrackListView({super.key, required this.layoutManager});
+  /// Counts the tracks of the library. Tests pass a fake.
+  final Future<int> Function() loadCount;
+
+  /// Loads a page of the tracks from a cursor. Tests pass a fake.
+  final Future<List<InternalMediaFile>> Function(int cursor, int pageSize)
+  loadPage;
+
+  const TrackListView({
+    super.key,
+    required this.layoutManager,
+    this.loadCount = getMediaFilesCount,
+    this.loadPage = fetchMediaFiles,
+  });
 
   @override
   TrackListViewState createState() => TrackListViewState();
@@ -57,7 +70,7 @@ class TrackListViewState extends State<TrackListView> {
   Future<void> _initializeData() async {
     final generation = _generation;
     try {
-      final count = await getMediaFilesCount();
+      final count = await widget.loadCount();
       if (!mounted || generation != _generation) return;
 
       setState(() {
@@ -93,7 +106,7 @@ class TrackListViewState extends State<TrackListView> {
     });
 
     try {
-      final newItems = await fetchMediaFiles(cursor, _pageSize);
+      final newItems = await widget.loadPage(cursor, _pageSize);
       if (!mounted || generation != _generation) return;
 
       SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -108,6 +121,9 @@ class TrackListViewState extends State<TrackListView> {
           _loadingIndices.remove(cursor);
         });
       });
+      // Nothing moves on the page while it waits, so the frame that applies
+      // what arrived is asked for.
+      SchedulerBinding.instance.ensureVisualUpdate();
 
       Timer(
         Duration(milliseconds: gridAnimationDelay),
@@ -122,6 +138,7 @@ class TrackListViewState extends State<TrackListView> {
           _loadingIndices.remove(cursor);
         });
       });
+      SchedulerBinding.instance.ensureVisualUpdate();
     }
   }
 
@@ -135,6 +152,10 @@ class TrackListViewState extends State<TrackListView> {
 
   InternalMediaFile? _getItem(int index) {
     _checkAndLoadItem(index);
+    // The page after the one the list builds is loaded ahead of it, so a track
+    // has arrived before its place scrolls into view.
+    final ahead = min(index + _pageSize, _totalCount - 1);
+    if (ahead > index) _checkAndLoadItem(ahead);
     return _loadedItems[index] ?? _staleItems[index];
   }
 
