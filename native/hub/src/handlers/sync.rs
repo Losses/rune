@@ -288,33 +288,28 @@ mod tests {
             .context("sync settings response")
     }
 
-    /// Removes write permission from a directory so the next settings save fails, and
-    /// restores the mode when dropped, including while unwinding from a failed assertion.
-    #[cfg(unix)]
-    struct ReadOnlyDir {
+    /// Replaces the settings file with a directory, so the next save fails at the rename with
+    /// `EISDIR` regardless of the process's write permissions. The original file is restored
+    /// when dropped, including while unwinding from a failed assertion.
+    struct BlockedSettingsFile {
         path: std::path::PathBuf,
-        mode: u32,
+        contents: Vec<u8>,
     }
 
-    #[cfg(unix)]
-    impl ReadOnlyDir {
-        fn new(path: &Path) -> Result<Self> {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(path)?.permissions().mode();
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & !0o222))?;
-            Ok(Self {
-                path: path.to_owned(),
-                mode,
-            })
+    impl BlockedSettingsFile {
+        fn new(config_dir: &Path) -> Result<Self> {
+            let path = config_dir.join("sync_settings.json");
+            let contents = std::fs::read(&path)?;
+            std::fs::remove_file(&path)?;
+            std::fs::create_dir(&path)?;
+            Ok(Self { path, contents })
         }
     }
 
-    #[cfg(unix)]
-    impl Drop for ReadOnlyDir {
+    impl Drop for BlockedSettingsFile {
         fn drop(&mut self) {
-            use std::os::unix::fs::PermissionsExt;
-            let _ =
-                std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(self.mode));
+            let _ = std::fs::remove_dir(&self.path);
+            let _ = std::fs::write(&self.path, &self.contents);
         }
     }
 
@@ -369,23 +364,22 @@ mod tests {
 
         // A save failure must not stop a listener that was already running before the
         // request: the saved setting still says enabled.
-        #[cfg(unix)]
         {
-            let read_only = ReadOnlyDir::new(dir.path())?;
+            let blocked = BlockedSettingsFile::new(dir.path())?;
             let error = set_sync_settings(&node, true, MissingHostFilePolicy::RemoveEverywhere)
                 .await
                 .expect_err("enabling while the settings cannot be saved");
             assert!(
-                format!("{error:#}").contains("write sync settings"),
+                format!("{error:#}").contains("replace sync settings"),
                 "{error:#}"
             );
             assert!(
                 manager.is_running(),
                 "an already running listener was stopped"
             );
-            assert!(SyncSettings::load(dir.path()).listen);
             assert!(shown_settings(&node).await?.listen);
-            drop(read_only);
+            drop(blocked);
+            assert!(SyncSettings::load(dir.path()).listen);
         }
 
         // The same enable request succeeds without starting a second listener.
@@ -400,28 +394,32 @@ mod tests {
 
         // A disable that cannot be saved must restart the listener the saved setting still
         // describes.
-        #[cfg(unix)]
         {
-            let read_only = ReadOnlyDir::new(dir.path())?;
+            let blocked = BlockedSettingsFile::new(dir.path())?;
             let error = set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote)
                 .await
                 .expect_err("disabling while the settings cannot be saved");
             assert!(
-                format!("{error:#}").contains("write sync settings"),
+                format!("{error:#}").contains("replace sync settings"),
                 "{error:#}"
             );
             assert!(
                 manager.is_running(),
                 "the stopped listener was not restarted"
             );
-            assert!(SyncSettings::load(dir.path()).listen);
             let shown = shown_settings(&node).await?;
             assert!(shown.listen);
             assert!(matches!(
                 shown.missing_host_file,
                 MissingHostFilePolicy::KeepAsRemote
             ));
-            drop(read_only);
+            drop(blocked);
+            let saved = SyncSettings::load(dir.path());
+            assert!(saved.listen);
+            assert_eq!(
+                saved.missing_host_file,
+                SavedMissingHostFilePolicy::KeepAsRemote
+            );
         }
 
         set_sync_settings(&node, false, MissingHostFilePolicy::KeepAsRemote).await?;
@@ -436,23 +434,22 @@ mod tests {
 
         // An enable that starts the listener but cannot be saved must stop it again: the
         // saved setting still says disabled.
-        #[cfg(unix)]
         {
-            let read_only = ReadOnlyDir::new(dir.path())?;
+            let blocked = BlockedSettingsFile::new(dir.path())?;
             let error = set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote)
                 .await
                 .expect_err("enabling while the settings cannot be saved");
             assert!(
-                format!("{error:#}").contains("write sync settings"),
+                format!("{error:#}").contains("replace sync settings"),
                 "{error:#}"
             );
             assert!(
                 !manager.is_running(),
                 "the listener started by the failed enable was kept"
             );
-            assert!(!SyncSettings::load(dir.path()).listen);
             assert!(!shown_settings(&node).await?.listen);
-            drop(read_only);
+            drop(blocked);
+            assert!(!SyncSettings::load(dir.path()).listen);
         }
 
         set_sync_settings(&node, true, MissingHostFilePolicy::KeepAsRemote).await?;
