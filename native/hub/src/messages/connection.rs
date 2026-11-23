@@ -295,6 +295,12 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                     account: String::new(),
                 }
             }
+            // The app lists it as it lists a Subsonic library, which it is opened as; the
+            // service's name stands where a server's address would be.
+            ProtocolAdapter::AppleMusic => LibraryRecordKindSummary::Subsonic {
+                endpoint: "Apple Music".to_owned(),
+                account: String::new(),
+            },
         };
         Self {
             record_id: record.record_id.0.to_string(),

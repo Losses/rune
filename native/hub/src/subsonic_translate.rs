@@ -1370,6 +1370,23 @@ async fn jukebox_status(binding: &SubsonicBinding) -> Result<subsonic::SubsonicJ
         .map_err(|error| jukebox_error(error, "Subsonic jukebox status"))
 }
 
+// The app sends these two whenever playback starts or a page with a spectrum opens. A remote
+// player has no spectrum to give and no output to switch, so there is nothing to do; refusing
+// them would only show the user a notice each time.
+async fn jukebox_realtime_fft_request(
+    _: &SubsonicBinding,
+    _: &SetRealtimeFFTEnabledRequest,
+) -> Result<Option<()>> {
+    Ok(Some(()))
+}
+
+async fn jukebox_adaptive_switching_request(
+    _: &SubsonicBinding,
+    _: &SetAdaptiveSwitchingEnabledRequest,
+) -> Result<Option<()>> {
+    Ok(Some(()))
+}
+
 async fn jukebox_play_request(binding: &SubsonicBinding, _: &PlayRequest) -> Result<Option<()>> {
     binding
         .client
@@ -1501,6 +1518,22 @@ async fn jukebox_playback_mode_request(
     binding: &SubsonicBinding,
     request: &SetPlaybackModeRequest,
 ) -> Result<Option<()>> {
+    // The Apple Music gateway has a player with all four modes. A real server refuses this
+    // action, and then only what the Subsonic API offers applies.
+    let mode = match request.mode {
+        PlaybackMode::Sequential => "sequential",
+        PlaybackMode::RepeatOne => "repeatOne",
+        PlaybackMode::RepeatAll => "repeatAll",
+        PlaybackMode::Shuffle => "shuffle",
+    };
+    if binding.client.jukebox_playback_mode(mode).await.is_ok() {
+        return Ok(Some(()));
+    }
+    // Playing in order is what a jukebox does anyway, and the app restores this mode by itself
+    // at startup; there is nothing to send.
+    if request.mode == PlaybackMode::Sequential {
+        return Ok(Some(()));
+    }
     if request.mode != PlaybackMode::Shuffle {
         return Err(ExpectedRequestError::Unsupported {
             request: SetPlaybackModeRequest::wire_name(),
@@ -2497,6 +2530,8 @@ subsonic_requests! {
     }
     jukebox_supported {
         VolumeRequest => jukebox_volume_request as translate_volume_request,
+        SetRealtimeFFTEnabledRequest => jukebox_realtime_fft_request as translate_set_realtime_f_f_t_enabled_request,
+        SetAdaptiveSwitchingEnabledRequest => jukebox_adaptive_switching_request as translate_set_adaptive_switching_enabled_request,
         SetPlaybackModeRequest => jukebox_playback_mode_request as translate_set_playback_mode_request,
         LoadRequest => jukebox_load_request as translate_load_request,
         PlayRequest => jukebox_play_request as translate_play_request,
@@ -2859,6 +2894,16 @@ mod tests {
                 Some("shuffle") => {
                     jukebox.entries.reverse();
                     serde_json::json!({})
+                }
+                // Not a Subsonic action; a real server refuses it.
+                Some("playbackMode") => {
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            r#"{"subsonic-response":{"status":"failed","version":"1.16.1","error":{"code":0,"message":"Unknown action"}}}"#,
+                        ))
+                        .unwrap();
                 }
                 _ => serde_json::json!({}),
             };
@@ -5041,17 +5086,11 @@ mod tests {
             }
         );
         assert_eq!(SetPlaybackModeRequest::slot(&slots), Slot::Translate);
-        assert_eq!(
-            SetRealtimeFFTEnabledRequest::slot(&slots),
-            Slot::Unsupported {
-                reason: UnsupportedReason::NotImplemented
-            }
-        );
+        // The app sends these on its own; a jukebox accepts them and does nothing.
+        assert_eq!(SetRealtimeFFTEnabledRequest::slot(&slots), Slot::Translate);
         assert_eq!(
             SetAdaptiveSwitchingEnabledRequest::slot(&slots),
-            Slot::Unsupported {
-                reason: UnsupportedReason::NotImplemented
-            }
+            Slot::Translate
         );
         assert_eq!(
             CastPreflightRequest::slot(&slots),

@@ -101,6 +101,7 @@ fsio = { version = "0.1.0", path = "../../fsio" }
 fsio_browse = { version = "0.1.0", path = "../../fsio-browse" }
 mimetype-detector = "0.1.1"
 http-request = { version = "0.1.0", path = "../../http-request" }
+md5 = "0.7.0"
 
 [build-dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
@@ -122,7 +123,6 @@ tracing-logcat = "0.1.0"
 swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
-md5 = "0.7.0"
 database = { path = "../../database", features = ["test-fixtures"] }
 fsio = { path = "../../fsio", features = ["test-fixtures"] }
 playback = { path = "../../playback", features = ["test-output"] }

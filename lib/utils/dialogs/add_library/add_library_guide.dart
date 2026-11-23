@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
@@ -25,7 +27,18 @@ import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
 
-enum AddLibrarySource { localFolder, runeDevice, webDav, s3, subsonic }
+enum AddLibrarySource {
+  localFolder,
+  runeDevice,
+  webDav,
+  s3,
+  subsonic,
+  appleMusic,
+}
+
+/// The endpoint that asks the hub for this device's Apple Music library. The hub registers it
+/// through the Subsonic request, because the library is opened and listed as one.
+const _appleMusicSource = 'applemusic:';
 
 class AddLibraryGuideDependencies {
   const AddLibraryGuideDependencies({
@@ -217,6 +230,14 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         s.subsonic,
         s.subsonicSubtitle,
       ),
+      // Apple's framework for it exists only on Apple's systems.
+      if (Platform.isMacOS || Platform.isIOS)
+        _sourceRow(
+          AddLibrarySource.appleMusic,
+          Symbols.library_music,
+          'Apple Music',
+          'Your Apple Music library on this device.',
+        ),
     ],
   );
 
@@ -474,6 +495,28 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         );
         if (widget.navigateIfFailed) $$replace('/');
       }
+    }
+  }
+
+  Future<void> _registerAppleMusic() async {
+    try {
+      final response = await registerSubsonicLibrary(
+        _appleMusicSource,
+        '',
+        '',
+        'Apple Music',
+        null,
+      );
+      final record = response.record;
+      if (record == null) throw StateError('Registration returned no record');
+      await _openRecord(record.recordId);
+    } catch (error) {
+      if (!mounted) return;
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).addLibrary,
+        errorMessage: libraryFailureMessage(S.of(context), error),
+      );
     }
   }
 
@@ -926,6 +969,8 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
                     setState(() => _step = 2);
                   } else if (source == AddLibrarySource.localFolder) {
                     _chooseLocalFolder();
+                  } else if (source == AddLibrarySource.appleMusic) {
+                    _registerAppleMusic();
                   } else {
                     widget.$close(source);
                   }

@@ -616,6 +616,13 @@ impl SubsonicClient {
         self.jukebox_action("shuffle", &[]).await
     }
 
+    /// Sets how the jukebox moves through its playlist: `sequential`, `repeatOne`, `repeatAll`
+    /// or `shuffle`. This is not part of the Subsonic API; only Rune's own Apple Music gateway
+    /// answers it, and a real server refuses the action.
+    pub async fn jukebox_playback_mode(&self, mode: &str) -> Result<(), SubsonicError> {
+        self.jukebox_action("playbackMode", &[("mode", mode)]).await
+    }
+
     /// Set jukebox gain to a normalized value from 0 through 1.
     pub async fn jukebox_set_gain(&self, gain: f32) -> Result<(), SubsonicError> {
         if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {

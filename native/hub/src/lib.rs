@@ -6,6 +6,8 @@ use std::env;
 use tracing_appender::rolling;
 pub mod access_policy;
 mod apple_bridge;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod apple_music_gateway;
 pub mod flutter_bridge;
 #[macro_use]
 mod macros;

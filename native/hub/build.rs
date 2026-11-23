@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 
     let target = env::var("TARGET").unwrap();
 
-    if target.contains("darwin") {
+    if target.contains("darwin") || target.contains("apple-ios") {
         #[cfg(target_os = "macos")]
         build_apple_bridge()?;
     }
@@ -101,18 +101,35 @@ fn build_apple_bridge() -> Result<()> {
     let arch = match rust_arch.as_str() {
         "aarch64" => "arm64",
         "x86_64" => "x86_64",
-        _ => anyhow::bail!("unsupported macOS architecture: {rust_arch}"),
+        _ => anyhow::bail!("unsupported Apple architecture: {rust_arch}"),
     };
-    let target = format!("{arch}-apple-macosx12.0");
+    // The bridge is built for the system Cargo targets: an iPhone or iPad, the iOS simulator,
+    // or the Mac.
+    let rust_target = env::var("TARGET")?;
+    let (sdk_name, target) = if env::var("CARGO_CFG_TARGET_OS")? == "ios" {
+        if rust_target.ends_with("-sim") || arch == "x86_64" {
+            ("iphonesimulator", format!("{arch}-apple-ios15.0-simulator"))
+        } else {
+            ("iphoneos", format!("{arch}-apple-ios15.0"))
+        }
+    } else {
+        ("macosx", format!("{arch}-apple-macosx12.0"))
+    };
     let output_dir = PathBuf::from(env::var("OUT_DIR")?);
     let archive = output_dir.join("libapple-bridge-library.a");
-    let source = "apple-bridge-library/src/lib.swift";
+    let sources = [
+        "apple-bridge-library/src/lib.swift",
+        "apple-bridge-library/src/apple_music.swift",
+    ];
 
     let sdk = Command::new("xcrun")
-        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .args(["--sdk", sdk_name, "--show-sdk-path"])
         .output()
-        .context("failed to locate the macOS SDK")?;
-    ensure!(sdk.status.success(), "xcrun could not locate the macOS SDK");
+        .with_context(|| format!("failed to locate the {sdk_name} SDK"))?;
+    ensure!(
+        sdk.status.success(),
+        "xcrun could not locate the {sdk_name} SDK"
+    );
     let sdk_path = String::from_utf8(sdk.stdout)?;
 
     // swift-rs passes the host --arch to SwiftPM on macOS. Xcode 27
@@ -121,7 +138,7 @@ fn build_apple_bridge() -> Result<()> {
     let mut compiler = Command::new("xcrun");
     compiler.args([
         "--sdk",
-        "macosx",
+        sdk_name,
         "swiftc",
         "-parse-as-library",
         "-emit-library",
@@ -143,17 +160,24 @@ fn build_apple_bridge() -> Result<()> {
     if env::var("DEBUG").as_deref() == Ok("true") {
         compiler.arg("-g");
     }
-    compiler.arg(source).arg("-o").arg(&archive);
+    compiler.args(sources).arg("-o").arg(&archive);
     ensure!(
         compiler.status()?.success(),
         "Swift bridge build failed for {target}"
     );
 
     // Keep the runtime and compiler support library search paths supplied by swift-rs.
-    SwiftLinker::new("12.0").link();
-    println!("cargo:rerun-if-changed={source}");
+    SwiftLinker::new("12.0").with_ios("15.0").link();
+    for source in sources {
+        println!("cargo:rerun-if-changed={source}");
+    }
     println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
     println!("cargo:rustc-link-search=native={}", output_dir.display());
     println!("cargo:rustc-link-lib=static=apple-bridge-library");
+    // The bridge uses Swift concurrency, whose runtime the system keeps in this folder. Rust
+    // does the final link and would otherwise leave the binary without a path to it.
+    if sdk_name == "macosx" {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    }
     Ok(())
 }

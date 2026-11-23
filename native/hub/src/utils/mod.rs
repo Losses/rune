@@ -1514,10 +1514,80 @@ pub(crate) async fn register_subsonic_library_with_node(
     register_subsonic_library_on_node(request, node).await
 }
 
+/// The endpoint the add-library guide sends for the Apple Music library of this device. It is
+/// registered through the Subsonic request because the library is opened and listed as one.
+pub(crate) const APPLE_MUSIC_SOURCE: &str = "applemusic:";
+
+/// Registers this device's Apple Music library, once, after the user allows access to it.
+async fn register_apple_music_library_on_node(
+    node: &Arc<NodeContext>,
+) -> Result<RegisterLibraryResponse> {
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    return Err(registration_failure(
+        RegisterLibraryFailureKind::InvalidSource,
+        "Apple Music is not available on this platform",
+    ));
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        use crate::apple_bridge::music;
+
+        let status: serde_json::Value = music::request(serde_json::json!({ "op": "authorize" }))
+            .await
+            .map_err(|error| {
+                registration_failure(RegisterLibraryFailureKind::InvalidSource, error)
+            })?;
+        if status["authorization"] != "authorized" {
+            return Err(registration_failure(
+                RegisterLibraryFailureKind::RemoteNotAuthorized,
+                "Apple Music access was not allowed",
+            ));
+        }
+        let config = Path::new(&*node.config_path);
+        let stored = LibraryRegistry::update(config, |registry| {
+            if let Some(existing) = registry
+                .libraries
+                .iter()
+                .find(|record| record.protocol == ProtocolAdapter::AppleMusic)
+            {
+                return Ok(existing.clone());
+            }
+            let record = LibraryRecord {
+                record_id: LibraryRecordId(Uuid::new_v4()),
+                alias: "Apple Music".to_owned(),
+                library_id: None,
+                protocol: ProtocolAdapter::AppleMusic,
+                fs: Vec::new(),
+                catalog: CatalogPlacement::None,
+                background_sync: false,
+            };
+            registry.libraries.push(record.clone());
+            Ok(record)
+        })
+        .await
+        .map_err(|_| {
+            registration_failure(
+                RegisterLibraryFailureKind::Storage,
+                "Could not write library storage",
+            )
+        })?;
+        if let Err(error) = publish_library_records_changed(node).await {
+            log::warn!("Could not publish library record change: {error:#}");
+        }
+        Ok(RegisterLibraryResponse {
+            call_id: None,
+            record: Some((&stored).into()),
+            outcome: RegisterLibraryOutcome::Registered,
+        })
+    }
+}
+
 pub(crate) async fn register_subsonic_library_on_node(
     request: &RegisterSubsonicLibraryRequest,
     node: &Arc<NodeContext>,
 ) -> Result<RegisterLibraryResponse> {
+    if request.endpoint == APPLE_MUSIC_SOURCE {
+        return register_apple_music_library_on_node(node).await;
+    }
     let endpoint = match validate_subsonic_endpoint(&request.endpoint) {
         Ok(endpoint) => endpoint,
         Err(()) => {
@@ -1974,6 +2044,7 @@ pub(crate) async fn open_library_by_record_on_node(
             )
             .await
         }
+        ProtocolAdapter::AppleMusic => open_apple_music_record(&node, record.record_id).await,
     };
     match result {
         Ok(generation) => {
@@ -1992,6 +2063,48 @@ pub(crate) async fn open_library_by_record_on_node(
             })
         }
         Err((kind, error)) => failed(kind, error),
+    }
+}
+
+/// Opens the Apple Music library as the Subsonic library its gateway serves, controlled
+/// remotely: Apple's player is the only one that can play the audio.
+async fn open_apple_music_record(
+    node: &Arc<NodeContext>,
+    record_id: LibraryRecordId,
+) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    return Err((
+        OpenLibraryFailureKind::NotSupportedYet,
+        anyhow::anyhow!("Apple Music is not available on this platform ({record_id:?}, {node:p})"),
+    ));
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let gateway = crate::apple_music_gateway::shared()
+            .await
+            .map_err(|error| (OpenLibraryFailureKind::RemoteUnreachable, error))?;
+        // The gateway's password lives only for this process, so the credential is stored
+        // just long enough for the open to read it.
+        let credential = node
+            .credentials
+            .put(Credential {
+                username: gateway.username().to_owned(),
+                secret: Secret::new(gateway.password().as_bytes().to_vec()),
+            })
+            .await
+            .map_err(|error| (OpenLibraryFailureKind::Storage, Error::new(error)))?;
+        let opened = open_subsonic_record(
+            node,
+            record_id,
+            record_id.0,
+            &gateway.endpoint(),
+            credential,
+            false,
+        )
+        .await;
+        if let Err(error) = node.credentials.remove(credential).await {
+            log::warn!("Could not remove the Apple Music gateway credential: {error:#}");
+        }
+        opened
     }
 }
 

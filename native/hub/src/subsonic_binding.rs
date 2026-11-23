@@ -13,7 +13,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::{Semaphore, watch};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -414,6 +414,9 @@ pub(crate) struct SubsonicCoverCache {
     pub(crate) concurrency: Arc<Semaphore>,
     pub(crate) cancellation: CancellationToken,
     pub(crate) broadcaster: Arc<dyn Broadcaster>,
+    /// When the pages were last told that covers arrived. Each announcement makes them reload,
+    /// so a run of covers is announced together.
+    announced: Mutex<Option<Instant>>,
 }
 
 #[derive(Clone)]
@@ -555,9 +558,22 @@ impl SubsonicCoverCache {
         let newest = path.clone();
         task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
             .await??;
-        self.broadcaster.broadcast(&LibraryContentChanged {
-            path: String::new(),
+        // The last cover of a run is always announced; within a run, at most one every two
+        // seconds, so a page of covers does not reload the page once per cover.
+        let others_in_flight = self.pending.lock().map_or(0, |pending| pending.len()) > 1;
+        let due = self.announced.lock().is_ok_and(|mut announced| {
+            let due = !others_in_flight
+                || announced.is_none_or(|last| last.elapsed() >= Duration::from_secs(2));
+            if due {
+                *announced = Some(Instant::now());
+            }
+            due
         });
+        if due {
+            self.broadcaster.broadcast(&LibraryContentChanged {
+                path: String::new(),
+            });
+        }
         drop(permit);
         self.cached_path(cover_id).await
     }
@@ -641,6 +657,7 @@ impl SubsonicBinding {
                     .join(library_id.to_string()),
                 pending: Mutex::new(HashMap::new()),
                 concurrency: Arc::new(Semaphore::new(4)),
+                announced: Mutex::new(None),
                 cancellation: CancellationToken::new(),
                 broadcaster,
             }),
@@ -676,6 +693,9 @@ impl SubsonicBinding {
         let binding_state = Arc::clone(&self.jukebox_state);
         tokio::spawn(async move {
             let mut interval = tokio_time::interval(Duration::from_secs(3));
+            // After the process was suspended, one poll shows the present state; the polls
+            // that were missed would only repeat it.
+            interval.set_missed_tick_behavior(tokio_time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = cancellation.cancelled() => break,

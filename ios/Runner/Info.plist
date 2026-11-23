@@ -114,5 +114,7 @@
 			</dict>
 		</dict>
 	</array>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Rune lists and plays your Apple Music library.</string>
 </dict>
 </plist>

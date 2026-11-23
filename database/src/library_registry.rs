@@ -49,6 +49,9 @@ pub enum ProtocolAdapter {
         credential: CredentialRef,
         mode: SubsonicOpenMode,
     },
+    /// The user's Apple Music library on this device, read and played through Apple's own
+    /// framework. It has no endpoint or credential: the system account is the login.
+    AppleMusic,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -318,7 +321,7 @@ impl LibraryRecord {
                     return Err(InvalidRecord::RemoteControlInvalid);
                 }
             }
-            ProtocolAdapter::SubsonicTranslate { .. } => {
+            ProtocolAdapter::SubsonicTranslate { .. } | ProtocolAdapter::AppleMusic => {
                 if self.library_id.is_some()
                     || !self.fs.is_empty()
                     || self.catalog != CatalogPlacement::None

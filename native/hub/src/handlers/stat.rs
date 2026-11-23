@@ -48,7 +48,11 @@ async fn item_subsonic_binding(
     let Ok(record) = registry.record(LibraryRecordId(library_id)) else {
         return Ok(None);
     };
-    if !matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
+    // An Apple Music library is open as a Subsonic one, so its liked state is asked there too.
+    if !matches!(
+        &record.protocol,
+        ProtocolAdapter::SubsonicTranslate { .. } | ProtocolAdapter::AppleMusic
+    ) {
         return Ok(None);
     }
     if let Some(binding) = node.subsonic_binding(library_id)? {
