@@ -810,12 +810,40 @@ mod endpoint_tests {
     }
 
     /// Holds the multicast port so the first socket initialization fails, releases it, and
-    /// starts again on the same service. The second attempt must not return the cached bind
-    /// error. On hosts with a usable multicast interface it must succeed; on hosts without one
-    /// it must report the missing interface, which is also a fresh attempt.
+    /// starts again on the same service. The second attempt must succeed, proving the first
+    /// bind error was not cached.
+    ///
+    /// The test needs an up, multicast, IPv4 interface and a free multicast port. On a host
+    /// without either it reports why it is not applicable instead of asserting on an outcome
+    /// that cannot distinguish a retry from a cached error.
     #[cfg(unix)]
     #[tokio::test]
     async fn failed_socket_initialization_is_retried_on_the_next_start() {
+        if !get_multicast_interfaces()
+            .iter()
+            .any(|interface| !interface.ipv4.is_empty())
+        {
+            eprintln!(
+                "skipping failed_socket_initialization_is_retried_on_the_next_start: \
+                 no up, multicast, IPv4 interface on this host, so a successful retry cannot be proven"
+            );
+            return;
+        }
+
+        // A socket without SO_REUSEPORT keeps the discovery sockets from binding the port.
+        // If another process already owns it, the test cannot create the bind failure itself.
+        let port_holder = match std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, MULTICAST_PORT)) {
+            Ok(socket) => socket,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+                eprintln!(
+                    "skipping failed_socket_initialization_is_retried_on_the_next_start: \
+                     multicast port {MULTICAST_PORT} is already in use; stop the other Rune instance and rerun"
+                );
+                return;
+            }
+            Err(error) => panic!("failed to bind the multicast port for the test: {error}"),
+        };
+
         let device_info = DeviceInfo {
             alias: "retry-test".to_owned(),
             version: "0.0.0".to_owned(),
@@ -830,87 +858,53 @@ mod endpoint_tests {
             max_retries: 1,
             initial_backoff: Duration::from_millis(1),
         });
-        let has_interface = get_multicast_interfaces()
-            .iter()
-            .any(|interface| !interface.ipv4.is_empty());
-
-        // A socket without SO_REUSEPORT keeps the discovery sockets from binding the port.
-        let port_holder = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, MULTICAST_PORT))
-            .expect("the multicast port should be free before this test");
 
         let first = service
             .start_announcements(device_info.clone(), Duration::from_secs(3), None)
             .await
             .expect_err("socket initialization should fail while the multicast port is taken");
-        if has_interface {
-            assert!(
-                first.to_string().contains("Address already in use"),
-                "the first start should fail on the occupied port: {first:#}"
-            );
-        } else {
-            assert!(
-                first
-                    .to_string()
-                    .contains("No valid multicast interfaces found"),
-                "the first start should report the missing interface: {first:#}"
-            );
-        }
+        assert!(
+            first.to_string().contains("Address already in use"),
+            "the first start should fail on the occupied port: {first:#}"
+        );
         assert!(!service.is_announcing().await);
         assert!(!service.is_operational().await);
         service.stop_announcements().await;
 
         drop(port_holder);
 
-        let second = service
+        service
             .start_announcements(device_info.clone(), Duration::from_secs(3), None)
-            .await;
+            .await
+            .expect("the next start should retry socket initialization and succeed");
+        assert!(service.is_announcing().await);
+        assert!(service.is_operational().await);
 
-        if has_interface {
-            second.expect("the next start should retry socket initialization and succeed");
-            assert!(service.is_announcing().await);
-            assert!(service.is_operational().await);
+        let already_running = service
+            .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+            .await
+            .expect_err("a second start must not replace the running announcements");
+        assert!(
+            already_running
+                .downcast_ref::<AnnouncementsAlreadyRunning>()
+                .is_some_and(|error| error.indefinite)
+        );
 
-            let already_running = service
-                .start_announcements(device_info.clone(), Duration::from_secs(3), None)
-                .await
-                .expect_err("a second start must not replace the running announcements");
-            assert!(
-                already_running
-                    .downcast_ref::<AnnouncementsAlreadyRunning>()
-                    .is_some_and(|error| error.indefinite)
-            );
+        service.stop_announcements().await;
+        service
+            .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+            .await
+            .expect("announcements should start again after stopping");
+        service.stop_announcements().await;
 
-            service.stop_announcements().await;
-            service
-                .start_announcements(device_info.clone(), Duration::from_secs(3), None)
-                .await
-                .expect("announcements should start again after stopping");
-            service.stop_announcements().await;
-
-            let (left, right) = tokio::join!(
-                service.start_announcements(device_info.clone(), Duration::from_secs(3), None),
-                service.start_announcements(device_info, Duration::from_secs(3), None),
-            );
-            assert!(
-                left.is_ok() ^ right.is_ok(),
-                "exactly one of two concurrent starts should run announcements"
-            );
-            service.stop_announcements().await;
-        } else {
-            let second =
-                second.expect_err("without a multicast interface the retry must still fail");
-            assert!(
-                second
-                    .to_string()
-                    .contains("No valid multicast interfaces found"),
-                "the retry should reach interface discovery instead of returning the cached bind error: {second:#}"
-            );
-            assert!(
-                !second.to_string().contains("Address already in use"),
-                "the retry returned the cached port error: {second:#}"
-            );
-            assert!(!service.is_announcing().await);
-            assert!(!service.is_operational().await);
-        }
+        let (left, right) = tokio::join!(
+            service.start_announcements(device_info.clone(), Duration::from_secs(3), None),
+            service.start_announcements(device_info, Duration::from_secs(3), None),
+        );
+        assert!(
+            left.is_ok() ^ right.is_ok(),
+            "exactly one of two concurrent starts should run announcements"
+        );
+        service.stop_announcements().await;
     }
 }
