@@ -180,6 +180,7 @@ class Queue extends StatefulWidget {
 class _QueueState extends State<Queue> {
   final ScrollController _scrollController = ScrollController();
   late final StreamSubscription<RequestFailure> _failureSubscription;
+  bool _revealScheduled = false;
 
   @override
   void initState() {
@@ -205,6 +206,47 @@ class _QueueState extends State<Queue> {
     _failureSubscription.cancel();
   }
 
+  // Runs once, on the first build that has items, so the playing row is in
+  // view when the flyout opens. The rows build lazily and may differ in
+  // height, so the list first jumps to an estimate from the average row
+  // height, then the playing row, once built, is placed exactly.
+  void _revealCurrent(int index, int count) {
+    if (_revealScheduled) return;
+    _revealScheduled = true;
+    if (index <= 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final rowExtent =
+          (position.maxScrollExtent + position.viewportDimension) / count;
+      position.jumpTo(
+        ((index - 2) * rowExtent).clamp(0.0, position.maxScrollExtent),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final rowContext = _findCurrentRow(context);
+        if (rowContext == null) return;
+        Scrollable.ensureVisible(rowContext, alignment: 0.2);
+      });
+    });
+  }
+
+  BuildContext? _findCurrentRow(BuildContext root) {
+    BuildContext? found;
+    void visit(Element element) {
+      if (found != null) return;
+      final widget = element.widget;
+      if (widget is PlaylistQueueItem && widget.isCurrent) {
+        found = element;
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    (root as Element).visitChildren(visit);
+    return found;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Selector<PlaybackStatusProvider, (int?, PlayingItem?)>(
@@ -224,6 +266,17 @@ class _QueueState extends State<Queue> {
               (capabilities) => capabilities.movePlaylistItemRequest,
             );
             final canMove = moveCapability is RequestCapabilityAvailable;
+
+            if (playlistProvider.items.isNotEmpty) {
+              _revealCurrent(
+                playlistProvider.items.indexWhere(
+                  (x) =>
+                      playbackStatusProvider.$1 == x.index &&
+                      playbackStatusProvider.$2 == x.item,
+                ),
+                playlistProvider.items.length,
+              );
+            }
 
             return playlistProvider.items.isEmpty
                 ? ListTile.selectable(
