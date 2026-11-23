@@ -150,7 +150,9 @@ pub trait ScrobblingServiceManager: Send + Sync {
     async fn commit_staged_authentication(&mut self);
     /// Drops the staged client without activating it or sending it queued
     /// submissions. The current login stays active.
-    async fn discard_staged_authentication(&mut self);
+    ///
+    /// This is synchronous so a dropped login future can call it from `Drop`.
+    fn discard_staged_authentication(&mut self);
     /// Reports that `track` started playing on `service`.
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack);
     /// Restores a saved session key for `service`.
@@ -308,7 +310,7 @@ impl ScrobblingManager {
         }
     }
 
-    async fn process_cache(&mut self) {
+    fn process_cache(&mut self) {
         if self.is_authenticating {
             return;
         }
@@ -536,14 +538,14 @@ impl ScrobblingServiceManager for ScrobblingManager {
             }
         }
         self.is_authenticating = false;
-        self.process_cache().await;
+        self.process_cache();
         self.send_login_status().await;
     }
 
-    async fn discard_staged_authentication(&mut self) {
+    fn discard_staged_authentication(&mut self) {
         self.staged = None;
         self.is_authenticating = false;
-        self.process_cache().await;
+        self.process_cache();
     }
 
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack) {
@@ -927,7 +929,7 @@ impl ScrobblingServiceManager for MockScrobblingManager {
         // Mock implementation: nothing to activate
     }
 
-    async fn discard_staged_authentication(&mut self) {
+    fn discard_staged_authentication(&mut self) {
         // Mock implementation: nothing to discard
     }
 
@@ -1068,7 +1070,7 @@ mod tests {
         let status = manager.subscribe_login_status();
         manager.scrobble_all(sample_track(), Duration::from_secs(30));
 
-        manager.discard_staged_authentication().await;
+        manager.discard_staged_authentication();
 
         timeout(Duration::from_secs(5), old_server)
             .await

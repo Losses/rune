@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -9,7 +10,7 @@ use scrobbling::{
     LastFmApiCredentialField as ManagerLastFmApiCredentialField, ScrobblingAuthFailure,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 use crate::request_error::ExpectedRequestError;
@@ -101,6 +102,36 @@ async fn store_authenticated_credential(
         .map_err(|_| credentials_failure())
 }
 
+struct StagedAuthenticationGuard<'a, M: ScrobblingServiceManager + ?Sized> {
+    scrobbler: MutexGuard<'a, M>,
+    armed: bool,
+}
+
+impl<'a, M: ScrobblingServiceManager + ?Sized> StagedAuthenticationGuard<'a, M> {
+    fn new(scrobbler: MutexGuard<'a, M>) -> Self {
+        Self {
+            scrobbler,
+            armed: true,
+        }
+    }
+
+    fn scrobbler(&mut self) -> &mut M {
+        &mut self.scrobbler
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl<M: ScrobblingServiceManager + ?Sized> Drop for StagedAuthenticationGuard<'_, M> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.scrobbler.discard_staged_authentication();
+        }
+    }
+}
+
 async fn authenticate_and_store<M>(
     store: &CredentialStore,
     scrobbler: &Mutex<M>,
@@ -108,6 +139,23 @@ async fn authenticate_and_store<M>(
 ) -> Result<CredentialRef>
 where
     M: ScrobblingServiceManager + ?Sized,
+{
+    authenticate_and_store_with(store, scrobbler, request, |pending| {
+        store_authenticated_credential(store, pending)
+    })
+    .await
+}
+
+async fn authenticate_and_store_with<M, F, Fut>(
+    store: &CredentialStore,
+    scrobbler: &Mutex<M>,
+    request: &LoginRequestItem,
+    persist: F,
+) -> Result<CredentialRef>
+where
+    M: ScrobblingServiceManager + ?Sized,
+    F: FnOnce(PendingCredential) -> Fut,
+    Fut: Future<Output = Result<CredentialRef>>,
 {
     let pending = match credential_for_request(store, request).await {
         Ok(pending) => pending,
@@ -130,8 +178,10 @@ where
             api_secret,
         } => (Some(api_key.clone()), Some(api_secret.clone())),
     };
-    let mut scrobbler = scrobbler.lock().await;
-    let result = scrobbler
+    let scrobbler = scrobbler.lock().await;
+    let mut guard = StagedAuthenticationGuard::new(scrobbler);
+    let result = guard
+        .scrobbler()
         .authenticate_staged(
             &request.service_id.clone().into(),
             &pending.credential.username,
@@ -142,15 +192,13 @@ where
         )
         .await;
     match result {
-        Ok(()) => match store_authenticated_credential(store, pending).await {
+        Ok(()) => match persist(pending).await {
             Ok(reference) => {
-                scrobbler.commit_staged_authentication().await;
+                guard.scrobbler().commit_staged_authentication().await;
+                guard.disarm();
                 Ok(reference)
             }
-            Err(error) => {
-                scrobbler.discard_staged_authentication().await;
-                Err(error)
-            }
+            Err(error) => Err(error),
         },
         Err(error) => Err(ExpectedRequestError::ScrobbleAuthentication {
             failure: authentication_failure(error, &secrets),
@@ -364,8 +412,8 @@ impl Signal for LogoutSingleServiceRequest {
 #[cfg(test)]
 mod tests {
     use super::{
-        ScrobbleSecrets, authenticate_and_store, credential_for_request, redact_secrets,
-        remove_credential, secrets_from_credential,
+        ScrobbleSecrets, authenticate_and_store, authenticate_and_store_with,
+        credential_for_request, redact_secrets, remove_credential, secrets_from_credential,
     };
     use crate::messages::{
         LoginRequestItem, RequestFailureCause, ScrobbleApiCredentials,
@@ -384,7 +432,7 @@ mod tests {
     use std::fs;
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
-    use tokio::sync::Mutex;
+    use tokio::sync::{Mutex, oneshot};
     use uuid::Uuid;
 
     fn password_login() -> LoginRequestItem {
@@ -452,10 +500,12 @@ mod tests {
         reject: bool,
         active: Option<String>,
         staged: Option<String>,
+        authenticating: bool,
         usernames: Vec<String>,
         commits: usize,
         discards: usize,
         scrobbled_as: Vec<String>,
+        queued_as: Vec<String>,
         statuses: StdMutex<Vec<Option<String>>>,
     }
 
@@ -466,10 +516,12 @@ mod tests {
                 reject: false,
                 active: None,
                 staged: None,
+                authenticating: false,
                 usernames: Vec::new(),
                 commits: 0,
                 discards: 0,
                 scrobbled_as: Vec::new(),
+                queued_as: Vec::new(),
                 statuses: StdMutex::new(Vec::new()),
             }
         }
@@ -504,7 +556,9 @@ mod tests {
             _enable_retry: bool,
         ) -> Result<()> {
             self.usernames.push(username.to_owned());
+            self.authenticating = true;
             if self.reject {
+                self.authenticating = false;
                 return Err(scrobbling::ScrobblingAuthFailure::CredentialsRejected {
                     detail: "rejected".into(),
                 }
@@ -518,12 +572,21 @@ mod tests {
             if let Some(username) = self.staged.take() {
                 self.active = Some(username);
             }
+            self.authenticating = false;
+            let queued = std::mem::take(&mut self.queued_as);
+            self.scrobbled_as.extend(
+                queued
+                    .into_iter()
+                    .map(|_| self.active.clone().unwrap_or_default()),
+            );
             self.commits += 1;
             self.send_login_status().await;
         }
 
-        async fn discard_staged_authentication(&mut self) {
+        fn discard_staged_authentication(&mut self) {
             self.staged = None;
+            self.authenticating = false;
+            self.queued_as.clear();
             self.discards += 1;
         }
 
@@ -553,8 +616,12 @@ mod tests {
             track: ScrobblingTrack,
             listened: Duration,
         ) {
-            self.scrobbled_as
-                .push(self.active.clone().unwrap_or_default());
+            if self.authenticating {
+                self.queued_as.push(self.staged.clone().unwrap_or_default());
+            } else {
+                self.scrobbled_as
+                    .push(self.active.clone().unwrap_or_default());
+            }
             self.inner.scrobble(service, track, listened).await;
         }
 
@@ -833,6 +900,60 @@ mod tests {
             scrobbler.scrobbled_as,
             ["bob"],
             "scrobbles must use the login whose credential was stored"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_credential_write_discards_the_staged_login() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CredentialStore::open(directory.path());
+        let previous = store
+            .put(credential("alice", "old-password"))
+            .await
+            .unwrap();
+        let scrobbler = Mutex::new(TestScrobbler::accepting().with_active("alice"));
+        let request = password_login_for("bob", "new-password", Some(previous));
+        let (reached_tx, reached_rx) = oneshot::channel();
+        let (_release_tx, release_rx) = oneshot::channel::<()>();
+
+        let mut login = Box::pin(authenticate_and_store_with(
+            &store,
+            &scrobbler,
+            &request,
+            move |_pending| async move {
+                reached_tx.send(()).unwrap();
+                release_rx.await.unwrap();
+                unreachable!("the test drops the login future before this resolves")
+            },
+        ));
+
+        tokio::select! {
+            result = &mut login => {
+                panic!("login finished before the credential write was cancelled: {result:?}")
+            }
+            reached = reached_rx => reached.expect("the login did not reach the credential write"),
+        }
+        drop(login);
+
+        let mut scrobbler = scrobbler.lock().await;
+        assert!(
+            !scrobbler.authenticating,
+            "cancellation left is_authenticating set"
+        );
+        assert!(
+            scrobbler.staged.is_none(),
+            "cancellation kept the staged client"
+        );
+        assert_eq!(scrobbler.commits, 0);
+        assert_eq!(scrobbler.discards, 1);
+        assert!(scrobbler.queued_as.is_empty());
+        scrobbler
+            .scrobble(ScrobblingService::ListenBrainz, track(), Duration::ZERO)
+            .await;
+        assert_eq!(
+            scrobbler.scrobbled_as,
+            ["alice"],
+            "after cancellation scrobbles must use the still-active login"
         );
     }
 
