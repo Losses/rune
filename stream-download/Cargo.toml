@@ -159,6 +159,9 @@ version = "0.1.44"
 version = "2.5"
 optional = true
 
+[dev-dependencies.libc]
+version = "0.2"
+
 [lints.clippy]
 allow_attributes = "deny"
 default_trait_access = "warn"
