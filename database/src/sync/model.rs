@@ -154,6 +154,10 @@ fn validate_mix_clause(value: &MixClause) -> Result<(), DbErr> {
     let valid = match operator.parameter_kind() {
         ParameterKind::Reference(_) => value.target_uuid.is_some() && value.parameter.is_empty(),
         ParameterKind::Directory => value.target_uuid.is_none() && value.parameter.is_empty(),
+        ParameterKind::Uuid => {
+            value.target_uuid.is_none() && value.parameter.parse::<Uuid>().is_ok()
+        }
+        ParameterKind::Text => value.target_uuid.is_none() && !value.parameter.trim().is_empty(),
         ParameterKind::Flag => {
             value.target_uuid.is_none() && matches!(value.parameter.as_str(), "true" | "false")
         }

@@ -15,8 +15,8 @@ use async_trait::async_trait;
 use migration::{ExprTrait, Func, IntoCondition, SimpleExpr};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ColumnTrait, DatabaseTransaction, EntityTrait, JoinType, Order, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait, Set, TransactionTrait,
+    ColumnTrait, DatabaseTransaction, DbBackend, EntityTrait, JoinType, Order, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, Set, Statement, TransactionTrait,
     sea_query::{Condition, Expr, LikeExpr, Query},
 };
 
@@ -25,9 +25,9 @@ use crate::actions::analysis::{
 };
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{
-    albums, artists, genres, media_analysis, media_file_albums, media_file_artists,
-    media_file_fingerprint, media_file_genres, media_file_likes, media_file_playlists,
-    media_file_stats, media_files, mix_queries, mixes, playlists,
+    albums, genres, media_analysis, media_file_albums, media_file_fingerprint, media_file_genres,
+    media_file_likes, media_file_playlists, media_file_stats, media_files, mix_queries, mixes,
+    playlists,
 };
 
 use super::analysis::get_centralized_analysis_result;
@@ -189,6 +189,31 @@ async fn author_mix(
     store: &SeaOrmSyncStore,
     mix: &mixes::Model,
 ) -> Result<()> {
+    // Publish all known shared tracks for portable edition selections within the Mix write.
+    let editions = tx
+        .query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT DISTINCT parameter FROM mix_queries WHERE mix_uuid = ? AND operator = 'lib::release'",
+            [mix.source_uuid.clone().into()],
+        ))
+        .await?;
+    for row in editions {
+        let edition: String = row.try_get("", "parameter")?;
+        let matches = tx.query_all_raw(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            "SELECT album_id FROM music_metadata_edition_matches WHERE edition_uuid = ? LIMIT 2",
+            [edition.clone().into()],
+        )).await?;
+        if let [album] = matches.as_slice() {
+            super::resolved_metadata::edits::publish_edition_anchors(
+                tx,
+                store,
+                edition.parse()?,
+                album.try_get::<String>("", "album_id")?.parse()?,
+            )
+            .await?;
+        }
+    }
     author_source_on(
         tx,
         store,
@@ -379,7 +404,11 @@ pub async fn get_mix_queries_by_mix_id(
         .one(db)
         .await?
         .ok_or(ExpectedError::NotFound { what: "mix" })?;
-    query_views_on(db, &mix.source_uuid).await
+    let mut views = query_views_on(db, &mix.source_uuid).await?;
+    for view in &mut views {
+        super::browse::editable_clause(db, view).await?;
+    }
+    Ok(views)
 }
 pub async fn executable_mix_queries(
     db: &DatabaseConnection,
@@ -436,7 +465,11 @@ pub async fn remove_mix_query(
 pub enum QueryOperator {
     LibAll(bool),
     LibArtist(i32),
+    LibArtistId(Uuid),
     LibAlbum(i32),
+    LibRelease(Uuid),
+    LibAlbumArtist(String),
+    LibLabel(String),
     LibGenre(i32),
     LibPlaylist(i32),
     LibTrack(i32),
@@ -547,10 +580,24 @@ impl QueryOperator {
         };
         let flag = || parameter.parse::<bool>().map_err(|_| invalid());
         let number = || parameter.parse::<i32>().map_err(|_| invalid());
+        let text = || {
+            let value = parameter.trim();
+            if value.is_empty() {
+                Err(invalid())
+            } else {
+                Ok(value.to_owned())
+            }
+        };
         Ok(match operator {
             MixOperator::LibAll => Self::LibAll(flag()?),
             MixOperator::LibArtist => Self::LibArtist(number()?),
+            MixOperator::LibArtistId => {
+                Self::LibArtistId(parameter.parse().map_err(|_| invalid())?)
+            }
             MixOperator::LibAlbum => Self::LibAlbum(number()?),
+            MixOperator::LibRelease => Self::LibRelease(parameter.parse().map_err(|_| invalid())?),
+            MixOperator::LibAlbumArtist => Self::LibAlbumArtist(text()?),
+            MixOperator::LibLabel => Self::LibLabel(text()?),
             MixOperator::LibGenre => Self::LibGenre(number()?),
             MixOperator::LibPlaylist => Self::LibPlaylist(number()?),
             MixOperator::LibTrack => Self::LibTrack(number()?),
@@ -577,7 +624,11 @@ impl QueryOperator {
         match self {
             Self::LibAll(_) => MixOperator::LibAll,
             Self::LibArtist(_) => MixOperator::LibArtist,
+            Self::LibArtistId(_) => MixOperator::LibArtistId,
             Self::LibAlbum(_) => MixOperator::LibAlbum,
+            Self::LibRelease(_) => MixOperator::LibRelease,
+            Self::LibAlbumArtist(_) => MixOperator::LibAlbumArtist,
+            Self::LibLabel(_) => MixOperator::LibLabel,
             Self::LibGenre(_) => MixOperator::LibGenre,
             Self::LibPlaylist(_) => MixOperator::LibPlaylist,
             Self::LibTrack(_) => MixOperator::LibTrack,
@@ -619,6 +670,8 @@ impl QueryOperator {
             | Self::LibRandom(id)
             | Self::PipeRecommend(id) => id.to_string(),
             Self::LibDirectoryDeep(path) | Self::LibDirectoryShallow(path) => path.clone(),
+            Self::LibRelease(id) | Self::LibArtistId(id) => id.to_string(),
+            Self::LibAlbumArtist(value) | Self::LibLabel(value) => value.clone(),
             Self::PipeLimit(limit) => limit.to_string(),
         };
         (self.operator().syntax(), parameter)
@@ -645,6 +698,89 @@ fn apply_join_filter(
     }
 
     _query
+}
+
+enum AlbumProperty {
+    Artist,
+    Label,
+}
+
+fn album_property_condition(property: AlbumProperty, name: String) -> SimpleExpr {
+    // Each branch uses its own covering index to locate contributing tracks.
+    let evidence = match property {
+        AlbumProperty::Artist => {
+            "SELECT file_id FROM music_metadata_credits
+            WHERE scope = 0 AND role = 'Primary Artist' AND credited_as = ? COLLATE NOCASE"
+        }
+        AlbumProperty::Label => {
+            return Expr::cust_with_values(
+                "media_files.id IN (
+                 SELECT track.file_id FROM music_metadata_audio track JOIN music_metadata_discs d ON d.id = track.disc_id
+                 WHERE d.album_id IN (
+                    SELECT album_id FROM music_metadata_album_effective_fields
+                    WHERE field = 'labels' AND value = ? COLLATE NOCASE
+                    UNION SELECT source_disc.album_id FROM music_metadata_values v
+                    JOIN music_metadata_audio source ON source.file_id = v.file_id
+                    JOIN music_metadata_discs source_disc ON source_disc.id = source.disc_id
+                    WHERE v.scope = 0 AND v.field = 'labels' AND v.qualifier = '' AND v.value = ? COLLATE NOCASE
+                    AND NOT EXISTS (SELECT 1 FROM music_metadata_album_effective_fields e
+                                    WHERE e.album_id = source_disc.album_id AND e.field = 'labels')
+                 ))",
+                [name.clone(), name],
+            );
+        }
+    };
+    Expr::cust_with_values(
+        format!(
+            "media_files.id IN (
+            SELECT track.file_id FROM music_metadata_discs d
+            JOIN music_metadata_audio track ON track.disc_id = d.id
+            WHERE d.album_id IN (
+                SELECT source_disc.album_id FROM ({evidence}) matched
+                JOIN music_metadata_audio source ON source.file_id = matched.file_id
+                JOIN music_metadata_discs source_disc ON source_disc.id = source.disc_id
+            )
+        )"
+        ),
+        [name],
+    )
+}
+
+fn artist_condition(ids: Vec<i32>) -> SimpleExpr {
+    let placeholders = vec!["?"; ids.len()].join(", ");
+    artist_tracks_condition(
+        &format!(
+            "SELECT target_uuid FROM music_metadata_artist_identities WHERE source_id IN ({placeholders})"
+        ),
+        ids.into_iter().map(Into::into).collect(),
+    )
+}
+
+fn artist_tracks_condition(targets: &str, parameters: Vec<sea_orm::Value>) -> SimpleExpr {
+    // Expand old and current artist IDs to the same set of original identities.
+    Expr::cust_with_values(
+        format!(
+            "media_files.source_uuid IN (
+                WITH targets AS (
+                    {targets}
+                ), identities AS (
+                    SELECT target_uuid AS id FROM targets
+                    UNION
+                    SELECT r.source_uuid FROM music_metadata_artist_redirects r
+                    WHERE r.target_uuid IN (SELECT target_uuid FROM targets)
+                )
+                SELECT track_uuid FROM media_file_artists WHERE artist_uuid IN (SELECT id FROM identities)
+                UNION
+                SELECT a.id FROM music_metadata_credits c JOIN music_metadata_audio a ON a.file_id = c.file_id
+                WHERE c.scope = 2 AND c.artist_id IN (SELECT id FROM identities)
+                UNION
+                SELECT a.id FROM music_metadata_recording_credits c
+                JOIN music_metadata_audio a ON a.recording_id = c.recording_id
+                WHERE c.artist_id IN (SELECT id FROM identities)
+            )"
+        ),
+        parameters,
+    )
 }
 
 // Macro to handle sorting
@@ -755,6 +891,114 @@ fn not_verified_duplicate() -> SimpleExpr {
     Expr::not_exists(duplicates)
 }
 
+fn mix_asset_eligibility(
+    filter_liked: Option<bool>,
+    filter_cover_art: Option<bool>,
+    filter_analyzed: Option<bool>,
+) -> Condition {
+    let mut filter = Condition::all().add(not_verified_duplicate());
+    if let Some(liked) = filter_liked {
+        let likes = Query::select()
+            .expr(Expr::val(1))
+            .from(media_file_likes::Entity)
+            .and_where(
+                Expr::col((
+                    media_file_likes::Entity,
+                    media_file_likes::Column::TrackUuid,
+                ))
+                .equals((media_files::Entity, media_files::Column::SourceUuid)),
+            )
+            .and_where(
+                Expr::col((media_file_likes::Entity, media_file_likes::Column::Liked)).eq(true),
+            )
+            .to_owned();
+        filter = filter.add(if liked {
+            Expr::exists(likes)
+        } else {
+            Expr::not_exists(likes)
+        });
+    }
+
+    if let Some(analyzed) = filter_analyzed {
+        let current = media_analysis::Entity::find()
+            .join(
+                JoinType::InnerJoin,
+                media_analysis::Relation::MediaFiles.def(),
+            )
+            .select_only()
+            .column(media_analysis::Column::FileId)
+            .filter(current_analysis_condition())
+            .into_query();
+        filter = filter.add(if analyzed {
+            media_files::Column::Id.in_subquery(current)
+        } else {
+            media_files::Column::Id.not_in_subquery(current)
+        });
+    }
+
+    if let Some(cover_art) = filter_cover_art {
+        filter = filter.add(if cover_art {
+            media_files::Column::CoverArtUuid.is_not_null()
+        } else {
+            media_files::Column::CoverArtUuid.is_null()
+        });
+    }
+    filter
+}
+
+fn release_condition(id: Uuid, eligibility: Condition) -> SimpleExpr {
+    use sea_orm::sea_query::Alias;
+
+    // Apply the same eligibility rules inside the candidate selection and on the Mix output.
+    let candidate = Query::select()
+        .column((media_files::Entity, media_files::Column::Id))
+        .from(media_files::Entity)
+        .join_as(
+            JoinType::InnerJoin,
+            Alias::new("music_metadata_track_assets"),
+            Alias::new("asset"),
+            Expr::cust("asset.file_id = media_files.id AND asset.track_id = track.id"),
+        )
+        .join_as(
+            JoinType::InnerJoin,
+            Alias::new("music_metadata_current_recording_audio"),
+            Alias::new("a"),
+            Expr::cust("a.file_id = media_files.id"),
+        )
+        .cond_where(eligibility)
+        .order_by(
+            (media_files::Entity, media_files::Column::LocalAvailable),
+            Order::Desc,
+        )
+        .order_by_expr(
+            Expr::cust(
+                "COALESCE(lower(a.codec) IN ('flac','alac','wav','pcm','aiff','dsd','wavpack'), 0)",
+            ),
+            Order::Desc,
+        )
+        .order_by(
+            (Alias::new("a"), Alias::new("bits_per_sample")),
+            Order::Desc,
+        )
+        .order_by((Alias::new("a"), Alias::new("sample_rate")), Order::Desc)
+        .order_by((Alias::new("a"), Alias::new("bitrate")), Order::Desc)
+        .order_by((media_files::Entity, media_files::Column::Id), Order::Asc)
+        .limit(1)
+        .to_owned();
+
+    let assets = Query::select()
+        .expr(Expr::from(candidate))
+        .from_as(Alias::new("music_metadata_release_tracks"), Alias::new("track"))
+        .join_as(JoinType::InnerJoin, Alias::new("music_metadata_discs"), Alias::new("disc"),
+            Expr::cust("disc.id = track.disc_id"))
+        .and_where(Expr::cust_with_values(
+            "disc.album_id IN (SELECT album_id FROM music_metadata_edition_matches WHERE edition_uuid = ?
+                UNION ALL SELECT album_id FROM music_metadata_album_track_anchors WHERE track_uuid = ?)",
+            [id.to_string(), id.to_string()],
+        )).to_owned();
+    Expr::col((media_files::Entity, media_files::Column::Id)).in_subquery(assets)
+}
+
 fn sort_media_files(
     mut media_files: Vec<media_files::Model>,
     track_ids: &[i32],
@@ -826,10 +1070,13 @@ pub async fn query_mix_media_files_with_seed(
     session_queue: &[i32],
     random_seed: Option<u64>,
 ) -> Result<Vec<media_files::Model>> {
+    super::resolved_metadata::ensure_tracks_current(main_db).await?;
     let mut all: bool = false;
 
     let mut artist_ids: Vec<i32> = vec![];
     let mut album_ids: Vec<i32> = vec![];
+    let mut release_ids = Vec::new();
+    let mut resolved_conditions = Vec::new();
     let mut genre_ids: Vec<i32> = vec![];
     let mut playlist_ids: Vec<i32> = vec![];
     let mut track_ids: Vec<i32> = vec![];
@@ -850,11 +1097,24 @@ pub async fn query_mix_media_files_with_seed(
     let mut pipe_limit: Option<u64> = None;
     let mut pipe_recommend: Option<i32> = None;
 
-    for query in queries {
+    for (operator, parameter) in queries {
+        let query = super::browse::portable_clause(main_db, operator, parameter).await?;
         match QueryOperator::parse(&query.0, &query.1).map_err(ExpectedError::from)? {
             QueryOperator::LibAll(is_all) => all = is_all,
             QueryOperator::LibArtist(id) => artist_ids.push(id),
+            QueryOperator::LibArtistId(id) => resolved_conditions.push(artist_tracks_condition(
+                "SELECT COALESCE(r.target_uuid, a.id) AS target_uuid FROM music_metadata_artists a
+                 LEFT JOIN music_metadata_artist_redirects r ON r.source_uuid = a.id WHERE a.id = ?",
+                vec![id.to_string().into()],
+            )),
             QueryOperator::LibAlbum(id) => album_ids.push(id),
+            QueryOperator::LibRelease(id) => release_ids.push(id),
+            QueryOperator::LibAlbumArtist(name) => {
+                resolved_conditions.push(album_property_condition(AlbumProperty::Artist, name))
+            }
+            QueryOperator::LibLabel(name) => {
+                resolved_conditions.push(album_property_condition(AlbumProperty::Label, name))
+            }
             QueryOperator::LibGenre(id) => genre_ids.push(id),
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
             QueryOperator::LibTrack(id) => track_ids.push(id),
@@ -889,6 +1149,8 @@ pub async fn query_mix_media_files_with_seed(
 
     let only_one_playlist = artist_ids.is_empty()
         && album_ids.is_empty()
+        && release_ids.is_empty()
+        && resolved_conditions.is_empty()
         && track_ids.is_empty()
         && genre_ids.is_empty()
         && random_count.is_empty()
@@ -902,20 +1164,25 @@ pub async fn query_mix_media_files_with_seed(
         -1
     };
 
-    let mut query = media_files::Entity::find().filter(not_verified_duplicate());
+    let eligibility = mix_asset_eligibility(filter_liked, filter_cover_art, filter_analyzed);
+    let mut query = media_files::Entity::find().filter(eligibility.clone());
+    if !all {
+        resolved_conditions.extend(
+            release_ids
+                .into_iter()
+                .map(|id| release_condition(id, eligibility.clone())),
+        );
+    }
 
     // Create an OR condition to hold all the subconditions
     let mut or_condition = Condition::any();
+    for condition in resolved_conditions {
+        or_condition = or_condition.add(condition);
+    }
 
-    // Filter by artist_ids if provided
-    add_subquery_filter!(
-        or_condition,
-        artist_ids,
-        artists,
-        media_file_artists::Entity,
-        media_file_artists::Column::ArtistUuid,
-        media_file_artists::Column::TrackUuid
-    );
+    if !artist_ids.is_empty() {
+        or_condition = or_condition.add(artist_condition(artist_ids));
+    }
 
     // Filter by album_ids if provided
     add_subquery_filter!(
@@ -1029,66 +1296,7 @@ pub async fn query_mix_media_files_with_seed(
             .add(Expr::col((media_files::Entity, media_files::Column::Id)).in_subquery(subquery));
     }
 
-    let has_liked = filter_liked.is_some();
-    let has_cover_art = filter_cover_art.is_some();
-    let has_analyzed = filter_analyzed.is_some();
-
-    if has_liked || has_cover_art || has_analyzed {
-        let mut filter = Condition::all();
-
-        if !all {
-            filter = filter.add(or_condition);
-        }
-
-        if let Some(liked) = filter_liked {
-            let likes = Query::select()
-                .expr(Expr::val(1))
-                .from(media_file_likes::Entity)
-                .and_where(
-                    Expr::col((
-                        media_file_likes::Entity,
-                        media_file_likes::Column::TrackUuid,
-                    ))
-                    .equals((media_files::Entity, media_files::Column::SourceUuid)),
-                )
-                .and_where(
-                    Expr::col((media_file_likes::Entity, media_file_likes::Column::Liked)).eq(true),
-                )
-                .to_owned();
-            filter = filter.add(if liked {
-                Expr::exists(likes)
-            } else {
-                Expr::not_exists(likes)
-            });
-        }
-
-        if let Some(analyzed) = filter_analyzed {
-            let current = media_analysis::Entity::find()
-                .join(
-                    JoinType::InnerJoin,
-                    media_analysis::Relation::MediaFiles.def(),
-                )
-                .select_only()
-                .column(media_analysis::Column::FileId)
-                .filter(current_analysis_condition())
-                .into_query();
-            filter = filter.add(if analyzed {
-                media_files::Column::Id.in_subquery(current)
-            } else {
-                media_files::Column::Id.not_in_subquery(current)
-            });
-        }
-
-        if let Some(cover_art) = filter_cover_art {
-            filter = filter.add(if cover_art {
-                media_files::Column::CoverArtUuid.is_not_null()
-            } else {
-                media_files::Column::CoverArtUuid.is_null()
-            });
-        }
-
-        query = query.filter(filter);
-    } else if !all {
+    if !all {
         query = query.filter(or_condition);
     }
 
@@ -1401,6 +1609,7 @@ async fn replace_queries_on(
     let mut incoming = Vec::with_capacity(queries.len());
     let mut directories = Vec::new();
     for (position, (operator, parameter)) in queries.into_iter().enumerate() {
+        let (operator, parameter) = super::browse::portable_clause(tx, operator, parameter).await?;
         let kind = stored_operator(&operator)?;
         let target = resolve_target_on(tx, kind, &parameter).await?;
         let directory = kind.is_directory();
@@ -1499,6 +1708,7 @@ async fn add_query_on(
     use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
     type Clauses = OwnedListPolicy<mix_queries::Entity, MixClauseMap>;
     let views = query_views_on(tx, mix_uuid).await?;
+    let (operator, parameter) = super::browse::portable_clause(tx, operator, parameter).await?;
     let kind = stored_operator(&operator)?;
     let directory = kind.is_directory();
     let existing = views.iter().find(|view| {

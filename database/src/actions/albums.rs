@@ -1,15 +1,6 @@
-use std::collections::HashSet;
+use crate::entities::albums;
 
-use anyhow::Result;
-use async_trait::async_trait;
-use sea_orm::prelude::*;
-
-use crate::actions::collection::CollectionQuery;
-use crate::collection_query;
-use crate::connection::MainDbConnection;
-use crate::entities::{albums, media_file_albums};
-
-use super::collection::CollectionQueryType;
+use super::browse::resolved_browse_query;
 use super::utils::CollectionDefinition;
 
 impl CollectionDefinition for albums::Entity {
@@ -22,10 +13,4 @@ impl CollectionDefinition for albums::Entity {
     }
 }
 
-collection_query!(
-    albums,
-    CollectionQueryType::Album,
-    "lib::album".to_owned(),
-    media_file_albums,
-    AlbumUuid
-);
+resolved_browse_query!(albums::Model, Album);
