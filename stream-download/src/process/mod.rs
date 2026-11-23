@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::mem;
 use std::pin::Pin;
-use std::process::{ChildStdout, Stdio};
+use std::process::{Child, ChildStdout, Stdio};
 use std::task::Poll;
 
 use bytes::Bytes;
@@ -119,9 +119,13 @@ impl SpawnCommand for Command {
 }
 
 /// A representation of a [`tokio::process::Command`] that's been spawned.
+///
+/// A pipeline also owns the commands before the last one, so that all of its children can be
+/// waited for or killed together.
 #[derive(Debug)]
 pub struct SpawnedCommand {
     child_handle: tokio::process::Child,
+    pipeline_children: Vec<Child>,
     stderr_files: Vec<NamedTempFile>,
 }
 
@@ -155,8 +159,27 @@ impl SpawnedCommand {
 
         Ok(Self {
             child_handle: tokio_command.spawn().wrap_err("error spawning process")?,
+            pipeline_children: Vec::new(),
             stderr_files,
         })
+    }
+
+    /// Terminates and waits for pipeline children that have already been started.
+    fn reap_children(children: Vec<Child>) {
+        for mut child in children {
+            if let Err(e) = child.kill() {
+                debug!("error killing pipeline process: {e:?}");
+            }
+            if let Err(e) = child.wait() {
+                warn!("error waiting for pipeline process: {e:?}");
+            }
+        }
+    }
+}
+
+impl Drop for SpawnedCommand {
+    fn drop(&mut self) {
+        Self::reap_children(mem::take(&mut self.pipeline_children));
     }
 }
 
@@ -205,16 +228,18 @@ impl ProcessStreamParams {
 
 /// A [`SourceStream`] implementation that asynchronously reads the `stdout` byte stream from a
 /// [`tokio::process::Command`].
+///
+/// When the stream ends, every command started for the pipeline is waited for, and any that is
+/// still running is killed first.
 #[derive(Debug)]
 pub struct ProcessStream {
     stream: AsyncReadStream<tokio::process::ChildStdout>,
-    child_handle: tokio::process::Child,
-    stderr_files: Vec<NamedTempFile>,
+    command: SpawnedCommand,
 }
 
 impl ProcessStream {
     fn check_stderr_files(&mut self) {
-        for file in &mut self.stderr_files {
+        for file in &mut self.command.stderr_files {
             let _ = file
                 .flush()
                 .inspect_err(|e| error!("error flushing file: {e:?}"));
@@ -234,10 +259,23 @@ impl ProcessStream {
     }
 
     fn close_stderr_files(&mut self) {
-        for file in mem::take(&mut self.stderr_files) {
+        for file in mem::take(&mut self.command.stderr_files) {
             let _ = file
                 .close()
                 .inspect_err(|e| warn!("error closing file: {e:?}"));
+        }
+    }
+
+    /// Terminates and waits for the pipeline commands before the last one.
+    async fn reap_pipeline_children(&mut self) {
+        let children = mem::take(&mut self.command.pipeline_children);
+        if children.is_empty() {
+            return;
+        }
+        if let Err(e) =
+            tokio::task::spawn_blocking(move || SpawnedCommand::reap_children(children)).await
+        {
+            error!("error reaping pipeline processes: {e:?}");
         }
     }
 }
@@ -251,14 +289,11 @@ impl SourceStream for ProcessStream {
             content_length,
             mut command,
         } = params;
+        let stdout = command.child_handle.stdout.take().expect("stdout missing");
 
         Ok(Self {
-            stream: AsyncReadStream::new(
-                command.child_handle.stdout.take().expect("stdout missing"),
-                content_length,
-            ),
-            child_handle: command.child_handle,
-            stderr_files: command.stderr_files,
+            stream: AsyncReadStream::new(stdout, content_length),
+            command,
         })
     }
 
@@ -284,21 +319,28 @@ impl SourceStream for ProcessStream {
         outcome: StreamOutcome,
     ) -> io::Result<()> {
         let (result, check_command_error) = if result.is_ok() {
-            let wait_res = self.child_handle.wait().await?;
-            if wait_res.success() {
-                (result, false)
-            } else {
-                warn!("command exited with error code: {wait_res:?}");
-                let error = io::Error::other(format!("command exited with {wait_res}"));
-                (Err(error), true)
+            match self.command.child_handle.wait().await {
+                Ok(wait_res) if wait_res.success() => (result, false),
+                Ok(wait_res) => {
+                    warn!("command exited with error code: {wait_res:?}");
+                    let error = io::Error::other(format!("command exited with {wait_res}"));
+                    (Err(error), true)
+                }
+                Err(error) => (Err(error), true),
             }
         } else {
             debug!("killing child process");
-            self.child_handle.kill().await?;
+            let kill_result = self.command.child_handle.kill().await;
             debug!("child process killed");
             // Don't need to check process for errors if the user explicitly cancelled the stream
-            (result, outcome == StreamOutcome::Completed)
+            let check_command_error = outcome == StreamOutcome::Completed;
+            match kill_result {
+                Ok(()) => (result, check_command_error),
+                Err(error) => (Err(error), check_command_error),
+            }
         };
+
+        self.reap_pipeline_children().await;
 
         if check_command_error {
             self.check_stderr_files();
@@ -322,3 +364,5 @@ impl Stream for ProcessStream {
 
 #[cfg(all(test, unix))]
 mod exit_status_tests;
+#[cfg(all(test, unix))]
+mod pipeline_tests;

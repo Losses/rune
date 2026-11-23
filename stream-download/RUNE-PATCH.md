@@ -49,6 +49,16 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   exits. Tests:
   `src/process/exit_status_tests.rs` (`--features process`); on unpatched 0.24.5 the
   nonzero-exit and cancel-after-EOF tests fail.
+- Pipeline children (`src/process/command_builder.rs` and `SpawnedCommand` and `ProcessStream`
+  in `src/process/mod.rs`): the builder keeps every intermediate `Child` it starts instead of
+  dropping the handle after connecting its output. `ProcessStream::on_finish` kills and waits
+  for the intermediate children once the last command exits or the stream is cancelled, and
+  `CommandBuilder::spawn` kills and waits for the children it already started when a later
+  command cannot be spawned. Dropping a spawned command or process stream does the same for
+  any child that has not been reaped yet. Tests: `src/process/pipeline_tests.rs`
+  (`--features process`, which adds `libc` as a dev-dependency to observe reaping with
+  `waitpid`); on unpatched 0.24.5 all three tests fail because the intermediate child keeps
+  running.
 - Adaptive storage capacity (`src/storage/adaptive.rs`, `src/storage/mod.rs`, and
   `from_create_stream` in `src/lib.rs`): a stream of unknown length uses a ring of the buffer
   size, but the provider reported no capacity, so a read or seek larger than the ring was not

@@ -38,6 +38,7 @@ impl SpawnCommand for CommandBuilder {
         let last = self.commands.pop().expect("prevented by constructor");
         let mut prev_stdout = None;
         let mut stderr_files = Vec::new();
+        let mut children = Vec::new();
 
         for command in self.commands {
             let mut std_command = std::process::Command::new(command.program);
@@ -47,7 +48,13 @@ impl SpawnCommand for CommandBuilder {
             if let Some(handle) = command.stderr_handle {
                 std_command.stderr(handle);
             } else {
-                let (stdio, stderr_file) = stdio_to_tmp_file()?;
+                let (stdio, stderr_file) = match stdio_to_tmp_file() {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        SpawnedCommand::reap_children(children);
+                        return Err(error);
+                    }
+                };
                 std_command.stderr(stdio);
                 stderr_files.push(stderr_file);
             }
@@ -62,9 +69,25 @@ impl SpawnCommand for CommandBuilder {
             if let Some(prev_stdout) = prev_stdout.take() {
                 std_command.stdin(prev_stdout);
             }
-            let mut command_out = std_command.spawn().wrap_err("error spawning process")?;
+            let mut command_out = match std_command.spawn() {
+                Ok(child) => child,
+                Err(error) => {
+                    SpawnedCommand::reap_children(children);
+                    return Err(error).wrap_err("error spawning process");
+                }
+            };
             prev_stdout = command_out.stdout.take();
+            children.push(command_out);
         }
-        SpawnedCommand::new(last, prev_stdout, stderr_files)
+
+        let mut spawned = match SpawnedCommand::new(last, prev_stdout, stderr_files) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                SpawnedCommand::reap_children(children);
+                return Err(error);
+            }
+        };
+        spawned.pipeline_children = children;
+        Ok(spawned)
     }
 }
