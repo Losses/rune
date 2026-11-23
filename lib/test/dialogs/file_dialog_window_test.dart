@@ -753,6 +753,83 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
 
+    testWidgets('the view button has the fill of the New Folder button', (
+      tester,
+    ) async {
+      await _Harness().pump(tester, const Size(1280, 800));
+      // Rendered pixels, as the two buttons paint their fill differently.
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find
+            .ancestor(
+              of: find.byType(FileDialogWindow),
+              matching: find.byType(RepaintBoundary),
+            )
+            .first,
+      );
+      final image = (await tester.runAsync(() => boundary.toImage()))!;
+      final bytes = (await tester.runAsync(image.toByteData))!;
+      final origin = boundary.localToGlobal(Offset.zero);
+      int pixel(Offset at) {
+        final local = at - origin;
+        final index = (local.dy.round() * image.width + local.dx.round()) * 4;
+        return bytes.getUint32(index);
+      }
+
+      // Just inside each button's left edge, halfway down: its fill.
+      Offset fillOf(Finder button) {
+        final rect = tester.getRect(button);
+        return Offset(rect.left + 4, rect.center.dy);
+      }
+
+      final newFolder = pixel(
+        fillOf(find.widgetWithText(Button, 'New Folder')),
+      );
+      final view = pixel(fillOf(_tooltip('Change Your View')));
+      final arrow = pixel(
+        tester.getRect(_tooltip('More Options')).centerLeft +
+            const Offset(4, 0),
+      );
+      // The dialog behind them, between the two buttons.
+      final behind = pixel(
+        Offset(
+          tester.getRect(find.widgetWithText(Button, 'New Folder')).right + 40,
+          tester.getRect(_tooltip('Change Your View')).center.dy,
+        ),
+      );
+      image.dispose();
+      expect(newFolder, isNot(behind));
+      expect(view, newFolder);
+      expect(arrow, newFolder);
+    });
+
+    testWidgets('hidden items are switched under the view slider', (
+      tester,
+    ) async {
+      final harness = _Harness();
+      await harness.pump(tester, const Size(1280, 800));
+      final controller = harness.controller(tester);
+      expect(controller.showHidden, isFalse);
+      await click(tester, _tooltip('More Options'));
+      await tester.pumpAndSettle();
+      final hidden = _text('Hidden Items');
+      expect(hidden, findsOneWidget);
+      // Below the last view.
+      expect(
+        tester.getTopLeft(hidden).dy,
+        greaterThan(tester.getBottomLeft(_text('Content')).dy),
+      );
+      expect(find.byIcon(Symbols.check), findsNothing);
+      await click(tester, hidden);
+      await tester.pumpAndSettle();
+      expect(controller.showHidden, isTrue);
+      expect(hidden, findsNothing);
+      await click(tester, _tooltip('More Options'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Symbols.check), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('the view button steps and its arrow opens the slider', (
       tester,
     ) async {
