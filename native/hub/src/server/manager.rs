@@ -748,6 +748,12 @@ impl ServerManager {
         self.is_running.load(Ordering::SeqCst)
     }
 
+    /// Whether the running listener is the sync-only service started for paired sync, rather
+    /// than the full server started through `StartServerRequest`.
+    pub fn is_sync_listener(&self) -> bool {
+        self.is_running() && self.sync_only.load(Ordering::SeqCst)
+    }
+
     pub async fn get_address(&self) -> Option<SocketAddr> {
         *self.addr.lock().await
     }
@@ -2325,6 +2331,133 @@ mod lifecycle_tests {
         manager.global_params.node.token.cancel();
         Ok(())
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_stop_restores_the_sync_listener_before_reporting() -> Result<()> {
+        let _port = crate::test_node::SYNC_PORT.lock().await;
+        let dir = tempfile::tempdir()?;
+        let fixture = fixture(dir.path()).await?;
+        let manager = &fixture.manager;
+        let params = &fixture.global_params;
+        let device_info = info(&fixture).await?;
+        manager
+            .clone()
+            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .await?;
+        assert!(manager.is_sync_listener());
+
+        let settings = SyncSettings {
+            listen: true,
+            ..SyncSettings::default()
+        };
+        settings.save(Path::new(&*params.config_path))?;
+        *params.sync_settings.write().await = settings;
+
+        // Abort the server task so stop() clears the listener state and then returns a
+        // join error instead of a clean shutdown.
+        manager
+            .server_handle
+            .lock()
+            .await
+            .as_ref()
+            .context("sync server task")?
+            .abort();
+
+        let request = SetSyncSettingsRequest {
+            request_id: "failed-stop".into(),
+            listen: false,
+            missing_host_file: crate::messages::MissingHostFilePolicy::RemoveEverywhere,
+            call_id: None,
+        };
+        let error = request
+            .handle(
+                (
+                    Arc::clone(&params.sync_settings),
+                    Arc::clone(&params.config_path),
+                    Some(Arc::clone(manager)),
+                    params.node.run_mode,
+                ),
+                None,
+                &request,
+            )
+            .await
+            .err()
+            .expect("disabling a listener whose shutdown fails");
+        assert!(format!("{error:#}").contains("cancelled"), "{error:#}");
+        assert!(
+            manager.is_sync_listener(),
+            "the stopped sync listener was not restored"
+        );
+        assert!(params.sync_settings.read().await.listen);
+        assert!(SyncSettings::load(Path::new(&*params.config_path)).listen);
+
+        fixture.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_stop_reports_a_failed_restore() -> Result<()> {
+        let _port = crate::test_node::SYNC_PORT.lock().await;
+        let dir = tempfile::tempdir()?;
+        let fixture = fixture(dir.path()).await?;
+        let manager = &fixture.manager;
+        let params = &fixture.global_params;
+        let device_info = info(&fixture).await?;
+        manager
+            .clone()
+            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .await?;
+        let settings = SyncSettings {
+            listen: true,
+            ..SyncSettings::default()
+        };
+        settings.save(Path::new(&*params.config_path))?;
+        *params.sync_settings.write().await = settings;
+
+        manager
+            .server_handle
+            .lock()
+            .await
+            .as_ref()
+            .context("sync server task")?
+            .abort();
+        let occupied = TcpListener::bind(SocketAddr::from((
+            [0, 0, 0, 0],
+            discovery::endpoint::DEFAULT_DEVICE_PORT,
+        )))?;
+
+        let request = SetSyncSettingsRequest {
+            request_id: "failed-restore".into(),
+            listen: false,
+            missing_host_file: crate::messages::MissingHostFilePolicy::RemoveEverywhere,
+            call_id: None,
+        };
+        let error = request
+            .handle(
+                (
+                    Arc::clone(&params.sync_settings),
+                    Arc::clone(&params.config_path),
+                    Some(Arc::clone(manager)),
+                    params.node.run_mode,
+                ),
+                None,
+                &request,
+            )
+            .await
+            .err()
+            .expect("disabling a listener whose shutdown and restore fail");
+        let text = format!("{error:#}");
+        assert!(text.contains("cancelled"), "{text}");
+        assert!(text.contains("Failed to bind sync server"), "{text}");
+        assert!(!manager.is_running());
+        assert!(params.sync_settings.read().await.listen);
+        assert!(SyncSettings::load(Path::new(&*params.config_path)).listen);
+        drop(occupied);
+
+        fixture.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
     async fn pair(a: &Fixture, b: &Fixture) -> Result<()> {
         let a_info = info(a).await?;
         let b_info = info(b).await?;
