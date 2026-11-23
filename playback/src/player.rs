@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
@@ -108,6 +108,8 @@ pub struct PlayedThrough {
     pub item: PlayingItem,
     /// Time actually spent playing the track, excluding pauses and seeks.
     pub listened: Duration,
+    /// When the track began playing, in wall-clock time; `None` if it ended without ever playing.
+    pub started_at: Option<SystemTime>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -767,12 +769,17 @@ impl Player {
                         path,
                         playback_mode,
                         listened,
+                        started_at,
                     } => {
                         status.item = Some(item.clone());
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        played_through_sender.send(PlayedThrough { item, listened });
+                        played_through_sender.send(PlayedThrough {
+                            item,
+                            listened,
+                            started_at,
+                        });
                     }
                     PlayerEvent::Error {
                         item,

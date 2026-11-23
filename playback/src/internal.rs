@@ -7,7 +7,7 @@ use std::{
     ops::Range,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -507,6 +507,7 @@ pub enum PlayerEvent {
         path: PathBuf,
         playback_mode: PlaybackMode,
         listened: Duration,
+        started_at: Option<SystemTime>,
     },
     Error {
         item: PlayingItem,
@@ -2493,6 +2494,7 @@ impl PlayerInternal {
                         path: path.unwrap(),
                         playback_mode,
                         listened: self.listen.heard(),
+                        started_at: self.listen.started_at(),
                     })
                     .with_context(|| "Failed to send EndOfTrack event")?;
 
@@ -4329,6 +4331,66 @@ mod playback_state_tests {
                     assert!(
                         listened < Duration::from_secs(3),
                         "the seek was counted as listening: {listened:?}"
+                    );
+
+                    runner.abort();
+                    let _ = std::fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn end_of_track_reports_when_the_track_started_playing() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = tokio::task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let first = library_item(library_id, file_uuids[0]);
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    let before = SystemTime::now();
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &first).await?;
+                    let playing_by = SystemTime::now();
+                    progress_at_or_after(&mut events, Duration::from_secs(1)).await?;
+
+                    commands_sender.send(PlayerCommand::Seek(4.0))?;
+                    let started_at = tokio::time::timeout(TEST_DEADLINE, async {
+                        loop {
+                            match events.recv().await {
+                                Some(PlayerEvent::EndOfTrack {
+                                    item, started_at, ..
+                                }) if item == first => {
+                                    return Ok(started_at);
+                                }
+                                Some(_) => {}
+                                None => bail!("player events closed"),
+                            }
+                        }
+                    })
+                    .await??;
+                    let ended = SystemTime::now();
+
+                    let started_at = started_at.context("the track ended without a start time")?;
+                    assert!(
+                        before <= started_at,
+                        "the start {started_at:?} precedes the switch at {before:?}"
+                    );
+                    assert!(
+                        started_at <= playing_by,
+                        "the start {started_at:?} follows the playing report at {playing_by:?}"
+                    );
+                    let elapsed = ended.duration_since(started_at)?;
+                    assert!(
+                        elapsed >= Duration::from_secs(1),
+                        "the end was reported as the start: {elapsed:?} before the end"
                     );
 
                     runner.abort();

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
 
@@ -17,6 +17,10 @@ pub(crate) struct ListenProgress {
     interval_advanced: Duration,
     interval_elapsed: Duration,
     interval_heard: Duration,
+    // The wall-clock time of the first playing report in this listen. It is read at that moment
+    // because a monotonic instant converted to wall-clock time later would be off by any time
+    // the machine slept during the track.
+    started_at: Option<SystemTime>,
 }
 
 impl Default for ListenProgress {
@@ -29,6 +33,7 @@ impl Default for ListenProgress {
             interval_advanced: Duration::ZERO,
             interval_elapsed: Duration::ZERO,
             interval_heard: Duration::ZERO,
+            started_at: None,
         }
     }
 }
@@ -37,6 +42,7 @@ impl ListenProgress {
     /// Starts a new listen at `position`.
     pub(crate) fn reset(&mut self, position: Duration, playing: bool, observed_at: Instant) {
         self.heard = Duration::ZERO;
+        self.started_at = None;
         self.rebase(position, playing, observed_at);
     }
 
@@ -44,6 +50,7 @@ impl ListenProgress {
     pub(crate) fn rebase(&mut self, position: Duration, playing: bool, observed_at: Instant) {
         self.position = position;
         self.playing = playing;
+        self.mark_started();
         self.observed_at = observed_at;
         self.reset_interval();
     }
@@ -63,6 +70,7 @@ impl ListenProgress {
         }
         self.position = position;
         self.playing = playing;
+        self.mark_started();
         self.observed_at = observed_at;
         if !continuing {
             self.reset_interval();
@@ -76,14 +84,26 @@ impl ListenProgress {
         self.interval_heard = Duration::ZERO;
     }
 
+    /// Records when this listen first played. Later pauses, seeks and stalls keep that time.
+    fn mark_started(&mut self) {
+        if self.playing && self.started_at.is_none() {
+            self.started_at = Some(SystemTime::now());
+        }
+    }
+
     pub(crate) fn heard(&self) -> Duration {
         self.heard
+    }
+
+    /// When this listen first played, in wall-clock time, or `None` if it has not played yet.
+    pub(crate) fn started_at(&self) -> Option<SystemTime> {
+        self.started_at
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use tokio::time::Instant;
 
@@ -257,5 +277,60 @@ mod tests {
         }
 
         assert_eq!(listen.heard(), seconds(10));
+    }
+
+    #[test]
+    fn the_first_playing_report_marks_the_start() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), false, start);
+        assert_eq!(listen.started_at(), None);
+
+        let before = SystemTime::now();
+        listen.update(seconds(0), true, start + seconds(1));
+        let after = SystemTime::now();
+
+        let started_at = listen.started_at();
+        assert!(
+            started_at.is_some_and(|time| before <= time && time <= after),
+            "{started_at:?} is not between {before:?} and {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_pause_and_a_seek_keep_the_start() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        let started_at = listen.started_at();
+        assert!(started_at.is_some());
+
+        listen.update(seconds(2), true, start + seconds(2));
+        listen.update(seconds(2), false, start + seconds(3));
+        listen.rebase(seconds(30), true, start + seconds(10));
+        listen.update(seconds(31), true, start + seconds(11));
+        listen.update(seconds(31), true, start + seconds(12));
+
+        assert_eq!(listen.started_at(), started_at);
+    }
+
+    #[test]
+    fn a_new_listen_has_its_own_start() {
+        let start = Instant::now();
+        let mut listen = ListenProgress::default();
+        listen.reset(seconds(0), true, start);
+        listen.update(seconds(10), true, start + seconds(10));
+        let first = listen.started_at();
+        assert!(first.is_some());
+
+        listen.reset(seconds(0), false, start + Duration::from_millis(10_100));
+        assert_eq!(listen.started_at(), None);
+
+        listen.update(seconds(0), true, start + seconds(11));
+        let second = listen.started_at();
+        assert!(
+            second.is_some() && second >= first,
+            "{second:?} does not follow {first:?}"
+        );
     }
 }

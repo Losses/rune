@@ -910,7 +910,10 @@ async fn handle_status_event(
         && let Some(now_playing) = now_playing
     {
         item_state.now_playing_pending = false;
-        let _ = now_playing.send(metadata_summary_to_scrobbling_track(&item_state.metadata));
+        let _ = now_playing.send(metadata_summary_to_scrobbling_track(
+            &item_state.metadata,
+            Some(SystemTime::now()),
+        ));
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
         let start_time = SystemTime::now()
@@ -1086,15 +1089,19 @@ async fn handle_played_event(
     item_state: &mut ItemEventState,
     scrobbler: &Arc<Mutex<dyn ScrobblingServiceManager>>,
 ) {
-    let PlayedThrough { item, listened } = played;
+    let PlayedThrough {
+        item,
+        listened,
+        started_at,
+    } = played;
     if let Err(error) = record_played(node, &item).await {
         log::warn!("Could not record played item: {error:#}");
     }
     if let Ok((metadata, _)) = item_metadata(node, &item, false).await {
-        scrobbler
-            .lock()
-            .await
-            .scrobble_all(metadata_summary_to_scrobbling_track(&metadata), listened);
+        scrobbler.lock().await.scrobble_all(
+            metadata_summary_to_scrobbling_track(&metadata, started_at),
+            listened,
+        );
     }
     let report = if item_state.last_item.as_ref() == Some(&item)
         && let Some(library) = item_state.library.as_ref()
