@@ -6,8 +6,8 @@ use super::references::collect;
 use super::share::{
     BaseCutRequest, LostCreation, PublishJournalRequest, ShareCapabilities, SharePullError,
     SharePullRequest, SharePullResult, SharePushError, SharePushResult, ShareWriter,
-    base_content_gzip_bytes, collect_own_prefix, cut_base, discard_lost_creation,
-    load_or_create_state, publish_journal, pull, push_store_error,
+    base_gzip_sizes, collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state,
+    publish_journal, pull, push_store_error,
 };
 use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
@@ -825,12 +825,12 @@ impl LibrarySyncStore {
             }
         };
         let now_ms = Utc::now().timestamp_millis().max(0) as u64;
-        let newest_base = if let Some(base) = current_head.bases.last() {
-            // The size of the base's compressed content steers the decision to cut. It is
-            // recorded with the manifest when the base is cut, and measured once for a manifest
-            // from an earlier build; the cut and the collection of this pass confirm every
-            // manifest they depend on before they write or delete anything.
-            let content = base_content_gzip_bytes::<RuneModel>(
+        // The sizes of the base's compressed content and of its manifest steer the decisions to
+        // cut. They are recorded with the manifest when the base is cut, and measured once for a
+        // manifest from an earlier build; the cut and the collection of this pass confirm every
+        // manifest they depend on before they write or delete anything.
+        let stored = if let Some(base) = current_head.bases.last() {
+            base_gzip_sizes::<RuneModel>(
                 &*store,
                 &mut state,
                 &own_prefix,
@@ -838,16 +838,24 @@ impl LibrarySyncStore {
                 capabilities,
                 now_ms as i64,
             )
-            .await?;
-            match content {
-                // A base with no content has no fraction to compare; its first change is
-                // published incrementally. The keeper still sees the zero content, so it cuts a
-                // base once a tail exists.
-                Some(0) | None => BaseSize::Absent,
-                Some(bytes) => BaseSize::GzipBytes(bytes),
-            }
+            .await?
         } else {
-            BaseSize::Absent
+            None
+        };
+        let newest_base = match stored.as_ref().and_then(|sizes| sizes.content) {
+            // A base with no content has no fraction to compare; its first change is published
+            // incrementally.
+            Some(0) | None => BaseSize::Absent,
+            Some(bytes) => BaseSize::GzipBytes(bytes),
+        };
+        // The keeper, though, only replaces a base with no content once a tail outgrows the base
+        // itself, as it did before the content size was kept: replacing it on the first tail
+        // rebuilt the base for every acknowledgement, and readers joining a head that stacks the
+        // empty base beside its replacement failed to reconcile it.
+        let newest_for_keeper = match stored.as_ref().map(|sizes| (sizes.content, sizes.manifest)) {
+            Some((Some(0), Some(manifest))) => BaseSize::GzipBytes(manifest),
+            Some((Some(bytes), _)) => BaseSize::GzipBytes(bytes),
+            _ => BaseSize::Absent,
         };
         let activities = heads
             .iter()
@@ -883,7 +891,7 @@ impl LibrarySyncStore {
                     })
                     .map(|observed| observed.first_seen_ms.max(0) as u64)
                     .unwrap_or(now_ms),
-                gzip_bytes: match newest_base {
+                gzip_bytes: match newest_for_keeper {
                     BaseSize::GzipBytes(bytes) => bytes,
                     BaseSize::Absent => 0,
                 },

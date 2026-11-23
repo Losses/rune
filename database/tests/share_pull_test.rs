@@ -5160,3 +5160,66 @@ async fn garbage_collection_stops_on_a_base_manifest_that_changed_or_disappeared
     }
     Ok(())
 }
+
+/// The keeper does not rebuild a base that holds no candidate chunks just because a tail exists:
+/// replacing it on the first tail rebuilt the base for every acknowledgement and left readers
+/// joining a head that stacks the empty base beside its replacement unable to reconcile it. The
+/// tail stays a segment, the head keeps the single base, and a device joining afterwards reads
+/// the playlist through it.
+#[tokio::test]
+async fn pull_joins_a_share_whose_contentless_base_keeps_its_tail() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+    // The keeper cuts a base for the empty library, and the first edit stays a segment.
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+    add_playlist(&device, 9300, "first content").await?;
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first edit published no head")?;
+    ensure!(
+        head.bases.len() == 1 && head.segments.len() == 1,
+        "the first edit of the empty base did not stay incremental: {:?}",
+        (head.bases.len(), head.segments.len())
+    );
+    let tail_head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await
+        .map_err(|error| anyhow::anyhow!("the pass with a tail failed: {error:?}"))?;
+    let head = tail_head.unwrap_or_else(|| head.clone());
+    ensure!(
+        head.bases.len() == 1 && head.segments.len() == 1,
+        "the keeper rebuilt the contentless base for its first tail: {:?}",
+        (head.bases.len(), head.segments.len())
+    );
+
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    joining
+        .sync_store
+        .pull_share(store.clone(), namespace, cache_path(), capabilities)
+        .await
+        .context("joining the share failed")?;
+    let playlist = joining
+        .sync_store
+        .get(&ObjectKey {
+            collection: Collection::Playlists,
+            id: Uuid::from_u128(9300),
+        })
+        .await?
+        .context("the joined device is missing the playlist")?;
+    ensure!(
+        playlist.value == support::playlist("first content"),
+        "the joined device read a different playlist: {:?}",
+        playlist.value
+    );
+    Ok(())
+}

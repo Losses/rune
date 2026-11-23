@@ -128,6 +128,11 @@ pub enum OwnContents {
         /// manifest recorded before this flag was kept.
         #[serde(default)]
         has_candidates: Option<bool>,
+        /// The compressed bytes of the manifest itself, which is all a base without candidate
+        /// chunks contributes to the share. `None` for a manifest recorded before this size was
+        /// kept.
+        #[serde(default)]
+        manifest_gzip_bytes: Option<u64>,
     },
     /// A segment: what a reference to it holds besides its level, range and name.
     Segment {
@@ -143,11 +148,16 @@ pub enum OwnContents {
 }
 
 impl OwnContents {
-    fn manifest<M: SyncModel>(content_gzip_bytes: u64, manifest: &BaseManifest<M>) -> Self {
+    fn manifest<M: SyncModel>(
+        content_gzip_bytes: u64,
+        manifest_gzip_bytes: u64,
+        manifest: &BaseManifest<M>,
+    ) -> Self {
         Self::Manifest {
             content_gzip_bytes: Some(content_gzip_bytes),
             chunks: manifest_chunk_names(manifest).collect(),
             has_candidates: Some(manifest_has_candidates(manifest)),
+            manifest_gzip_bytes: Some(manifest_gzip_bytes),
         }
     }
 
@@ -162,6 +172,7 @@ impl OwnContents {
                     content_gzip_bytes: None,
                     chunks: manifest_chunk_names(&manifest).collect(),
                     has_candidates: Some(manifest_has_candidates(&manifest)),
+                    manifest_gzip_bytes: Some(bytes.len() as u64),
                 })
             }
             ObjectKey::Segment { .. } => {
@@ -557,7 +568,13 @@ pub async fn cut_base<M: SyncModel>(request: BaseCutRequest<'_, M>) -> SharePush
             &object.bytes,
             capabilities,
             "immutable base object name collision",
-            is_manifest.then(|| OwnContents::manifest(export.content_gzip_bytes, &export.manifest)),
+            is_manifest.then(|| {
+                OwnContents::manifest(
+                    export.content_gzip_bytes,
+                    object.bytes.len() as u64,
+                    &export.manifest,
+                )
+            }),
         )
         .await?;
     }
@@ -2336,6 +2353,7 @@ async fn own_contents<M: SyncModel>(
             content_gzip_bytes: None,
             chunks,
             has_candidates,
+            manifest_gzip_bytes,
         } => {
             // The manifest names its content by hash, so a recorded size for the same chunks
             // still describes these bytes after the manifest was read again, even when the store
@@ -2356,6 +2374,7 @@ async fn own_contents<M: SyncModel>(
                 content_gzip_bytes,
                 chunks,
                 has_candidates,
+                manifest_gzip_bytes,
             }
         }
         other => other,
@@ -2364,19 +2383,29 @@ async fn own_contents<M: SyncModel>(
     Ok(Some(contents))
 }
 
-/// The compressed size of a base's content: the chunks and context fragments that its manifest
-/// references. A base without candidate chunks reports zero, because it has no catalog content to
-/// compare a change with. A base cut records the size with the manifest; a manifest from an
-/// earlier build is measured once by reading its chunks, then recorded. `None` means the manifest
-/// or one of its chunks is gone.
-pub(crate) async fn base_content_gzip_bytes<M: SyncModel>(
+/// The compressed sizes a base contributes to the share: its content, the chunks and context
+/// fragments that its manifest references, and the manifest itself.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BaseGzipSizes {
+    /// The content bytes, or `None` while they are unknown.
+    pub content: Option<u64>,
+    /// The manifest bytes, or `None` while they are unknown.
+    pub manifest: Option<u64>,
+}
+
+/// The compressed sizes of a base: the chunks and context fragments that its manifest references,
+/// and the manifest itself. A base without candidate chunks reports zero content, because it has
+/// no catalog content to compare a change with. A base cut records both sizes with the manifest;
+/// a manifest from an earlier build is measured once by reading it and its chunks, then recorded.
+/// `None` means the manifest or one of its chunks is gone.
+pub(crate) async fn base_gzip_sizes<M: SyncModel>(
     store: &dyn ObjectStore,
     state: &mut ShareState,
     prefix: &DevicePrefix,
     base_id: &str,
     capabilities: ShareCapabilities,
     now_ms: i64,
-) -> SharePushResult<Option<u64>> {
+) -> SharePushResult<Option<BaseGzipSizes>> {
     let object = ObjectKey::Base {
         prefix: prefix.clone(),
         base_id: base_id.to_owned(),
@@ -2384,13 +2413,17 @@ pub(crate) async fn base_content_gzip_bytes<M: SyncModel>(
     if let Some(OwnContents::Manifest {
         content_gzip_bytes: Some(content_gzip_bytes),
         has_candidates,
+        manifest_gzip_bytes,
         ..
     }) = state.recorded(&object)
     {
-        return Ok(Some(if *has_candidates == Some(false) {
-            0
-        } else {
-            *content_gzip_bytes
+        return Ok(Some(BaseGzipSizes {
+            content: Some(if *has_candidates == Some(false) {
+                0
+            } else {
+                *content_gzip_bytes
+            }),
+            manifest: *manifest_gzip_bytes,
         }));
     }
     let key = base_key(&prefix.to_string(), base_id)
@@ -2399,22 +2432,27 @@ pub(crate) async fn base_content_gzip_bytes<M: SyncModel>(
         content_gzip_bytes,
         has_candidates,
         chunks,
+        mut manifest_gzip_bytes,
     }) = own_contents::<M>(store, state, &object, &key, None, capabilities, now_ms).await?
     else {
         return Ok(None);
     };
-    if let Some(content_gzip_bytes) = content_gzip_bytes {
-        return Ok(Some(if has_candidates == Some(false) {
-            0
-        } else {
-            content_gzip_bytes
+    if has_candidates == Some(false) {
+        record_base_gzip_sizes(state, &object, Some(0), manifest_gzip_bytes);
+        return Ok(Some(BaseGzipSizes {
+            content: Some(0),
+            manifest: manifest_gzip_bytes,
         }));
     }
-    if has_candidates == Some(false) {
-        return Ok(Some(0));
+    if let Some(content_gzip_bytes) = content_gzip_bytes {
+        return Ok(Some(BaseGzipSizes {
+            content: Some(content_gzip_bytes),
+            manifest: manifest_gzip_bytes,
+        }));
     }
     // A record from an earlier build does not say whether it has candidate chunks; count every
-    // chunk it names, context fragments included, as the old manifest-size decision did.
+    // chunk it names, context fragments included, as the old manifest-size decision did, and read
+    // the manifest itself for its bytes.
     let mut measured = 0_u64;
     for chunk in &chunks {
         let key = chunk_key(&prefix.to_string(), chunk)
@@ -2429,16 +2467,41 @@ pub(crate) async fn base_content_gzip_bytes<M: SyncModel>(
             Err(error) => return Err(push_store_error(error)),
         }
     }
-    if let Some(OwnRecord {
-        contents: OwnContents::Manifest {
-            content_gzip_bytes, ..
-        },
-        ..
-    }) = state.own_objects.get_mut(&object)
-    {
-        *content_gzip_bytes = Some(measured);
+    if manifest_gzip_bytes.is_none() {
+        match store.get(&key).await {
+            Ok(value) => manifest_gzip_bytes = Some(value.bytes.len() as u64),
+            Err(StoreError::NotFound) => return Ok(None),
+            Err(error) => return Err(push_store_error(error)),
+        }
     }
-    Ok(Some(measured))
+    record_base_gzip_sizes(state, &object, Some(measured), manifest_gzip_bytes);
+    Ok(Some(BaseGzipSizes {
+        content: Some(measured),
+        manifest: manifest_gzip_bytes,
+    }))
+}
+
+/// Replaces the recorded content and manifest sizes of one base manifest, keeping the candidate
+/// flag recorded with them.
+fn record_base_gzip_sizes(
+    state: &mut ShareState,
+    object: &ObjectKey,
+    content_gzip_bytes: Option<u64>,
+    manifest_gzip_bytes: Option<u64>,
+) {
+    if let Some(OwnRecord {
+        contents:
+            OwnContents::Manifest {
+                content_gzip_bytes: recorded_content,
+                manifest_gzip_bytes: recorded_manifest,
+                ..
+            },
+        ..
+    }) = state.own_objects.get_mut(object)
+    {
+        *recorded_content = content_gzip_bytes;
+        *recorded_manifest = manifest_gzip_bytes;
+    }
 }
 
 struct BaseCandidate {
