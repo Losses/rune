@@ -81,7 +81,17 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
   bool _reloading = false;
-  bool _showingFailure = false;
+  // Content changes that come while a reload runs make one more reload after
+  // it, not one each.
+  bool _reloadRunning = false;
+  bool _reloadPending = false;
+  // Whether a background failure dialog is open anywhere. Lists of stacked
+  // pages fail together, and the user needs the error only once.
+  static bool _showingFailure = false;
+
+  /// Lets a test start without the failure dialog an earlier test left open.
+  @visibleForTesting
+  static void resetFailureDialogGuard() => _showingFailure = false;
   // A failure the hub reported, or a request that got no answer in time.
   Object? _failure;
   bool _reachedEnd = false;
@@ -95,7 +105,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         widget.contentChanged ??
         LibraryContentChanged.rustSignalStream.map<void>((_) {});
     _contentSubscription = changes.listen((_) {
-      unawaited(_reloadInPlace());
+      // Failed pages may load now that the library changed.
+      _failedPages.clear();
+      _requestReload();
     });
     _initializeData();
   }
@@ -164,6 +176,29 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     return page.items;
   }
 
+  // Reloads now, or once more after the reload in flight, however many changes
+  // arrive meanwhile.
+  void _requestReload() {
+    if (_reloadRunning) {
+      _reloadPending = true;
+      return;
+    }
+    unawaited(_runReload());
+  }
+
+  Future<void> _runReload() async {
+    _reloadRunning = true;
+    try {
+      await _reloadInPlace();
+    } finally {
+      _reloadRunning = false;
+    }
+    if (_reloadPending && mounted) {
+      _reloadPending = false;
+      unawaited(_runReload());
+    }
+  }
+
   // Keeps the old list on screen until the fresh pages have all arrived, so a
   // scrolled list does not jump back to the start. If a page fails, the old
   // list and its cursors stay as they were.
@@ -171,7 +206,6 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _generation++;
     final generation = _generation;
     _reloading = true;
-    _failedPages.clear();
     final furthest = _loadedItems.keys.fold<int>(-1, (a, b) => a > b ? a : b);
     // Playlist pages are chained by cursors, so they must be fetched in order,
     // into a new chain that replaces the old one once all have arrived.

@@ -262,7 +262,38 @@ class CollectionDataProvider with ChangeNotifier {
     }
   }
 
+  // The reload passes [reloadData] runs, if any. Calls that come while one is
+  // out make one more pass after it, not one each.
+  Future<void>? _reloadPasses;
+  bool _reloadAgain = false;
+
   Future<void> reloadData() {
+    final running = _reloadPasses;
+    if (running != null) {
+      _reloadAgain = true;
+      return running;
+    }
+    return _reloadPasses = _runReloadPasses();
+  }
+
+  Future<void> _runReloadPasses() async {
+    try {
+      while (true) {
+        _reloadAgain = false;
+        try {
+          await _startReload();
+        } catch (_) {
+          // A failed pass stands unless a later call asked for another.
+          if (!_reloadAgain) rethrow;
+        }
+        if (!_reloadAgain || _disposed) return;
+      }
+    } finally {
+      _reloadPasses = null;
+    }
+  }
+
+  Future<void> _startReload() {
     if (_disposed) return Future.value();
     _generation++;
     // The new generation drops the append in flight; the reload fetches its

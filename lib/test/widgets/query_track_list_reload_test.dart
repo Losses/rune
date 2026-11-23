@@ -69,6 +69,7 @@ void main() {
   final s = lookupAppLocalizations(const Locale('en'));
 
   setUp(() {
+    QueryTrackListViewState.resetFailureDialogGuard();
     contentChanged = StreamController<void>.broadcast(sync: true);
   });
 
@@ -229,5 +230,34 @@ void main() {
     expect(find.text(s.requestUnavailable), findsOneWidget);
     expect(find.byType(ProgressRing), findsNothing);
     expect(find.byType(ContentDialog), findsNothing);
+  });
+
+  testWidgets('a burst of content changes makes at most two reload passes', (
+    tester,
+  ) async {
+    var firstPageLoads = 0;
+    Completer<List<InternalMediaFile>>? held;
+    await pumpList(
+      tester,
+      const QueryList([('lib::artist', '1')]),
+      loadMixPage: (queries, cursor, size) {
+        if (cursor != 0) return Future.value(_tracks('t', cursor, 5));
+        firstPageLoads++;
+        return held?.future ?? Future.value(_tracks('t', 0, 5));
+      },
+    );
+    expect(firstPageLoads, 1);
+
+    held = Completer<List<InternalMediaFile>>();
+    for (var i = 0; i < 5; i++) {
+      contentChanged.add(null);
+    }
+    await _settle(tester);
+    expect(firstPageLoads, 2);
+
+    held.complete(_tracks('t', 0, 5));
+    held = null;
+    await _settle(tester);
+    expect(firstPageLoads, 3);
   });
 }

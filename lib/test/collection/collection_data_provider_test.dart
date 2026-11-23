@@ -257,4 +257,28 @@ void main() {
     expect(_titles(provider.items), _pages('new', 2));
     provider.dispose();
   });
+
+  test('a burst of content changes makes at most two reload passes', () async {
+    var passes = 0;
+    final gate = Completer<(_Groups, bool)>();
+    final provider = CollectionDataProvider(
+      collectionType: CollectionType.album,
+      contentChanged: contentChanged.stream,
+      loadSummary: (_) async => [],
+      loadPage: (type, size, cursor) {
+        passes++;
+        return passes == 1
+            ? gate.future
+            : Future.value((_groups('x', 3), true));
+      },
+    );
+    for (var i = 0; i < 5; i++) {
+      contentChanged.add(null);
+    }
+    await Future<void>.delayed(Duration.zero);
+    gate.complete((_groups('x', 3), true));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(passes, 2);
+    provider.dispose();
+  });
 }
