@@ -56,10 +56,21 @@ pub struct JournalEvent<M: SyncModel> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-/// Whether a newest base exists and, if it does, its compressed size.
+/// What the planners know of a device's newest base.
 pub enum BaseSize {
+    /// No base exists.
     Absent,
-    GzipBytes(u64),
+    /// A base exists.
+    Present {
+        /// Compressed bytes of the chunks and context fragments that the manifest references.
+        content_gzip_bytes: u64,
+        /// Compressed bytes of the manifest itself.
+        manifest_gzip_bytes: u64,
+        /// Whether the manifest references any candidate chunks. A base without them holds no
+        /// catalog content, so a change has no fraction of it to compare, and the keeper only
+        /// replaces it once a tail outgrows the manifest itself.
+        has_candidates: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,8 +99,8 @@ pub struct PublishInput<'a, M: SyncModel> {
     pub head: Checkpoint,
     /// Segment references currently named by the head.
     pub existing_segments: &'a [SegmentRef],
-    /// Size of the newest live base, when present.
-    pub newest_base_gzip_bytes: BaseSize,
+    /// What the newest base holds, or that none exists.
+    pub newest_base: BaseSize,
     /// Whether the local export pin was dropped and requires a base.
     pub export_cursor: ExportCursorStatus,
     /// Maximum number of selected events to place in one L0 segment.
@@ -264,11 +275,7 @@ pub fn plan_publish<M: SyncModel>(
         });
     }
     let compressed_bytes: u64 = groups.iter().map(|group| group.compressed_bytes).sum();
-    let bulk_result = bulk_assessment(
-        compressed_bytes,
-        input.newest_base_gzip_bytes,
-        input.export_cursor,
-    );
+    let bulk_result = bulk_assessment(compressed_bytes, input.newest_base, input.export_cursor);
     if let BulkAssessment::Bulk(reason) = bulk_result {
         return Ok(PublishDecision::CutBase {
             reason,
@@ -303,10 +310,23 @@ fn bulk_assessment(bytes: u64, base: BaseSize, cursor: ExportCursorStatus) -> Bu
         BulkAssessment::Bulk(BulkReason::ExportCursorNeedsBase)
     } else if bytes > BULK_GZIP_LIMIT {
         BulkAssessment::Bulk(BulkReason::GzipLimitExceeded)
-    } else if let BaseSize::GzipBytes(base_bytes) = base
-        && bytes.saturating_mul(4) > base_bytes
+    } else if let BaseSize::Present {
+        content_gzip_bytes,
+        manifest_gzip_bytes,
+        has_candidates,
+        ..
+    } = base
     {
-        BulkAssessment::Bulk(BulkReason::BaseFractionExceeded)
+        let threshold = if has_candidates {
+            content_gzip_bytes
+        } else {
+            manifest_gzip_bytes
+        };
+        if bytes.saturating_mul(4) > threshold {
+            BulkAssessment::Bulk(BulkReason::BaseFractionExceeded)
+        } else {
+            BulkAssessment::Incremental
+        }
     } else {
         BulkAssessment::Incremental
     }
@@ -468,7 +488,15 @@ pub enum NewestBase {
     /// No share base exists.
     Absent,
     /// A base exists and was created at this local time.
-    Present { created_ms: u64, gzip_bytes: u64 },
+    Present {
+        created_ms: u64,
+        /// Compressed bytes of the chunks and context fragments that the manifest references.
+        content_gzip_bytes: u64,
+        /// Compressed bytes of the manifest itself.
+        manifest_gzip_bytes: u64,
+        /// Whether the manifest references any candidate chunks.
+        has_candidates: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -489,12 +517,16 @@ pub enum KeeperDecision {
 }
 
 /// Elect the smallest active stream and apply the base age and retained-tail rules.
+/// For a base with candidates, the tail fraction is compared against its content bytes.
+/// For an empty base (no candidates), the keeper only cuts when the tail carries catalog
+/// content (indicated by `tail_has_candidates`).
 pub fn plan_keeper(
     me: Uuid,
     now_ms: u64,
     activities: &[StreamActivity],
     newest_base: NewestBase,
     retained_tail_gzip_bytes: u64,
+    tail_has_candidates: bool,
 ) -> KeeperDecision {
     let active: Vec<_> = activities
         .iter()
@@ -506,7 +538,7 @@ pub fn plan_keeper(
         .copied()
         .min()
         .map_or(Keeper::None, Keeper::Stream);
-    let (age, base_bytes) = match newest_base {
+    let (age, base_bytes, has_candidates) = match newest_base {
         NewestBase::Absent => {
             return if keeper == Keeper::Stream(me) {
                 KeeperDecision::CutBase(BaseCutReason::Cadence)
@@ -516,8 +548,20 @@ pub fn plan_keeper(
         }
         NewestBase::Present {
             created_ms,
-            gzip_bytes,
-        } => (now_ms.saturating_sub(created_ms), gzip_bytes),
+            content_gzip_bytes,
+            manifest_gzip_bytes,
+            has_candidates,
+        } => (
+            now_ms.saturating_sub(created_ms),
+            // A base without candidate chunks holds no catalog content, so a tail is compared
+            // with the manifest, which is all the base contributes to the share.
+            if has_candidates {
+                content_gzip_bytes
+            } else {
+                manifest_gzip_bytes
+            },
+            has_candidates,
+        ),
     };
     if age > BASE_MAX_AGE_MS {
         return KeeperDecision::CutBase(BaseCutReason::MaximumAge);
@@ -528,7 +572,21 @@ pub fn plan_keeper(
     if age >= BASE_CADENCE_MS {
         return KeeperDecision::CutBase(BaseCutReason::Cadence);
     }
-    if retained_tail_gzip_bytes.saturating_mul(4) > base_bytes {
+    // A base without candidates cannot gain content from a tail that also has no
+    // candidates; cutting a new base in that scenario would merely produce another
+    // contentless base and cause oscillation.
+    let needs_cut = if has_candidates {
+        // Base has candidates: use content size as threshold
+        retained_tail_gzip_bytes.saturating_mul(4) > base_bytes
+    } else if tail_has_candidates {
+        // Empty base but tail carries catalog content: use manifest size as threshold
+        // (the tail's candidates will become the new base's content)
+        retained_tail_gzip_bytes.saturating_mul(4) > base_bytes
+    } else {
+        // Empty base, tail has no candidates: cutting would produce another empty base
+        false
+    };
+    if needs_cut {
         return KeeperDecision::CutBase(BaseCutReason::TailFraction);
     }
     KeeperDecision::Wait

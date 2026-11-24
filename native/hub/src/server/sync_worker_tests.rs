@@ -200,6 +200,12 @@ async fn detailed_sync_pass(
     Ok(())
 }
 
+/// A playlist name whose compressed bytes keep a base well above a small update's quarter, so a
+/// worker test that needs a segment keeps publishing one under the base-fraction rule.
+fn large_playlist_name() -> String {
+    (0..400).map(|_| Uuid::new_v4().to_string()).collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ShareBackend {
     WebDav,
@@ -1410,7 +1416,7 @@ async fn sh15_crash_after_segment_put_recovers_without_a_gap_or_duplicate() -> R
             id: Uuid::new_v4(),
         };
         seed.sync_store
-            .write_local(seed_key.clone(), support::playlist("crash recovery seed"))
+            .write_local(seed_key.clone(), support::playlist(&large_playlist_name()))
             .await?;
         let push_started = Instant::now();
         detailed_sync_pass(&seed.sync_store, namespace, &session).await?;
@@ -2145,10 +2151,7 @@ async fn sh15_retired_device_return_uses_a_fresh_generation() -> Result<()> {
         };
         first
             .sync_store
-            .write_local(
-                shared_key,
-                support::playlist("retired owner has shared data"),
-            )
+            .write_local(shared_key, support::playlist(&large_playlist_name()))
             .await?;
         detailed_sync_pass(&first.sync_store, namespace, &session).await?;
         let returning = support::SqlLibrary::new(namespace, Uuid::new_v4()).await?;

@@ -4,9 +4,9 @@ use super::model::Collection;
 use super::model::{ObjectKey, Payload, Record, RuneModel};
 use super::references::collect;
 use super::share::{
-    BaseCutRequest, LostCreation, OwnContents, PublishJournalRequest, ShareCapabilities,
-    SharePullError, SharePullRequest, SharePullResult, SharePushError, SharePushResult,
-    ShareWriter, collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state,
+    BaseCutRequest, LostCreation, PublishJournalRequest, ShareCapabilities, SharePullError,
+    SharePullRequest, SharePullResult, SharePushError, SharePushResult, ShareWriter,
+    base_gzip_sizes, collect_own_prefix, cut_base, discard_lost_creation, load_or_create_state,
     publish_journal, pull, push_store_error,
 };
 use crate::sync::{import, legacy};
@@ -28,8 +28,8 @@ use sync::{
     share::{
         BaseSize, Checkpoint, DevicePrefix, ExportCursorStatus, FormatError, Head, JournalEvent,
         KeeperDecision, NewestBase, ObjectKey as ShareObjectKey, ObjectStore, PublishDecision,
-        PublishInput, StoreError, StreamActivity, base_key, decode_head, head_key, parse_key,
-        plan_keeper, plan_publish,
+        PublishInput, StoreError, StreamActivity, decode_head, head_key, parse_key, plan_keeper,
+        plan_publish,
     },
 };
 use sync_orm::causal_progress;
@@ -824,33 +824,32 @@ impl LibrarySyncStore {
                 ExportCursorStatus::Current
             }
         };
-        let newest_base = if let Some(base) = current_head.bases.last() {
-            let object = ShareObjectKey::Base {
-                prefix: own_prefix.clone(),
-                base_id: base.base_id.clone(),
-            };
-            // The recorded size is taken without asking the store: it only steers the decision
-            // to cut, and the cut and the collection of this pass confirm every manifest they
-            // depend on before they write or delete anything.
-            match state.recorded(&object) {
-                Some(OwnContents::Manifest { bytes, .. }) => BaseSize::GzipBytes(*bytes),
-                _ => {
-                    let key = base_key(&own_prefix.to_string(), &base.base_id)
-                        .map_err(|error| SharePushError::Failed(error.to_string()))?;
-                    match store.get(&key).await {
-                        Ok(value) => {
-                            state.observe_tag(object, value.tag, Utc::now().timestamp_millis());
-                            BaseSize::GzipBytes(value.bytes.len() as u64)
-                        }
-                        Err(StoreError::NotFound) => BaseSize::Absent,
-                        Err(error) => return Err(push_store_error(error)),
-                    }
-                }
-            }
-        } else {
-            BaseSize::Absent
-        };
         let now_ms = Utc::now().timestamp_millis().max(0) as u64;
+        // The sizes of the base's compressed content and of its manifest steer the decisions to
+        // cut. They are recorded with the manifest when the base is cut, and measured once for a
+        // manifest from an earlier build; the cut and the collection of this pass confirm every
+        // manifest they depend on before they write or delete anything.
+        let stored = if let Some(base) = current_head.bases.last() {
+            base_gzip_sizes::<RuneModel>(
+                &*store,
+                &mut state,
+                &own_prefix,
+                &base.base_id,
+                capabilities,
+                now_ms as i64,
+            )
+            .await?
+        } else {
+            None
+        };
+        let newest_base = match stored {
+            Some(sizes) => BaseSize::Present {
+                content_gzip_bytes: sizes.content,
+                manifest_gzip_bytes: sizes.manifest,
+                has_candidates: sizes.has_candidates,
+            },
+            None => BaseSize::Absent,
+        };
         let activities = heads
             .iter()
             .map(|(prefix, head)| StreamActivity {
@@ -885,9 +884,22 @@ impl LibrarySyncStore {
                     })
                     .map(|observed| observed.first_seen_ms.max(0) as u64)
                     .unwrap_or(now_ms),
-                gzip_bytes: match newest_base {
-                    BaseSize::GzipBytes(bytes) => bytes,
+                content_gzip_bytes: match newest_base {
+                    BaseSize::Present {
+                        content_gzip_bytes, ..
+                    } => content_gzip_bytes,
                     BaseSize::Absent => 0,
+                },
+                manifest_gzip_bytes: match newest_base {
+                    BaseSize::Present {
+                        manifest_gzip_bytes,
+                        ..
+                    } => manifest_gzip_bytes,
+                    BaseSize::Absent => 0,
+                },
+                has_candidates: match newest_base {
+                    BaseSize::Present { has_candidates, .. } => has_candidates,
+                    BaseSize::Absent => false,
                 },
             });
         let tail_bytes = current_head
@@ -895,7 +907,18 @@ impl LibrarySyncStore {
             .iter()
             .map(|segment| segment.bytes)
             .sum();
-        let keeper = plan_keeper(state.stream, now_ms, &activities, newest, tail_bytes);
+        let tail_has_candidates = entries.iter().any(|entry| match &entry.event {
+            sync::Event::Key(delta) => !delta.added.is_empty(),
+            sync::Event::Merge(delta) => !delta.added.is_empty(),
+        });
+        let keeper = plan_keeper(
+            state.stream,
+            now_ms,
+            &activities,
+            newest,
+            tail_bytes,
+            tail_has_candidates,
+        );
         let bulk_cut = cursor_status == ExportCursorStatus::NeedsBase
             || matches!(
                 plan_publish(PublishInput {
@@ -914,7 +937,7 @@ impl LibrarySyncStore {
                         anchor: current_head.head.anchor,
                     },
                     existing_segments: &current_head.segments,
-                    newest_base_gzip_bytes: newest_base,
+                    newest_base,
                     export_cursor: cursor_status,
                     max_events_per_segment: 100,
                 }),
