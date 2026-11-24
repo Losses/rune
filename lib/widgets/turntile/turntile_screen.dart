@@ -20,7 +20,6 @@ import '../start_screen/providers/start_screen_layout_manager.dart';
 import '../navigation_bar/page_content_frame.dart';
 
 import 'turntile_group.dart';
-import 'turntile_group_items_tile.dart';
 
 class TurntileScreen extends StatelessWidget {
   const TurntileScreen({super.key});
@@ -63,34 +62,38 @@ class TurntileScreenImplementationState
     scrollController.dispose();
   }
 
+  TurntileGroup<InternalCollection> _buildGroup(
+    BuildContext context,
+    CollectionDataProvider data,
+    int index,
+  ) {
+    final item = data.items[index];
+    final isUserGenerated = userGenerated(data.collectionType);
+    return TurntileGroup<InternalCollection>(
+      key: Key(item.groupTitle),
+      groupIndex: index,
+      groupTitle: item.groupTitle,
+      gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
+      items: item.items,
+      onTitleTap: () {
+        if (!isUserGenerated) {
+          showGroupListDialog(context, scrollToGroup);
+        }
+      },
+      itemBuilder: (context, item) => collectionItemBuilder(context, item),
+    );
+  }
+
   @override
   void scrollToGroupIndex(CollectionDataProvider data, int index) {
     final padding = getScrollContainerPadding(context, listen: false);
+    final listWidth =
+        widget.constraints.maxWidth - padding.left - padding.right;
     double scrollPosition = 0.0;
 
-    final containerWidth = widget.constraints.maxWidth -
-        padding.left -
-        padding.right -
-        16 -
-        16;
-
     for (int i = 0; i < index; i++) {
-      final group = data.items[i];
-      final dimensions =
-          TurntileGroupItemsTile.defaultTurntileDimensionCalculator(
-        containerWidth,
-        88,
-        4,
-        group.items,
-      );
-
-      final finalCellSize =
-          (containerWidth - (dimensions.columns * 4)) / dimensions.columns;
-
-      final double finalHeight =
-          finalCellSize * dimensions.rows + 4 * (dimensions.rows - 1);
-
-      scrollPosition += finalHeight + 4 + 37;
+      scrollPosition +=
+          _buildGroup(context, data, i).heightIn(context, listWidth);
     }
 
     final deltaPosition = (scrollController.offset - scrollPosition).abs();
@@ -161,21 +164,7 @@ class TurntileScreenImplementationState
               onFetchData: _fetchData,
               hasReachedMax: data.isLastPage,
               itemBuilder: (context, index) {
-                final item = data.items[index];
-                return TurntileGroup<InternalCollection>(
-                  key: Key(item.groupTitle),
-                  groupIndex: index,
-                  groupTitle: item.groupTitle,
-                  gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
-                  items: item.items,
-                  onTitleTap: () {
-                    if (!isUserGenerated) {
-                      showGroupListDialog(context, scrollToGroup);
-                    }
-                  },
-                  itemBuilder: (context, item) =>
-                      collectionItemBuilder(context, item),
-                );
+                return _buildGroup(context, data, index);
               },
             );
           }

@@ -19,7 +19,6 @@ import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/context_menu_wrapper.dart';
-import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
@@ -34,7 +33,6 @@ import 'utils/internal_collection.dart';
 import 'providers/start_screen_layout_manager.dart';
 
 import 'start_group.dart';
-import 'start_group_implementation.dart';
 import '../../utils/dialogs/file_dialog/pick_files.dart';
 
 class StartScreen extends StatelessWidget {
@@ -78,28 +76,52 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     super.dispose();
   }
 
+  BoxConstraints _constraintsWithin(EdgeInsets padding) {
+    final c = widget.constraints;
+    return BoxConstraints(
+      maxWidth: c.maxWidth - padding.left - padding.right,
+      maxHeight: c.maxHeight - padding.top - padding.bottom,
+    );
+  }
+
+  StartGroup<InternalCollection> _buildGroup(
+    BuildContext context,
+    CollectionDataProvider data,
+    int index,
+    BoxConstraints constraints,
+  ) {
+    final item = data.items[index];
+    final isUserGenerated = userGenerated(data.collectionType);
+    return StartGroup<InternalCollection>(
+      key: ValueKey(item.groupTitle),
+      groupIndex: index,
+      groupTitle: item.groupTitle,
+      items: item.items,
+      constraints: constraints,
+      onTitleTap: () {
+        if (!isUserGenerated) {
+          showGroupListDialog(context, scrollToGroup);
+        }
+      },
+      itemBuilder: (context, item) => collectionItemBuilder(context, item),
+      direction: Axis.vertical,
+    );
+  }
+
   @override
   void scrollToGroupIndex(CollectionDataProvider data, int index) {
-    final padding = getScrollContainerPadding(context, listen: false);
+    final trueConstraints = _constraintsWithin(
+      getScrollContainerPadding(context, listen: false),
+    );
     double scrollPosition = 0.0;
 
     for (int i = 0; i < index; i++) {
-      final group = data.items[i];
-      final dimensions =
-          StartGroupImplementation.defaultDimensionCalculator(
-            widget.constraints.maxHeight - padding.top - padding.bottom,
-            defaultCellSize,
-            4,
-            group.items,
-          );
-
-      final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
-        dimensions,
-        defaultCellSize,
-        4,
-      );
-
-      scrollPosition += groupWidth + defaultGapSize + 16;
+      scrollPosition += _buildGroup(
+        context,
+        data,
+        i,
+        trueConstraints,
+      ).widthIn(context);
     }
 
     _scrollController.scrollTo(scrollPosition);
@@ -200,11 +222,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   @override
   Widget build(BuildContext context) {
     final padding = getScrollContainerPadding(context);
-    final c = widget.constraints;
-    final trueConstraints = BoxConstraints(
-      maxWidth: c.maxWidth - padding.left - padding.right,
-      maxHeight: c.maxHeight - padding.top - padding.bottom,
-    );
+    final trueConstraints = _constraintsWithin(padding);
 
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
@@ -261,21 +279,11 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     onFetchData: _fetchData,
                     hasReachedMax: data.isLastPage,
                     itemBuilder: (context, index) {
-                      final item = data.items[index];
-                      return StartGroup<InternalCollection>(
-                        key: ValueKey(item.groupTitle),
-                        groupIndex: index,
-                        groupTitle: item.groupTitle,
-                        items: item.items,
-                        constraints: trueConstraints,
-                        onTitleTap: () {
-                          if (!isUserGenerated) {
-                            showGroupListDialog(context, scrollToGroup);
-                          }
-                        },
-                        itemBuilder: (context, item) =>
-                            collectionItemBuilder(context, item),
-                        direction: Axis.vertical,
+                      return _buildGroup(
+                        context,
+                        data,
+                        index,
+                        trueConstraints,
                       );
                     },
                   );

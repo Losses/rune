@@ -11,6 +11,8 @@ class ManagedTurntileScreenItem extends StatefulWidget {
   final int column;
   final Widget child;
   final String? prefix;
+  final int columns;
+  final int rows;
 
   const ManagedTurntileScreenItem({
     super.key,
@@ -19,6 +21,8 @@ class ManagedTurntileScreenItem extends StatefulWidget {
     required this.column,
     required this.child,
     this.prefix,
+    this.columns = 1,
+    this.rows = 1,
   });
 
   @override
@@ -39,7 +43,39 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
     super.didChangeDependencies();
 
     provider = Provider.of<StartScreenLayoutManager>(context, listen: false);
+    final newShow = _register();
 
+    if (newShow != _show) {
+      setState(() {
+        _show = newShow;
+        _showInstantly = _show;
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(ManagedTurntileScreenItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // A retained tile can move or change its span when its group lays out
+    // again, and the manager must not keep the old place and size.
+    if (oldWidget.groupId != widget.groupId ||
+        oldWidget.row != widget.row ||
+        oldWidget.column != widget.column ||
+        oldWidget.prefix != widget.prefix ||
+        oldWidget.columns != widget.columns ||
+        oldWidget.rows != widget.rows) {
+      // A tile that is already visible does not hide again for its new place.
+      final newShow = _register() || _show;
+      if (newShow != _show) {
+        _show = newShow;
+        _showInstantly = true;
+      }
+    }
+  }
+
+  /// Registers the tile and returns whether it is to be shown at once.
+  bool _register() {
     if (_data != null) {
       provider?.unregisterItem(_data!);
     }
@@ -50,16 +86,11 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
       widget.column,
       startAnimation,
       widget.prefix,
+      widget.columns,
+      widget.rows,
     );
-    bool newShow = registerResult?.skipAnimation ?? true;
     _data = registerResult?.data;
-
-    if (newShow != _show) {
-      setState(() {
-        _show = newShow;
-        _showInstantly = _show;
-      });
-    }
+    return registerResult?.skipAnimation ?? true;
   }
 
   void startAnimation() {

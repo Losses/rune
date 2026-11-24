@@ -13,6 +13,8 @@ class StartGroupItemData {
   final double distance;
   final VoidCallback startAnimation;
   bool played;
+  final int columns;
+  final int rows;
 
   StartGroupItemData({
     required this.key,
@@ -22,6 +24,8 @@ class StartGroupItemData {
     required this.distance,
     required this.startAnimation,
     this.played = false,
+    this.columns = 1,
+    this.rows = 1,
   });
 }
 
@@ -44,7 +48,7 @@ class StartScreenLayoutManager with ChangeNotifier {
 
   StartItemRegisterResult registerItem(
       int groupId, int row, int column, VoidCallback startAnimation,
-      [String? prefix]) {
+      [String? prefix, int columns = 1, int rows = 1]) {
     if (_animationFinished) {
       return StartItemRegisterResult(skipAnimation: true, data: null);
     }
@@ -52,7 +56,7 @@ class StartScreenLayoutManager with ChangeNotifier {
     final key = _generateKey(groupId, row, column, prefix);
 
     // Update group size
-    _updateGroupSize(groupId, row, column);
+    _updateGroupSize(groupId, row + rows - 1, column + columns - 1);
 
     // Calculate distance from the top-left corner of the group
     final distance = _calculateDistance(groupId, row, column);
@@ -63,7 +67,9 @@ class StartScreenLayoutManager with ChangeNotifier {
         row: row,
         column: column,
         distance: distance,
-        startAnimation: startAnimation);
+        startAnimation: startAnimation,
+        columns: columns,
+        rows: rows);
 
     // If the current animation index has already exceeded this element's index, it has missed the animation
     return StartItemRegisterResult(
@@ -160,8 +166,8 @@ class StartScreenLayoutManager with ChangeNotifier {
 
     _items.forEach((key, item) {
       if (item.groupId == groupId) {
-        maxWidth = max(maxWidth, item.column.toDouble());
-        maxHeight = max(maxHeight, item.row.toDouble());
+        maxWidth = max(maxWidth, (item.column + item.columns - 1).toDouble());
+        maxHeight = max(maxHeight, (item.row + item.rows - 1).toDouble());
       }
     });
 
