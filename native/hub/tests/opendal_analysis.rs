@@ -186,6 +186,7 @@ fn large_wav() -> Vec<u8> {
 }
 
 async fn assert_large_audio_playback_and_analysis(
+    backend: &str,
     fs: FsIo,
     ranges: impl Fn() -> Vec<Option<(usize, usize)>>,
     actor: Uuid,
@@ -202,7 +203,7 @@ async fn assert_large_audio_playback_and_analysis(
     .await?;
     assert_eq!(media_files::Entity::find().count(&db).await?, 1);
 
-    let player = Player::new(Arc::new(fs.clone()), None);
+    let mut player = Player::new(Arc::new(fs.clone()), None);
     player.add_to_playlist_with_sources(
         vec![(
             PlayingItem::IndependentFile("large.wav".into()),
@@ -219,7 +220,34 @@ async fn assert_large_audio_playback_and_analysis(
     })
     .await
     .context("large remote playback did not start")?;
-    player.seek(45.0);
+    let ranges_before_seek = ranges();
+    player
+        .command_with_completion(PlayerCommand::Seek(45.0))
+        .await
+        .with_context(|| format!("{backend} playback seek did not complete"))?;
+    let status = player.command_completion().await?;
+    assert!(
+        status.position >= Duration::from_secs(45),
+        "{backend} playback did not reach the seek target: {:?}",
+        status.position
+    );
+
+    // Analysis has not opened the file yet, and playback starts at the beginning. Only reads
+    // made after the seek was sent are considered, so a read this far in proves the seek moved
+    // the decoder, not just the reported position.
+    let playback_ranges = ranges();
+    assert!(
+        playback_ranges.iter().all(Option::is_some),
+        "{backend} non-ranged playback read: {playback_ranges:?}"
+    );
+    let seek_ranges = &playback_ranges[ranges_before_seek.len()..];
+    assert!(
+        seek_ranges
+            .iter()
+            .flatten()
+            .any(|(start, _)| *start > 32 * 1024 * 1024),
+        "{backend} playback seek did not read near the end: {seek_ranges:?}"
+    );
 
     let analysis_fs = Arc::new(fs);
     assert_eq!(
@@ -239,14 +267,7 @@ async fn assert_large_audio_playback_and_analysis(
     let ranges = ranges();
     assert!(
         ranges.iter().all(Option::is_some),
-        "non-ranged audio read: {ranges:?}"
-    );
-    assert!(
-        ranges
-            .iter()
-            .flatten()
-            .any(|(start, _)| *start > 32 * 1024 * 1024),
-        "playback seek did not read near the end: {ranges:?}"
+        "{backend} non-ranged audio read: {ranges:?}"
     );
     player.terminate();
     Ok(())
@@ -536,6 +557,7 @@ async fn large_audio_is_played_seeked_and_analyzed_by_both_backends() -> Result<
         let s3 = S3Fixture::start(vec![("large.wav".into(), audio)]).await?;
         let webdav_ranges = webdav.clone();
         assert_large_audio_playback_and_analysis(
+            "WebDAV",
             FsIo::new_opendal(webdav_config(&webdav), Handle::current())?,
             move || webdav_ranges.read_ranges(),
             Uuid::from_u128(0x213),
@@ -543,6 +565,7 @@ async fn large_audio_is_played_seeked_and_analyzed_by_both_backends() -> Result<
         .await?;
         let s3_ranges = s3.clone();
         assert_large_audio_playback_and_analysis(
+            "S3",
             FsIo::new_opendal(s3_config(&s3), Handle::current())?,
             move || s3_ranges.read_ranges(),
             Uuid::from_u128(0x214),
