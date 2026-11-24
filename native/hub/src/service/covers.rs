@@ -242,11 +242,25 @@ impl DownloadQueue {
         Turn::Waiting(turn)
     }
 
-    /// A request for a cover that waits in line again. A cover nobody awaits becomes the newest,
-    /// and so does one that this request is the first to await, which joins the end of the line
-    /// of awaited covers. One that was awaited already keeps its place in that line.
-    fn bump(&self, cover_id: &str, first_awaited: bool) {
+    /// A request for a cover whose download was asked for before, which waits in line again,
+    /// counted among the download's waiters when it waits for the cover. A cover nobody awaits
+    /// becomes the newest, and so does one that this request is the first to await, which joins
+    /// the end of the line of awaited covers. One that was awaited already keeps its place in that
+    /// line. The count and the place change under one lock, so no turn sees the one without the
+    /// other.
+    fn rejoin(
+        self: &Arc<Self>,
+        cover_id: &str,
+        waiters: &Arc<AtomicUsize>,
+        awaited: bool,
+    ) -> Option<Waiter> {
         let mut state = self.lock();
+        let (waiter, first_awaited) = if awaited {
+            let (waiter, first) = Waiter::join(waiters, self);
+            (Some(waiter), first)
+        } else {
+            (None, false)
+        };
         let order = state.next_order;
         if let Some(waiting) = state
             .waiting
@@ -257,6 +271,7 @@ impl DownloadQueue {
             waiting.order = order;
             state.next_order += 1;
         }
+        waiter
     }
 
     /// Takes the download of `cover_id` out of the line, as it was cancelled. It is found by
@@ -470,22 +485,16 @@ impl ServiceCoverCache {
             if let Some(path) = self.cached_path(cover_id).await? {
                 return Ok(Some(path));
             }
-            // `joined` is Some when this request joined a download asked for before, saying
-            // whether it is the first request to await it. A request that waits stays counted
-            // among the download's waiters while `_waiter` lives.
-            let (mut receiver, joined, _waiter) = {
+            // A request that waits stays counted among the download's waiters while `_waiter`
+            // lives.
+            let (mut receiver, _waiter) = {
                 let mut pending = self
                     .pending
                     .lock()
                     .map_err(|_| anyhow::anyhow!("Service cover cache lock poisoned"))?;
                 if let Some(joined) = pending.get(cover_id) {
-                    let (waiter, first_awaited) = if awaited {
-                        let (waiter, first) = Waiter::join(&joined.waiters, &self.downloads);
-                        (Some(waiter), first)
-                    } else {
-                        (None, false)
-                    };
-                    (joined.receiver.clone(), Some(first_awaited), waiter)
+                    let waiter = self.downloads.rejoin(cover_id, &joined.waiters, awaited);
+                    (joined.receiver.clone(), waiter)
                 } else {
                     let (sender, receiver) = watch::channel(None);
                     let waiters = Arc::new(AtomicUsize::new(0));
@@ -515,12 +524,9 @@ impl ServiceCoverCache {
                             Err(error) => Fetched::Done(Err(Arc::new(error))),
                         }));
                     });
-                    (receiver, None, waiter)
+                    (receiver, waiter)
                 }
             };
-            if let Some(first_awaited) = joined {
-                self.downloads.bump(cover_id, first_awaited);
-            }
             let fetched = loop {
                 if let Some(fetched) = receiver.borrow().clone() {
                     break fetched;
@@ -652,6 +658,7 @@ fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> io
 mod tests {
     use std::{
         fs::{self, OpenOptions},
+        thread,
         time::{Duration, SystemTime},
     };
 
@@ -863,6 +870,36 @@ mod tests {
         assert_eq!(source.started()[5], "scheduled-old");
         source.finish(100);
         assert!(playing.await.unwrap().unwrap().is_some());
+        assert!(late.await.unwrap().unwrap().is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cover_a_request_starts_waiting_for_is_never_seen_awaited_at_its_old_place() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        schedule_in_line(&cache, &source, "scheduled").await;
+        let ask = |cover_id: &'static str| {
+            let (cache, source) = (cache.clone(), source.clone());
+            tokio::spawn(async move { cache.ensure_cached(source, cover_id).await })
+        };
+        let asked = ask("asked");
+        until("asked", || in_line(&cache, "asked") == Some(true)).await;
+        // A request starts waiting for the scheduled cover just as a turn ends. Awaited at the
+        // place it was scheduled at, it would go ahead of the cover asked for before it.
+        let late = {
+            let mut state = cache.downloads.lock();
+            let late = ask("scheduled");
+            // The request gets as far as it can while the turn holds the queue.
+            thread::sleep(Duration::from_millis(200));
+            let next = state.take_next().unwrap();
+            assert_eq!(next.cover_id, "asked");
+            state.waiting.push(next);
+            late
+        };
+        source.finish(100);
+        assert!(asked.await.unwrap().unwrap().is_some());
         assert!(late.await.unwrap().unwrap().is_some());
     }
 
