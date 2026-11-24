@@ -44,6 +44,7 @@ class _CollectionTileState extends State<_CollectionTile> {
         null,
         false,
         widget.loadMixes,
+        () async => const [],
       ),
       onMiddleClick: (_) {},
       child: const SizedBox(

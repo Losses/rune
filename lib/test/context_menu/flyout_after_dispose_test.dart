@@ -51,6 +51,7 @@ class _ItemState extends State<_Item> {
         null,
         null,
         widget.loadMixes,
+        () async => const [],
       ),
       onMiddleClick: (_) {},
       child: const SizedBox(
