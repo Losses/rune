@@ -64,7 +64,9 @@ pub enum RequestFailureCause {
         local_version: String,
         peer_version: Option<String>,
     },
-    SubsonicNotAuthorized,
+    ServiceSignInRequired {
+        record_id: String,
+    },
     LibraryTaskAlreadyRunning {
         task: LibraryTaskKind,
     },
@@ -89,6 +91,9 @@ pub enum RequestFailureCause {
     FileDialogFailed {
         failure: FileDialogFailure,
     },
+    /// The target does not implement the request for what it names, as the library of an item
+    /// declares: asking again changes nothing.
+    Unsupported,
 }
 
 #[derive(Deserialize, Serialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

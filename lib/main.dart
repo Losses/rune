@@ -113,7 +113,7 @@ void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   PlatformDispatcher.instance.onError = (error, stack) {
     if (error is! RequestFailure) return false;
-    if (error.cause is RequestFailureCauseSubsonicNotAuthorized) return true;
+    if (error.needsServiceSignIn) return true;
     if (error.kind != RequestErrorKind.internal) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final context = _noticeContext();
@@ -642,11 +642,13 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
       (signal) {
         final failure = signal.message;
-        if (failure.cause is RequestFailureCauseSubsonicNotAuthorized) {
+        if (failure.cause
+            case RequestFailureCauseServiceSignInRequired(:final recordId)) {
           if (_subsonicReloginOpen) return;
-          final recordId = registry.openRecordId;
           final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-          if (recordId == null ||
+          // A record of another device, as one a renderer plays from, signs in
+          // there.
+          if (!registry.records.any((record) => record.recordId == recordId) ||
               dialogContext == null ||
               !mounted ||
               !dialogContext.mounted) {

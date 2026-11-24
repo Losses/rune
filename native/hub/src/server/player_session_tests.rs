@@ -1679,7 +1679,9 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
         .context("the old password should be rejected")?;
     assert_eq!(
         request_failure_cause(&denied),
-        Some(RequestFailureCause::SubsonicNotAuthorized)
+        Some(RequestFailureCause::ServiceSignInRequired {
+            record_id: record_id.0.to_string(),
+        })
     );
     let rejected_error =
         replace_subsonic_credential_on_node(&replacement("wrong-password"), &node)

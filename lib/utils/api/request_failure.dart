@@ -24,6 +24,11 @@ class RequestFailure implements Exception {
     this.callId,
   ]);
 
+  /// Whether the streaming service of the library the request named needs a
+  /// sign-in first. What failed only waits for it.
+  bool get needsServiceSignIn =>
+      cause is RequestFailureCauseServiceSignInRequired;
+
   @override
   String toString() => 'RequestFailure($request, $kind: $detail)';
 }

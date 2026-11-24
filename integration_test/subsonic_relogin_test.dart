@@ -81,7 +81,11 @@ void main() {
           isA<RequestFailure>().having(
             (e) => e.cause,
             'cause',
-            isA<RequestFailureCauseSubsonicNotAuthorized>(),
+            isA<RequestFailureCauseServiceSignInRequired>().having(
+              (cause) => cause.recordId,
+              'recordId',
+              record,
+            ),
           ),
         ),
       );
