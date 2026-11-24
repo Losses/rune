@@ -125,6 +125,8 @@ struct SlowService {
     /// How often the service was asked for the track, and told that it started.
     lookups: AtomicUsize,
     started: AtomicUsize,
+    /// How many lookups ran to the end, so a lookup that was stopped is not counted.
+    answered: AtomicUsize,
 }
 
 impl SlowService {
@@ -166,6 +168,7 @@ impl ServiceBinding for SlowService {
                 tokio::time::sleep(self.delay).await;
             }
             *self.known.lock().unwrap() = true;
+            self.answered.fetch_add(1, Ordering::SeqCst);
             Ok((self.summary(track), None))
         })
     }
@@ -203,6 +206,7 @@ async fn a_track_that_a_slow_service_names_late_is_named_again() -> Result<()> {
         known: std::sync::Mutex::new(false),
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
+        answered: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -262,6 +266,7 @@ async fn a_slow_lookup_stops_when_nothing_follows_the_player() -> Result<()> {
         known: std::sync::Mutex::new(false),
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
+        answered: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -275,6 +280,43 @@ async fn a_slow_lookup_stops_when_nothing_follows_the_player() -> Result<()> {
     );
     tokio::time::sleep(Duration::from_secs(10)).await;
     assert!(service.cached_summary("slow").is_none());
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_slow_lookup_stops_when_the_binding_already_names_the_track() -> Result<()> {
+    let library_id = Uuid::new_v4();
+    let service = Arc::new(SlowService {
+        library_id,
+        delay: STATUS_METADATA_WAIT + Duration::from_secs(2),
+        known: std::sync::Mutex::new(true),
+        lookups: AtomicUsize::new(0),
+        started: AtomicUsize::new(0),
+        answered: AtomicUsize::new(0),
+    });
+    let binding: Arc<dyn ServiceBinding> = service.clone();
+    let item = PlayingItem::LibraryTrack {
+        library_id,
+        track: "slow".to_owned(),
+    };
+    let late_names = Arc::new(Notify::new());
+
+    // The status goes out with what the binding holds, once the wait has run out.
+    let started = tokio::time::Instant::now();
+    let (named, _) =
+        service_track_metadata(&binding, &item, "slow", None, Some(&late_names)).await?;
+    assert_eq!(named.title, "Late Name");
+    assert_eq!(started.elapsed(), STATUS_METADATA_WAIT);
+    assert_eq!(service.lookups.load(Ordering::SeqCst), 1);
+
+    // The request still running is stopped: it never answers, nor tells the session anything.
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert_eq!(service.answered.load(Ordering::SeqCst), 0);
+    assert!(
+        timeout(Duration::from_secs(10), late_names.notified())
+            .await
+            .is_err()
+    );
     Ok(())
 }
 
@@ -303,6 +345,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
         known: std::sync::Mutex::new(true),
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
+        answered: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -562,6 +605,7 @@ impl ScriptedSession {
             known: std::sync::Mutex::new(false),
             lookups: AtomicUsize::new(0),
             started: AtomicUsize::new(0),
+            answered: AtomicUsize::new(0),
         });
         let binding: Arc<dyn ServiceBinding> = service.clone();
         node.set_open_service_catalog(None, binding).await?;
