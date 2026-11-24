@@ -44,27 +44,46 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
 
     setState(() {
       provider = Provider.of<StartScreenLayoutManager>(context, listen: false);
-
-      if (_data != null) {
-        provider?.unregisterItem(_data!);
-      }
-
-      final registerResult = provider?.registerItem(
-        widget.groupId,
-        widget.row,
-        widget.column,
-        startAnimation,
-        widget.prefix,
-        widget.columns,
-        widget.rows,
-      );
-      _show = registerResult?.skipAnimation ?? true;
-      _data = registerResult?.data;
-
-      if (_show) {
-        _showInstantly = true;
-      }
+      _register();
     });
+  }
+
+  @override
+  void didUpdateWidget(ManagedStartScreenItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // A retained tile can move or change its span when its group lays out
+    // again, and the manager must not keep the old place and size.
+    if (oldWidget.groupId != widget.groupId ||
+        oldWidget.row != widget.row ||
+        oldWidget.column != widget.column ||
+        oldWidget.prefix != widget.prefix ||
+        oldWidget.columns != widget.columns ||
+        oldWidget.rows != widget.rows) {
+      _register(keepShown: true);
+    }
+  }
+
+  void _register({bool keepShown = false}) {
+    if (_data != null) {
+      provider?.unregisterItem(_data!);
+    }
+
+    final registerResult = provider?.registerItem(
+      widget.groupId,
+      widget.row,
+      widget.column,
+      startAnimation,
+      widget.prefix,
+      widget.columns,
+      widget.rows,
+    );
+    // A tile that is already visible does not hide again for its new place.
+    _show = (keepShown && _show) || (registerResult?.skipAnimation ?? true);
+    _data = registerResult?.data;
+    if (_show) {
+      _showInstantly = true;
+    }
   }
 
   startAnimation() {
