@@ -172,12 +172,10 @@ impl HttpRouterPeer {
         let request = builder
             .body(Body::from(bytes))
             .map_err(|err| SyncError::Transport(err.to_string()))?;
-        let response = self
-            .app
-            .clone()
-            .oneshot(request)
-            .await
-            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = match self.app.clone().oneshot(request).await {
+            Ok(response) => response,
+            Err(never) => match never {},
+        };
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
             return Err(SyncError::Unauthorized);
