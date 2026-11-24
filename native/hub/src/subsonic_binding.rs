@@ -25,6 +25,7 @@ use visualizer::{Visualizer, VisualizerInputs};
 
 use anyhow::Result;
 use database::credentials::Credential;
+use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
@@ -751,6 +752,10 @@ impl ServiceBinding for SubsonicBinding {
 
     fn slots(&self) -> RequestSlots {
         RequestSlots::subsonic(&self.probe)
+    }
+
+    fn service(&self) -> ServiceKind {
+        ServiceKind::Subsonic
     }
 
     fn item_metadata<'a>(

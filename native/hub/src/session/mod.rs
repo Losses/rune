@@ -1,4 +1,5 @@
 //! Node-owned render state. Catalog resources are leased only while resolving an item.
+mod item_capabilities;
 pub(crate) mod store;
 
 use std::{
@@ -40,7 +41,7 @@ use scrobbling::{
 };
 use sea_orm::TransactionTrait;
 use tokio::{
-    sync::{Mutex, mpsc, oneshot},
+    sync::{Mutex, Notify, mpsc, oneshot},
     task::JoinHandle,
     time::{Instant, sleep_until, timeout},
 };
@@ -100,6 +101,8 @@ pub struct PlayerSession {
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
     /// Asks the event loop to show this session in the UI again.
     show_requests: mpsc::UnboundedSender<ShowRequest>,
+    /// Wakes the event loop to tell the UI again what the current item supports.
+    item_capabilities_changed: Arc<Notify>,
 }
 
 /// Asks the event loop to show this session in the UI again once it has handled everything the
@@ -377,6 +380,12 @@ impl PlayerSession {
         (status_after_pending.await, revision)
     }
 
+    /// Tells the UI anew what the current item supports, for what it depends on that changed
+    /// without a status: the library the UI opened or closed.
+    pub(crate) fn item_capabilities_changed(&self) {
+        self.item_capabilities_changed.notify_one();
+    }
+
     /// Re-send this session's current player bar and queue after renderer control ends.
     pub(crate) async fn reemit_current(&self) -> Result<()> {
         let Some(node) = self.node.upgrade() else {
@@ -543,6 +552,7 @@ impl PlayerSession {
             persistence_writes: Arc::new(AtomicUsize::new(0)),
             attached_controllers: StdMutex::new(Vec::new()),
             show_requests,
+            item_capabilities_changed: Arc::new(Notify::new()),
         });
         session.start_events(node, show_receiver).await;
         session.player.lock().await.restore_tagged(
@@ -606,6 +616,7 @@ impl PlayerSession {
         let cancel = self.cancel.clone();
         let session_id = self.state.lock().await.session_id.to_string();
         let event_state = self.state.clone();
+        let item_capabilities_changed = self.item_capabilities_changed.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
         // Authentication can hold the scrobbler lock across network retries.
@@ -705,6 +716,10 @@ impl PlayerSession {
                         handle_scrobbler_error(weak.upgrade(), error).await;
                     }
                     Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
+                    _ = item_capabilities_changed.notified() => {
+                        let Some(node) = weak.upgrade() else { return };
+                        item_capabilities::changed(&node, &mut item_state, broadcaster.as_ref()).await;
+                    }
                     Some(value) = async { match &controller { Some(receiver) => receiver.recv().await.ok(), None => pending().await } } => { let _ = handle_media_control_event(&player, value).await; }
                 }
             }
@@ -823,6 +838,8 @@ struct ItemEventState {
     /// `last_item` as sent to Dart, valid for `request_ui_library`.
     request: Option<PlayingItemRef>,
     request_ui_library: Option<Uuid>,
+    /// What the UI was last told `request` supports.
+    capabilities: item_capabilities::Declared,
     feed_item: Option<PlayingItemRef>,
     feed_controller_count: usize,
     /// Where a cover that finishes downloading after its track started is sent, when the
@@ -1029,6 +1046,11 @@ async fn handle_status_event(
                 .pop(),
             None => None,
         };
+        // The UI hears what the item supports before the status that names it, so that it
+        // never offers for a moment what the item cannot do.
+        item_capabilities::send(node, item_state, broadcaster.as_ref());
+    } else {
+        item_capabilities::send_if_untold(node, item_state, broadcaster.as_ref());
     }
     let item_request = item_state.request.clone();
     let report = format_status(

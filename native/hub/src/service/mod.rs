@@ -37,6 +37,9 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
     /// How each request runs against this service.
     fn slots(&self) -> RequestSlots;
 
+    /// The service the library belongs to, which declares what its items support.
+    fn service(&self) -> ServiceKind;
+
     /// The metadata of a track and, when `with_cover` is set, its cover if the cover is cached
     /// already.
     fn item_metadata<'a>(
