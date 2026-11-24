@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,11 +132,21 @@ void main() {
     (tester) async {
       // Four cells and six covers, so two covers are free to turn to.
       final paths = ['a', 'b', 'c', 'd', 'e', 'f'];
-      await tester.runAsync(() async {
-        final images = {for (final path in paths) path: await _image()};
-        final pathOf = {
-          for (final entry in images.entries) entry.value: entry.key,
-        };
+      final images = (await tester.runAsync(
+        () async => {for (final path in paths) path: await _image()},
+      ))!;
+      final pathOf = {
+        for (final entry in images.entries) entry.value: entry.key,
+      };
+      // The grid seeds its picks with the time, and the test clock starts at the
+      // wall clock, so the test starts its own clock at a fixed time.
+      final testClock = clock;
+      final origin = testClock.now();
+      final fixed = Clock(
+        () =>
+            DateTime.utc(2026, 11, 24).add(testClock.now().difference(origin)),
+      );
+      await withClock(fixed, () async {
         await tester.pumpWidget(
           FluentApp(
             home: Center(
@@ -166,27 +177,30 @@ void main() {
                 as FlipGridPainter;
         expect(painter.gridCount, 2);
 
-        // The timer and the flip run on the wall clock, so each round waits.
-        for (var round = 0; round < 6; round += 1) {
-          await Future<void>.delayed(const Duration(seconds: flipInterval + 1));
-          for (var frame = 0; frame < 10; frame += 1) {
-            await Future<void>.delayed(const Duration(milliseconds: 20));
-            await tester.pump();
-          }
+        // The timer and the flip run on the test clock, so a round is a pump.
+        void check(String when) {
           final shown = [for (final image in painter.images) pathOf[image]];
           expect(shown, everyElement(isNotNull));
           expect(
             shown.toSet().length,
             shown.length,
-            reason: 'after round $round the cells show $shown',
+            reason: '$when the cells show $shown',
           );
         }
-        await tester.pumpWidget(const SizedBox());
-        for (final image in images.values) {
-          image.dispose();
+
+        for (var round = 0; round < 20; round += 1) {
+          await tester.pump(const Duration(seconds: flipInterval + 1));
+          check('after the timer of round $round');
+          for (var frame = 0; frame < 10; frame += 1) {
+            await tester.pump(const Duration(milliseconds: 20));
+            check('in frame $frame of round $round');
+          }
         }
+        await tester.pumpWidget(const SizedBox());
       });
+      for (final image in images.values) {
+        image.dispose();
+      }
     },
-    timeout: const Timeout(Duration(minutes: 3)),
   );
 }
