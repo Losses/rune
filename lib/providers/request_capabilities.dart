@@ -125,11 +125,12 @@ bool requestAvailable(
 /// snapshot is the one of that library.
 bool _libraryAnswers(
   BuildContext context,
-  RequestCapability Function(RequestCapabilitiesProvider provider) select,
-) {
-  final capabilities = requestCapabilitiesOf(context, listen: false);
+  RequestCapability Function(RequestCapabilitiesProvider provider) select, {
+  bool listen = false,
+}) {
+  final capabilities = requestCapabilitiesOf(context, listen: listen);
   if (capabilities == null) return true;
-  final state = Provider.of<LibraryOpenStateProvider?>(context, listen: false);
+  final state = Provider.of<LibraryOpenStateProvider?>(context, listen: listen);
   final open = state?.openRecord;
   if (state != null &&
       !state.isRemoteControl &&
@@ -153,6 +154,15 @@ bool canExportPlaylistFile(BuildContext context) =>
 /// Whether the open library can be played on another device.
 bool canPlayOnOtherDevice(BuildContext context) =>
     _libraryAnswers(context, (p) => p.castResolvedItemsRequest);
+
+/// Whether the open library keeps mixes the user can create. Set [listen] when
+/// calling it while building.
+bool canCreateMix(BuildContext context, {bool listen = false}) =>
+    _libraryAnswers(context, (p) => p.createMixRequest, listen: listen);
+
+/// Whether the open library can create a playlist from an M3U8 file.
+bool canCreateM3u8Playlist(BuildContext context) =>
+    _libraryAnswers(context, (p) => p.createM3u8PlaylistRequest);
 
 RequestCapability _playPauseCapability(
   BuildContext context,

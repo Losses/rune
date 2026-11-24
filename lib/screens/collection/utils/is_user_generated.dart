@@ -17,11 +17,7 @@ bool canCreateCollection(
   bool listen = false,
 }) {
   if (collectionType != CollectionType.mix) return true;
-  return requestAvailable(
-    context,
-    (provider) => provider.createMixRequest,
-    listen: listen,
-  );
+  return canCreateMix(context, listen: listen);
 }
 
 /// Whether the empty page of a collection type suggests how to fill it. A page
@@ -34,8 +30,5 @@ bool emptyPageShowsDetail(BuildContext context, CollectionType collectionType) {
 
 /// Whether the open library can create a playlist from an M3U8 file.
 bool canImportM3u8Playlist(BuildContext context) {
-  return requestAvailable(
-    context,
-    (provider) => provider.createM3u8PlaylistRequest,
-  );
+  return canCreateM3u8Playlist(context);
 }

@@ -207,6 +207,9 @@ class _LibraryOpenStateProvider extends ChangeNotifier
   bool get isReadOnlyReplica => false;
 
   @override
+  bool get isRemoteControl => false;
+
+  @override
   final LibraryRecordSummary? openRecord;
 
   @override
@@ -374,6 +377,47 @@ void main() {
       await tester.pumpWidget(capabilityProbe(provider, importable));
       expect(find.text('import: false'), findsOneWidget);
     });
+
+    testWidgets(
+      'a snapshot of another record leaves both to the open library',
+      (tester) async {
+        // This device plays on a renderer whose library keeps no mixes of its
+        // own and takes no playlist file.
+        final provider = RequestCapabilitiesProvider(
+          changes: const Stream.empty(),
+          initial: snapshot().copyWith(
+            recordId: () => 'renderer-record',
+            createMixRequest: const RequestCapabilityHidden(),
+            createM3u8PlaylistRequest: const RequestCapabilityHidden(),
+          ),
+        );
+        addTearDown(provider.dispose);
+        await tester.pumpWidget(
+          ChangeNotifierProvider<LibraryOpenStateProvider>(
+            create: (_) => _LibraryOpenStateProvider(
+              openRecord: const LibraryRecordSummary(
+                recordId: 'local-record',
+                alias: 'Music',
+                kind: LibraryRecordKindSummaryLocal(
+                  libraryId: 'library-id',
+                  path: '/music',
+                ),
+              ),
+            ),
+            child: capabilityProbe(
+              provider,
+              (context) =>
+                  '${creatable(context)}, '
+                  'import: ${canImportM3u8Playlist(context)}',
+            ),
+          ),
+        );
+        expect(
+          find.text('mix: true, playlist: true, import: true'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   testWidgets('every capability reason has its own text', (tester) async {
