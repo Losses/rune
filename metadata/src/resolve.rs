@@ -121,12 +121,7 @@ impl<'a> Tags<'a> {
         self.separators
             .iter()
             .find_map(|&(name, separators)| (name == field).then_some(separators))
-            .unwrap_or(match field {
-                "credits.Primary Artist" | "credits.Featured Artist" => {
-                    crate::artist::DEFAULT_SEPARATORS
-                }
-                _ => &[],
-            })
+            .unwrap_or_default()
     }
 
     fn list(&mut self, field: &str, keys: &[&str]) -> Option<Vec<String>> {
@@ -386,8 +381,8 @@ pub fn read_local(
     read_local_with_separators(fsio, node, root, &[])
 }
 
-/// Literal separator overrides keyed by normalized list field, such as
-/// `credits.Primary Artist` or `genres`. An explicit empty list disables splitting for that field.
+/// Optional literal separators keyed by normalized list field, such as
+/// `credits.Primary Artist` or `genres`.
 pub type TagSeparators<'a> = [(&'a str, &'a [&'a str])];
 
 /// Read and resolve local metadata with caller-supplied list separators.

@@ -131,6 +131,10 @@ async fn scan_real_library() -> Result<()> {
 }
 
 fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
+    write_wav_with_info(path, &[(b"INAM", title)])
+}
+
+fn write_wav_with_info(path: &std_path::Path, tags: &[(&[u8; 4], &str)]) -> Result<()> {
     fn chunk(output: &mut Vec<u8>, id: &[u8; 4], value: &[u8]) {
         output.extend(id);
         output.extend((value.len() as u32).to_le_bytes());
@@ -139,6 +143,8 @@ fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
             output.push(0);
         }
     }
+
+    // Describe the silent audio as 16-bit mono PCM.
     let mut body = b"WAVE".to_vec();
     let mut format = Vec::new();
     format.extend(1u16.to_le_bytes()); // PCM
@@ -148,16 +154,102 @@ fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
     format.extend(2u16.to_le_bytes());
     format.extend(16u16.to_le_bytes());
     chunk(&mut body, b"fmt ", &format);
+
+    // RIFF INFO values are NUL-terminated strings.
     let mut info = b"INFO".to_vec();
-    let mut title = title.as_bytes().to_vec();
-    title.push(0);
-    chunk(&mut info, b"INAM", &title);
+    for &(id, value) in tags {
+        let mut value = value.as_bytes().to_vec();
+        value.push(0);
+        chunk(&mut info, id, &value);
+    }
     chunk(&mut body, b"LIST", &info);
     chunk(&mut body, b"data", &vec![0; 8820]);
+
+    // Wrap the chunks in the outer RIFF container.
     let mut file = b"RIFF".to_vec();
     file.extend((body.len() as u32).to_le_bytes());
     file.extend(body);
     fs::write(path, file)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
+    use database::actions::{index::index_audio_library, resolved_metadata::CreditScope};
+    use sea_orm::{
+        ExprTrait,
+        sea_query::{Alias, Order, Query},
+    };
+
+    // Write one ARTIST tag per audio file, as it appears on disk.
+    let mut artist_tags = [
+        "Alpha feat. Beta",
+        "Gamma & Delta",
+        "Epsilon, Zeta",
+        "Eta / Theta",
+        "Iota",
+    ];
+    let temp = tempfile::tempdir()?;
+    for (index, artist) in artist_tags.iter().enumerate() {
+        write_wav_with_info(
+            &temp.path().join(format!("track-{index}.wav")),
+            &[(b"IART", artist)],
+        )?;
+    }
+
+    // Use the library's normal scan and index entry points.
+    let actor = Uuid::new_v4();
+    let actor_id = actor.to_string();
+    let db = fixtures::memory_database(actor).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    let store = library.record_store();
+    let scanned = fixtures::scan_library(&FsIo::new(), &db, &actor_id, temp.path(), &store).await?;
+    assert_eq!(scanned, artist_tags.len());
+    index_audio_library(&db, &actor_id, 50, None, &store).await?;
+
+    // The legacy catalog and both resolved artist lists expose the same names.
+    let expected = [
+        "Alpha", "Beta", "Delta", "Epsilon", "Eta", "Gamma", "Iota", "Theta", "Zeta",
+    ];
+    for table in [
+        "artists",
+        "music_metadata_artists",
+        "music_metadata_browse_artists",
+    ] {
+        let rows = db
+            .query_all(
+                Query::select()
+                    .column(Alias::new("name"))
+                    .from(Alias::new(table))
+                    .order_by(Alias::new("name"), Order::Asc),
+            )
+            .await?;
+        let names = rows
+            .iter()
+            .map(|row| row.try_get::<String>("", "name"))
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(names, expected, "{table}");
+    }
+
+    // Structured credits retain the exact tag values used for attribution.
+    artist_tags.sort_unstable();
+    let credited_rows = db
+        .query_all(
+            Query::select()
+                .column(Alias::new("credited_as"))
+                .from(Alias::new("music_metadata_credits"))
+                .and_where(Expr::col(Alias::new("scope")).eq(CreditScope::Audio as i32))
+                .and_where(Expr::col(Alias::new("role")).eq("Primary Artist"))
+                .order_by(Alias::new("credited_as"), Order::Asc),
+        )
+        .await?;
+
+    // Check the full list so missing or extra credits also fail the regression.
+    let credited_names = credited_rows
+        .iter()
+        .map(|row| row.try_get::<String>("", "credited_as"))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(credited_names, artist_tags);
     Ok(())
 }
 

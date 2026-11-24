@@ -1,7 +1,8 @@
-// Historical separators: [", ", "; ", " × ", " x ", " / ", " ft.", " ft. ", " feat. ", " & "]
-pub(crate) const DEFAULT_SEPARATORS: &[&str] = &[";"];
+const DEFAULT_SEPARATORS: &[&str] = &[
+    ", ", "; ", " × ", " x ", " / ", " ft.", " ft. ", " feat. ", " & ",
+];
 
-/// Split an artist value on semicolons.
+/// Split a legacy catalog artist value using the historical separators.
 pub fn split_artists(input: &str) -> Vec<String> {
     split_artists_with_separators(input, DEFAULT_SEPARATORS)
 }
