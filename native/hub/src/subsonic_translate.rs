@@ -2019,30 +2019,39 @@ async fn song_page(
         .songs)
 }
 
-/// The first songs of the whole song list, at most [`mixes::MAX_COVER_POOL`], read page after
-/// page and kept for [`LIST_TTL`]. A cover filter has to look at every song, and the pages of
-/// its list are asked for one after another.
-async fn song_pool(binding: &SubsonicBinding) -> Result<Arc<Vec<SubsonicSong>>> {
-    if let Some((read, songs)) = &binding
+/// The ids of the first songs of the whole song list, at most [`mixes::MAX_COVER_POOL`], read
+/// page after page and kept for [`LIST_TTL`]. A cover filter has to look at every song, and the
+/// pages of its list are asked for one after another. The songs stay in the catalog, which a
+/// later read may have brought up to date.
+async fn song_pool(binding: &SubsonicBinding) -> Result<Arc<Vec<i32>>> {
+    if let Some((read, ids)) = &binding
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
         .song_pool
         && read.elapsed() < LIST_TTL
     {
-        return Ok(Arc::clone(songs));
+        return Ok(Arc::clone(ids));
     }
     let songs: Vec<SubsonicSong> = mixes::first_of_each_key(
         tracks_page_songs(binding, mixes::MAX_COVER_POOL, MixQueryRequest::wire_name()).await?,
         |song| song.id.clone(),
     );
-    let songs = Arc::new(songs);
-    binding
+    let mut catalog = binding
         .catalog
         .lock()
-        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
-        .song_pool = Some((Instant::now(), Arc::clone(&songs)));
-    Ok(songs)
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let ids = songs
+        .into_iter()
+        .map(|song| {
+            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+            catalog.songs.insert(id, song);
+            Ok(id)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let ids = Arc::new(ids);
+    catalog.song_pool = Some((Instant::now(), Arc::clone(&ids)));
+    Ok(ids)
 }
 
 pub(crate) async fn mix_query_request(
@@ -2090,14 +2099,20 @@ pub(crate) async fn mix_query_request(
         }
         // The server cannot be asked for songs with a cover, so the song list is read, as far
         // as a bounded pool of it, and filtered here.
-        Plan::All => song_pool(binding)
-            .await?
-            .iter()
-            .filter(|song| song.cover_art.is_some())
-            .skip(cursor)
-            .take(page_size)
-            .cloned()
-            .collect(),
+        Plan::All => {
+            let ids = song_pool(binding).await?;
+            let catalog = binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            ids.iter()
+                .filter_map(|id| catalog.songs.get(id))
+                .filter(|song| song.cover_art.is_some())
+                .skip(cursor)
+                .take(page_size)
+                .cloned()
+                .collect()
+        }
         Plan::Items(items) => paged(items_songs(binding, &items).await?),
     };
     // The cover wall shows only covers and reads them once, so its covers must be on disk
@@ -5711,6 +5726,31 @@ mod tests {
         assert_eq!(tracks(second), ["song-3"]);
         assert_eq!(endpoint_count(&server, "search3"), reads);
         assert_eq!(endpoint_count(&server, "getRandomSongs"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_kept_cover_pool_leaves_newer_song_metadata_alone() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.listed_covers.store(1, Ordering::SeqCst);
+        let covered = mix_request(&[("lib::all", "true"), ("filter::with_cover_art", "true")]);
+        mix_query_request(&binding, &covered)
+            .await
+            .unwrap()
+            .unwrap();
+        // A later read found a new title for a song of the kept pool.
+        let id = {
+            let mut catalog = binding.catalog.lock().unwrap();
+            let id = catalog.ids.intern(SubsonicIdKind::Track, "song-1").unwrap();
+            catalog.songs.get_mut(&id).unwrap().title = "New".into();
+            id
+        };
+        let page = mix_query_request(&binding, &covered)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(page.files[0].title, "New");
+        assert_eq!(binding.catalog.lock().unwrap().songs[&id].title, "New");
     }
 
     #[tokio::test]
