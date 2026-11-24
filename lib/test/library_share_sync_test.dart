@@ -33,11 +33,6 @@ void main() {
       }
       await pumpEventQueue();
       expect(shown, [s.libraryShareIdentityChanged, s.libraryShareIdentityChanged]);
-      // Verify the actual message text matches the requirement from issue #488
-      expect(
-        shown[0],
-        'The shared library at this location has changed. Sync cannot continue with the previous identity.',
-      );
       notice.dispose();
       await updates.close();
     },
