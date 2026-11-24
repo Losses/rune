@@ -608,6 +608,35 @@ async fn a_playlist_that_cannot_be_read_does_not_fail_the_song_list() {
 }
 
 #[tokio::test]
+async fn a_refresh_that_cannot_read_a_playlist_keeps_the_complete_song_list() {
+    let fixtures = FixtureServer::start().await;
+    serve_library(&fixtures);
+    let clock = ManualClock::new();
+    let library = signed_in(&fixtures).with_clock(clock.clone());
+    assert_eq!(library.songs().await.unwrap().len(), 6);
+
+    clock.advance(TTL);
+    fixtures.on_target(
+        "GET",
+        "/v1/me/library/playlists/p.mine1/tracks?limit=100",
+        Reply::fixture_status(500, "error_server.json"),
+    );
+    let reads = || {
+        fixtures
+            .seen_for("GET", "/v1/me/library/playlists/p.mine1/tracks")
+            .len()
+    };
+    let before = reads();
+    // The old list answers, and the refresh in the background fails on the playlist.
+    assert_eq!(library.songs().await.unwrap().len(), 6);
+    until(|| reads() > before).await;
+    time::sleep(Duration::from_millis(300)).await;
+
+    // The failed refresh did not replace the list with one that lacks the playlist's songs.
+    assert_eq!(library.cached_songs().unwrap().len(), 6);
+}
+
+#[tokio::test]
 async fn the_song_list_is_kept_for_ten_minutes_then_served_while_it_is_rebuilt() {
     let fixtures = FixtureServer::start().await;
     serve_library(&fixtures);

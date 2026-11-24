@@ -750,26 +750,38 @@ impl AppleLibrary {
         let mut tracks = stream::iter(joining)
             .map(|id| async move {
                 match self.playlist_songs(&id).await {
-                    Ok(tracks) => Ok(tracks
-                        .iter()
-                        .filter_map(map::library_track)
-                        .collect::<Vec<_>>()),
+                    Ok(tracks) => Ok((
+                        tracks
+                            .iter()
+                            .filter_map(map::library_track)
+                            .collect::<Vec<_>>(),
+                        None,
+                    )),
                     Err(error) if rejects_tokens(&error) => Err(error),
-                    // One playlist that cannot be read does not cost the whole song list.
+                    // One playlist that cannot be read does not cost a first song list.
                     Err(error) => {
                         log::warn!(
                             "Skipped an Apple Music playlist that could not be read: {error}"
                         );
-                        Ok(Vec::new())
+                        Ok((Vec::new(), Some(error)))
                     }
                 }
             })
             .buffered(PARALLEL_READS);
         let mut extra = Vec::new();
-        while let Some(songs) = tracks.try_next().await? {
+        let mut unread = None;
+        while let Some((songs, error)) = tracks.try_next().await? {
             extra.extend(songs.into_iter().filter(|song| !list.lists(&song.key)));
+            unread = unread.or(error);
         }
         drop(tracks);
+        // A list without the songs only that playlist holds must not replace one that has
+        // them: a failed read is not a removal. The kept list is served until a refresh works.
+        if let Some(error) = unread
+            && self.caches.songs.peek().is_some()
+        {
+            return Err(Failure::Apple(error));
+        }
 
         let catalog_copies = extra.iter().any(|song| !song.key.is_library());
         if catalog_copies && !unresolved.is_empty() {
