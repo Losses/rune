@@ -9,7 +9,6 @@ import '../../utils/l10n.dart';
 import '../../utils/api/complex_query.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_aware_flyout_controller.dart';
-import '../../config/animation.dart';
 import '../../widgets/collection_item.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -141,20 +140,21 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<InternalCollection>>> fetchSummary(
     LibraryHomeProvider libraryHome,
   ) async {
-    widget.layoutManager.resetAnimations();
     var groups = <Group<InternalCollection>>[];
     if (_offersSummary) {
-      final librarySummary = await widget.loadSummary(
-        libraryHome.entries
-            .where((x) => x.setting is LibraryHomeSettingQuery)
-            .map((x) {
-              final setting = x.setting as LibraryHomeSettingQuery;
-              return ComplexQuery(
-                title: x.definition.titleBuilder(context),
-                query: setting.query,
-              );
-            })
-            .toList(),
+      final librarySummary = await widget.layoutManager.replayAfter(
+        widget.loadSummary(
+          libraryHome.entries
+              .where((x) => x.setting is LibraryHomeSettingQuery)
+              .map((x) {
+                final setting = x.setting as LibraryHomeSettingQuery;
+                return ComplexQuery(
+                  title: x.definition.titleBuilder(context),
+                  query: setting.query,
+                );
+              })
+              .toList(),
+        ),
       );
 
       if (!mounted) return [];
@@ -171,14 +171,11 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
             ),
           )
           .toList();
+    } else {
+      // The Start group's tiles appear only once the animations play, so a
+      // library without summaries plays them too.
+      await widget.layoutManager.replayAfter(Future<void>.value());
     }
-
-    // The Start group's tiles appear only once the animations play, so a
-    // library without summaries plays them too.
-    Timer(
-      Duration(milliseconds: gridAnimationDelay),
-      () => widget.layoutManager.playAnimations(),
-    );
 
     return groups;
   }
@@ -189,7 +186,8 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
       future: summary,
       builder: (context, snapshot) {
         if (summary == null ||
-            snapshot.connectionState == ConnectionState.waiting) {
+            (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData)) {
           return const Center(child: ProgressRing());
         } else if (snapshot.hasError) {
           final error = snapshot.error;

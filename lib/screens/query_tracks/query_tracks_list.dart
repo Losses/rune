@@ -1,6 +1,7 @@
 import '../../utils/api/request_failure.dart';
 import '../../utils/l10n.dart';
 import '../../utils/logger.dart';
+import '../../utils/dialogs/information/error.dart';
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -41,6 +42,10 @@ class QueryTrackListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
   final PlaybackMode? mode;
 
+  /// Fires when the library's content changes. Tests pass their own stream;
+  /// it defaults to [LibraryContentChanged.rustSignalStream].
+  final Stream<void>? contentChanged;
+
   /// Replaces how pages of a non-playlist query are loaded. Tests use it to
   /// drive the list without the native hub.
   final QueryTrackPageLoader loadMixPage;
@@ -54,6 +59,7 @@ class QueryTrackListView extends StatefulWidget {
     required this.layoutManager,
     required this.queries,
     required this.mode,
+    this.contentChanged,
     this.loadMixPage = queryMixTracks,
     this.loadPlaylistPage = fetchPlaylistOccurrences,
   });
@@ -74,6 +80,14 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   final Set<int> _failedPages = {};
   final Map<int, PlaylistOccurrenceCursor?> _playlistCursors = {0: null};
   bool _isInitialized = false;
+  bool _reloading = false;
+  // Content changes that come while a reload runs make one more reload after
+  // it, not one each.
+  bool _reloadRunning = false;
+  bool _reloadPending = false;
+  // Whether this list's failure dialog is open, so that refreshes failing
+  // while it is open add no second one.
+  bool _showingFailure = false;
   // A failure the hub reported, or a request that got no answer in time.
   Object? _failure;
   bool _reachedEnd = false;
@@ -83,14 +97,21 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   void initState() {
     super.initState();
-    _contentSubscription = LibraryContentChanged.rustSignalStream.listen(
-      (_) => _restartListing(),
-    );
+    final changes =
+        widget.contentChanged ??
+        LibraryContentChanged.rustSignalStream.map<void>((_) {});
+    _contentSubscription = changes.listen((_) {
+      // Failed pages may load now that the library changed.
+      _failedPages.clear();
+      _requestReload();
+    });
     _initializeData();
   }
 
+  // Starts the listing over from an empty page, for the page's own refresh.
   void _restartListing() {
     _generation++;
+    _reloading = false;
     _loadedItems.clear();
     _playlistCursors
       ..clear()
@@ -111,6 +132,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.queries == widget.queries) return;
     _generation++;
+    _reloading = false;
     _loadedItems.clear();
     _loadingIndices.clear();
     _failedPages.clear();
@@ -124,24 +146,138 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _initializeData();
   }
 
-  Future<List<InternalMediaFile>> _fetchPage(int cursor) async {
+  // Playlist pages follow the cursors in [cursors], the list's own unless a
+  // reload builds a new chain.
+  Future<List<InternalMediaFile>> _fetchPage(
+    int cursor, [
+    Map<int, PlaylistOccurrenceCursor?>? cursors,
+  ]) async {
     final playlistId = getPlaylistIdFromQueryList(widget.queries);
     if (playlistId == null) {
       return widget.loadMixPage(widget.queries, cursor, _pageSize);
     }
-    if (!_playlistCursors.containsKey(cursor)) {
+    final chain = cursors ?? _playlistCursors;
+    if (!chain.containsKey(cursor)) {
       throw StateError('The preceding playlist page has not loaded');
     }
     final generation = _generation;
     final page = await widget.loadPlaylistPage(
       playlistId,
-      _playlistCursors[cursor],
+      chain[cursor],
       _pageSize,
     );
     if (mounted && generation == _generation && page.next != null) {
-      _playlistCursors[cursor + page.items.length] = page.next;
+      chain[cursor + page.items.length] = page.next;
     }
     return page.items;
+  }
+
+  // Reloads now, or once more after the reload in flight, however many changes
+  // arrive meanwhile.
+  void _requestReload() {
+    if (_reloadRunning) {
+      _reloadPending = true;
+      return;
+    }
+    unawaited(_runReload());
+  }
+
+  Future<void> _runReload() async {
+    _reloadRunning = true;
+    try {
+      await _reloadInPlace();
+    } finally {
+      _reloadRunning = false;
+    }
+    if (_reloadPending && mounted) {
+      _reloadPending = false;
+      unawaited(_runReload());
+    }
+  }
+
+  // Keeps the old list on screen until the fresh pages have all arrived, so a
+  // scrolled list does not jump back to the start. If a page fails, the old
+  // list and its cursors stay as they were.
+  Future<void> _reloadInPlace() async {
+    _generation++;
+    final generation = _generation;
+    _reloading = true;
+    final furthest = _loadedItems.keys.fold<int>(-1, (a, b) => a > b ? a : b);
+    // Playlist pages are chained by cursors, so they must be fetched in order,
+    // into a new chain that replaces the old one once all have arrived.
+    final cursors = <int, PlaylistOccurrenceCursor?>{0: null};
+    final fresh = <int, InternalMediaFile>{};
+    var reachedEnd = false;
+    var totalCount = 0;
+    try {
+      var cursor = 0;
+      while (true) {
+        final newItems = await _fetchPage(cursor, cursors);
+        if (!mounted || generation != _generation) return;
+        for (var i = 0; i < newItems.length; i++) {
+          fresh[cursor + i] = newItems[i];
+        }
+        final loadedCount = cursor + newItems.length;
+        if (newItems.length < _pageSize ||
+            (getPlaylistIdFromQueryList(widget.queries) != null &&
+                !cursors.containsKey(loadedCount))) {
+          reachedEnd = true;
+          totalCount = loadedCount;
+          break;
+        }
+        totalCount = loadedCount + _pageSize;
+        cursor = loadedCount;
+        if (cursor > furthest) break;
+      }
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        // The new generation dropped the pages that were loading.
+        _loadingIndices.clear();
+        _isInitialized = true;
+        _reloading = false;
+      });
+      _loadFailed(error);
+      return;
+    }
+    setState(() {
+      _loadedItems
+        ..clear()
+        ..addAll(fresh);
+      _playlistCursors
+        ..clear()
+        ..addAll(cursors);
+      _loadingIndices.clear();
+      _reachedEnd = reachedEnd;
+      _totalCount = totalCount;
+      _isInitialized = true;
+      _reloading = false;
+      _failure = null;
+    });
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => widget.layoutManager.playAnimations(),
+    );
+  }
+
+  // Decides what a failed load shows. Tracks already on the page stay and the
+  // failure shows in the error dialog, one at a time; with none, the page
+  // shows the failure. Only the list of the page shown opens the dialog: the
+  // lists of the pages stacked under it fail together with it, and the user
+  // needs the error once.
+  void _loadFailed(Object error) {
+    if (_loadedItems.isEmpty) {
+      if (_shownFailure(error)) setState(() => _failure = error);
+      return;
+    }
+    if (_showingFailure || ModalRoute.isCurrentOf(context) == false) return;
+    _showingFailure = true;
+    final s = S.of(context);
+    showErrorDialog(
+      context: context,
+      title: s.unknownError,
+      errorMessage: requestErrorText(s, error),
+    ).whenComplete(() => _showingFailure = false);
   }
 
   Future<void> _initializeData() async {
@@ -188,7 +324,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     } catch (error) {
       if (!mounted || generation != _generation) return;
       _loadingIndices.remove(cursor);
-      if (_shownFailure(error)) _failure = error;
+      _loadFailed(error);
     }
   }
 
@@ -277,6 +413,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       error is RequestFailure || error is TimeoutException;
 
   void _checkAndLoadItem(int index) {
+    if (_reloading) return;
     if (_loadedItems.containsKey(index) ||
         (index >= _totalCount && _reachedEnd)) {
       return;

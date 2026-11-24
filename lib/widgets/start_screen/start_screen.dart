@@ -140,12 +140,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               leading: const Icon(Symbols.refresh),
               text: Text(S.of(context).refresh),
               onPressed: () async {
-                _layoutManager.resetAnimations();
-                await data.reloadData();
-                Timer(
-                  Duration(milliseconds: gridAnimationDelay),
-                  () => _layoutManager.playAnimations(),
-                );
+                await _layoutManager.replayAfter(data.reloadData());
               },
             ),
             if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
@@ -220,9 +215,12 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
       child: FutureBuilder<List<Group<InternalCollection>>>(
         future: data.summary,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
             return const Center(child: ProgressRing());
-          } else if (snapshot.hasError) {
+          } else if (snapshot.hasError && data.items.isEmpty) {
+            // Only with nothing on screen: a reload whose summary fails keeps
+            // its items.
             return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {
             return ContextMenuWrapper(
