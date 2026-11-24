@@ -13,7 +13,7 @@ use database::{
 };
 use fsio::FsIo;
 use metadata::describe::describe_file;
-use sea_orm::{ConnectionTrait, Database, EntityTrait, PaginatorTrait};
+use sea_orm::{ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter};
 use std::fs;
 use std::fs::File;
 use std::time as std_time;
@@ -97,7 +97,13 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
             .await
             .is_err()
     );
-    assert_eq!(albums::Entity::find().count(&db).await?, 0);
+    assert_eq!(
+        albums::Entity::find()
+            .filter(albums::Column::Name.is_not_null())
+            .count(&db)
+            .await?,
+        0
+    );
     assert_eq!(media_file_albums::Entity::find().count(&db).await?, 0);
     db.execute_unprepared("DROP TRIGGER reject_album_journal")
         .await?;
@@ -149,7 +155,7 @@ async fn index_reads_metadata_after_acquiring_replica_lock() -> Result<()> {
         media_metadata,
     };
     use database::sync::model::Payload;
-    use sea_orm::{ColumnTrait, QueryFilter, Set};
+    use sea_orm::Set;
     let db = Database::connect("sqlite::memory:").await?;
     let actor = Uuid::new_v4();
     migration::up_with_actor(&db, Some(&actor.to_string()), None).await?;
@@ -183,7 +189,14 @@ async fn index_reads_metadata_after_acquiring_replica_lock() -> Result<()> {
     }
     // SQLite triggers inject a deterministic source change at lock acquisition.
     // The trigger cannot be represented by SeaORM entity operations.
-    db.execute_unprepared("CREATE TRIGGER change_tags_at_replica_lock AFTER UPDATE OF head ON sync_meta WHEN NEW.head = OLD.head BEGIN UPDATE media_metadata SET meta_value = CASE meta_key WHEN 'artist' THEN 'new artist' WHEN 'album' THEN 'new album' WHEN 'genre' THEN 'new genre' ELSE meta_value END; END").await?;
+    db.execute_unprepared("CREATE TRIGGER change_tags_at_replica_lock AFTER UPDATE OF head ON sync_meta WHEN NEW.head = OLD.head BEGIN
+        UPDATE music_metadata_credits SET credited_as = 'new artist' WHERE scope = 2 AND role = 'Primary Artist';
+        UPDATE music_metadata_album_evidence SET title = 'new album', tag_title = 'new album';
+        INSERT INTO music_metadata_values (file_id, scope, field, qualifier, position, value)
+            SELECT file_id, 2, 'genres', '', 0, 'new genre' FROM music_metadata_audio
+            WHERE true ON CONFLICT (file_id, scope, field, qualifier, position) DO UPDATE SET value = excluded.value;
+        UPDATE music_metadata_source_tags SET meta_value = CASE meta_key WHEN 'artist' THEN 'new artist' WHEN 'album' THEN 'new album' WHEN 'genre' THEN 'new genre' ELSE meta_value END;
+        END").await?;
     index_media_files(&db, &actor.to_string(), vec![file_id], None, &store).await?;
     db.execute_unprepared("DROP TRIGGER change_tags_at_replica_lock")
         .await?;
@@ -364,8 +377,8 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
         )
     };
 
-    // Give the initial track an album tag. The replacement fixture has none.
-    db.execute_unprepared("CREATE TRIGGER initial_album AFTER INSERT ON media_metadata WHEN NEW.meta_key = 'artist' BEGIN UPDATE media_metadata SET meta_key = 'album', meta_value = 'First album' WHERE id = NEW.id; END").await?;
+    // Give the initial track album evidence. The replacement fixture has none.
+    db.execute_unprepared("CREATE TRIGGER initial_album AFTER INSERT ON music_metadata_album_evidence BEGIN UPDATE music_metadata_album_evidence SET title = 'First album', tag_title = 'First album' WHERE file_id = NEW.file_id; END").await?;
     for expected_album in ["First album", ""] {
         if expected_album.is_empty() {
             db.execute_unprepared("DROP TRIGGER initial_album").await?;
@@ -375,17 +388,16 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
                 .open(&path)?
                 .set_modified(std_time::UNIX_EPOCH + Duration::from_secs(1_700_000_000))?;
         }
-        db.execute_unprepared("CREATE TRIGGER reject_album BEFORE INSERT ON albums BEGIN SELECT RAISE(ABORT, 'album failure'); END").await?;
+        db.execute_unprepared("CREATE TRIGGER reject_album BEFORE INSERT ON music_metadata_albums WHEN NEW.portable_title IS NOT NULL BEGIN SELECT RAISE(ABORT, 'album failure'); END").await?;
         assert_eq!(scan().await?, 0);
         db.execute_unprepared("DROP TRIGGER reject_album").await?;
         assert_eq!(scan().await?, 1);
         let file = media_files::Entity::find().one(&db).await?.unwrap();
         let assignment = media_file_albums::Entity::find().one(&db).await?.unwrap();
         let album = albums::Entity::find()
-            .all(&db)
+            .filter(albums::Column::SourceUuid.eq(&assignment.album_uuid))
+            .one(&db)
             .await?
-            .into_iter()
-            .find(|album| album.source_uuid == assignment.album_uuid)
             .unwrap();
         assert_eq!(album.name, expected_album);
         assert_eq!(assignment.track_uuid, file.source_uuid);

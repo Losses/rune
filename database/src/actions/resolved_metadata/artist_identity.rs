@@ -5,6 +5,7 @@ use metadata::model::MetadataBase;
 use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait, Set, sea_query::OnConflict};
 use uuid::Uuid;
 
+use crate::actions::utils::generate_group_name;
 use crate::entities::music_metadata::artists;
 
 use super::external_uuid;
@@ -34,7 +35,9 @@ pub(super) async fn primary(
     artists::Entity::insert(artists::ActiveModel {
         id: Set(id.clone()),
         name: Set(credit.credited_as.clone()),
+        group: Set(generate_group_name(&credit.credited_as)),
         musicbrainz_id: Set(Some(mbid.to_string())),
+        portable: Set(0),
     })
     .on_conflict(
         OnConflict::column(artists::Column::Id)

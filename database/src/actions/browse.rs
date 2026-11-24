@@ -21,7 +21,7 @@ use crate::entities::{
 
 use super::{
     collection::CollectionQueryListMode,
-    resolved_metadata::{column, like_pattern, nocase, query_models},
+    resolved_metadata::{column, like_pattern, nocase, query_models, scalar},
 };
 
 #[derive(Clone, Copy)]
@@ -67,7 +67,7 @@ impl Kind {
                 use catalog_artists::Column as A;
                 let target = Alias::new("canonical_artist");
                 query
-                    .column(A::Id.as_column_ref())
+                    .expr_as(column(A::Id), "id")
                     .expr_as(
                         Func::coalesce([Expr::col((target.clone(), A::Name)), column(A::Name)]),
                         "name",
@@ -107,10 +107,48 @@ fn alias_col(table: &str, column: &str) -> Expr {
     Expr::col((Alias::new(table), Alias::new(column)))
 }
 
-fn browse_rows(kind: Kind) -> SelectStatement {
-    // Reuse the legacy alphabetic bucket if that spelling has already been indexed.
-    let name = alias_col("browse", "name");
-    let first = Func::cust("substr").args([name.clone(), Expr::val(1), Expr::val(1)]);
+fn browse_group(kind: Kind, id: Expr, name: Expr) -> Expr {
+    // Mapped identities retain their saved bucket even when their title changes.
+    let mut saved = Query::select();
+    match kind {
+        Kind::Album => saved
+            .column(albums::Column::Group)
+            .and_where(column(albums::Column::SourceUuid).eq(id.clone())),
+        Kind::Artist => saved
+            .column(artists::Column::Group)
+            .and_where(column(artists::Column::SourceUuid).eq(id.clone())),
+    };
+    let saved = saved.from(kind.table()).to_owned();
+    let mut buckets = vec![scalar(saved)];
+
+    // Edition IDs differ from the old album UUID. Follow the track membership.
+    if matches!(kind, Kind::Album) {
+        use albums::Column as A;
+        use media_file_albums::Column as L;
+        let edition = Query::select()
+            .column(A::Group.as_column_ref())
+            .from(discs::Entity)
+            .inner_join(
+                audio::Entity,
+                column(audio::Column::DiscId).eq(column(discs::Column::Id)),
+            )
+            .inner_join(
+                media_file_albums::Entity,
+                column(L::TrackUuid).eq(column(audio::Column::Id)),
+            )
+            .inner_join(
+                albums::Entity,
+                column(A::SourceUuid).eq(column(L::AlbumUuid)),
+            )
+            .and_where(column(discs::Column::AlbumId).eq(id))
+            .order_by(A::Id, Order::Asc)
+            .limit(1)
+            .to_owned();
+        buckets.push(scalar(edition));
+    }
+
+    // Only identities without an indexed bucket need a display-name fallback.
+    let first = Func::cust("substr").args([name, Expr::val(1), Expr::val(1)]);
     let capital: Expr = Func::upper(first).into();
     let bucket = Expr::case(
         capital
@@ -119,21 +157,69 @@ fn browse_rows(kind: Kind) -> SelectStatement {
         capital,
     )
     .finally("#");
+    buckets.push(bucket.into());
+    Func::coalesce(buckets).into()
+}
+
+fn browse_rows(kind: Kind) -> SelectStatement {
     let mut query = Query::select();
     query
         .columns(["id", "name", "source_uuid"].map(|c| (Alias::new("browse"), Alias::new(c))))
         .expr_as(
-            Func::coalesce([alias_col("old", "group"), bucket.into()]),
+            browse_group(
+                kind,
+                alias_col("browse", "source_uuid"),
+                alias_col("browse", "name"),
+            ),
             "group",
         )
-        .from_as(kind.view(), "browse")
-        .join_as(
-            JoinType::LeftJoin,
-            kind.table(),
-            "old",
-            alias_col("old", "name").eq(name),
-        );
+        .from_as(kind.view(), "browse");
     query
+}
+
+async fn collection_models<T: FromQueryResult>(
+    db: &DatabaseConnection,
+    kind: Kind,
+    query: SelectStatement,
+) -> Result<Vec<T>> {
+    if matches!(kind, Kind::Album) {
+        // Decode public handles using the album entity's physical column names.
+        let rows = Query::select()
+            .expr_as(alias_col("items", "id"), "legacy_id")
+            .expr_as(alias_col("items", "name"), "portable_title")
+            .expr_as(alias_col("items", "source_uuid"), "id")
+            .expr_as(alias_col("items", "group"), "portable_group")
+            .from_subquery(query, "items")
+            .to_owned();
+        return query_models(db, &rows).await;
+    }
+    query_models(db, &query).await
+}
+
+pub(super) async fn album_for_file(
+    db: &DatabaseConnection,
+    track_uuid: &str,
+) -> Result<Option<albums::Model>> {
+    super::resolved_metadata::ensure_tracks_current(db).await?;
+    let edition = Query::select()
+        .column(discs::Column::AlbumId.as_column_ref())
+        .from(audio::Entity)
+        .inner_join(
+            discs::Entity,
+            column(audio::Column::DiscId).eq(column(discs::Column::Id)),
+        )
+        .and_where(audio::Column::Id.eq(track_uuid))
+        .to_owned();
+
+    // Resolve the actual edition of this audio file, including its current title.
+    let query = Query::select()
+        .columns(["id", "name", "source_uuid", "group"].map(Alias::new))
+        .from_subquery(browse_rows(Kind::Album), "edition")
+        .and_where(Expr::col(Alias::new("source_uuid")).in_subquery(edition))
+        .limit(1)
+        .to_owned();
+    let rows: Vec<albums::Model> = collection_models(db, Kind::Album, query).await?;
+    Ok(rows.into_iter().next())
 }
 
 pub(super) async fn portable_clause(
@@ -265,7 +351,7 @@ pub(super) async fn groups<T: FromQueryResult>(
         .and_where(Expr::col(Alias::new("group")).is_in(groups.iter().map(String::as_str)))
         .order_by_expr(nocase(Expr::col(Alias::new("name"))), Order::Asc)
         .order_by(Alias::new("id"), Order::Asc);
-    query_models(db, &query).await
+    collection_models(db, kind, query).await
 }
 
 pub(super) async fn by_id<T: FromQueryResult>(
@@ -277,18 +363,36 @@ pub(super) async fn by_id<T: FromQueryResult>(
     let mut found = Vec::new();
     // Positive IDs from previously saved navigation remain resolvable after the browse switch.
     for ids in ids.chunks(400) {
-        let names = ["id", "name", "source_uuid", "group"].map(Alias::new);
-        let old = Query::select()
-            .columns(names)
-            .from(kind.table())
-            .and_where(Expr::col(Alias::new("id")).is_in(ids.iter().copied()))
-            .to_owned();
+        let mut saved = Query::select();
+        match kind {
+            Kind::Album => {
+                use albums::Column as A;
+                saved
+                    .expr_as(column(A::Id), "id")
+                    .expr_as(column(current_album_titles::Column::Title), "name")
+                    .expr_as(column(A::SourceUuid), "source_uuid")
+                    .expr_as(column(A::Group), "group")
+                    .inner_join(
+                        current_album_titles::Entity,
+                        column(A::SourceUuid).eq(column(current_album_titles::Column::Id)),
+                    )
+                    .and_where(A::Name.is_not_null())
+                    .and_where(A::Id.is_in(ids.iter().copied()));
+            }
+            Kind::Artist => {
+                saved
+                    .columns(["id", "name", "source_uuid", "group"].map(Alias::new))
+                    .and_where(artists::Column::Id.is_in(ids.iter().copied()))
+                    .and_where(catalog_artists::Column::Portable.eq(1));
+            }
+        }
+        let saved = saved.from(kind.table()).to_owned();
         let items = Query::select()
             .expr_as(Expr::val(0).sub(column(H::Id)), "id")
             .column((Alias::new("entity"), Alias::new("name")))
             .expr_as(alias_col("entity", "id"), "source_uuid")
             .expr_as(
-                Func::coalesce([alias_col("old", "group"), Expr::val("#")]),
+                browse_group(kind, alias_col("entity", "id"), alias_col("entity", "name")),
                 "group",
             )
             .from(browse_handles::Entity)
@@ -298,17 +402,11 @@ pub(super) async fn by_id<T: FromQueryResult>(
                 "entity",
                 alias_col("entity", "id").eq(column(H::SourceUuid)),
             )
-            .join_as(
-                JoinType::LeftJoin,
-                kind.table(),
-                "old",
-                alias_col("old", "name").eq(alias_col("entity", "name")),
-            )
             .and_where(H::Kind.eq(kind.label()))
             .and_where(H::Id.is_in(ids.iter().map(|&id| -i64::from(id))))
-            .union(UnionType::All, old)
+            .union(UnionType::All, saved)
             .to_owned();
-        found.extend(query_models::<T>(db, &items).await?);
+        found.extend(collection_models::<T>(db, kind, items).await?);
     }
     Ok(found)
 }
@@ -338,7 +436,7 @@ pub(super) async fn list<T: FromQueryResult>(
             .order_by_expr(nocase(Expr::col(Alias::new("name"))), Order::Asc)
             .order_by(Alias::new("id"), Order::Asc),
     };
-    query_models(db, &query).await
+    collection_models(db, kind, query).await
 }
 
 pub(super) async fn resolve_search(

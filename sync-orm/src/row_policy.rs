@@ -8,7 +8,8 @@ use sea_orm::DbBackend;
 use sea_orm::prelude;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait, Value, sea_query::Expr,
+    QuerySelect, QueryTrait, Value,
+    sea_query::{Expr, OnConflict},
 };
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -302,6 +303,10 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
     fn source_filter() -> sea_orm::Condition {
         Condition::all()
     }
+    /// Clear the portable fields while retaining a row shared with local data.
+    fn clear_on_remove() -> Vec<(E::Column, Value)> {
+        Vec::new()
+    }
     fn read_ceiling() -> u64 {
         1
     }
@@ -321,6 +326,15 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
     async fn project_children_on(
         _tx: &sea_orm::DatabaseTransaction,
         _row: &RowView<E>,
+        _value: Option<&Self::Payload>,
+    ) -> Result<(), DbErr> {
+        Ok(())
+    }
+    /// Apply application projections after the selected row has changed.
+    async fn after_project_on(
+        _tx: &sea_orm::DatabaseTransaction,
+        _id: Uuid,
+        _before: Option<&RowView<E>>,
         _value: Option<&Self::Payload>,
     ) -> Result<(), DbErr> {
         Ok(())
@@ -759,11 +773,20 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         let Some(value) = value else {
             if let Some(row) = &existing {
                 M::project_children_on(db, row, None).await?;
-                E::delete_many()
-                    .filter(M::source_filter())
-                    .filter(M::uuid_column().eq(id.to_string()))
-                    .exec(db)
-                    .await?;
+                let clear = M::clear_on_remove();
+                let identity = Condition::all()
+                    .add(M::source_filter())
+                    .add(M::uuid_column().eq(id.to_string()));
+                if clear.is_empty() {
+                    E::delete_many().filter(identity).exec(db).await?;
+                } else {
+                    let mut update = E::update_many().filter(identity);
+                    for (column, value) in clear {
+                        update = update.col_expr(column, Expr::value(value));
+                    }
+                    update.exec(db).await?;
+                }
+                M::after_project_on(db, id, Some(row), None).await?;
             }
             return Ok(());
         };
@@ -806,12 +829,27 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
             update.exec(db).await?;
         } else {
             active.try_set(M::uuid_column(), id.to_string().into())?;
-            E::insert(active).exec(db).await?;
+            let reactivation = M::clear_on_remove();
+            let mut insert = E::insert(active);
+            if !reactivation.is_empty() {
+                // Restore the portable fields when the distinct local identity persisted.
+                let updated = columns
+                    .into_iter()
+                    .chain(reactivation.into_iter().map(|(column, _)| column));
+                let mut seen = HashSet::new();
+                insert = insert.on_conflict(
+                    OnConflict::column(M::uuid_column())
+                        .update_columns(updated.filter(|column| seen.insert(column.as_str())))
+                        .to_owned(),
+                );
+            }
+            insert.exec(db).await?;
         }
         let row = Self::row_on(db, id)
             .await?
             .ok_or_else(|| DbErr::Custom("source row missing after projection".into()))?;
         M::project_children_on(db, &row, Some(value)).await?;
+        M::after_project_on(db, id, existing.as_ref(), Some(value)).await?;
         Ok(())
     }
 }
@@ -827,10 +865,12 @@ macro_rules! row_mapping {
             fields: { $($field:ident : $ty:ty => $column:expr),* $(,)? },
             defaults: { $($default_column:expr => $default_value:expr),* $(,)? },
             $(source_filter: $source_filter:expr,)?
+            $(clear_on_remove: { $($clear_column:expr => $clear_value:expr),+ $(,)? },)?
             $(local_reads: [$($local_read:expr),* $(,)?],)?
             $(lists: { $($list:ident : $item:ty => { entity: $list_entity:ty, mapping: $list_mapping:ty, owner: $list_owner:expr $(,)? }),* $(,)? },)?
             $(effects: { $($effect:ident => { entity: $effect_entity:ty, mapping: $effect_mapping:ty, owner: $effect_owner:expr, derive: $derive:expr $(,)? }),* $(,)? },)?
             $(local_updates: $local_updates:expr,)?
+            $(after_project: { run: $after_project:expr, reads: $after_reads:expr, mutations: $after_mutations:expr },)?
             $(references: { $($reference:ident => $target:literal),* $(,)? },)?
             $(limits: { $($bounded:ident => ($min:expr, $max:expr)),* $(,)? },)?
             $(owner: { field: $owner:ident, allow_removal: $allow_removal:expr },)?
@@ -886,6 +926,9 @@ macro_rules! row_mapping {
 
             fn local_read_columns() -> Vec<<$entity as sea_orm::EntityTrait>::Column> { vec![$($($local_read),*)?] }
             $(fn source_filter() -> sea_orm::Condition { $source_filter })?
+            $(fn clear_on_remove() -> Vec<(<$entity as sea_orm::EntityTrait>::Column, sea_orm::Value)> {
+                vec![$(($clear_column, ($clear_value).into())),+]
+            })?
             fn read_ceiling() -> u64 {
                 #[allow(unused_mut)]
                 let mut reads = 1;
@@ -903,8 +946,20 @@ macro_rules! row_mapping {
                     budget.max_reads += u64::from(<$effect_mapping as $crate::derived_effect::EffectMapping<$effect_entity>>::max_items()) + 1;
                     budget.max_mutations += u64::from(<$effect_mapping as $crate::derived_effect::EffectMapping<$effect_entity>>::max_items()) * 2;
                 )*)?
+                $(
+                    budget.max_reads += $after_reads;
+                    budget.max_mutations += $after_mutations;
+                )?
                 budget
             }
+            $(async fn after_project_on(
+                tx: &sea_orm::DatabaseTransaction,
+                id: uuid::Uuid,
+                before: Option<&$crate::row_policy::RowView<$entity>>,
+                value: Option<&Self::Payload>,
+            ) -> Result<(), sea_orm::DbErr> {
+                ($after_project)(tx, id, before, value).await
+            })?
             async fn hydrate_on<C: sea_orm::ConnectionTrait>(
                 db: &C, row: &$crate::row_policy::RowView<$entity>, value: &mut Self::Payload,
             ) -> Result<u64, sea_orm::DbErr> {

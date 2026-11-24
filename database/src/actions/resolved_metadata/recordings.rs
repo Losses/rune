@@ -9,9 +9,7 @@ use metadata::model::{
     RecordingIdentifiers, RecordingMetadata, RecordingSource,
 };
 use sea_orm::ExprTrait;
-use sea_orm::sea_query::{
-    Alias, BinOper, Expr, Func, OnConflict, Order, Query, SelectStatement, UnionType,
-};
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Order, Query, SelectStatement, UnionType};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseTransaction, TransactionSession, TransactionTrait,
 };
@@ -28,7 +26,7 @@ use crate::entities::{
 use super::{
     column,
     details::Selection,
-    recording_identity::{ensure_exists, isrc, reconcile, remote_fallback},
+    recording_identity::{isrc, prepare_source, reconcile, remote_fallback},
     tracks,
 };
 
@@ -50,20 +48,21 @@ pub async fn register_recording_source(
         isrc: identifiers.isrc.as_deref().and_then(isrc),
     };
 
-    let fallback = remote_fallback(provider, resource);
-    ensure_exists(&tx, fallback).await?;
-
-    // Store the provider's current assertion. A later refresh can remove either identifier.
+    // Read the previous assertion before replacing its identity evidence.
     use orm_recording_sources::Column as S;
-    let excluded = Alias::new("excluded");
-    let unchanged = column(S::RecordingMbid)
-        .binary(BinOper::Is, Expr::col((excluded.clone(), S::RecordingMbid)))
-        .and(
-            column(S::RecordingIsrc)
-                .binary(BinOper::Is, Expr::col((excluded.clone(), S::RecordingIsrc))),
-        );
-    let recording = Expr::case(unchanged, column(S::RecordingId))
-        .finally(Expr::col((excluded, S::RecordingId)));
+    let before = tx
+        .query_one(
+            Query::select()
+                .columns([S::RecordingId, S::RecordingMbid, S::RecordingIsrc])
+                .from(orm_recording_sources::Entity)
+                .and_where(S::Provider.eq(provider))
+                .and_where(S::ResourceId.eq(resource)),
+        )
+        .await?;
+    let fallback = remote_fallback(provider, resource);
+    let recording = prepare_source(&tx, before.as_ref(), fallback, &identifiers, false).await?;
+
+    // A later provider refresh can remove either identifier.
     tx.execute(
         Query::insert()
             .into_table(orm_recording_sources::Entity)
@@ -77,14 +76,13 @@ pub async fn register_recording_source(
             .values([
                 Expr::val(provider),
                 Expr::val(resource),
-                Expr::val(fallback.to_string()),
+                Expr::val(recording.to_string()),
                 Expr::val(identifiers.musicbrainz_id.map(|id| id.to_string())),
                 Expr::val(identifiers.isrc),
             ])?
             .on_conflict(
                 OnConflict::columns([S::Provider, S::ResourceId])
-                    .update_columns([S::RecordingMbid, S::RecordingIsrc])
-                    .value(S::RecordingId, recording)
+                    .update_columns([S::RecordingMbid, S::RecordingIsrc, S::RecordingId])
                     .to_owned(),
             ),
     )

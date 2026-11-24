@@ -8,6 +8,7 @@ mod details;
 pub mod edits;
 pub mod fields;
 pub mod overlays;
+pub(super) mod portable;
 mod recording_identity;
 mod recordings;
 pub use recordings::{
@@ -101,13 +102,20 @@ const AUDIO_COLUMNS: &[&[&str]] = &[
         "track_title_key",
         "duration_ms",
         "import_date",
+        "portable",
     ],
     columns::COMMON,
     columns::AUDIO,
     columns::ENCODING,
 ];
 const ALBUM_COLUMNS: &[&[&str]] = &[
-    &["file_id", "title", "title_priority", "version_priority"],
+    &[
+        "file_id",
+        "title",
+        "tag_title",
+        "title_priority",
+        "version_priority",
+    ],
     columns::COMMON,
     columns::ALBUM,
 ];
@@ -162,7 +170,7 @@ pub(super) async fn query_models<T: FromQueryResult>(
         .collect()
 }
 
-fn scalar(query: SelectStatement) -> Expr {
+pub(super) fn scalar(query: SelectStatement) -> Expr {
     Expr::SubQuery(None, Box::new(query.into()))
 }
 
@@ -172,7 +180,8 @@ pub(super) async fn contains(db: &impl ConnectionTrait, file_id: i32) -> Result<
             Query::select()
                 .expr(Expr::val(1))
                 .from(orm_audio::Entity)
-                .and_where(Expr::col(orm_audio::Column::FileId).eq(Expr::val(file_id))),
+                .and_where(Expr::col(orm_audio::Column::FileId).eq(Expr::val(file_id)))
+                .and_where(orm_audio::Column::Portable.eq(0)),
         )
         .await?
         .is_some())
@@ -235,7 +244,13 @@ async fn store_on(
         musicbrainz_id: external_uuid(&audio.base, "musicbrainz:recording"),
         isrc: audio.isrc.as_deref().and_then(recording_identity::isrc),
     };
-    let recording_id = recording_identity::prepare_audio(db, source_uuid, &ids).await?;
+    let recording_id = recording_identity::prepare_audio(
+        db,
+        source_uuid,
+        &ids,
+        (file.content_hash.as_deref(), file.content_size),
+    )
+    .await?;
 
     // The conflict clause preserves the original import date.
     let mut values = vec![
@@ -254,6 +269,7 @@ async fn store_on(
         tracks::title_key(&audio.title).into(),
         columns::bind_duration(audio.base.duration_ms)?,
         jiff::Timestamp::now().to_string().into(),
+        0.into(),
     ];
     columns::bind_common(&audio.base, &mut values)?;
     columns::bind_audio(audio, &mut values)?;
@@ -270,6 +286,13 @@ async fn store_on(
     let mut values = vec![
         file_id.into(),
         release_group::album_title(metadata).into(),
+        metadata
+            .diagnostics
+            .raw_tags
+            .get("ALBUM")
+            .and_then(|values| values.last())
+            .cloned()
+            .into(),
         release_group::title_priority(metadata).into(),
         release_group::version_priority(metadata).into(),
     ];

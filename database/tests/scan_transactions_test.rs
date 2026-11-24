@@ -30,7 +30,7 @@ async fn failed_metadata_insert_rolls_back_file() -> Result<()> {
     )
     .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
-        "CREATE TRIGGER reject_metadata BEFORE INSERT ON media_metadata BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
+        "CREATE TRIGGER reject_metadata BEFORE INSERT ON music_metadata_source_tags BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let fs = FsIo::new();
     let root = fs.canonicalize(&fixtures::asset_directory())?.path;
     let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
@@ -93,7 +93,7 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
     )
     .await?;
     db.execute_raw(Statement::from_string(DbBackend::Sqlite,
-        "CREATE TRIGGER reject_one BEFORE INSERT ON media_metadata WHEN (SELECT file_name FROM media_files WHERE id=NEW.file_id)='bad.ogg' BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
+        "CREATE TRIGGER reject_one BEFORE INSERT ON music_metadata_source_tags WHEN (SELECT file_name FROM media_files WHERE id=NEW.file_id)='bad.ogg' BEGIN SELECT RAISE(ABORT, 'test failure'); END;".to_owned())).await?;
     let dir = tempfile::tempdir()?;
     let source = fixtures::audio_fixture();
     let fs = FsIo::new();
@@ -128,7 +128,7 @@ async fn failed_file_does_not_rollback_neighbors_or_stop_the_batch() -> Result<(
     names.sort();
     assert_eq!(names, ["after.ogg", "before.ogg"]);
     let orphan = db.query_one_raw(Statement::from_string(DbBackend::Sqlite,
-        "SELECT COUNT(*) AS n FROM media_metadata WHERE file_id NOT IN (SELECT id FROM media_files)".to_owned())).await?.unwrap();
+        "SELECT COUNT(*) AS n FROM music_metadata_source_tags WHERE file_id NOT IN (SELECT id FROM media_files)".to_owned())).await?.unwrap();
     assert_eq!(orphan.try_get::<i64>("", "n")?, 0);
     Ok(())
 }
@@ -206,7 +206,10 @@ async fn lookup_indexes_upgrade_existing_database_and_survive_reopen() -> Result
             "SELECT id FROM media_files WHERE directory='' AND file_name='track.ogg'",
             "idx_media_files_path",
         ),
-        ("SELECT id FROM media_metadata WHERE file_id=1", "file_id=?"),
+        (
+            "SELECT id FROM music_metadata_source_tags WHERE file_id=1",
+            "file_id=?",
+        ),
         (
             "SELECT id FROM media_analysis WHERE file_id=1",
             "idx_media_analysis_file_id",

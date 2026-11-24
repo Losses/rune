@@ -2,6 +2,8 @@ use once_cell::sync::OnceCell;
 use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
 use std::future;
 pub mod catalog_identity;
+mod resolved_metadata_import;
+pub use resolved_metadata_import::project_portable_track;
 pub use sea_orm_migration::prelude::*;
 
 static NODE_ID: OnceCell<String> = OnceCell::new();

@@ -2,13 +2,14 @@ use crate::actions::{
     file::{
         MANAGED_AUDIO_DIRECTORY, get_file_ids_by_descriptions, is_managed_directory, remove_track,
     },
-    index::{index_media_file, index_media_files},
     logging::{LogLevel, insert_log},
 };
-use crate::entities::music_metadata::{artist_identities, audio as catalog_audio};
+use crate::entities::music_metadata::{
+    artist_identities, audio as catalog_audio, credits as catalog_credits, values as catalog_values,
+};
 use crate::entities::{
-    albums, artists, media_analysis, media_file_albums, media_files, media_metadata,
-    sync_download_jobs, sync_download_jobs::Column,
+    albums, artists, media_analysis, media_files, media_metadata, sync_download_jobs,
+    sync_download_jobs::Column,
 };
 use crate::error::ExpectedError;
 use sea_orm::sqlx::Error;
@@ -288,7 +289,9 @@ async fn sync_file_descriptions_inner(
                         .lib_path
                         .as_deref()
                         .unwrap_or_else(|| Path::new(""));
-                    let (metadata, resolved) = read_local(&fs, &prepared.raw_node, root)?;
+                    let resolved = read_local(&fs, &prepared.raw_node, root)?;
+                    let metadata =
+                        metadata::reader::legacy_tags(&resolved.diagnostics.raw_tags, None);
                     prepared.set_codec_information(
                         resolved
                             .audio
@@ -440,9 +443,15 @@ async fn sync_file_descriptions_inner(
 
                 if let Some(options) = scan {
                     anyhow::ensure!(
-                        index_media_file(&txn, node_id, id, options.cancel_token.as_ref(), store)
-                            .await
-                            .context("Unable to index file")?,
+                        resolved_metadata::portable::publish_track(
+                            &txn,
+                            id,
+                            options.cancel_token.as_ref(),
+                            store,
+                            metadata.as_ref().map(|(_, resolved)| resolved),
+                        )
+                        .await
+                        .context("Unable to index file")?,
                         "Missing metadata summary for file {id}"
                     );
                 }
@@ -1024,10 +1033,25 @@ pub async fn scan_audio_file(
     })
     .await??;
     let mut descriptions = vec![Some(description)];
-    sync_file_descriptions(fsio, main_db, node_id, &mut descriptions, false, store).await?;
+    // Single-file scans publish the same catalog records inside the scan transaction.
+    let options = ScanOptions {
+        cleanup: false,
+        force: false,
+        missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+        cancel_token: None,
+    };
+    sync_file_descriptions_inner(
+        fsio,
+        main_db,
+        node_id,
+        &mut descriptions,
+        false,
+        Some(&options),
+        store,
+    )
+    .await?;
     let ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
     let id = *ids.first().context("Audio file was not indexed")?;
-    index_media_files(main_db, node_id, ids, None, store).await?;
     if let Some(description) = descriptions.first().and_then(Option::as_ref) {
         let root = description.lib_path.as_deref().unwrap_or(lib_path);
         let directory = &description.directory;
@@ -1296,7 +1320,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
     // Extract file IDs from the provided file entries
     let file_ids: Vec<i32> = files.iter().map(|file| file.id).collect();
     use crate::entities::media_cover_art;
-    use sea_orm::QuerySelect;
+    use sea_orm::{QueryOrder, QuerySelect};
     let artwork_uuids: Vec<_> = files
         .iter()
         .filter_map(|file| file.cover_art_uuid.clone())
@@ -1314,39 +1338,55 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         .into_iter()
         .collect();
 
-    // Fetch all metadata entries for the given file IDs
-    let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
-        .filter(media_metadata::Column::FileId.is_in(file_ids.clone()).and(
-            media_metadata::Column::MetaKey.is_in([
-                "artist",
-                "album",
-                "genre",
-                "track_title",
-                "disc_number",
-                "track_number",
-            ]),
-        ))
+    // Join summaries by the catalog file identity instead of reading the source-tag projection.
+    use catalog_audio::Column as Audio;
+    let mut order: HashMap<i32, (Option<i32>, Option<i32>)> = catalog_audio::Entity::find()
+        .select_only()
+        .columns([Audio::FileId, Audio::DiscNumber, Audio::TrackNumber])
+        .filter(Audio::FileId.is_in(file_ids.iter().copied()))
+        .into_tuple::<(i32, Option<i32>, Option<i32>)>()
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|(file, disc, track)| (file, (disc, track)))
+        .collect();
+    let mut titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
+
+    // Display the original primary credit spellings and the resolved list of genres.
+    use catalog_credits::Column as Credit;
+    let artist_rows = catalog_credits::Entity::find()
+        .select_only()
+        .columns([Credit::FileId, Credit::CreditedAs])
+        .filter(Credit::FileId.is_in(file_ids.iter().copied()))
+        .filter(Credit::Scope.eq(resolved_metadata::CreditScope::Audio as i32))
+        .filter(Credit::Role.eq("Primary Artist"))
+        .order_by_asc(Credit::Position)
+        .into_tuple::<(i32, String)>()
         .all(db)
         .await?;
+    let mut artist_names = names_by_file(artist_rows);
 
-    // Create a map for metadata entries
-    let mut metadata_map: HashMap<i32, HashMap<String, String>> = HashMap::new();
-    for entry in metadata_entries {
-        metadata_map
-            .entry(entry.file_id)
-            .or_default()
-            .insert(entry.meta_key, entry.meta_value);
-    }
-    let mut resolved_titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
+    use catalog_values::Column as Value;
+    let genre_rows = catalog_values::Entity::find()
+        .select_only()
+        .columns([Value::FileId, Value::Value])
+        .filter(Value::FileId.is_in(file_ids.iter().copied()))
+        .filter(Value::Scope.eq(resolved_metadata::CreditScope::Audio as i32))
+        .filter(Value::Field.eq("genres"))
+        .order_by_asc(Value::Position)
+        .into_tuple::<(i32, String)>()
+        .all(db)
+        .await?;
+    let mut genres = names_by_file(genre_rows);
 
-    // Prepare the final result
-    let mut results: Vec<MetadataSummary> = Vec::new();
+    // Keep file paths, identity and download state on their owning file rows.
+    let mut results = Vec::with_capacity(files.len());
     for file in files {
         let file_id = file.id;
-        let _metadata: HashMap<String, String> = HashMap::new();
-        let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
-        let duration = file.duration;
-        let (title, album) = resolved_titles.remove(&file_id).unwrap_or_default();
+        let (title, album) = titles.remove(&file_id).unwrap_or_default();
+        let (disc, track) = order.remove(&file_id).unwrap_or_default();
+        let track_number =
+            track.and_then(|track| disc.unwrap_or(0).checked_mul(1000)?.checked_add(track));
 
         let cover_art_id = file
             .cover_art_uuid
@@ -1354,35 +1394,23 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
             .and_then(|id| artwork_ids.get(id))
             .copied();
 
-        let parsed_disk_number = metadata.get("disc_number").and_then(|s| extract_number(s));
-
-        let parsed_track_number = metadata.get("track_number").and_then(|s| extract_number(s));
-
-        let track_number = parsed_track_number.and_then(|track| {
-            parsed_disk_number
-                .unwrap_or(0)
-                .checked_mul(1000)?
-                .checked_add(track)
-        });
-
         let summary = MetadataSummary {
             id: file_id,
             directory: file.directory.clone(),
             file_name: file.file_name.clone(),
-            artist: metadata.get("artist").cloned().unwrap_or_default(),
-            album: album
-                .or_else(|| metadata.get("album").cloned())
-                .unwrap_or_default(),
-            genre: metadata
-                .get("genre")
-                .cloned()
+            artist: artist_names.remove(&file_id).unwrap_or_default().join(", "),
+            album: album.unwrap_or_default(),
+            genre: genres
+                .remove(&file_id)
                 .unwrap_or_default()
+                .join("\\\\")
                 .to_uppercase(),
-            title: title
-                .or_else(|| metadata.get("track_title").cloned())
-                .unwrap_or(file.file_name.clone()),
+            title: title.unwrap_or(file.file_name.clone()),
             track_number,
-            duration: duration.to_f64().expect("Unable to convert track duration"),
+            duration: file
+                .duration
+                .to_f64()
+                .expect("Unable to convert track duration"),
             cover_art_id,
             file_hash: file.file_hash.clone(),
             file_uuid: file.source_uuid.clone(),
@@ -1392,6 +1420,17 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
     }
 
     Ok(results)
+}
+
+fn names_by_file(rows: Vec<(i32, String)>) -> HashMap<i32, Vec<String>> {
+    let mut names = HashMap::<_, Vec<_>>::new();
+    for (file, name) in rows {
+        let names_for_file = names.entry(file).or_default();
+        if !names_for_file.contains(&name) {
+            names_for_file.push(name);
+        }
+    }
+    names
 }
 
 pub async fn get_metadata_summary_by_file_ids<C: sea_orm::ConnectionTrait>(
@@ -1456,21 +1495,7 @@ pub async fn get_parsed_file_by_id(
         .all(db)
         .await?;
 
-    let album_id = media_file_albums::Entity::find()
-        .filter(media_file_albums::Column::TrackUuid.eq(&file.file_uuid))
-        .one(db)
-        .await?;
-
-    let album = match album_id {
-        Some(album_id) => {
-            albums::Entity::find()
-                .filter(albums::Column::SourceUuid.eq(album_id.album_uuid))
-                .one(db)
-                .await?
-        }
-        _none => None,
-    };
-
+    let album = super::browse::album_for_file(db, &file.file_uuid).await?;
     Ok((file, artists, album))
 }
 

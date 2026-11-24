@@ -7,7 +7,7 @@ use super::artists::{Column as ArtistsColumn, Entity as ArtistsEntity};
 use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "media_file_artists")]
+#[sea_orm(table_name = "music_metadata_audio_artists")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,

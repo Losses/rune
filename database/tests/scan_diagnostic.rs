@@ -207,15 +207,11 @@ async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
     assert_eq!(scanned, artist_tags.len());
     index_audio_library(&db, &actor_id, 50, None, &store).await?;
 
-    // The legacy catalog and both resolved artist lists expose the same names.
+    // The artist catalog and its browse projection expose the same names.
     let expected = [
         "Alpha", "Beta", "Delta", "Epsilon", "Eta", "Gamma", "Iota", "Theta", "Zeta",
     ];
-    for table in [
-        "artists",
-        "music_metadata_artists",
-        "music_metadata_browse_artists",
-    ] {
+    for table in ["music_metadata_artists", "music_metadata_browse_artists"] {
         let rows = db
             .query_all(
                 Query::select()

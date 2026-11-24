@@ -2,7 +2,8 @@
 
 use anyhow::Result;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryFilter, QuerySelect, Set,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction, DbErr, EntityTrait, ExprTrait,
+    QueryFilter, QuerySelect, Set,
     sea_query::{Expr, OnConflict, Order, Query},
 };
 use uuid::Uuid;
@@ -12,7 +13,7 @@ use crate::entities::music_metadata::{
     synced_album_groups,
 };
 
-use super::scalar;
+use super::{column, scalar};
 
 const EDITION_NAMESPACE: Uuid = Uuid::from_u128(0xbe54f834_1696_5fb8_b4f5_4df4a58d1821);
 
@@ -103,21 +104,29 @@ pub(super) async fn refresh(db: &DatabaseTransaction, album: Uuid) -> Result<()>
     }
 
     // Apply edits received before this edition was indexed, including explicit removals.
+    project_album_groups(db, Condition::all().add(albums::Column::Id.eq(&album))).await?;
+    dirty_summaries::Entity::delete_by_id(album)
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn project_album_groups(
+    db: &DatabaseTransaction,
+    affected: Condition,
+) -> Result<(), DbErr> {
     use synced_album_groups::Column as G;
     let group = Query::select()
         .column(G::TargetUuid)
         .from(synced_album_groups::Entity)
-        .and_where(G::AlbumId.eq(&album))
+        .and_where(column(G::AlbumId).eq(column(albums::Column::Id)))
         .order_by(G::Generation, Order::Desc)
         .order_by(G::OwnerUuid, Order::Asc)
         .limit(1)
         .to_owned();
     albums::Entity::update_many()
         .col_expr(albums::Column::GroupId, scalar(group))
-        .filter(albums::Column::Id.eq(&album))
-        .exec(db)
-        .await?;
-    dirty_summaries::Entity::delete_by_id(album)
+        .filter(affected)
         .exec(db)
         .await?;
     Ok(())

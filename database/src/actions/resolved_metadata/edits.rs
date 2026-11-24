@@ -1,12 +1,14 @@
 //! Manual album groups and artist identity redirects for the owning library.
 
+use crate::actions::utils::generate_group_name;
 use crate::entities::music_metadata::album_groups as orm_album_groups;
 use crate::entities::music_metadata::artists as orm_artists;
 use crate::entities::music_metadata::synced_album_groups as orm_synced_album_groups;
 use crate::entities::music_metadata_sync_edits as orm_sync_edits;
-use sea_orm::ExprTrait;
 use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Order, Query, SelectStatement};
+use sea_orm::{DbErr, EntityTrait, ExprTrait, Set};
 use std::collections::BTreeSet;
+use sync_orm::row_policy::{RowMapping, RowView};
 
 use anyhow::Result;
 use sea_orm::{
@@ -20,8 +22,8 @@ use crate::{
     sync::{
         SeaOrmSyncStore,
         model::{
-            Collection, MetadataEdit, ObjectKey, author_source_on, metadata_anchor_id,
-            metadata_edit_id,
+            Collection, MetadataEdit, MetadataEditMap, ObjectKey, Payload, RuneModel,
+            author_source_on, metadata_anchor_id, metadata_edit_id,
         },
     },
 };
@@ -30,8 +32,8 @@ use super::{column, like_pattern, nocase, query_models, scalar};
 use crate::entities::{
     media_file_artists,
     music_metadata::{
-        album_field_values, albums, artist_redirects, audio, credits, current_album_titles, discs,
-        edition_matches, local_overlays, release_identity,
+        album_field_values, album_track_anchors, albums, artist_redirects, audio, credits,
+        current_album_titles, discs, edition_matches, local_overlays, release_identity,
     },
 };
 
@@ -196,7 +198,8 @@ pub async fn artists(
     // Search canonical names and current credit spellings without reviving merged artists.
     let mut query = Query::select();
     query
-        .columns([A::Id, A::Name, A::MusicbrainzId])
+        .expr_as(column(A::Id), "id")
+        .columns([A::Name, A::MusicbrainzId])
         .from(orm_artists::Entity)
         .and_where(visible_artist())
         .and_where(
@@ -530,64 +533,110 @@ async fn author_edit(
     store: &SeaOrmSyncStore,
     edit: MetadataEdit,
 ) -> Result<()> {
-    // Derive the identifier with the same edit fields used by sync validation.
-    let MetadataEdit {
-        kind,
-        owner,
-        edition,
-        target,
-        label,
-        generation,
-    } = edit;
-    let id = if kind == "anchor" {
+    // Use the same projection as edits received from another replica.
+    let id = if edit.kind == "anchor" {
         metadata_anchor_id(
-            owner,
-            edition.ok_or_else(|| invalid("Missing shared track"))?,
+            edit.owner,
+            edit.edition
+                .ok_or_else(|| invalid("Missing shared track"))?,
         )
     } else {
-        metadata_edit_id(&kind, owner)
+        metadata_edit_id(&edit.kind, edit.owner)
     };
-    db.execute(
-        Query::insert()
-            .into_table(orm_sync_edits::Entity)
-            .columns([
-                orm_sync_edits::Column::SourceUuid,
-                orm_sync_edits::Column::Kind,
-                orm_sync_edits::Column::OwnerUuid,
-                orm_sync_edits::Column::EditionUuid,
-                orm_sync_edits::Column::TargetUuid,
-                orm_sync_edits::Column::Label,
-                orm_sync_edits::Column::Generation,
-            ])
-            .values_panic([
-                Expr::val(id.to_string()),
-                Expr::val(kind),
-                Expr::val(owner.to_string()),
-                Expr::val(edition.map(|id| id.to_string())),
-                Expr::val(target.map(|id| id.to_string())),
-                Expr::val(label),
-                Expr::val(generation),
-            ])
+    let key = ObjectKey {
+        collection: Collection::MetadataEdits,
+        id,
+    };
+    RuneModel::project_on(db, &key, Some(&Payload::MetadataEdit(edit))).await?;
+    author_source_on(db, store, key).await
+}
+
+/// Maintain catalog targets and assignments inside the source edit's transaction.
+pub(crate) async fn project_edit(
+    db: &DatabaseTransaction,
+    _id: Uuid,
+    before: Option<&RowView<orm_sync_edits::Entity>>,
+    value: Option<&MetadataEdit>,
+) -> Result<(), DbErr> {
+    // A peer may receive the edit before either side of the relationship.
+    if let Some(value) = value
+        && let (Some(target), Some(label)) = (value.target, value.label.as_ref())
+    {
+        let id = target.to_string();
+        if value.kind == "artist" {
+            orm_artists::Entity::insert(orm_artists::ActiveModel {
+                id: Set(id),
+                name: Set(label.clone()),
+                group: Set(generate_group_name(label)),
+                portable: Set(0),
+                ..Default::default()
+            })
             .on_conflict(
-                OnConflict::column(orm_sync_edits::Column::SourceUuid)
-                    .update_columns([
-                        orm_sync_edits::Column::TargetUuid,
-                        orm_sync_edits::Column::Label,
-                        orm_sync_edits::Column::Generation,
-                    ])
+                OnConflict::column(orm_artists::Column::Id)
+                    .do_nothing()
                     .to_owned(),
-            ),
-    )
-    .await?;
-    author_source_on(
-        db,
-        store,
-        ObjectKey {
-            collection: Collection::MetadataEdits,
-            id,
-        },
-    )
-    .await
+            )
+            .exec_without_returning(db)
+            .await?;
+        } else if value.kind == "album" {
+            orm_album_groups::Entity::insert(orm_album_groups::ActiveModel {
+                id: Set(id),
+                name: Set(label.clone()),
+            })
+            .on_conflict(
+                OnConflict::column(orm_album_groups::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(db)
+            .await?;
+        }
+    }
+
+    // Deletions recompute any assignments affected by the previous source row.
+    let previous = if value.is_none() {
+        before.map(MetadataEditMap::encode).transpose()?
+    } else {
+        None
+    };
+    let Some(edit) = value.or(previous.as_ref()) else {
+        return Ok(());
+    };
+    if !matches!(edit.kind.as_str(), "album" | "anchor") {
+        return Ok(());
+    }
+
+    // Direct matches and all editions reached through the owner's anchors can change.
+    use album_track_anchors::Column as Anchor;
+    use edition_matches::Column as Match;
+    use orm_sync_edits::Column as Edit;
+    let owner = edit.owner.to_string();
+    let direct = Query::select()
+        .column(Match::AlbumId)
+        .from(edition_matches::Entity)
+        .and_where(Match::EditionUuid.eq(&owner))
+        .to_owned();
+    let tracks = Query::select()
+        .column(Edit::EditionUuid)
+        .from(orm_sync_edits::Entity)
+        .and_where(Edit::Kind.eq("anchor"))
+        .and_where(Edit::OwnerUuid.eq(owner))
+        .to_owned();
+    let anchored = Query::select()
+        .column(Anchor::AlbumId)
+        .from(album_track_anchors::Entity)
+        .and_where(
+            Anchor::TrackUuid
+                .eq(edit.edition.map(|track| track.to_string()))
+                .or(column(Anchor::TrackUuid).in_subquery(tracks)),
+        )
+        .to_owned();
+
+    // Reuse the same winner order as when a newly resolved album is refreshed.
+    let affected = Condition::any()
+        .add(column(albums::Column::Id).in_subquery(direct))
+        .add(column(albums::Column::Id).in_subquery(anchored));
+    super::summary::project_album_groups(db, affected).await
 }
 
 /// Merge canonical artists while preserving redirect references on replicas.

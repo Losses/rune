@@ -113,7 +113,7 @@ async fn audio_scan_error_exits_nonzero() -> Result<()> {
     let library = Library::new()?;
     // Unlike a constraint violation (which rejects one file), a query failure aborts the scan.
     library.execute(
-        "CREATE TRIGGER fail_metadata BEFORE INSERT ON media_metadata BEGIN SELECT * FROM missing_scan_table; END;",
+        "CREATE TRIGGER fail_metadata BEFORE INSERT ON music_metadata_source_tags BEGIN SELECT * FROM missing_scan_table; END;",
     ).await?;
     library.add_audio()?;
     library.assert_failure("Library scan failed")

@@ -681,26 +681,50 @@ impl QueryOperator {
     }
 }
 
-fn apply_join_filter(
-    query: Select<media_files::Entity>,
-    _filter_liked: Option<bool>,
-    _filter_analyzed: Option<bool>,
-    sort_track_number: Option<bool>,
-    _sort_playedthrough_asc: Option<bool>,
-    _sort_skipped_asc: Option<bool>,
-) -> Select<media_files::Entity> {
-    let mut _query = query;
+fn catalog_track_number() -> Expr {
+    use catalog_audio::Column as Audio;
+    let disc: Expr = Func::coalesce([column(Audio::DiscNumber), Expr::val(0)]).into();
+    let position = disc.mul(1000).add(column(Audio::TrackNumber));
+    let query = Query::select()
+        .expr(position)
+        .from(catalog_audio::Entity)
+        .and_where(column(Audio::FileId).eq(column(media_files::Column::Id)))
+        .to_owned();
+    Expr::SubQuery(None, Box::new(query.into()))
+}
 
-    if sort_track_number.is_some() {
-        _query = _query
-            .join(
-                JoinType::LeftJoin,
-                media_file_albums::Relation::MediaFiles.def().rev(),
-            )
-            .column(media_file_albums::Column::TrackNumber);
-    }
+fn album_alias_condition(ids: Vec<i32>) -> Expr {
+    // Resolve older public album IDs to catalog tracks using their portable identities.
+    use albums::Column as AliasColumn;
+    use catalog_audio::Column as Audio;
+    use media_file_albums::Column as Link;
+    let uuids = Query::select()
+        .column(AliasColumn::SourceUuid)
+        .from(albums::Entity)
+        .and_where(AliasColumn::Id.is_in(ids))
+        .and_where(AliasColumn::Name.is_not_null())
+        .to_owned();
+    let linked = Query::select()
+        .column(Link::TrackUuid)
+        .from(media_file_albums::Entity)
+        .and_where(column(Link::AlbumUuid).in_subquery(uuids.clone()))
+        .to_owned();
 
-    _query
+    // Read membership from the audio's resolved edition, including a migrated edition UUID.
+    let tracks = Query::select()
+        .column(Audio::FileId.as_column_ref())
+        .from(catalog_audio::Entity)
+        .inner_join(
+            discs::Entity,
+            column(Audio::DiscId).eq(column(discs::Column::Id)),
+        )
+        .and_where(
+            column(discs::Column::AlbumId)
+                .in_subquery(uuids)
+                .or(column(Audio::Id).in_subquery(linked)),
+        )
+        .to_owned();
+    column(media_files::Column::Id).in_subquery(tracks)
 }
 
 enum AlbumProperty {
@@ -1271,15 +1295,9 @@ pub async fn query_mix_media_files_with_seed(
         or_condition = or_condition.add(artist_condition(artist_ids));
     }
 
-    // Filter by album_ids if provided
-    add_subquery_filter!(
-        or_condition,
-        album_ids,
-        albums,
-        media_file_albums::Entity,
-        media_file_albums::Column::AlbumUuid,
-        media_file_albums::Column::TrackUuid
-    );
+    if !album_ids.is_empty() {
+        or_condition = or_condition.add(album_alias_condition(album_ids));
+    }
 
     // Filter by genres_ids if provided
     add_subquery_filter!(
@@ -1391,16 +1409,6 @@ pub async fn query_mix_media_files_with_seed(
         query = query.filter(or_condition);
     }
 
-    // Join with media_file_stats table for sorting by playedthrough and skipped, and filtering by liked
-    query = apply_join_filter(
-        query,
-        filter_liked,
-        filter_analyzed,
-        sort_track_number_asc,
-        sort_playedthrough_asc,
-        sort_skipped_asc,
-    );
-
     if only_one_playlist {
         query = query
             .join(
@@ -1433,7 +1441,7 @@ pub async fn query_mix_media_files_with_seed(
 
         if let Some(asc) = sort_track_number_asc {
             query = query.order_by(
-                media_file_albums::Column::TrackNumber,
+                catalog_track_number(),
                 if asc { Order::Asc } else { Order::Desc },
             );
         }
@@ -1520,7 +1528,7 @@ pub async fn query_mix_media_files_with_seed(
 
     if let Some(asc) = sort_track_number_asc {
         query = query.order_by(
-            media_file_albums::Column::TrackNumber,
+            catalog_track_number(),
             if asc { Order::Asc } else { Order::Desc },
         );
     }

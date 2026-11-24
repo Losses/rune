@@ -45,6 +45,19 @@ pub struct LocalMetadata {
     pub diagnostics: ParseDiagnostics,
 }
 
+impl LocalMetadata {
+    /// Expand primary artist tags for catalog membership, preserving the original credits.
+    pub fn artist_names(&self) -> impl Iterator<Item = String> + '_ {
+        self.audio
+            .base
+            .credits
+            .iter()
+            .flatten()
+            .filter(|credit| credit.role == "Primary Artist")
+            .flat_map(|credit| crate::artist::split_artists(&credit.credited_as))
+    }
+}
+
 /// Raw values retained for callers that need to inspect parser decisions.
 #[derive(Debug, Clone, Default)]
 pub struct ParseDiagnostics {
@@ -372,12 +385,8 @@ fn sidecar_artwork(fsio: &FsIo, entries: &[FsNode]) -> Vec<Artwork> {
         .collect()
 }
 
-/// Read the compatibility tags and resolved metadata with one TagLib read.
-pub fn read_local(
-    fsio: &FsIo,
-    node: &FsNode,
-    root: &Path,
-) -> Result<(Vec<(String, String)>, LocalMetadata)> {
+/// Read and resolve the metadata of a local audio file.
+pub fn read_local(fsio: &FsIo, node: &FsNode, root: &Path) -> Result<LocalMetadata> {
     read_local_with_separators(fsio, node, root, &[])
 }
 
@@ -391,7 +400,7 @@ pub fn read_local_with_separators(
     node: &FsNode,
     root: &Path,
     separators: &TagSeparators<'_>,
-) -> Result<(Vec<(String, String)>, LocalMetadata)> {
+) -> Result<LocalMetadata> {
     read_location(fsio, node, root, separators, true)
 }
 
@@ -401,7 +410,7 @@ pub fn read_managed_audio(
     node: &FsNode,
     cache_directory: &Path,
 ) -> Result<LocalMetadata> {
-    Ok(read_location(fsio, node, cache_directory, &[], false)?.1)
+    read_location(fsio, node, cache_directory, &[], false)
 }
 
 fn read_location(
@@ -410,10 +419,9 @@ fn read_location(
     root: &Path,
     separators: &TagSeparators<'_>,
     use_path_evidence: bool,
-) -> Result<(Vec<(String, String)>, LocalMetadata)> {
+) -> Result<LocalMetadata> {
     let path = node.path.to_string_lossy();
     let snapshot = taglib::read_file(fsio, &node.path, ReadFields::All)?;
-    let legacy = crate::reader::legacy_tags(&snapshot.tags, None);
     let mut resolved = resolve(&snapshot.tags, node, root, separators, use_path_evidence);
     resolved.diagnostics.raw_tags = snapshot.tags;
     let audio = &mut resolved.audio;
@@ -464,7 +472,7 @@ fn read_location(
         .and_then(|seconds| jiff::Timestamp::from_second(seconds.try_into().ok()?).ok())
         .map(|timestamp| timestamp.to_string());
 
-    Ok((legacy, resolved))
+    Ok(resolved)
 }
 
 pub(crate) fn folder_layout<'a>(

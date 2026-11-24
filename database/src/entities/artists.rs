@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use super::media_file_artists::Entity as MediaFileArtistsEntity;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "artists")]
+#[sea_orm(table_name = "music_metadata_artists")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    #[sea_orm(column_type = "Text", unique)]
+    #[sea_orm(column_type = "Text")]
     pub name: String,
     #[sea_orm(column_type = "Text")]
     pub group: String,

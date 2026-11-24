@@ -105,6 +105,7 @@ catalog_entity!(recording_sources, "music_metadata_recording_sources", {
 catalog_entity!(audio, "music_metadata_audio", {
     #[sea_orm(primary_key, auto_increment = false)]
     file_id: i32,
+    portable: i32,
     id: String,
     disc_id: String,
     recording_id: String,
@@ -227,16 +228,19 @@ catalog_entity!(local_overlays, "music_metadata_local_overlays", {
 });
 
 catalog_entity!(artists, "music_metadata_artists", {
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(primary_key, auto_increment = false, column_name = "source_uuid")]
     id: String,
     name: String,
+    group: String,
     musicbrainz_id: Option<String>,
+    portable: i32,
 });
 
 catalog_entity!(album_evidence, "music_metadata_album_evidence", {
     #[sea_orm(primary_key, auto_increment = false)]
     file_id: i32,
     title: String,
+    tag_title: Option<String>,
     title_priority: i32,
     version_priority: i32,
     barcode: Option<String>,

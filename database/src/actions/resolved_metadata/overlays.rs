@@ -13,7 +13,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entities::music_metadata::{
-    album_effective_fields as effective, audio, discs, local_overlays as storage, track_assets,
+    audio, current_album_titles as albums, discs, local_overlays as storage, track_assets,
 };
 use storage::Column as OverlayColumn;
 
@@ -167,11 +167,12 @@ pub(in crate::actions) async fn summary_titles(
                 Func::coalesce([
                     Expr::col((audio_title.clone(), OverlayColumn::Value)),
                     Expr::SubQuery(None, Box::new(track_title.into())),
+                    Expr::col(audio::Column::Title.as_column_ref()),
                 ]),
                 Alias::new("title"),
             )
             .expr_as(
-                Expr::col((effective::Entity, effective::Column::Value)),
+                Expr::col(albums::Column::Title.as_column_ref()),
                 Alias::new("album_title"),
             )
             .from(audio::Entity)
@@ -191,10 +192,9 @@ pub(in crate::actions) async fn summary_titles(
             )
             .join(
                 JoinType::LeftJoin,
-                effective::Entity,
-                Expr::col(effective::Column::AlbumId.as_column_ref())
-                    .eq(Expr::col((discs::Entity, discs::Column::AlbumId)))
-                    .and(effective::Column::Field.eq("title")),
+                albums::Entity,
+                Expr::col(albums::Column::Id.as_column_ref())
+                    .eq(Expr::col((discs::Entity, discs::Column::AlbumId))),
             )
             .and_where(file_id.is_in(files.iter().copied()))
             .to_owned();

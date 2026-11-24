@@ -10,7 +10,8 @@ use crate::{
     taglib::{self, ReadFields},
 };
 
-pub(crate) fn legacy_tags(tags: &RawTagMap, blacklist: Option<Vec<&str>>) -> Vec<(String, String)> {
+/// Project tag values onto the field names used by the portable track payload.
+pub fn legacy_tags(tags: &RawTagMap, blacklist: Option<Vec<&str>>) -> Vec<(String, String)> {
     let blacklist =
         blacklist.unwrap_or_else(|| vec!["encoded_by", "encoder", "comment", "description"]);
     tags.iter()

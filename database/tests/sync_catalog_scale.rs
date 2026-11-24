@@ -41,15 +41,15 @@ const METRIC_TABLES: &[&str] = &[
     "sync_writers",
     "sync_checkpoint",
     "media_files",
-    "media_file_artists",
+    "music_metadata_audio_artists",
     "media_file_genres",
-    "media_file_albums",
+    "music_metadata_track_album_sources",
     "media_file_playlists",
-    "albums",
-    "artists",
+    "music_metadata_albums",
+    "music_metadata_artists",
     "genres",
     "playlists",
-    "media_metadata",
+    "music_metadata_source_tags",
 ];
 
 #[derive(Default)]

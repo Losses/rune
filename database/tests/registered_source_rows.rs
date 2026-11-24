@@ -296,7 +296,7 @@ async fn source_scan_and_declared_effect_failure_are_transactional() -> Result<(
     assert_eq!(page.records.len(), 1);
     assert_eq!(page.records[0].payload, payload);
     tx.commit().await?;
-    db.execute_unprepared("CREATE TRIGGER reject_tag BEFORE UPDATE ON media_metadata BEGIN SELECT RAISE(ABORT, 'test fault'); END").await?;
+    db.execute_unprepared("CREATE TRIGGER reject_tag BEFORE UPDATE ON music_metadata_source_tags BEGIN SELECT RAISE(ABORT, 'test fault'); END").await?;
     let Payload::Track(mut changed) = payload.clone() else {
         panic!()
     };

@@ -5,8 +5,8 @@ use crate::entities::music_metadata::recording_dirty as orm_recording_dirty;
 use crate::entities::music_metadata::recordings as orm_recordings;
 use sea_orm::ExprTrait;
 use sea_orm::sea_query::{
-    Alias, Asterisk, BinOper, CommonTableExpression, Expr, Func, OnConflict, Query,
-    SelectStatement, UnionType, WithClause,
+    Alias, Asterisk, CommonTableExpression, Expr, Func, OnConflict, Query, SelectStatement,
+    UnionType, WithClause,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,30 +60,111 @@ pub(super) async fn prepare_audio(
     db: &impl ConnectionTrait,
     audio: Uuid,
     ids: &RecordingIdentifiers,
+    content: (Option<&str>, Option<i64>),
 ) -> Result<Uuid> {
-    // Reuse an unchanged assignment. A changed or new source starts on its private UUID.
-    if let Some(row) = db
+    // Read both the previous identifiers and the version that asserted them.
+    use orm_audio::Column as A;
+    let before = db
         .query_one(
             Query::select()
-                .column(orm_audio::Column::RecordingId)
+                .columns([
+                    A::RecordingId,
+                    A::RecordingMbid,
+                    A::RecordingIsrc,
+                    A::RecordingContentHash,
+                    A::RecordingContentSize,
+                ])
                 .from(orm_audio::Entity)
-                .and_where(Expr::col(orm_audio::Column::Id).eq(Expr::val(audio.to_string())))
-                .and_where(Expr::col(orm_audio::Column::RecordingMbid).binary(
-                    BinOper::Is,
-                    Expr::val(ids.musicbrainz_id.map(|id| id.to_string())),
-                ))
-                .and_where(
-                    Expr::col(orm_audio::Column::RecordingIsrc)
-                        .binary(BinOper::Is, Expr::val(ids.isrc.clone())),
-                ),
+                .and_where(A::Id.eq(audio.to_string())),
         )
-        .await?
-    {
-        return uuid(&row, "recording_id");
+        .await?;
+    let version_changed = if let Some(row) = &before {
+        row.try_get::<Option<String>>("", "recording_content_hash")?
+            .as_deref()
+            != content.0
+            || row.try_get::<Option<i64>>("", "recording_content_size")? != content.1
+    } else {
+        false
+    };
+
+    prepare_source(
+        db,
+        before.as_ref(),
+        audio_fallback(audio),
+        ids,
+        version_changed,
+    )
+    .await
+}
+
+pub(super) async fn prepare_source(
+    db: &impl ConnectionTrait,
+    before: Option<&QueryResult>,
+    fallback: Uuid,
+    ids: &RecordingIdentifiers,
+    version_changed: bool,
+) -> Result<Uuid> {
+    let mbid = ids.musicbrainz_id.map(|id| id.to_string());
+    let isrc = ids.isrc.as_deref();
+    let mut recording = fallback;
+    if let Some(before) = before {
+        let previous_id = uuid(before, "recording_id")?;
+        let previous_mbid: Option<String> = before.try_get("", "recording_mbid")?;
+        let previous_isrc: Option<String> = before.try_get("", "recording_isrc")?;
+        if previous_mbid == mbid && previous_isrc.as_deref() == isrc {
+            if !version_changed {
+                return Ok(previous_id);
+            }
+            recording = previous_id;
+        }
+
+        // Revoke old evidence as well as scheduling the replacement.
+        queue(
+            db,
+            previous_id,
+            previous_mbid.as_deref(),
+            previous_isrc.as_deref(),
+        )
+        .await?;
     }
-    let fallback = audio_fallback(audio);
-    ensure_exists(db, fallback).await?;
-    Ok(fallback)
+    if recording == fallback {
+        ensure_exists(db, fallback).await?;
+    }
+    queue(db, recording, mbid.as_deref(), isrc).await?;
+    Ok(recording)
+}
+
+async fn queue(
+    db: &impl ConnectionTrait,
+    id: Uuid,
+    mbid: Option<&str>,
+    isrc: Option<&str>,
+) -> Result<()> {
+    let id = id.to_string();
+    let mut rows = Query::insert();
+    use orm_recording_dirty::Column as Dirty;
+    rows.into_table(orm_recording_dirty::Entity)
+        .columns([Dirty::Kind, Dirty::Value]);
+    for (kind, value) in [
+        ("recording", Some(id.as_str())),
+        ("mbid", mbid),
+        ("isrc", isrc),
+    ] {
+        if let Some(value) = value {
+            rows.values_panic([Expr::val(kind), Expr::val(value)]);
+        }
+    }
+
+    // Repeated observations of the same identifier need a single reconciliation.
+    db.execute(
+        rows.on_conflict(
+            OnConflict::columns([Dirty::Kind, Dirty::Value])
+                .do_nothing()
+                .to_owned(),
+        ),
+    )
+    .await?;
+    Ok(())
 }
 
 #[derive(Debug)]

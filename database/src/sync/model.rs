@@ -1,11 +1,17 @@
 //! Rune source-row declarations and pure portable value conversions.
 
-use crate::actions::file::validate_digest;
+use crate::actions::{file::validate_digest, resolved_metadata::edits::project_edit};
 use crate::entities::*;
-use migration::catalog_identity::{self, ParentKind};
+use migration::{
+    catalog_identity::{self, ParentKind},
+    project_portable_track,
+};
 use rust_decimal::Decimal;
 use sea_orm::sea_query;
-use sea_orm::{ColumnTrait, Condition, DbErr, Value, sea_query::Expr};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseTransaction, DbErr, EntityTrait, ExprTrait, Value,
+    sea_query::Expr,
+};
 use serde::{Deserialize, Serialize};
 use sync_orm::row_policy::{BinaryValue, FieldCodec, RowView};
 use uuid::Uuid;
@@ -114,6 +120,15 @@ fn validate_provenance(
     Ok(())
 }
 
+async fn project_track_evidence<E: EntityTrait, T>(
+    db: &DatabaseTransaction,
+    id: Uuid,
+    _before: Option<&RowView<E>>,
+    _after: Option<&T>,
+) -> Result<(), DbErr> {
+    project_portable_track(db, id).await
+}
+
 sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for media_metadata::Entity {
     max_items: 128,
     owners: [media_metadata::Column::FileId], constants: {},
@@ -214,6 +229,11 @@ sync_orm::row_policies! {
                         group: String => albums::Column::Group
                     },
                     defaults: {},
+                    source_filter: Condition::all().add(albums::Column::Name.is_not_null()),
+                    clear_on_remove: {
+                        albums::Column::Name => None::<String>,
+                        albums::Column::Group => None::<String>
+                    },
                     effects: {
                         search => {
                             entity: search_index::Entity,
@@ -245,6 +265,7 @@ sync_orm::row_policies! {
                         group: String => artists::Column::Group
                     },
                     defaults: {},
+                    source_filter: Condition::all().add(Expr::col(sea_query::Alias::new("portable")).eq(1)),
                     effects: {
                         search => {
                             entity: search_index::Entity,
@@ -379,6 +400,7 @@ sync_orm::row_policies! {
                         };
                         Ok(vec![(media_files::Column::LocalAvailable, available.into())])
                     },
+                    after_project: { run: project_track_evidence, reads: 129, mutations: 8 },
                     references: {
                         cover_art_id => "artworks"
                     },
@@ -486,6 +508,7 @@ sync_orm::row_policies! {
                         track_number: Option<i32> => media_file_albums::Column::TrackNumber
                     },
                     defaults: {},
+                    after_project: { run: project_track_evidence, reads: 129, mutations: 8 },
                     references: {
                         track_id => "tracks",
                         album_id => "albums"
@@ -717,6 +740,7 @@ sync_orm::row_policies! {
                         generation: i64 => music_metadata_sync_edits::Column::Generation
                     },
                     defaults: {},
+                    after_project: { run: project_edit, reads: 0, mutations: 2 },
                     limits: { kind => (5, 6), label => (1, 16384), generation => (0, i64::MAX as i128) },
                     identity: |value: &MetadataEdit| -> Result<Uuid, DbErr> {
                         if value.kind == "anchor" {
