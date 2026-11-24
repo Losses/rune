@@ -53,6 +53,7 @@ mod m20261111_000036_add_media_file_change_token;
 mod m20261112_000037_rename_source_uuid;
 mod m20261122_000038_add_analysis_source_identity;
 mod m20261123_000039_settle_pre_release_tables;
+mod m20261124_000040_create_sync_export_cursors;
 mod retired;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixtures;
@@ -163,6 +164,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261111_000036_add_media_file_change_token::Migration),
             Box::new(m20261112_000037_rename_source_uuid::Migration),
             Box::new(m20261122_000038_add_analysis_source_identity::Migration),
+            Box::new(m20261124_000040_create_sync_export_cursors::Migration),
         ]
     }
 }
