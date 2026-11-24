@@ -5,10 +5,9 @@ mod columns;
 mod credits;
 pub(super) mod cue;
 mod details;
-pub mod edits;
-pub mod fields;
-pub mod overlays;
+pub(crate) mod lifecycle;
 pub(super) mod portable;
+pub(crate) mod queries;
 mod recording_identity;
 mod recordings;
 pub use recordings::{
@@ -16,9 +15,9 @@ pub use recordings::{
     update_recording_source_quality,
 };
 mod release_group;
-mod summary;
+pub(super) mod summary;
 mod tracks;
-pub use tracks::{disc_track_ids, release_track_metadata, set_track_layout};
+pub use tracks::{disc_track_ids, release_track_metadata};
 
 use std::collections::BTreeMap;
 
@@ -43,9 +42,8 @@ use uuid::Uuid;
 use crate::entities::{
     media_files,
     music_metadata::{
-        album_evidence, album_summaries, albums as orm_albums, audio as orm_audio,
-        current_recording_audio as verified, dirty_summaries, dirty_tracks as orm_dirty_tracks,
-        disc_evidence, discs as orm_discs,
+        album_evidence, album_summaries, albums as orm_albums, audio as orm_audio, dirty_summaries,
+        dirty_tracks as orm_dirty_tracks, disc_evidence, discs as orm_discs,
     },
 };
 use details::Selection;
@@ -59,17 +57,6 @@ pub enum CreditScope {
     Album = 0,
     Disc = 1,
     Audio = 2,
-}
-
-/// Set or clear a confirmed artist link for a credit on an indexed file.
-pub async fn link_credit_artist(
-    db: &impl ConnectionTrait,
-    track_id: Uuid,
-    scope: CreditScope,
-    credit: &Credit,
-    artist_id: Option<Uuid>,
-) -> Result<bool> {
-    credits::link(db, track_id, scope, credit, artist_id).await
 }
 
 /// Replace the credits contributed by one provider within a write transaction.
@@ -336,7 +323,8 @@ pub(in crate::actions) async fn store_download(
 
 pub(crate) async fn reconcile_recordings(db: &impl ConnectionTrait) -> Result<()> {
     recording_identity::reconcile(db).await?;
-    tracks::reconcile(db).await
+    tracks::reconcile(db).await?;
+    summary::reconcile(db).await
 }
 
 pub(super) async fn ensure_tracks_current(db: &sea_orm::DatabaseConnection) -> Result<()> {
@@ -345,6 +333,13 @@ pub(super) async fn ensure_tracks_current(db: &sea_orm::DatabaseConnection) -> R
             Query::select()
                 .expr(Expr::val(1))
                 .from(orm_dirty_tracks::Entity)
+                .union(
+                    sea_orm::sea_query::UnionType::All,
+                    Query::select()
+                        .expr(Expr::val(1))
+                        .from(dirty_summaries::Entity)
+                        .to_owned(),
+                )
                 .limit(1),
         )
         .await?
@@ -352,7 +347,25 @@ pub(super) async fn ensure_tracks_current(db: &sea_orm::DatabaseConnection) -> R
     {
         let tx = db.begin().await?;
         tracks::reconcile(&tx).await?;
+        summary::reconcile(&tx).await?;
         tx.commit().await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn project_synced_track(
+    db: &DatabaseTransaction,
+    track: Uuid,
+) -> Result<(), sea_orm::DbErr> {
+    let key = track.to_string();
+    let previous = lifecycle::audio_disc(db, &key).await?;
+    recording_identity::invalidate_stale_file(db, &key)
+        .await
+        .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
+    if let Some(file) = migration::project_portable_track(db, track).await? {
+        lifecycle::finish_portable_projection(db, file, previous)
+            .await
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
     }
     Ok(())
 }
@@ -415,23 +428,26 @@ pub(super) async fn reconcile_releases(
 pub async fn audio_metadata(db: &impl TransactionTrait, id: Uuid) -> Result<Option<AudioMetadata>> {
     let tx = db.begin().await?;
     recording_identity::reconcile(&tx).await?;
+    let recording: Expr = Expr::case(
+        queries::matches_content(),
+        column(orm_audio::Column::RecordingId),
+    )
+    .finally(Expr::val(None::<String>))
+    .into();
     let row = tx
         .query_one(
             Query::select()
                 .column((orm_audio::Entity, Asterisk))
                 .column(orm_discs::Column::AlbumId.as_column_ref())
-                .expr_as(
-                    column(verified::Column::RecordingId),
-                    "current_recording_id",
-                )
+                .expr_as(recording, "current_recording_id")
                 .from(orm_audio::Entity)
                 .inner_join(
                     orm_discs::Entity,
                     column(orm_discs::Column::Id).eq(column(orm_audio::Column::DiscId)),
                 )
                 .left_join(
-                    verified::Entity,
-                    column(verified::Column::FileId).eq(column(orm_audio::Column::FileId)),
+                    media_files::Entity,
+                    column(media_files::Column::Id).eq(column(orm_audio::Column::FileId)),
                 )
                 .and_where(orm_audio::Column::Id.eq(id.to_string())),
         )
@@ -472,7 +488,6 @@ pub async fn audio_metadata(db: &impl TransactionTrait, id: Uuid) -> Result<Opti
     )
     .await?;
     audio.fingerprints = lists.fingerprints;
-    overlays::apply(&tx, overlays::OverlayTarget::Audio(id), &mut audio).await?;
     tx.commit().await?;
     Ok(Some(audio))
 }
@@ -554,7 +569,6 @@ pub async fn disc_metadata(db: &impl TransactionTrait, id: Uuid) -> Result<Optio
     )
     .await?;
     duration.finish(&mut disc.base);
-    overlays::apply(&tx, overlays::OverlayTarget::Disc(id), &mut disc).await?;
     tx.commit().await?;
     Ok(Some(disc))
 }
@@ -661,7 +675,6 @@ pub async fn album_metadata(db: &impl TransactionTrait, id: Uuid) -> Result<Opti
                 .columns(
                     [
                         orm_albums::Column::DirectoryPath,
-                        orm_albums::Column::GroupId,
                         orm_albums::Column::NeedsReview,
                     ]
                     .map(|c| c.as_column_ref()),
@@ -783,8 +796,6 @@ pub async fn album_metadata(db: &impl TransactionTrait, id: Uuid) -> Result<Opti
             .transpose()?;
     }
     duration.finish(&mut album.base);
-    fields::apply(&tx, &mut album).await?;
-    overlays::apply(&tx, overlays::OverlayTarget::Album(id), &mut album).await?;
     tx.commit().await?;
     Ok(Some(album))
 }
@@ -796,10 +807,6 @@ fn empty_album(id: Uuid, row: &QueryResult) -> Result<AlbumMetadata> {
             ..Default::default()
         },
         title: row.try_get("", "title")?,
-        group_id: row
-            .try_get::<Option<String>>("", "group_id")?
-            .map(|id| id.parse())
-            .transpose()?,
         needs_review: row.try_get("", "needs_review")?,
         source: AlbumSource::Local {
             directory_path: row.try_get("", "directory_path")?,

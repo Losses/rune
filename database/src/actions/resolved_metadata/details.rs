@@ -1,3 +1,6 @@
+use crate::actions::resolved_metadata::queries::{
+    TRACK_RECORDINGS, field, track_recordings, verified_audio,
+};
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use anyhow::Result;
@@ -16,8 +19,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 use crate::entities::music_metadata::{
-    audio, current_recording_audio as verified, details as orm_details, discs, track_assets,
-    track_recordings, values as orm_values,
+    audio, audio as verified, details as orm_details, discs, track_assets, values as orm_values,
 };
 
 use super::{CreditScope, Winners, column, credits};
@@ -59,24 +61,24 @@ impl Selection {
                 let id = id.to_string();
                 let tracks = Query::select()
                     .column(verified::Column::FileId.as_column_ref())
-                    .from(track_recordings::Entity)
+                    .from(track_recordings())
                     .inner_join(
                         track_assets::Entity,
                         column(track_assets::Column::TrackId)
-                            .eq(column(track_recordings::Column::TrackId)),
+                            .eq(field(TRACK_RECORDINGS, "track_id")),
                     )
                     .inner_join(
-                        verified::Entity,
+                        verified_audio(),
                         column(verified::Column::FileId).eq(column(track_assets::Column::FileId)),
                     )
-                    .and_where(track_recordings::Column::RecordingId.eq(&id))
+                    .and_where(field(TRACK_RECORDINGS, "recording_id").eq(&id))
                     .and_where(track_assets::Column::EndMs.is_null())
                     .to_owned();
 
                 // Whole-file versions contribute recording metadata in either identity path.
                 let files = Query::select()
                     .column(verified::Column::FileId)
-                    .from(verified::Entity)
+                    .from(verified_audio())
                     .and_where(verified::Column::RecordingId.eq(id))
                     .union(UnionType::Distinct, tracks)
                     .to_owned();

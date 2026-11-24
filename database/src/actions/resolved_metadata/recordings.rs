@@ -1,5 +1,8 @@
 //! Recordings shared by files and provider resources.
 
+use crate::actions::resolved_metadata::queries::{
+    RECORDING_ALIASES, TRACK_RECORDINGS, field, recording_aliases, track_recordings, verified_audio,
+};
 use crate::entities::music_metadata::recording_credits as orm_recording_credits;
 use crate::entities::music_metadata::recording_sources as orm_recording_sources;
 use crate::entities::music_metadata::recordings as orm_recordings;
@@ -17,10 +20,7 @@ use uuid::Uuid;
 
 use crate::entities::{
     media_files,
-    music_metadata::{
-        artist_redirects, current_recording_audio as verified, recording_aliases, track_assets,
-        track_recordings,
-    },
+    music_metadata::{audio as verified, track_assets},
 };
 
 use super::{
@@ -367,16 +367,15 @@ async fn canonical_id(db: &impl ConnectionTrait, id: Uuid) -> Result<Option<Uuid
             Query::select()
                 .expr_as(
                     Func::coalesce([
-                        column(recording_aliases::Column::TargetId),
+                        field(RECORDING_ALIASES, "target_id"),
                         column(orm_recordings::Column::Id),
                     ]),
                     "id",
                 )
                 .from(orm_recordings::Entity)
                 .left_join(
-                    recording_aliases::Entity,
-                    column(recording_aliases::Column::SourceId)
-                        .eq(column(orm_recordings::Column::Id)),
+                    recording_aliases(),
+                    field(RECORDING_ALIASES, "source_id").eq(column(orm_recordings::Column::Id)),
                 )
                 .and_where(orm_recordings::Column::Id.eq(id.to_string())),
         )
@@ -386,9 +385,9 @@ async fn canonical_id(db: &impl ConnectionTrait, id: Uuid) -> Result<Option<Uuid
 
 fn aliases_to(id: &str) -> SelectStatement {
     Query::select()
-        .column(recording_aliases::Column::SourceId)
-        .from(recording_aliases::Entity)
-        .and_where(recording_aliases::Column::TargetId.eq(id))
+        .column((Alias::new(RECORDING_ALIASES), Alias::new("source_id")))
+        .from(recording_aliases())
+        .and_where(field(RECORDING_ALIASES, "target_id").eq(id))
         .to_owned()
 }
 
@@ -420,18 +419,8 @@ fn recording_credits(id: &str) -> SelectStatement {
             ]
             .map(|c| c.as_column_ref()),
         )
-        .expr_as(
-            Func::coalesce([
-                column(artist_redirects::Column::TargetUuid),
-                column(C::ArtistId),
-            ]),
-            "artist_id",
-        )
+        .column(C::ArtistId.as_column_ref())
         .from(orm_recording_credits::Entity)
-        .left_join(
-            artist_redirects::Entity,
-            column(artist_redirects::Column::SourceUuid).eq(column(C::ArtistId)),
-        )
         .and_where(
             C::RecordingId.eq(id).or(column(C::RecordingId)
                 .in_subquery(aliases_to(id))
@@ -457,7 +446,7 @@ fn local_versions(id: &str) -> SelectStatement {
         .expr_as(Expr::val(None::<i64>), "end_ms");
     tracks::local_quality(&mut whole);
     whole
-        .from(verified::Entity)
+        .from(verified_audio())
         .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
         .and_where(A::RecordingId.eq(id));
 
@@ -467,14 +456,14 @@ fn local_versions(id: &str) -> SelectStatement {
         .columns([V::StartMs, V::EndMs].map(|c| c.as_column_ref()));
     tracks::local_quality(&mut segments);
     segments
-        .from(track_recordings::Entity)
+        .from(track_recordings())
         .inner_join(
             track_assets::Entity,
-            column(V::TrackId).eq(column(track_recordings::Column::TrackId)),
+            column(V::TrackId).eq(field(TRACK_RECORDINGS, "track_id")),
         )
-        .inner_join(verified::Entity, column(A::FileId).eq(column(V::FileId)))
+        .inner_join(verified_audio(), column(A::FileId).eq(column(V::FileId)))
         .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
-        .and_where(track_recordings::Column::RecordingId.eq(id));
+        .and_where(field(TRACK_RECORDINGS, "recording_id").eq(id));
     whole
         .union(UnionType::Distinct, segments)
         .order_by(Alias::new("audio_id"), Order::Asc)

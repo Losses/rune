@@ -7,7 +7,6 @@ mod delimiters;
 pub mod describe;
 pub mod genre;
 pub mod model;
-pub mod overlay;
 pub mod reader;
 mod release_type;
 pub mod resolve;

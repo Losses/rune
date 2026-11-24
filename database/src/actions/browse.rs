@@ -12,16 +12,22 @@ use sea_orm::{
 };
 
 use crate::entities::{
-    albums, artists, media_file_albums, media_file_artists,
+    audio_artists,
     music_metadata::{
-        album_track_anchors, artist_redirects, artists as catalog_artists, audio, browse_albums,
-        browse_artists, browse_handles, credits, current_album_titles, discs, edition_matches,
+        albums as editions, artists as catalog_artists, audio, browse_handles, credits, discs,
+        release_identity,
     },
+    portable_albums, track_album_sources,
 };
 
 use super::{
     collection::CollectionQueryListMode,
-    resolved_metadata::{column, like_pattern, nocase, query_models, scalar},
+    resolved_metadata::{
+        column, like_pattern, nocase,
+        queries::{field, subquery},
+        query_models, scalar,
+        summary::{TITLES, titles},
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -33,15 +39,8 @@ pub(crate) enum Kind {
 impl Kind {
     fn table(self) -> TableRef {
         match self {
-            Self::Album => albums::Entity.into_table_ref(),
-            Self::Artist => artists::Entity.into_table_ref(),
-        }
-    }
-
-    fn view(self) -> TableRef {
-        match self {
-            Self::Album => browse_albums::Entity.into_table_ref(),
-            Self::Artist => browse_artists::Entity.into_table_ref(),
+            Self::Album => editions::Entity.into_table_ref(),
+            Self::Artist => catalog_artists::Entity.into_table_ref(),
         }
     }
 
@@ -53,39 +52,18 @@ impl Kind {
     }
 
     fn identities(self) -> SelectStatement {
-        let mut query = Query::select();
         match self {
-            Self::Album => {
-                use current_album_titles::Column as T;
-                query
-                    .column(T::Id)
-                    .expr_as(column(T::Title), "name")
-                    .from(current_album_titles::Entity);
-            }
-            Self::Artist => {
-                use artist_redirects::Column as R;
-                use catalog_artists::Column as A;
-                let target = Alias::new("canonical_artist");
-                query
-                    .expr_as(column(A::Id), "id")
-                    .expr_as(
-                        Func::coalesce([Expr::col((target.clone(), A::Name)), column(A::Name)]),
-                        "name",
-                    )
-                    .from(catalog_artists::Entity)
-                    .left_join(
-                        artist_redirects::Entity,
-                        column(R::SourceUuid).eq(column(A::Id)),
-                    )
-                    .join_as(
-                        JoinType::LeftJoin,
-                        catalog_artists::Entity,
-                        target.clone(),
-                        Expr::col((target, A::Id)).eq(column(R::TargetUuid)),
-                    );
-            }
+            Self::Album => Query::select()
+                .column(Alias::new("id"))
+                .expr_as(field(TITLES, "title"), "name")
+                .from(titles())
+                .to_owned(),
+            Self::Artist => Query::select()
+                .expr_as(column(catalog_artists::Column::Id), "id")
+                .column(catalog_artists::Column::Name)
+                .from(catalog_artists::Entity)
+                .to_owned(),
         }
-        query
     }
 
     pub(super) fn old_operator(self) -> &'static str {
@@ -112,36 +90,33 @@ fn browse_group(kind: Kind, id: Expr, name: Expr) -> Expr {
     let mut saved = Query::select();
     match kind {
         Kind::Album => saved
-            .column(albums::Column::Group)
-            .and_where(column(albums::Column::SourceUuid).eq(id.clone())),
+            .column(editions::Column::PortableGroup)
+            .and_where(column(editions::Column::Id).eq(id.clone())),
         Kind::Artist => saved
-            .column(artists::Column::Group)
-            .and_where(column(artists::Column::SourceUuid).eq(id.clone())),
+            .column(catalog_artists::Column::Group)
+            .and_where(column(catalog_artists::Column::Id).eq(id.clone())),
     };
     let saved = saved.from(kind.table()).to_owned();
     let mut buckets = vec![scalar(saved)];
 
     // Edition IDs differ from the old album UUID. Follow the track membership.
     if matches!(kind, Kind::Album) {
-        use albums::Column as A;
-        use media_file_albums::Column as L;
+        use editions::Column as A;
+        use track_album_sources::Column as L;
         let edition = Query::select()
-            .column(A::Group.as_column_ref())
+            .column(A::PortableGroup.as_column_ref())
             .from(discs::Entity)
             .inner_join(
                 audio::Entity,
                 column(audio::Column::DiscId).eq(column(discs::Column::Id)),
             )
             .inner_join(
-                media_file_albums::Entity,
+                track_album_sources::Entity,
                 column(L::TrackUuid).eq(column(audio::Column::Id)),
             )
-            .inner_join(
-                albums::Entity,
-                column(A::SourceUuid).eq(column(L::AlbumUuid)),
-            )
+            .inner_join(editions::Entity, column(A::Id).eq(column(L::AlbumUuid)))
             .and_where(column(discs::Column::AlbumId).eq(id))
-            .order_by(A::Id, Order::Asc)
+            .order_by(A::LegacyId, Order::Asc)
             .limit(1)
             .to_owned();
         buckets.push(scalar(edition));
@@ -161,6 +136,113 @@ fn browse_group(kind: Kind, id: Expr, name: Expr) -> Expr {
     Func::coalesce(buckets).into()
 }
 
+fn browse_selection(kind: Kind) -> TableRef {
+    let rows = match kind {
+        Kind::Album => album_rows(),
+        Kind::Artist => artist_rows(),
+    };
+    subquery(rows, "browse")
+}
+
+fn album_rows() -> SelectStatement {
+    use browse_handles::Column as H;
+    use track_album_sources::Column as L;
+    let assigned = Query::select()
+        .column(L::TrackUuid.as_column_ref())
+        .from(track_album_sources::Entity)
+        .inner_join(
+            audio::Entity,
+            column(audio::Column::Id).eq(column(L::TrackUuid)),
+        )
+        .and_where(column(L::AlbumUuid).eq(field(TITLES, "id")))
+        .to_owned();
+    let portable = field(TITLES, "portable_title").is_not_null();
+    let id: Expr = Expr::case(portable.clone(), field(TITLES, "legacy_id"))
+        .finally(Expr::val(0).sub(column(H::Id)))
+        .into();
+    // Show populated editions and preserve empty portable albums with saved IDs.
+    Query::select()
+        .expr_as(id, "id")
+        .expr_as(field(TITLES, "title"), "name")
+        .expr_as(field(TITLES, "id"), "source_uuid")
+        .from(titles())
+        .left_join(
+            browse_handles::Entity,
+            H::Kind
+                .eq("album")
+                .and(column(H::SourceUuid).eq(field(TITLES, "id"))),
+        )
+        .and_where(
+            field(TITLES, "track_count")
+                .gt(0)
+                .or(portable.and(Expr::not_exists(assigned))),
+        )
+        .and_where(
+            field(TITLES, "portable_title")
+                .is_not_null()
+                .or(H::Id.is_not_null()),
+        )
+        .to_owned()
+}
+
+fn artist_rows() -> SelectStatement {
+    use audio_artists::Column as L;
+    use browse_handles::Column as H;
+    use catalog_artists::Column as A;
+    use credits::Column as C;
+    let known = Query::select()
+        .column(A::Id)
+        .from_as(catalog_artists::Entity, "known")
+        .and_where(field("known", "musicbrainz_id").is_not_null())
+        .and_where(field("known", "name").eq(nocase(column(A::Name))))
+        .to_owned();
+    let credit = Query::select()
+        .column(C::FileId)
+        .from(credits::Entity)
+        .and_where(column(C::FileId).eq(column(audio::Column::FileId)))
+        .and_where(C::Scope.eq(2))
+        .and_where(C::Role.eq("Primary Artist"))
+        .and_where(C::ArtistId.is_not_null())
+        .and_where(column(C::CreditedAs).eq(nocase(column(A::Name))))
+        .to_owned();
+    let unresolved = Query::select()
+        .column(L::TrackUuid.as_column_ref())
+        .from(audio_artists::Entity)
+        .left_join(
+            audio::Entity,
+            column(audio::Column::Id).eq(column(L::TrackUuid)),
+        )
+        .and_where(column(L::ArtistUuid).eq(column(A::Id)))
+        .and_where(Expr::not_exists(credit))
+        .to_owned();
+
+    // Preserve spelling-based identities while any contributing file lacks an identified credit.
+    Query::select()
+        .expr_as(
+            Expr::case(A::Portable.eq(1), column(A::LegacyId))
+                .finally(Expr::val(0).sub(column(H::Id))),
+            "id",
+        )
+        .column(A::Name.as_column_ref())
+        .expr_as(column(A::Id), "source_uuid")
+        .from(catalog_artists::Entity)
+        .left_join(
+            browse_handles::Entity,
+            H::Kind
+                .eq("artist")
+                .and(column(H::SourceUuid).eq(column(A::Id))),
+        )
+        .and_where(
+            A::MusicbrainzId
+                .is_not_null()
+                .and(H::Id.is_not_null())
+                .or(A::Portable
+                    .eq(1)
+                    .and(Expr::not_exists(known).or(Expr::exists(unresolved)))),
+        )
+        .to_owned()
+}
+
 fn browse_rows(kind: Kind) -> SelectStatement {
     let mut query = Query::select();
     query
@@ -173,7 +255,7 @@ fn browse_rows(kind: Kind) -> SelectStatement {
             ),
             "group",
         )
-        .from_as(kind.view(), "browse");
+        .from(browse_selection(kind));
     query
 }
 
@@ -199,7 +281,7 @@ async fn collection_models<T: FromQueryResult>(
 pub(super) async fn album_for_file(
     db: &DatabaseConnection,
     track_uuid: &str,
-) -> Result<Option<albums::Model>> {
+) -> Result<Option<portable_albums::Model>> {
     super::resolved_metadata::ensure_tracks_current(db).await?;
     let edition = Query::select()
         .column(discs::Column::AlbumId.as_column_ref())
@@ -218,7 +300,7 @@ pub(super) async fn album_for_file(
         .and_where(Expr::col(Alias::new("source_uuid")).in_subquery(edition))
         .limit(1)
         .to_owned();
-    let rows: Vec<albums::Model> = collection_models(db, Kind::Album, query).await?;
+    let rows: Vec<portable_albums::Model> = collection_models(db, Kind::Album, query).await?;
     Ok(rows.into_iter().next())
 }
 
@@ -248,9 +330,7 @@ pub(super) async fn portable_clause(
             .ok_or(crate::error::ExpectedError::NotFound { what: "collection" })?;
         let source: String = row.try_get("", "source_uuid")?;
         let parameter = match kind {
-            Kind::Album => super::resolved_metadata::edits::portable_edition(db, source.parse()?)
-                .await?
-                .to_string(),
+            Kind::Album => portable_edition(db, &source).await?,
             Kind::Artist => source,
         };
         return Ok((kind.uuid_operator().into(), parameter));
@@ -259,19 +339,72 @@ pub(super) async fn portable_clause(
 }
 
 pub(super) fn edition_ids(id: &str) -> SelectStatement {
-    use album_track_anchors::Column as A;
-    use edition_matches::Column as M;
-    let anchored = Query::select()
-        .column(A::AlbumId)
-        .from(album_track_anchors::Entity)
-        .and_where(A::TrackUuid.eq(id))
+    use editions::Column as A;
+    use release_identity::Column as R;
+    let mut local = Query::select()
+        .column(A::Id)
+        .from(editions::Entity)
+        .and_where(A::Id.eq(id))
         .to_owned();
-    Query::select()
-        .column(M::AlbumId)
-        .from(edition_matches::Entity)
-        .and_where(M::EditionUuid.eq(id))
+    // An exact UUID takes precedence over evidence linking a portable edition ID.
+    let identified = Query::select()
+        .expr(Func::min(column(R::AlbumId)))
+        .from(release_identity::Entity)
+        .and_where(R::EditionUuid.eq(id))
+        .and_where(Expr::not_exists(local.clone()))
+        .and_having(Expr::from(Func::count(Expr::val(1))).eq(1))
+        .to_owned();
+    let anchored = Query::select()
+        .column(discs::Column::AlbumId.as_column_ref())
+        .from(audio::Entity)
+        .inner_join(
+            discs::Entity,
+            column(discs::Column::Id).eq(column(audio::Column::DiscId)),
+        )
+        .and_where(audio::Column::Id.eq(id))
+        .to_owned();
+    local
+        .union(UnionType::All, identified)
         .union(UnionType::All, anchored)
         .to_owned()
+}
+
+async fn portable_edition(db: &impl ConnectionTrait, release: &str) -> Result<String> {
+    use release_identity::Column as R;
+    let duplicate = Query::select()
+        .column(Alias::new("album_id"))
+        .from_as(release_identity::Entity, "other")
+        .and_where(field("other", "edition_uuid").eq(column(R::EditionUuid)))
+        .and_where(field("other", "album_id").ne(release))
+        .to_owned();
+    let shared = Query::select()
+        .column(R::EditionUuid)
+        .from(release_identity::Entity)
+        .and_where(R::AlbumId.eq(release))
+        .and_where(Expr::not_exists(duplicate))
+        .to_owned();
+    // A synchronized track is a portable fallback when the edition has no unique release ID.
+    let anchor = Query::select()
+        .column(audio::Column::Id.as_column_ref())
+        .from(discs::Entity)
+        .inner_join(
+            audio::Entity,
+            column(audio::Column::DiscId).eq(column(discs::Column::Id)),
+        )
+        .and_where(discs::Column::AlbumId.eq(release))
+        .order_by(audio::Column::Id.as_column_ref(), Order::Asc)
+        .limit(1)
+        .to_owned();
+    let row = db
+        .query_one(Query::select().expr_as(
+            Func::coalesce([scalar(shared), scalar(anchor), Expr::val(release)]),
+            "edition_uuid",
+        ))
+        .await?;
+    Ok(row
+        .map(|row| row.try_get("", "edition_uuid"))
+        .transpose()?
+        .unwrap_or_else(|| release.to_owned()))
 }
 
 pub(super) async fn editable_clause(
@@ -359,6 +492,9 @@ pub(super) async fn by_id<T: FromQueryResult>(
     kind: Kind,
     ids: &[i32],
 ) -> Result<Vec<T>> {
+    if matches!(kind, Kind::Album) {
+        super::resolved_metadata::ensure_tracks_current(db).await?;
+    }
     use browse_handles::Column as H;
     let mut found = Vec::new();
     // Positive IDs from previously saved navigation remain resolvable after the browse switch.
@@ -366,23 +502,20 @@ pub(super) async fn by_id<T: FromQueryResult>(
         let mut saved = Query::select();
         match kind {
             Kind::Album => {
-                use albums::Column as A;
+                use editions::Column as A;
                 saved
-                    .expr_as(column(A::Id), "id")
-                    .expr_as(column(current_album_titles::Column::Title), "name")
-                    .expr_as(column(A::SourceUuid), "source_uuid")
-                    .expr_as(column(A::Group), "group")
-                    .inner_join(
-                        current_album_titles::Entity,
-                        column(A::SourceUuid).eq(column(current_album_titles::Column::Id)),
-                    )
-                    .and_where(A::Name.is_not_null())
-                    .and_where(A::Id.is_in(ids.iter().copied()));
+                    .expr_as(column(A::LegacyId), "id")
+                    .expr_as(field(TITLES, "title"), "name")
+                    .expr_as(column(A::Id), "source_uuid")
+                    .expr_as(column(A::PortableGroup), "group")
+                    .inner_join(titles(), column(A::Id).eq(field(TITLES, "id")))
+                    .and_where(A::PortableTitle.is_not_null())
+                    .and_where(A::LegacyId.is_in(ids.iter().copied()));
             }
             Kind::Artist => {
                 saved
                     .columns(["id", "name", "source_uuid", "group"].map(Alias::new))
-                    .and_where(artists::Column::Id.is_in(ids.iter().copied()))
+                    .and_where(catalog_artists::Column::LegacyId.is_in(ids.iter().copied()))
                     .and_where(catalog_artists::Column::Portable.eq(1));
             }
         }
@@ -461,28 +594,12 @@ pub(super) async fn resolve_search(
         .join("%");
     let pattern = format!("%{pattern}%");
 
-    // Match the current metadata and former artist names alongside the legacy FTS results.
-    let mut matches = alias_col("browse", "name").like(like_pattern(&pattern));
-    if matches!(kind, Kind::Artist) {
-        use artist_redirects::Column as R;
-        use catalog_artists::Column as A;
-        let former = Query::select()
-            .column(R::SourceUuid.as_column_ref())
-            .from(artist_redirects::Entity)
-            .inner_join(
-                catalog_artists::Entity,
-                column(A::Id).eq(column(R::SourceUuid)),
-            )
-            .and_where(column(R::TargetUuid).eq(alias_col("browse", "source_uuid")))
-            .and_where(column(A::Name).like(like_pattern(&pattern)))
-            .to_owned();
-        matches = matches.or(Expr::exists(former));
-    }
+    let matches = alias_col("browse", "name").like(like_pattern(&pattern));
     let rows = db
         .query_all(
             Query::select()
                 .column((Alias::new("browse"), Alias::new("id")))
-                .from_as(kind.view(), "browse")
+                .from(browse_selection(kind))
                 .and_where(matches)
                 .order_by(Alias::new("name"), Order::Asc)
                 .order_by(Alias::new("id"), Order::Asc)
@@ -501,7 +618,7 @@ pub(super) async fn resolve_search(
             .query_all(
                 Query::select()
                     .column(Alias::new("id"))
-                    .from(kind.view())
+                    .from(browse_selection(kind))
                     .and_where(Expr::col(Alias::new("id")).is_in(old.iter().copied()))
                     .union(UnionType::Distinct, legacy_matches(kind, old)),
             )
@@ -520,15 +637,14 @@ fn legacy_matches(kind: Kind, ids: &[i64]) -> SelectStatement {
     let mut query = Query::select();
     match kind {
         Kind::Album => {
-            use albums::Column as A;
-            use browse_albums::Column as B;
-            use media_file_albums::Column as L;
+            use editions::Column as A;
+            use track_album_sources::Column as L;
             query
-                .column(B::Id.as_column_ref())
-                .from(albums::Entity)
+                .column((Alias::new("browse"), Alias::new("id")))
+                .from(editions::Entity)
                 .inner_join(
-                    media_file_albums::Entity,
-                    column(L::AlbumUuid).eq(column(A::SourceUuid)),
+                    track_album_sources::Entity,
+                    column(L::AlbumUuid).eq(column(A::Id)),
                 )
                 .inner_join(
                     audio::Entity,
@@ -539,39 +655,23 @@ fn legacy_matches(kind: Kind, ids: &[i64]) -> SelectStatement {
                     column(discs::Column::Id).eq(column(audio::Column::DiscId)),
                 )
                 .inner_join(
-                    browse_albums::Entity,
-                    column(B::SourceUuid).eq(column(discs::Column::AlbumId)),
+                    browse_selection(Kind::Album),
+                    field("browse", "source_uuid").eq(column(discs::Column::AlbumId)),
                 )
-                .and_where(A::Id.is_in(ids.iter().copied()));
+                .and_where(A::LegacyId.is_in(ids.iter().copied()));
         }
         Kind::Artist => {
-            use artist_redirects::Column as R;
-            use artists::Column as A;
-            use browse_artists::Column as B;
+            use audio_artists::Column as L;
+            use catalog_artists::Column as A;
             use credits::Column as C;
-            use media_file_artists::Column as L;
-            let legacy = Alias::new("legacy_redirect");
-            let canonical: Expr = Func::coalesce([
-                column(R::TargetUuid),
-                column(C::ArtistId),
-                Expr::col((legacy.clone(), R::TargetUuid)),
-                column(A::SourceUuid),
-            ])
-            .into();
-
-            // Each confirmed credit can resolve to its own artist, even for a shared legacy name.
+            let identity = Func::coalesce([column(C::ArtistId), column(A::Id)]);
+            // File evidence can resolve a spelling to a known artist identity.
             query
-                .column(B::Id.as_column_ref())
-                .from(artists::Entity)
-                .join_as(
-                    JoinType::LeftJoin,
-                    artist_redirects::Entity,
-                    legacy.clone(),
-                    Expr::col((legacy, R::SourceUuid)).eq(column(A::SourceUuid)),
-                )
+                .column((Alias::new("browse"), Alias::new("id")))
+                .from(catalog_artists::Entity)
                 .left_join(
-                    media_file_artists::Entity,
-                    column(L::ArtistUuid).eq(column(A::SourceUuid)),
+                    audio_artists::Entity,
+                    column(L::ArtistUuid).eq(column(A::Id)),
                 )
                 .left_join(
                     audio::Entity,
@@ -585,12 +685,11 @@ fn legacy_matches(kind: Kind, ids: &[i64]) -> SelectStatement {
                         .and(C::Role.eq("Primary Artist"))
                         .and(column(C::CreditedAs).eq(nocase(column(A::Name)))),
                 )
-                .left_join(
-                    artist_redirects::Entity,
-                    column(R::SourceUuid).eq(column(C::ArtistId)),
+                .inner_join(
+                    browse_selection(Kind::Artist),
+                    field("browse", "source_uuid").eq(identity),
                 )
-                .inner_join(browse_artists::Entity, column(B::SourceUuid).eq(canonical))
-                .and_where(A::Id.is_in(ids.iter().copied()));
+                .and_where(A::LegacyId.is_in(ids.iter().copied()));
         }
     }
     query

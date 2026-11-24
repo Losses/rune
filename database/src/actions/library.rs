@@ -7,10 +7,9 @@ use sea_orm::{
 };
 
 use crate::entities::{
-    albums, artists, media_cover_art, media_file_albums, media_file_artists, media_file_playlists,
-    media_files,
+    audio_artists, media_cover_art, media_file_playlists, media_files,
     music_metadata::{audio, discs},
-    playlists,
+    playlists, portable_albums, portable_artists, track_album_sources,
 };
 use crate::get_cover_ids;
 
@@ -18,10 +17,10 @@ use super::resolved_metadata::column;
 
 pub async fn get_album_cover_ids(
     db: &DatabaseConnection,
-    entities: &[albums::Model],
+    entities: &[portable_albums::Model],
 ) -> Result<HashMap<i32, HashSet<i32>>, DbErr> {
     use {audio::Column as A, discs::Column as D, media_cover_art::Column as C};
-    use {media_file_albums::Column as S, media_files::Column as F};
+    use {media_files::Column as F, track_album_sources::Column as S};
 
     let ids: HashMap<_, _> = entities
         .iter()
@@ -48,7 +47,7 @@ pub async fn get_album_cover_ids(
             .clone()
             .columns([S::AlbumUuid.as_column_ref(), C::Id.as_column_ref()])
             .inner_join(
-                media_file_albums::Entity,
+                track_album_sources::Entity,
                 column(S::TrackUuid).eq(column(A::Id)),
             )
             .and_where(S::AlbumUuid.is_in(keys.iter().copied()))
@@ -70,8 +69,8 @@ pub async fn get_album_cover_ids(
 
 get_cover_ids!(
     get_artist_cover_ids,
-    artists,
-    media_file_artists,
+    portable_artists,
+    audio_artists,
     ArtistUuid
 );
 get_cover_ids!(

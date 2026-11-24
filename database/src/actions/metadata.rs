@@ -5,11 +5,11 @@ use crate::actions::{
     logging::{LogLevel, insert_log},
 };
 use crate::entities::music_metadata::{
-    artist_identities, audio as catalog_audio, credits as catalog_credits, values as catalog_values,
+    audio as catalog_audio, credits as catalog_credits, values as catalog_values,
 };
 use crate::entities::{
-    albums, artists, media_analysis, media_files, media_metadata, sync_download_jobs,
-    sync_download_jobs::Column,
+    media_analysis, media_files, portable_albums, portable_artists, source_tags,
+    sync_download_jobs, sync_download_jobs::Column,
 };
 use crate::error::ExpectedError;
 use sea_orm::sqlx::Error;
@@ -848,7 +848,7 @@ async fn replace_metadata_on(
 ) -> Result<()> {
     use crate::sync::model::{MetadataMap, MetadataTag};
     use sync_orm::owned_list::{ListBudget, OwnedListPolicy};
-    type Tags = OwnedListPolicy<media_metadata::Entity, MetadataMap>;
+    type Tags = OwnedListPolicy<source_tags::Entity, MetadataMap>;
     let owner = [file_id.into()];
     let previous = Tags::read_on(tx, &owner, Tags::read_ceiling()).await?;
     let mut used = HashSet::new();
@@ -1360,7 +1360,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         .into_iter()
         .map(|(file, disc, track)| (file, (disc, track)))
         .collect();
-    let titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
+    let titles = resolved_metadata::summary::track_titles(db, &file_ids).await?;
 
     // Display the original primary credit spellings and the resolved list of genres.
     use catalog_credits::Column as Credit;
@@ -1395,7 +1395,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         let file_id = file.id;
         let (title, album) = titles
             .get(&file_id)
-            .map(|(title, album)| (title.as_ref(), album.as_ref()))
+            .map(|(title, album)| (Some(title), album.as_ref()))
             .unwrap_or_default();
         let (disc, track) = order.get(&file_id).copied().unwrap_or_default();
         let track_number =
@@ -1494,23 +1494,24 @@ pub async fn get_metadata_summary_by_file_id<C: sea_orm::ConnectionTrait>(
 pub async fn get_parsed_file_by_id(
     db: &DatabaseConnection,
     file_id: i32,
-) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>)> {
+) -> Result<(
+    MetadataSummary,
+    Vec<portable_artists::Model>,
+    Option<portable_albums::Model>,
+)> {
     let file = get_metadata_summary_by_file_id(db, file_id).await?;
 
     // Credits preserve tag spellings while artist navigation follows confirmed identities.
-    use crate::entities::media_file_artists as links;
+    use crate::entities::audio_artists as links;
     let targets = Query::select()
-        .column(artist_identities::Column::TargetId.as_column_ref())
+        .column(links::Column::ArtistUuid)
         .from(links::Entity)
-        .inner_join(
-            artist_identities::Entity,
-            Expr::col(artist_identities::Column::SourceUuid.as_column_ref())
-                .eq(Expr::col(links::Column::ArtistUuid.as_column_ref())),
-        )
         .and_where(links::Column::TrackUuid.eq(&file.file_uuid))
         .to_owned();
-    let artists = artists::Entity::find()
-        .filter(Expr::col(artists::Column::Id.as_column_ref()).in_subquery(targets))
+    let artists = portable_artists::Entity::find()
+        .filter(
+            Expr::col(portable_artists::Column::SourceUuid.as_column_ref()).in_subquery(targets),
+        )
         .all(db)
         .await?;
 

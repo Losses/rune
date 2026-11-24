@@ -792,7 +792,6 @@ fn album(tags: &mut Tags<'_>, directory: &str) -> AlbumMetadata {
     let (release_type, release_secondary_types) = release_types(tags);
     AlbumMetadata {
         base,
-        group_id: None,
         needs_review: false,
         title: tags
             .text("title", &["ALBUM", "TALB", "©alb"])

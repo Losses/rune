@@ -5,7 +5,10 @@ use database::{
         index::{index_audio_library, index_media_files},
         metadata::{author_indexed_track_row, scan_audio_file, sync_file_descriptions},
     },
-    entities::{albums, media_file_albums, media_file_artists, media_file_genres, media_files},
+    entities::{
+        audio_artists as media_file_artists, media_file_genres, media_files,
+        portable_albums as albums, track_album_sources as media_file_albums,
+    },
     sync::{
         SeaOrmSyncStore,
         model::{Collection, ObjectKey},
@@ -151,8 +154,9 @@ async fn journal_failure_rolls_back_scanned_file() -> Result<()> {
 async fn index_reads_metadata_after_acquiring_replica_lock() -> Result<()> {
     use database::actions::{index::index_media_files, metadata::scan_audio_file};
     use database::entities::{
-        albums, artists, genres, media_file_albums, media_file_artists, media_file_genres,
-        media_metadata,
+        audio_artists as media_file_artists, genres, media_file_genres, portable_albums as albums,
+        portable_artists as artists, source_tags as media_metadata,
+        track_album_sources as media_file_albums,
     };
     use database::sync::model::Payload;
     use sea_orm::Set;
@@ -306,7 +310,7 @@ async fn untitled_track_is_searchable_after_authoring() -> Result<()> {
     use database::actions::collection::CollectionQueryType;
     use database::{
         actions::{metadata::scan_audio_file, search::search_for},
-        entities::media_metadata,
+        entities::source_tags as media_metadata,
     };
     use sea_orm::{ColumnTrait, QueryFilter, TransactionTrait};
     let node = Uuid::new_v4();

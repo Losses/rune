@@ -3,8 +3,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::albums::{Column as AlbumsColumn, Entity as AlbumsEntity};
 use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+use super::portable_albums::{Column as AlbumsColumn, Entity as AlbumsEntity};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "music_metadata_track_album_sources")]
@@ -35,7 +35,7 @@ pub enum Relation {
     MediaFiles,
 }
 
-impl Related<super::albums::Entity> for Entity {
+impl Related<super::portable_albums::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Albums.def()
     }

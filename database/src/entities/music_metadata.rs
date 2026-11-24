@@ -1,4 +1,4 @@
-//! SeaORM models for the resolved metadata catalog and its read-only projections.
+//! SeaORM models for the resolved metadata catalog.
 
 macro_rules! catalog_entity {
     ($module:ident, $table:literal, {$( $(#[$attr:meta])* $field:ident: $ty:ty, )+}) => {
@@ -19,33 +19,16 @@ macro_rules! catalog_entity {
     };
 }
 
-catalog_entity!(album_groups, "music_metadata_album_groups", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    id: String,
-    name: String,
-});
-
 catalog_entity!(albums, "music_metadata_albums", {
     #[sea_orm(primary_key, auto_increment = false)]
     id: String,
+    legacy_id: i32,
+    portable_title: Option<String>,
+    portable_group: Option<String>,
     directory_path: String,
     managed_key: Option<String>,
     directory_scope: String,
-    group_id: Option<String>,
     needs_review: i32,
-});
-
-catalog_entity!(album_field_values, "music_metadata_album_field_values", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    field: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    provider: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    resource: String,
-    value: Option<String>,
-    decision: i32,
 });
 
 catalog_entity!(release_identity, "music_metadata_release_identity", {
@@ -115,7 +98,6 @@ catalog_entity!(audio, "music_metadata_audio", {
     recording_content_hash: Option<String>,
     recording_content_size: Option<i64>,
     release_track_mbid: Option<String>,
-    confirmed_release_id: Option<String>,
     title: String,
     track_title_key: String,
     track_number: Option<i32>,
@@ -181,12 +163,6 @@ catalog_entity!(recording_dirty, "music_metadata_recording_dirty", {
     value: String,
 });
 
-catalog_entity!(album_track_anchors, "music_metadata_album_track_anchors", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    track_uuid: String,
-    album_id: String,
-});
-
 catalog_entity!(release_tracks, "music_metadata_release_tracks", {
     #[sea_orm(primary_key, auto_increment = false)]
     id: String,
@@ -204,7 +180,6 @@ catalog_entity!(dirty_tracks, "music_metadata_dirty_tracks", {
 catalog_entity!(audio_layouts, "music_metadata_audio_layouts", {
     #[sea_orm(primary_key, auto_increment = false)]
     file_id: i32,
-    kind: String,
 });
 
 catalog_entity!(track_assets, "music_metadata_track_assets", {
@@ -217,20 +192,11 @@ catalog_entity!(track_assets, "music_metadata_track_assets", {
     end_ms: Option<i64>,
 });
 
-catalog_entity!(local_overlays, "music_metadata_local_overlays", {
-    #[sea_orm(primary_key)]
-    id: i32,
-    album_id: Option<String>,
-    disc_id: Option<String>,
-    audio_id: Option<String>,
-    track_id: Option<String>,
-    field: String,
-    value: Option<String>,
-});
-
 catalog_entity!(artists, "music_metadata_artists", {
     #[sea_orm(primary_key, auto_increment = false, column_name = "source_uuid")]
     id: String,
+    #[sea_orm(column_name = "id")]
+    legacy_id: i32,
     name: String,
     group: String,
     musicbrainz_id: Option<String>,
@@ -317,16 +283,6 @@ catalog_entity!(track_release_keys, "music_metadata_track_release_keys", {
     value: String,
 });
 
-catalog_entity!(release_keys, "music_metadata_release_keys", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    field: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    value: String,
-    uses: i64,
-});
-
 catalog_entity!(dirty_directories, "music_metadata_dirty_directories", {
     #[sea_orm(primary_key, auto_increment = false)]
     directory_scope: String,
@@ -342,7 +298,6 @@ catalog_entity!(credits, "music_metadata_credits", {
     credited_as: String,
     role: String,
     artist_id: Option<String>,
-    artist_confirmed: i32,
     instrument: Option<String>,
     #[sea_orm(primary_key, auto_increment = false)]
     source_kind: String,
@@ -404,121 +359,4 @@ catalog_entity!(details, "music_metadata_details", {
     artwork: Option<String>,
     links: Option<String>,
     provenance: Option<String>,
-});
-
-// Read-only catalog projections. Model only the fields consumed by their callers.
-catalog_entity!(current_recording_audio, "music_metadata_current_recording_audio", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    file_id: i32,
-    id: String,
-    disc_id: String,
-    recording_id: String,
-    duration_ms: Option<i64>,
-    codec: Option<String>,
-    sample_rate: Option<i32>,
-    bits_per_sample: Option<i32>,
-    bitrate: Option<i64>,
-});
-
-catalog_entity!(live_summaries, "music_metadata_live_summaries", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    title: String,
-    version: Option<String>,
-    catalog_number: Option<String>,
-    release_date: Option<String>,
-    release_type: Option<String>,
-    track_count: i64,
-});
-
-catalog_entity!(album_effective_fields, "music_metadata_album_effective_fields", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    field: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    provider: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    resource: String,
-    value: Option<String>,
-    decision: i32,
-});
-
-catalog_entity!(current_album_titles, "music_metadata_current_album_titles", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    id: String,
-    title: String,
-    version: Option<String>,
-    catalog_number: Option<String>,
-    release_date: Option<String>,
-    release_type: Option<String>,
-    track_count: i64,
-});
-
-catalog_entity!(recording_evidence, "music_metadata_recording_evidence", {
-    file_id: Option<i32>,
-    audio_id: Option<String>,
-    provider: Option<String>,
-    resource_id: Option<String>,
-    #[sea_orm(primary_key, auto_increment = false)]
-    recording_id: String,
-    mbid: Option<String>,
-    isrc: Option<String>,
-});
-
-catalog_entity!(recording_aliases, "music_metadata_recording_aliases", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    source_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    target_id: String,
-});
-
-catalog_entity!(track_recordings, "music_metadata_track_recordings", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    track_id: String,
-    recording_id: String,
-});
-
-catalog_entity!(edition_matches, "music_metadata_edition_matches", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    edition_uuid: String,
-});
-
-catalog_entity!(synced_album_groups, "music_metadata_synced_album_groups", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    album_id: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    owner_uuid: String,
-    target_uuid: Option<String>,
-    generation: i64,
-});
-
-catalog_entity!(artist_redirects, "music_metadata_artist_redirects", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    source_uuid: String,
-    target_uuid: String,
-});
-
-catalog_entity!(artist_identities, "music_metadata_artist_identities", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    source_id: i32,
-    source_uuid: String,
-    target_id: i32,
-    target_uuid: String,
-});
-
-catalog_entity!(browse_albums, "music_metadata_browse_albums", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    id: i32,
-    name: String,
-    source_uuid: String,
-});
-
-catalog_entity!(browse_artists, "music_metadata_browse_artists", {
-    #[sea_orm(primary_key, auto_increment = false)]
-    id: i32,
-    name: String,
-    source_uuid: String,
 });

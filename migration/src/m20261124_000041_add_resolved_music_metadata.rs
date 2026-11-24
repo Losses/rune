@@ -4,8 +4,6 @@ use sea_orm_migration::prelude::*;
 mod schema;
 #[path = "resolved_metadata_triggers.rs"]
 mod triggers;
-#[path = "resolved_metadata_views.rs"]
-mod views;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -27,14 +25,12 @@ impl MigrationTrait for Migration {
         )
         .await?;
         schema::move_table(manager, "media_metadata", "music_metadata_source_tags").await?;
-        views::install(manager).await?;
         triggers::install(manager).await?;
         super::resolved_metadata_import::import(manager).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         triggers::uninstall(manager).await?;
-        views::uninstall(manager).await?;
         schema::restore_artists(manager).await?;
         schema::restore_albums(manager).await?;
         schema::uninstall(manager).await?;

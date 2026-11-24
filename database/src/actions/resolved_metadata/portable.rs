@@ -18,8 +18,9 @@ use crate::actions::{
     utils::generate_group_name,
 };
 use crate::entities::{
-    albums, artists, genres, media_file_albums, media_file_artists, media_file_genres, media_files,
+    audio_artists, genres, media_file_genres, media_files,
     music_metadata::{album_evidence, credits},
+    portable_albums, portable_artists, track_album_sources,
 };
 use crate::sync::model::adopt_portable_artist;
 
@@ -96,13 +97,13 @@ async fn author_album_assignment(
     summary: &MetadataSummary,
 ) -> Result<()> {
     use crate::sync::model::{Collection, ObjectKey, author_source_on};
-    let link = media_file_albums::Entity::find()
-        .filter(media_file_albums::Column::TrackUuid.eq(&summary.file_uuid))
+    let link = track_album_sources::Entity::find()
+        .filter(track_album_sources::Column::TrackUuid.eq(&summary.file_uuid))
         .one(txn)
         .await?
         .ok_or_else(|| Error::msg("missing album assignment"))?;
-    let album = albums::Entity::find()
-        .filter(albums::Column::SourceUuid.eq(&link.album_uuid))
+    let album = portable_albums::Entity::find()
+        .filter(portable_albums::Column::SourceUuid.eq(&link.album_uuid))
         .one(txn)
         .await?
         .ok_or_else(|| Error::msg("missing album"))?;
@@ -144,22 +145,22 @@ async fn process_artists(
     let mut desired = HashMap::new();
     for name in names {
         let id = catalog_identity::parent(ParentKind::Artist, &name);
-        artists::Entity::insert(artists::ActiveModel {
+        portable_artists::Entity::insert(portable_artists::ActiveModel {
             name: Set(name.clone()),
             group: Set(generate_group_name(&name)),
             source_uuid: Set(id.to_string()),
             ..Default::default()
         })
         .on_conflict(
-            OnConflict::column(artists::Column::SourceUuid)
+            OnConflict::column(portable_artists::Column::SourceUuid)
                 .do_nothing()
                 .to_owned(),
         )
         .exec_without_returning(tx)
         .await?;
         adopt_portable_artist(tx, id).await?;
-        let row = artists::Entity::find()
-            .filter(artists::Column::SourceUuid.eq(id.to_string()))
+        let row = portable_artists::Entity::find()
+            .filter(portable_artists::Column::SourceUuid.eq(id.to_string()))
             .one(tx)
             .await?
             .ok_or_else(|| Error::msg("missing indexed artist"))?;
@@ -177,8 +178,8 @@ async fn process_artists(
 
         desired.insert(id.to_string(), id);
     }
-    let existing = media_file_artists::Entity::find()
-        .filter(media_file_artists::Column::TrackUuid.eq(&summary.file_uuid))
+    let existing = audio_artists::Entity::find()
+        .filter(audio_artists::Column::TrackUuid.eq(&summary.file_uuid))
         .limit(129)
         .all(tx)
         .await?;
@@ -209,14 +210,12 @@ async fn process_artists(
                 )
                 .await?;
 
-            media_file_artists::Entity::delete_by_id(row.id)
-                .exec(tx)
-                .await?;
+            audio_artists::Entity::delete_by_id(row.id).exec(tx).await?;
         }
     }
     for (parent, parent_id) in desired {
         let id = catalog_identity::membership(file_id, ParentKind::Artist, parent_id);
-        media_file_artists::Entity::insert(media_file_artists::ActiveModel {
+        audio_artists::Entity::insert(audio_artists::ActiveModel {
             track_uuid: Set(summary.file_uuid.clone()),
             artist_uuid: Set(parent),
             source_uuid: Set(id.to_string()),
@@ -251,27 +250,30 @@ async fn process_album(tx: &DatabaseTransaction, summary: &MetadataSummary) -> R
         .flatten()
         .unwrap_or_default();
     let album_id = catalog_identity::parent(ParentKind::Album, &title);
-    albums::Entity::insert(albums::ActiveModel {
+    portable_albums::Entity::insert(portable_albums::ActiveModel {
         group: Set(generate_group_name(&title)),
         name: Set(title),
         source_uuid: Set(album_id.to_string()),
         ..Default::default()
     })
     .on_conflict(
-        OnConflict::column(albums::Column::SourceUuid)
-            .update_columns([albums::Column::Name, albums::Column::Group])
-            .action_and_where(albums::Column::Name.is_null())
+        OnConflict::column(portable_albums::Column::SourceUuid)
+            .update_columns([
+                portable_albums::Column::Name,
+                portable_albums::Column::Group,
+            ])
+            .action_and_where(portable_albums::Column::Name.is_null())
             .to_owned(),
     )
     .exec_without_returning(tx)
     .await?;
-    let album = albums::Entity::find()
-        .filter(albums::Column::SourceUuid.eq(album_id.to_string()))
+    let album = portable_albums::Entity::find()
+        .filter(portable_albums::Column::SourceUuid.eq(album_id.to_string()))
         .one(tx)
         .await?
         .ok_or_else(|| Error::msg("missing indexed album"))?;
     add_term(tx, CollectionQueryType::Album, album.id, &album.name).await?;
-    media_file_albums::Entity::insert(media_file_albums::ActiveModel {
+    track_album_sources::Entity::insert(track_album_sources::ActiveModel {
         track_uuid: Set(summary.file_uuid.clone()),
         album_uuid: Set(album_id.to_string()),
         track_number: Set(summary.track_number),
@@ -279,10 +281,10 @@ async fn process_album(tx: &DatabaseTransaction, summary: &MetadataSummary) -> R
         ..Default::default()
     })
     .on_conflict(
-        OnConflict::column(media_file_albums::Column::TrackUuid)
+        OnConflict::column(track_album_sources::Column::TrackUuid)
             .update_columns([
-                media_file_albums::Column::AlbumUuid,
-                media_file_albums::Column::TrackNumber,
+                track_album_sources::Column::AlbumUuid,
+                track_album_sources::Column::TrackNumber,
             ])
             .to_owned(),
     )

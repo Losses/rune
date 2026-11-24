@@ -3,11 +3,9 @@
 use crate::entities::music_metadata::albums as orm_albums;
 use crate::entities::music_metadata::audio as orm_audio;
 use crate::entities::music_metadata::dirty_directories as orm_dirty_directories;
-use crate::entities::music_metadata::edition_matches as orm_edition_matches;
 use crate::entities::music_metadata::track_release_keys as orm_track_release_keys;
-use crate::entities::music_metadata_sync_edits as orm_sync_edits;
 use sea_orm::ExprTrait;
-use sea_orm::sea_query::{Alias, BinOper, Expr, OnConflict, Order, Query, SelectStatement};
+use sea_orm::sea_query::{Expr, OnConflict, Order, Query, SelectStatement};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet},
@@ -22,15 +20,14 @@ use metadata::{
 };
 use regex::Regex;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, JoinType,
-    TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, TransactionTrait,
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::entities::{
-    media_file_albums, media_files,
-    music_metadata::{album_field_values, discs, local_overlays, release_identity, release_keys},
+    music_metadata::{discs, release_identity},
+    track_album_sources,
 };
 
 use super::column;
@@ -233,7 +230,7 @@ pub(super) async fn album_id(
     }
 
     if managed_key.is_some()
-        && let Some(album) = managed_album(db, file_id, incoming).await?
+        && let Some(album) = managed_album(db, incoming).await?
     {
         return Ok(album);
     }
@@ -243,14 +240,19 @@ pub(super) async fn album_id(
         .query_all(
             Query::select()
                 .column(orm_albums::Column::Id.as_column_ref())
+                .distinct()
                 .columns(
-                    [release_keys::Column::Field, release_keys::Column::Value]
-                        .map(|c| c.as_column_ref()),
+                    [
+                        orm_track_release_keys::Column::Field,
+                        orm_track_release_keys::Column::Value,
+                    ]
+                    .map(|c| c.as_column_ref()),
                 )
                 .from(orm_albums::Entity)
                 .left_join(
-                    release_keys::Entity,
-                    column(release_keys::Column::AlbumId).eq(column(orm_albums::Column::Id)),
+                    orm_track_release_keys::Entity,
+                    column(orm_track_release_keys::Column::AlbumId)
+                        .eq(column(orm_albums::Column::Id)),
                 )
                 .and_where(orm_albums::Column::DirectoryScope.eq(scope))
                 .and_where(has_disc(column(orm_albums::Column::Id))),
@@ -291,9 +293,6 @@ pub(super) async fn managed_key(
     audio: Uuid,
     keys: &ReleaseKeys,
 ) -> Result<String> {
-    if let Some(edition) = shared_edition(db, audio).await? {
-        return Ok(format!("edition:{edition}"));
-    }
     if let Some(mbid) = keys.0.get(RELEASE) {
         return Ok(format!("mbid:{mbid}"));
     }
@@ -306,9 +305,9 @@ pub(super) async fn managed_key(
         && let Some(album) = db
             .query_one(
                 Query::select()
-                    .expr_as(column(media_file_albums::Column::AlbumUuid), "id")
-                    .from(media_file_albums::Entity)
-                    .and_where(media_file_albums::Column::TrackUuid.eq(audio.to_string())),
+                    .expr_as(column(track_album_sources::Column::AlbumUuid), "id")
+                    .from(track_album_sources::Entity)
+                    .and_where(track_album_sources::Column::TrackUuid.eq(audio.to_string())),
             )
             .await?
     {
@@ -317,63 +316,7 @@ pub(super) async fn managed_key(
     Ok(format!("audio:{audio}"))
 }
 
-async fn shared_edition(db: &impl ConnectionTrait, audio: Uuid) -> Result<Option<Uuid>> {
-    let rows = db
-        .query_all(
-            Query::select()
-                .expr_as(
-                    Expr::col(orm_sync_edits::Column::OwnerUuid),
-                    Alias::new("id"),
-                )
-                .from(orm_sync_edits::Entity)
-                .distinct()
-                .and_where(Expr::col(orm_sync_edits::Column::Kind).eq(Expr::val("anchor")))
-                .and_where(
-                    Expr::col(orm_sync_edits::Column::EditionUuid).eq(Expr::val(audio.to_string())),
-                )
-                .limit(2),
-        )
-        .await?;
-    match rows.as_slice() {
-        [edition] => Ok(Some(super::uuid(edition, "id")?)),
-        _ => Ok(None),
-    }
-}
-
-async fn managed_album(
-    db: &DatabaseTransaction,
-    file: i32,
-    incoming: &ReleaseKeys,
-) -> Result<Option<Uuid>> {
-    let row = db
-        .query_one(
-            Query::select()
-                .expr_as(column(media_files::Column::SourceUuid), "id")
-                .from(media_files::Entity)
-                .and_where(media_files::Column::Id.eq(file)),
-        )
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("downloaded file disappeared"))?;
-    if let Some(edition) = shared_edition(db, super::uuid(&row, "id")?).await? {
-        let matches = db
-            .query_all(
-                Query::select()
-                    .expr_as(
-                        Expr::col(orm_edition_matches::Column::AlbumId),
-                        Alias::new("id"),
-                    )
-                    .from(orm_edition_matches::Entity)
-                    .and_where(
-                        Expr::col(orm_edition_matches::Column::EditionUuid)
-                            .eq(Expr::val(edition.to_string())),
-                    )
-                    .limit(2),
-            )
-            .await?;
-        if let [album] = matches.as_slice() {
-            return Ok(Some(super::uuid(album, "id")?));
-        }
-    }
+async fn managed_album(db: &DatabaseTransaction, incoming: &ReleaseKeys) -> Result<Option<Uuid>> {
     let Some(mbid) = incoming.0.get(RELEASE) else {
         return Ok(None);
     };
@@ -445,6 +388,7 @@ async fn create_album(
             ]),
     )
     .await?;
+    super::lifecycle::allocate_handle(db, "album", &id.to_string()).await?;
     Ok(id)
 }
 
@@ -510,7 +454,7 @@ fn key_weight(kind: &str) -> u8 {
     }
 }
 
-pub(super) async fn queue(db: &DatabaseTransaction, directory: &str) -> Result<()> {
+pub(super) async fn queue(db: &impl ConnectionTrait, directory: &str) -> Result<()> {
     db.execute(
         Query::insert()
             .into_table(orm_dirty_directories::Entity)
@@ -526,8 +470,6 @@ struct Candidate {
     file_id: i32,
     album: Uuid,
     disc: u32,
-    manual_group: bool,
-    confirmed: bool,
     keys: ReleaseKeys,
 }
 
@@ -593,15 +535,10 @@ async fn reconcile_directory(db: &DatabaseTransaction, directory: &str) -> Resul
             .cmp(&left.strength())
             .then_with(|| left.keys.cmp(&right.keys))
     });
-    let confirmed: BTreeSet<_> = tracks
-        .iter()
-        .filter(|track| track.confirmed)
-        .map(|track| track.album)
-        .collect();
     let mut groups = Vec::<(bool, Vec<Candidate>)>::new();
     let mut evidence = BTreeMap::<usize, StoredKeys>::new();
     let mut uncertain = BTreeMap::new();
-    for track in tracks.into_iter().filter(|track| !track.confirmed) {
+    for track in tracks {
         // Pending tracks share a row only with identical evidence and never seed editions.
         let group = match best_release(&evidence, &track.keys) {
             BestMatch::Unique(group) => group,
@@ -629,7 +566,7 @@ async fn reconcile_directory(db: &DatabaseTransaction, directory: &str) -> Resul
     // Reserve an existing UUID owned by this edition before moving any of its tracks.
     let mut reserved = BTreeSet::new();
     for (pending, group) in groups {
-        let album = match retained_album(&group, &reserved, pending.then_some(&confirmed)) {
+        let album = match retained_album(&group, &reserved) {
             Some(id) => id,
             None => {
                 let location = db
@@ -669,22 +606,15 @@ async fn reconcile_directory(db: &DatabaseTransaction, directory: &str) -> Resul
     Ok(())
 }
 
-fn retained_album(
-    group: &[Candidate],
-    reserved: &BTreeSet<Uuid>,
-    confirmed: Option<&BTreeSet<Uuid>>,
-) -> Option<Uuid> {
-    let mut votes = BTreeMap::<Uuid, (bool, u8, usize)>::new();
+fn retained_album(group: &[Candidate], reserved: &BTreeSet<Uuid>) -> Option<Uuid> {
+    let mut votes = BTreeMap::<Uuid, (u8, usize)>::new();
     for track in group {
-        if reserved.contains(&track.album)
-            || confirmed.is_some_and(|ids| ids.contains(&track.album))
-        {
+        if reserved.contains(&track.album) {
             continue;
         }
         let entry = votes.entry(track.album).or_default();
-        entry.0 |= track.manual_group;
-        entry.1 = std::cmp::max(entry.1, track.strength());
-        entry.2 += 1;
+        entry.0 = std::cmp::max(entry.0, track.strength());
+        entry.1 += 1;
     }
     votes
         .into_iter()
@@ -696,36 +626,13 @@ async fn directory_candidates(db: &DatabaseTransaction, directory: &str) -> Resu
     use orm_albums::Column as A;
     use orm_audio::Column as T;
     use orm_track_release_keys::Column as K;
-    let approved = Query::select()
-        .column(album_field_values::Column::AlbumId.as_column_ref())
-        .from(album_field_values::Entity)
-        .and_where(column(album_field_values::Column::AlbumId).eq(column(A::Id)))
-        .to_owned();
-    let edited = Query::select()
-        .column(local_overlays::Column::AlbumId.as_column_ref())
-        .from(local_overlays::Entity)
-        .and_where(column(local_overlays::Column::AlbumId).eq(column(A::Id)))
-        .to_owned();
-
-    // Authored state influences which edition UUID survives when evidence is reconciled.
     let rows = db
         .query_all(
             Query::select()
                 .column(T::FileId.as_column_ref())
                 .column(A::Id.as_column_ref())
-                .expr_as(
-                    A::GroupId
-                        .is_not_null()
-                        .or(Expr::exists(approved))
-                        .or(Expr::exists(edited)),
-                    "manual_group",
-                )
                 .column(discs::Column::DiscNumber.as_column_ref())
                 .columns([K::Field, K::Value].map(|c| c.as_column_ref()))
-                .expr_as(
-                    column(T::ConfirmedReleaseId).binary(BinOper::Is, column(A::Id)),
-                    "confirmed",
-                )
                 .from(orm_albums::Entity)
                 .inner_join(
                     discs::Entity,
@@ -753,8 +660,6 @@ async fn directory_candidates(db: &DatabaseTransaction, directory: &str) -> Resu
                 file_id,
                 album: super::uuid(&row, "id")?,
                 disc: u32::try_from(row.try_get::<i64>("", "disc_number")?)?,
-                manual_group: row.try_get("", "manual_group")?,
-                confirmed: row.try_get("", "confirmed")?,
                 keys: ReleaseKeys::default(),
             });
         }
@@ -765,62 +670,6 @@ async fn directory_candidates(db: &DatabaseTransaction, directory: &str) -> Resu
         }
     }
     Ok(tracks)
-}
-
-pub(super) async fn confirm(db: &DatabaseTransaction, pending: Uuid, edition: Uuid) -> Result<()> {
-    use crate::error::ExpectedError;
-
-    // A confirmation selects a live edition of the same directory.
-    use orm_albums::Column as A;
-    let target = Alias::new("target");
-    let target_id = Expr::col((target.clone(), A::Id));
-    let row = db
-        .query_one(
-            Query::select()
-                .column(A::DirectoryScope.as_column_ref())
-                .from(orm_albums::Entity)
-                .join_as(
-                    JoinType::InnerJoin,
-                    orm_albums::Entity,
-                    target.clone(),
-                    Expr::col((target.clone(), A::DirectoryScope)).eq(column(A::DirectoryScope)),
-                )
-                .and_where(A::Id.eq(pending.to_string()))
-                .and_where(A::NeedsReview.eq(1))
-                .and_where(target_id.clone().eq(edition.to_string()))
-                .and_where(Expr::col((target, A::NeedsReview)).eq(0))
-                .and_where(has_disc(column(A::Id)))
-                .and_where(has_disc(target_id)),
-        )
-        .await?
-        .ok_or_else(|| ExpectedError::InvalidInput {
-            detail: "Select a pending release and an available edition from the same directory"
-                .to_owned(),
-        })?;
-    let directory: String = row.try_get("", "directory_scope")?;
-
-    // Keep the chosen edition membership through subsequent automatic rescans.
-    for track in directory_candidates(db, &directory)
-        .await?
-        .into_iter()
-        .filter(|track| track.album == pending)
-    {
-        db.execute(
-            Query::update()
-                .table(orm_audio::Entity)
-                .value(
-                    orm_audio::Column::ConfirmedReleaseId,
-                    Expr::val(edition.to_string()),
-                )
-                .and_where(Expr::col(orm_audio::Column::FileId).eq(Expr::val(track.file_id))),
-        )
-        .await?;
-        assign_track(db, edition, track).await?;
-    }
-    super::tracks::reconcile(db).await?;
-    super::summary::refresh(db, edition).await?;
-    super::summary::refresh(db, pending).await?;
-    Ok(())
 }
 
 async fn assign_track(db: &DatabaseTransaction, album: Uuid, track: Candidate) -> Result<()> {
@@ -854,7 +703,7 @@ pub(super) async fn store(
         return Ok(());
     }
 
-    // Triggers maintain counts when rescans, reassignment, or file deletion remove evidence.
+    // The covering index provides distinct edition keys from their source rows.
     use orm_track_release_keys::Column as K;
     let mut insert = Query::insert();
     insert.into_table(orm_track_release_keys::Entity).columns([

@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::media_file_artists::Entity as MediaFileArtistsEntity;
+use super::audio_artists::Entity as MediaFileArtistsEntity;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "music_metadata_artists")]
@@ -24,7 +24,7 @@ pub enum Relation {
     MediaFileArtists,
 }
 
-impl Related<super::media_file_artists::Entity> for Entity {
+impl Related<super::audio_artists::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaFileArtists.def()
     }

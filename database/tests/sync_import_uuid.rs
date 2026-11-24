@@ -3,7 +3,7 @@ use database::test_fixtures::causal_library as support;
 use anyhow::Result;
 use database::actions::mixes::{executable_queries_on, query_views_on};
 use database::{
-    entities::{albums, playlists},
+    entities::{playlists, portable_albums as albums},
     sync::model::*,
 };
 use migration::catalog_identity;

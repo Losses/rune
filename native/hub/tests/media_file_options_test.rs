@@ -3,7 +3,7 @@ use database::test_fixtures::fixtures;
 use anyhow::Result;
 use database::{
     connection::RecommendationDbConnection,
-    entities::{media_cover_art, media_files, media_metadata},
+    entities::{media_cover_art, media_files, source_tags as media_metadata},
     library_registry::{
         CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, ProtocolAdapter,
     },

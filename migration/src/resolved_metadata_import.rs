@@ -36,18 +36,8 @@ struct TagRow {
     meta_value: String,
 }
 
-#[derive(FromQueryResult)]
-struct ConfirmedTagArtist {
-    scope: i32,
-    credited_as: String,
-    artist_id: Option<String>,
-}
-
-type TagArtistLinks = BTreeMap<(i32, String), Option<String>>;
-
 pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let db = manager.get_connection();
-    import_album_identities(db).await?;
     let mut after = 0;
     loop {
         let files =
@@ -58,9 +48,9 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             break;
         };
         after = last.id;
-        import_files(db, files, true, BTreeMap::new()).await?;
+        import_files(db, files, true).await?;
     }
-    cache_album_summaries(db).await?;
+    seed_catalog_state(db).await?;
 
     // A later local scan can enrich migrated metadata even when the file bytes did not change.
     let projected = Query::select()
@@ -79,7 +69,10 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 }
 
 /// Project a synchronized track into the catalog without overriding file evidence.
-pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> Result<(), DbErr> {
+pub async fn project_portable_track(
+    db: &impl ConnectionTrait,
+    track: Uuid,
+) -> Result<Option<i32>, DbErr> {
     // A native scan is authoritative only for the version it actually read.
     let native = Query::select()
         .expr(Expr::val(1))
@@ -104,29 +97,10 @@ pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> R
         .one(db)
         .await?
     else {
-        return Ok(());
+        return Ok(None);
     };
 
-    // Retain confirmed primary credits, including an explicitly cleared link.
-    let tag_credits = |column: &str| Expr::col(alias(column));
-    let confirmed = Query::select()
-        .columns(["scope", "credited_as", "artist_id"].map(alias))
-        .from(alias("music_metadata_credits"))
-        .and_where(tag_credits("file_id").eq(file.id))
-        .and_where(tag_credits("source_kind").eq("audio_tag"))
-        .and_where(tag_credits("source_provider").eq(""))
-        .and_where(tag_credits("role").eq("Primary Artist"))
-        .and_where(tag_credits("instrument").is_null())
-        .and_where(tag_credits("artist_confirmed").eq(1))
-        .to_owned();
-    let links = ConfirmedTagArtist::find_by_statement(db.get_database_backend().build(&confirmed))
-        .all(db)
-        .await?
-        .into_iter()
-        .map(|row| ((row.scope, row.credited_as), row.artist_id))
-        .collect();
-
-    // Replace only source-tag credits. User and provider credits stay intact.
+    // Replace source-tag contributions while preserving independently supplied evidence.
     let cleanup = Query::delete()
         .from_table(alias("music_metadata_credits"))
         .and_where(Expr::col(alias("file_id")).eq(file.id))
@@ -142,7 +116,9 @@ pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> R
         .to_owned();
     db.execute_raw(db.get_database_backend().build(&genres))
         .await?;
-    import_files(db, vec![file], false, links).await
+    let id = file.id;
+    import_files(db, vec![file], false).await?;
+    Ok(Some(id))
 }
 
 fn alias(name: &str) -> Alias {
@@ -171,54 +147,34 @@ fn replace_file_fields(table: &str, columns: &[&str]) -> InsertStatement {
         .to_owned()
 }
 
-async fn import_album_identities(db: &impl ConnectionTrait) -> Result<(), DbErr> {
-    // Copied editions predate the insert trigger, including those without tracks.
+async fn seed_catalog_state(db: &impl ConnectionTrait) -> Result<(), DbErr> {
+    // Record handles in insertion order so existing integer navigation remains stable.
     let handles = Query::select()
         .expr(Expr::val("album"))
         .column(alias("id"))
         .from(alias("music_metadata_albums"))
-        .and_where(Expr::col(alias("portable_title")).is_not_null())
+        .and_where(Expr::col(alias("id")).is_not_null())
         .order_by(alias("legacy_id"), Order::Asc)
         .to_owned();
     let mut target = insert("music_metadata_browse_handles", &["kind", "source_uuid"]);
     target
         .select_from(handles)
         .map_err(|error| DbErr::Custom(error.to_string()))?;
-    db.execute_raw(db.get_database_backend().build(&target))
-        .await?;
-    Ok(())
-}
-
-async fn cache_album_summaries(db: &impl ConnectionTrait) -> Result<(), DbErr> {
-    // Populate the normal browse cache once after all imported tracks are linked.
-    let fields = [
-        "album_id",
-        "title",
-        "version",
-        "catalog_number",
-        "release_date",
-        "release_type",
-        "track_count",
-    ];
-    let rows = Query::select()
-        .columns(fields.map(alias))
-        .from(alias("music_metadata_live_summaries"))
-        .and_where(Expr::col(alias("album_id")).is_not_null())
-        .to_owned();
-    let mut target = insert("music_metadata_album_summaries", &fields);
-    target
-        .select_from(rows)
-        .map_err(|error| DbErr::Custom(error.to_string()))?;
-
     let backend = db.get_database_backend();
     db.execute_raw(backend.build(&target)).await?;
-    for table in [
-        "music_metadata_dirty_summaries",
-        "music_metadata_dirty_tracks",
-    ] {
-        db.execute_raw(backend.build(Query::delete().from_table(alias(table))))
-            .await?;
-    }
+
+    // The application calculates summaries lazily from the imported tracks and evidence.
+    let albums = Query::select()
+        .column(alias("album_id"))
+        .from(alias("music_metadata_discs"))
+        .and_where(Expr::col(alias("album_id")).is_not_null())
+        .distinct()
+        .to_owned();
+    let mut dirty = insert("music_metadata_dirty_summaries", &["album_id"]);
+    dirty
+        .select_from(albums)
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    db.execute_raw(backend.build(&dirty)).await?;
     Ok(())
 }
 
@@ -269,7 +225,6 @@ async fn import_files(
     db: &impl ConnectionTrait,
     files: Vec<FileRow>,
     backfill_tracks: bool,
-    mut links: TagArtistLinks,
 ) -> Result<(), DbErr> {
     // Fetch source evidence in bounded pages and honor its original order.
     let query = Query::select()
@@ -296,7 +251,7 @@ async fn import_files(
     let mut batch = ImportBatch::new(backfill_tracks);
     for file in files {
         let tags = by_file.remove(&file.id).unwrap_or_default();
-        batch.push(file, &tags, &mut links)?;
+        batch.push(file, &tags)?;
     }
     for query in batch
         .statements
@@ -316,7 +271,6 @@ async fn import_files(
             "credited_as",
             "role",
             "artist_id",
-            "artist_confirmed",
             "source_kind",
             "source_provider",
         ],
@@ -360,7 +314,7 @@ async fn insert_chunks<const N: usize>(
 struct ImportBatch {
     statements: [InsertStatement; 6],
     tracks: Option<[InsertStatement; 2]>,
-    credits: Vec<[Expr; 9]>,
+    credits: Vec<[Expr; 8]>,
     genres: Vec<[Expr; 6]>,
 }
 
@@ -425,12 +379,7 @@ impl ImportBatch {
         }
     }
 
-    fn push(
-        &mut self,
-        file: FileRow,
-        tags: &BTreeMap<String, Vec<String>>,
-        links: &mut TagArtistLinks,
-    ) -> Result<(), DbErr> {
+    fn push(&mut self, file: FileRow, tags: &BTreeMap<String, Vec<String>>) -> Result<(), DbErr> {
         // Keep the old edition identity, even when media is unavailable.
         let source = |key: &str| {
             tags.get(key)
@@ -544,16 +493,13 @@ impl ImportBatch {
             for (position, name) in tags.get(key).into_iter().flatten().enumerate() {
                 let position = <i32 as TryFrom<usize>>::try_from(position)
                     .map_err(|error| DbErr::Custom(error.to_string()))?;
-                let confirmed = links.remove(&(scope, name.clone()));
-                let is_confirmed = confirmed.is_some();
                 self.credits.push([
                     Expr::val(file.id),
                     Expr::val(scope),
                     Expr::val(position),
                     Expr::val(name),
                     Expr::val("Primary Artist"),
-                    Expr::val(confirmed.flatten()),
-                    Expr::val(i32::from(is_confirmed)),
+                    Expr::val(None::<String>),
                     Expr::val("audio_tag"),
                     Expr::val(""),
                 ]);

@@ -19,7 +19,6 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait, sea_query::Expr,
 };
-use std::fs;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -994,7 +993,7 @@ async fn attach_download_accepts_symlinked_root() -> Result<()> {
     use database::actions::{downloads::prepare_download, file::attach_download};
     use database::sync::model::BlobRef;
     use fsio::FsIo;
-    use std::os::unix::fs::symlink;
+    use std::{fs, os::unix::fs::symlink};
     let node = Uuid::new_v4();
     let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;

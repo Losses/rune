@@ -1,5 +1,8 @@
 //! Logical release tracks and the audio ranges that can play them.
 
+use crate::actions::resolved_metadata::queries::{
+    TRACK_RECORDINGS, field, track_recordings, verified_audio,
+};
 use crate::entities::music_metadata::audio as orm_audio;
 use crate::entities::music_metadata::audio_layouts as orm_audio_layouts;
 use crate::entities::music_metadata::dirty_tracks as orm_dirty_tracks;
@@ -14,7 +17,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use metadata::model::{
     AudioQuality, AudioVariant, AudioVariantSource, ReleaseTrackMetadata, TrackSegment,
 };
@@ -26,7 +29,7 @@ use uuid::Uuid;
 
 use crate::entities::{
     media_files,
-    music_metadata::{current_recording_audio as verified, discs, track_recordings},
+    music_metadata::{audio as verified, discs},
 };
 
 use super::{column, scalar, uuid};
@@ -99,10 +102,29 @@ pub(super) async fn reconcile(db: &impl ConnectionTrait) -> Result<()> {
 }
 
 async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
-    // Exclude explicit layouts and keep the last logical membership as a retention candidate.
     use orm_audio::Column as A;
     use orm_release_tracks::Column as T;
     use orm_track_assets::Column as V;
+    let key = disc.to_string();
+
+    // Moves can leave a former asset linked to a track on the previous disc.
+    let old_tracks = Query::select()
+        .column(T::Id)
+        .from(orm_release_tracks::Entity)
+        .and_where(T::DiscId.eq(&key))
+        .to_owned();
+    let current_files = Query::select()
+        .column(A::FileId)
+        .from(orm_audio::Entity)
+        .and_where(A::DiscId.eq(&key))
+        .to_owned();
+    db.execute(
+        Query::delete()
+            .from_table(orm_track_assets::Entity)
+            .and_where(column(V::TrackId).in_subquery(old_tracks))
+            .and_where(column(V::FileId).not_in_subquery(current_files)),
+    )
+    .await?;
 
     // Find the current file assignment only for whole-file, automatically assigned tracks.
     let current = Query::select()
@@ -230,6 +252,20 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
             .await?;
         }
     }
+    // Keep logical tracks only while a file or segment still supplies an asset.
+    let active = Query::select()
+        .column(V::TrackId)
+        .from(orm_track_assets::Entity)
+        .and_where(column(V::TrackId).eq(column(T::Id)))
+        .to_owned();
+    db.execute(
+        Query::delete()
+            .from_table(orm_release_tracks::Entity)
+            .and_where(T::DiscId.eq(&key))
+            .and_where(Expr::not_exists(active)),
+    )
+    .await?;
+    super::lifecycle::finish_disc(db, &key).await?;
     db.execute(
         Query::delete()
             .from_table(orm_dirty_tracks::Entity)
@@ -240,6 +276,7 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
 }
 
 pub(super) async fn prepare_move(db: &DatabaseTransaction, file: i32, disc: &str) -> Result<()> {
+    super::lifecycle::queue_audio_move(db, file, disc).await?;
     // Move explicit image layouts before deleting an empty old disc.
     use orm_release_tracks::Column as T;
     use orm_track_assets::Column as V;
@@ -392,35 +429,6 @@ async fn bind_asset(
     Ok(())
 }
 
-/// Replace a disc image's logical track layout. Pass an empty slice to restore automatic indexing.
-pub async fn set_track_layout(
-    db: &DatabaseTransaction,
-    audio_id: Uuid,
-    segments: &[TrackSegment],
-) -> Result<Vec<Uuid>> {
-    let tx = db.begin().await?;
-    let row = tx
-        .query_one(
-            Query::select()
-                .columns([
-                    orm_audio::Column::FileId,
-                    orm_audio::Column::DiscId,
-                    orm_audio::Column::DurationMs,
-                ])
-                .from(orm_audio::Entity)
-                .and_where(Expr::col(orm_audio::Column::Id).eq(Expr::val(audio_id.to_string()))),
-        )
-        .await?
-        .context("audio asset was not indexed")?;
-    let file: i32 = row.try_get("", "file_id")?;
-    let disc = uuid(&row, "disc_id")?;
-    let duration = time(&row, "duration_ms")?;
-    let ids = write_layout(&tx, file, audio_id, disc, duration, segments, "manual").await?;
-    reconcile_disc(&tx, disc).await?;
-    tx.commit().await?;
-    Ok(ids)
-}
-
 pub(super) async fn write_layout(
     tx: &DatabaseTransaction,
     file: i32,
@@ -428,7 +436,6 @@ pub(super) async fn write_layout(
     disc: Uuid,
     duration: Option<u64>,
     segments: &[TrackSegment],
-    kind: &str,
 ) -> Result<Vec<Uuid>> {
     let mut previous = (0, 0);
 
@@ -476,11 +483,8 @@ pub(super) async fn write_layout(
         tx.execute(
             Query::insert()
                 .into_table(orm_audio_layouts::Entity)
-                .columns([
-                    orm_audio_layouts::Column::FileId,
-                    orm_audio_layouts::Column::Kind,
-                ])
-                .values_panic([Expr::val(file), Expr::val(kind)]),
+                .columns([orm_audio_layouts::Column::FileId])
+                .values_panic([Expr::val(file)]),
         )
         .await?;
         for segment in segments {
@@ -612,11 +616,11 @@ pub async fn release_track_metadata(
         .query_one(
             Query::select()
                 .columns([T::DiscId, T::TrackNumber, T::Title].map(|c| c.as_column_ref()))
-                .column(track_recordings::Column::RecordingId.as_column_ref())
+                .column((Alias::new(TRACK_RECORDINGS), Alias::new("recording_id")))
                 .from(orm_release_tracks::Entity)
                 .inner_join(
-                    track_recordings::Entity,
-                    column(track_recordings::Column::TrackId).eq(column(T::Id)),
+                    track_recordings(),
+                    field(TRACK_RECORDINGS, "track_id").eq(column(T::Id)),
                 )
                 .and_where(T::Id.eq(&key)),
         )
@@ -634,7 +638,7 @@ pub async fn release_track_metadata(
     query
         .from(orm_track_assets::Entity)
         .inner_join(
-            verified::Entity,
+            verified_audio(),
             column(verified::Column::FileId).eq(column(V::FileId)),
         )
         .inner_join(
@@ -646,7 +650,7 @@ pub async fn release_track_metadata(
     let rows = tx.query_all(&query).await?;
     let mut variants = rows.iter().map(local_variant).collect::<Result<Vec<_>>>()?;
     rank(&mut variants);
-    let mut result = ReleaseTrackMetadata {
+    let result = ReleaseTrackMetadata {
         id,
         disc_id: uuid(&row, "disc_id")?,
         recording_id: uuid(&row, "recording_id")?,
@@ -655,12 +659,6 @@ pub async fn release_track_metadata(
         variants,
         provenance: None,
     };
-    super::overlays::apply(
-        &tx,
-        super::overlays::OverlayTarget::ReleaseTrack(id),
-        &mut result,
-    )
-    .await?;
     tx.commit().await?;
     Ok(Some(result))
 }

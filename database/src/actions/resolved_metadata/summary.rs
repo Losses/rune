@@ -1,21 +1,30 @@
-//! The indexed display values derived from a release's current track evidence.
+//! Maintain album display summaries from the indexed file evidence.
+
+use std::collections::HashMap;
 
 use anyhow::Result;
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction, DbErr, EntityTrait, ExprTrait,
-    QueryFilter, QuerySelect, Set,
-    sea_query::{Expr, OnConflict, Order, Query},
+    ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, ExprTrait, FromQueryResult,
+    QueryFilter, QueryOrder, QuerySelect, Set,
+    sea_query::{Expr, Func, OnConflict, Order, Query, TableRef},
 };
 use uuid::Uuid;
 
 use crate::entities::music_metadata::{
-    album_summaries, albums, dirty_summaries, live_summaries, release_identity, release_keys,
-    synced_album_groups,
+    album_evidence, album_summaries, albums, audio, dirty_summaries, discs, release_identity,
+    release_tracks, track_release_keys,
 };
 
-use super::{column, scalar};
+use super::{column, queries::subquery, query_models};
 
 const EDITION_NAMESPACE: Uuid = Uuid::from_u128(0xbe54f834_1696_5fb8_b4f5_4df4a58d1821);
+
+pub(super) async fn reconcile(db: &impl ConnectionTrait) -> Result<()> {
+    for dirty in dirty_summaries::Entity::find().all(db).await? {
+        refresh(db, &dirty.album_id).await?;
+    }
+    Ok(())
+}
 
 pub(super) async fn refresh_directory(db: &DatabaseTransaction, directory: &str) -> Result<()> {
     let albums = albums::Entity::find()
@@ -26,120 +35,123 @@ pub(super) async fn refresh_directory(db: &DatabaseTransaction, directory: &str)
         .all(db)
         .await?;
     for album in albums {
-        refresh(db, album.parse()?).await?;
+        refresh(db, &album).await?;
     }
     Ok(())
 }
 
-pub(super) async fn refresh(db: &DatabaseTransaction, album: Uuid) -> Result<()> {
-    let album = album.to_string();
-    // The same indexed projection also serves reads while a summary is dirty.
-    use dirty_summaries::Column as D;
-    let existing = Query::select()
-        .column(albums::Column::Id)
-        .from(albums::Entity)
-        .and_where(albums::Column::Id.eq(&album))
-        .to_owned();
-    db.execute(
-        Query::insert()
-            .into_table(dirty_summaries::Entity)
-            .columns([D::AlbumId])
-            .select_from(existing)?
-            .on_conflict(OnConflict::column(D::AlbumId).do_nothing().to_owned()),
-    )
-    .await?;
+#[derive(FromQueryResult)]
+struct Evidence {
+    title: String,
+    title_priority: i32,
+    version: Option<String>,
+    version_priority: i32,
+    catalog_number: Option<String>,
+    release_date: Option<String>,
+    release_type: Option<String>,
+}
 
-    use album_summaries::Column as C;
-    use live_summaries::Column as L;
-    let current = Query::select()
-        .columns([
-            L::AlbumId,
-            L::Title,
-            L::Version,
-            L::CatalogNumber,
-            L::ReleaseDate,
-            L::ReleaseType,
-            L::TrackCount,
-        ])
-        .from(live_summaries::Entity)
-        .and_where(L::AlbumId.eq(&album))
-        .to_owned();
-    let updated = db
-        .execute(
-            Query::insert()
-                .into_table(album_summaries::Entity)
-                .columns([
-                    C::AlbumId,
-                    C::Title,
-                    C::Version,
-                    C::CatalogNumber,
-                    C::ReleaseDate,
-                    C::ReleaseType,
-                    C::TrackCount,
-                ])
-                .select_from(current)?
-                .on_conflict(
-                    OnConflict::column(C::AlbumId)
-                        .update_columns([
-                            C::Title,
-                            C::Version,
-                            C::CatalogNumber,
-                            C::ReleaseDate,
-                            C::ReleaseType,
-                            C::TrackCount,
-                        ])
-                        .to_owned(),
-                ),
+async fn refresh(db: &impl ConnectionTrait, album: &str) -> Result<()> {
+    use album_evidence::Column as E;
+    use album_summaries::Column as S;
+    use audio::Column as A;
+    use discs::Column as D;
+    use release_tracks::Column as T;
+
+    // Stable release order breaks ties between equally strong sources.
+    let evidence = Query::select()
+        .columns(
+            [
+                E::Title,
+                E::TitlePriority,
+                E::Version,
+                E::VersionPriority,
+                E::CatalogNumber,
+                E::ReleaseDate,
+                E::ReleaseType,
+            ]
+            .map(|c| c.as_column_ref()),
         )
+        .from(discs::Entity)
+        .inner_join(audio::Entity, column(A::DiscId).eq(column(D::Id)))
+        .inner_join(
+            album_evidence::Entity,
+            column(E::FileId).eq(column(A::FileId)),
+        )
+        .and_where(D::AlbumId.eq(album))
+        .order_by(D::DiscNumber.as_column_ref(), Order::Asc)
+        .order_by_expr(A::TrackNumber.is_null(), Order::Asc)
+        .order_by(A::TrackNumber.as_column_ref(), Order::Asc)
+        .order_by(A::FileId.as_column_ref(), Order::Asc)
+        .to_owned();
+    let evidence = query_models::<Evidence>(db, &evidence).await?;
+
+    // Select each field independently. An absent version cannot win on priority.
+    if let Some(title) = evidence.iter().min_by_key(|row| row.title_priority) {
+        let version = evidence
+            .iter()
+            .filter(|row| row.version.is_some())
+            .min_by_key(|row| row.version_priority)
+            .and_then(|row| row.version.clone());
+        let count = Query::select()
+            .expr_as(Func::count(Expr::val(1)), "track_count")
+            .from(discs::Entity)
+            .inner_join(release_tracks::Entity, column(T::DiscId).eq(column(D::Id)))
+            .and_where(D::AlbumId.eq(album))
+            .to_owned();
+        let track_count = db
+            .query_one(&count)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("missing count for album {album}"))?
+            .try_get("", "track_count")?;
+
+        // Count logical positions once, even when a track has several encodings.
+        album_summaries::Entity::insert(album_summaries::ActiveModel {
+            album_id: Set(album.to_owned()),
+            title: Set(title.title.clone()),
+            version: Set(version),
+            catalog_number: Set(evidence.iter().find_map(|row| row.catalog_number.clone())),
+            release_date: Set(evidence.iter().find_map(|row| row.release_date.clone())),
+            release_type: Set(evidence.iter().find_map(|row| row.release_type.clone())),
+            track_count: Set(track_count),
+        })
+        .on_conflict(
+            OnConflict::column(S::AlbumId)
+                .update_columns([
+                    S::Title,
+                    S::Version,
+                    S::CatalogNumber,
+                    S::ReleaseDate,
+                    S::ReleaseType,
+                    S::TrackCount,
+                ])
+                .to_owned(),
+        )
+        .exec_without_returning(db)
         .await?;
-    if updated.rows_affected() == 0 {
-        // Retain the description of a manually grouped edition while its media is absent.
-        album_summaries::Entity::update_many()
-            .col_expr(C::TrackCount, Expr::val(0))
-            .filter(C::AlbumId.eq(&album))
+    } else {
+        album_summaries::Entity::delete_by_id(album.to_owned())
             .exec(db)
             .await?;
-    } else {
-        refresh_identity(db, &album).await?;
     }
 
-    // Apply edits received before this edition was indexed, including explicit removals.
-    project_album_groups(db, Condition::all().add(albums::Column::Id.eq(&album))).await?;
-    dirty_summaries::Entity::delete_by_id(album)
+    // Refresh the stable edition key and clear the work marker in the same transaction.
+    refresh_identity(db, album).await?;
+    dirty_summaries::Entity::delete_by_id(album.to_owned())
         .exec(db)
         .await?;
     Ok(())
 }
 
-pub(super) async fn project_album_groups(
-    db: &DatabaseTransaction,
-    affected: Condition,
-) -> Result<(), DbErr> {
-    use synced_album_groups::Column as G;
-    let group = Query::select()
-        .column(G::TargetUuid)
-        .from(synced_album_groups::Entity)
-        .and_where(column(G::AlbumId).eq(column(albums::Column::Id)))
-        .order_by(G::Generation, Order::Desc)
-        .order_by(G::OwnerUuid, Order::Asc)
-        .limit(1)
-        .to_owned();
-    albums::Entity::update_many()
-        .col_expr(albums::Column::GroupId, scalar(group))
-        .filter(affected)
-        .exec(db)
-        .await?;
-    Ok(())
-}
-
-async fn refresh_identity(db: &DatabaseTransaction, album: &str) -> Result<()> {
-    // A unique release MBID yields the same edition identity even on disjoint replicas.
-    use release_keys::Column as K;
-    let values = release_keys::Entity::find()
+async fn refresh_identity(db: &impl ConnectionTrait, album: &str) -> Result<()> {
+    use track_release_keys::Column as K;
+    let values = track_release_keys::Entity::find()
         .select_only()
         .column(K::Value)
         .filter(K::AlbumId.eq(album))
         .filter(K::Field.eq("release"))
+        .order_by_asc(K::Value)
+        .distinct()
         .limit(2)
         .into_tuple::<String>()
         .all(db)
@@ -168,4 +180,72 @@ async fn refresh_identity(db: &DatabaseTransaction, album: &str) -> Result<()> {
             .await?;
     }
     Ok(())
+}
+
+pub(in crate::actions) const TITLES: &str = "album_titles";
+
+pub(in crate::actions) fn titles() -> TableRef {
+    use album_summaries::Column as S;
+    use albums::Column as A;
+    let rows = Query::select()
+        .columns([A::Id, A::LegacyId, A::PortableTitle].map(|c| c.as_column_ref()))
+        .expr_as(
+            Func::coalesce([
+                column(A::PortableTitle),
+                column(S::Title),
+                column(A::DirectoryPath),
+            ]),
+            "title",
+        )
+        .expr_as(
+            Func::coalesce([column(S::TrackCount), Expr::val(0)]),
+            "track_count",
+        )
+        .from(albums::Entity)
+        .left_join(
+            album_summaries::Entity,
+            column(S::AlbumId).eq(column(A::Id)),
+        )
+        .to_owned();
+    subquery(rows, TITLES)
+}
+
+pub(in crate::actions) async fn track_titles(
+    db: &impl ConnectionTrait,
+    files: &[i32],
+) -> Result<HashMap<i32, (String, Option<String>)>> {
+    use album_evidence::Column as E;
+    use album_summaries::Column as S;
+    use albums::Column as R;
+    use audio::Column as A;
+    use discs::Column as D;
+    let mut found = HashMap::new();
+    for files in files.chunks(400) {
+        let rows = Query::select()
+            .columns([A::FileId, A::Title].map(|c| c.as_column_ref()))
+            .expr_as(
+                Func::coalesce([column(R::PortableTitle), column(S::Title), column(E::Title)]),
+                "album_title",
+            )
+            .from(audio::Entity)
+            .inner_join(discs::Entity, column(D::Id).eq(column(A::DiscId)))
+            .inner_join(albums::Entity, column(R::Id).eq(column(D::AlbumId)))
+            .left_join(
+                album_summaries::Entity,
+                column(S::AlbumId).eq(column(D::AlbumId)),
+            )
+            .left_join(
+                album_evidence::Entity,
+                column(E::FileId).eq(column(A::FileId)),
+            )
+            .and_where(A::FileId.is_in(files.iter().copied()))
+            .to_owned();
+        for row in db.query_all(&rows).await? {
+            found.insert(
+                row.try_get("", "file_id")?,
+                (row.try_get("", "title")?, row.try_get("", "album_title")?),
+            );
+        }
+    }
+    Ok(found)
 }

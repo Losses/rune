@@ -1,3 +1,4 @@
+use crate::actions::resolved_metadata::queries::verified_audio;
 use crate::actions::search::{add_term, remove_term};
 use crate::error::ExpectedError;
 use crate::mix_operator::{MixOperator, UnknownOperator};
@@ -17,10 +18,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{
     ColumnTrait, DatabaseTransaction, EntityTrait, JoinType, Order, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait, Set, TransactionTrait,
-    sea_query::{
-        Alias, BinOper, CommonTableExpression, Condition, Expr, LikeExpr, Query, SelectStatement,
-        UnionType, WithClause,
-    },
+    sea_query::{BinOper, Condition, Expr, LikeExpr, Query, SelectStatement, UnionType},
 };
 
 use crate::actions::analysis::{
@@ -28,15 +26,14 @@ use crate::actions::analysis::{
 };
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{
-    albums, genres, media_analysis, media_file_albums, media_file_artists, media_file_fingerprint,
-    media_file_genres, media_file_likes, media_file_playlists, media_file_stats, media_files,
-    mix_queries, mixes, playlists,
+    audio_artists, genres, media_analysis, media_file_fingerprint, media_file_genres,
+    media_file_likes, media_file_playlists, media_file_stats, media_files, mix_queries, mixes,
+    playlists, track_album_sources,
 };
 
 use super::resolved_metadata::{column, nocase};
 use crate::entities::music_metadata::{
-    album_effective_fields, artist_identities, artist_redirects, artists as catalog_artists,
-    audio as catalog_audio, credits, current_recording_audio as verified, discs, edition_matches,
+    artists as catalog_artists, audio as catalog_audio, audio as verified, credits, discs,
     recording_credits, release_tracks, track_assets, values as catalog_values,
 };
 
@@ -186,37 +183,6 @@ async fn author_mix(
     store: &SeaOrmSyncStore,
     mix: &mixes::Model,
 ) -> Result<()> {
-    // Publish all known shared tracks for portable edition selections within the Mix write.
-    use edition_matches::Column as E;
-    use mix_queries::Column as Q;
-    let editions = mix_queries::Entity::find()
-        .select_only()
-        .column(Q::Parameter)
-        .filter(Q::MixUuid.eq(&mix.source_uuid))
-        .filter(Q::Operator.eq("lib::release"))
-        .distinct()
-        .into_tuple::<String>()
-        .all(tx)
-        .await?;
-    for edition in editions {
-        let matches = edition_matches::Entity::find()
-            .select_only()
-            .column(E::AlbumId)
-            .filter(E::EditionUuid.eq(&edition))
-            .limit(2)
-            .into_tuple::<String>()
-            .all(tx)
-            .await?;
-        if let [album] = matches.as_slice() {
-            super::resolved_metadata::edits::publish_edition_anchors(
-                tx,
-                store,
-                edition.parse()?,
-                album.parse()?,
-            )
-            .await?;
-        }
-    }
     author_source_on(
         tx,
         store,
@@ -695,18 +661,19 @@ fn catalog_track_number() -> Expr {
 
 fn album_alias_condition(ids: Vec<i32>) -> Expr {
     // Resolve older public album IDs to catalog tracks using their portable identities.
-    use albums::Column as AliasColumn;
+    use crate::entities::music_metadata::albums as editions;
     use catalog_audio::Column as Audio;
-    use media_file_albums::Column as Link;
+    use editions::Column as Edition;
+    use track_album_sources::Column as Link;
     let uuids = Query::select()
-        .column(AliasColumn::SourceUuid)
-        .from(albums::Entity)
-        .and_where(AliasColumn::Id.is_in(ids))
-        .and_where(AliasColumn::Name.is_not_null())
+        .column(Edition::Id)
+        .from(editions::Entity)
+        .and_where(Edition::LegacyId.is_in(ids))
+        .and_where(Edition::PortableTitle.is_not_null())
         .to_owned();
     let linked = Query::select()
         .column(Link::TrackUuid)
-        .from(media_file_albums::Entity)
+        .from(track_album_sources::Entity)
         .and_where(column(Link::AlbumUuid).in_subquery(uuids.clone()))
         .to_owned();
 
@@ -763,17 +730,10 @@ fn album_property_condition(property: AlbumProperty, name: &str) -> SimpleExpr {
 }
 
 fn labeled_albums(name: &str) -> SelectStatement {
-    use album_effective_fields::Column as E;
     use catalog_audio::Column as A;
     use catalog_values::Column as V;
     use discs::Column as D;
-    let overridden = Query::select()
-        .column(E::AlbumId.as_column_ref())
-        .from(album_effective_fields::Entity)
-        .and_where(E::Field.eq("labels"))
-        .and_where(column(E::AlbumId).eq(column(D::AlbumId)))
-        .to_owned();
-    let scanned = Query::select()
+    Query::select()
         .column(D::AlbumId.as_column_ref())
         .from(catalog_values::Entity)
         .inner_join(
@@ -785,97 +745,33 @@ fn labeled_albums(name: &str) -> SelectStatement {
         .and_where(V::Field.eq("labels"))
         .and_where(V::Qualifier.eq(""))
         .and_where(nocase(column(V::Value)).eq(name))
-        .and_where(Expr::not_exists(overridden))
-        .to_owned();
-
-    // An explicit label override takes precedence over every tag contribution.
-    Query::select()
-        .column(E::AlbumId)
-        .from(album_effective_fields::Entity)
-        .and_where(E::Field.eq("labels"))
-        .and_where(nocase(column(E::Value)).eq(name))
-        .union(UnionType::Distinct, scanned)
         .to_owned()
 }
 
 fn artist_condition(ids: Vec<i32>) -> SimpleExpr {
-    use artist_identities::Column as I;
+    use catalog_artists::Column as A;
     let targets = Query::select()
-        .column(I::TargetUuid)
-        .from(artist_identities::Entity)
-        .and_where(I::SourceId.is_in(ids))
+        .column(A::Id)
+        .from(catalog_artists::Entity)
+        .and_where(A::LegacyId.is_in(ids))
+        .and_where(A::Portable.eq(1))
         .to_owned();
     artist_tracks_condition(targets)
 }
 
 fn artist_uuid_condition(id: Uuid) -> SimpleExpr {
-    use artist_redirects::Column as R;
-    use catalog_artists::Column as A;
-    let targets = Query::select()
-        .expr_as(
-            Func::coalesce([column(R::TargetUuid), column(A::Id)]),
-            "target_uuid",
-        )
-        .from(catalog_artists::Entity)
-        .left_join(
-            artist_redirects::Entity,
-            column(R::SourceUuid).eq(column(A::Id)),
-        )
-        .and_where(A::Id.eq(id.to_string()))
-        .to_owned();
+    let targets = Query::select().expr(Expr::val(id.to_string())).to_owned();
     artist_tracks_condition(targets)
 }
 
 fn artist_tracks_condition(targets: SelectStatement) -> SimpleExpr {
-    use artist_redirects::Column as R;
+    use audio_artists::Column as L;
     use catalog_audio::Column as A;
     use credits::Column as C;
-    use media_file_artists::Column as L;
     use recording_credits::Column as G;
-    let target_table = Alias::new("targets");
-    let target_uuid = Alias::new("target_uuid");
-    let identity_table = Alias::new("identities");
-    let id = Alias::new("id");
-    let chosen = Query::select()
-        .column(target_uuid.clone())
-        .from(target_table.clone())
-        .to_owned();
-    let redirects = Query::select()
-        .column(R::SourceUuid)
-        .from(artist_redirects::Entity)
-        .and_where(column(R::TargetUuid).in_subquery(chosen))
-        .to_owned();
-    let identities = Query::select()
-        .expr_as(Expr::col(target_uuid.clone()), id.clone())
-        .from(target_table.clone())
-        .union(UnionType::Distinct, redirects)
-        .to_owned();
-    let with = WithClause::new()
-        .cte(
-            CommonTableExpression::new()
-                .table_name(target_table)
-                .column(target_uuid)
-                .query(targets)
-                .to_owned(),
-        )
-        .cte(
-            CommonTableExpression::new()
-                .table_name(identity_table.clone())
-                .column(id.clone())
-                .query(identities)
-                .to_owned(),
-        )
-        .to_owned();
 
-    // Include legacy links, file credits, and recording credits for the same canonical identities.
-    let matches = |artist: Expr| {
-        artist.in_subquery(
-            Query::select()
-                .column(id.clone())
-                .from(identity_table.clone())
-                .to_owned(),
-        )
-    };
+    // Catalog artist links, file credits and recording credits share the same UUID.
+    let matches = |artist: Expr| artist.in_subquery(targets.clone());
     let recorded = Query::select()
         .column(A::Id.as_column_ref())
         .from(recording_credits::Entity)
@@ -897,11 +793,10 @@ fn artist_tracks_condition(targets: SelectStatement) -> SimpleExpr {
         .to_owned();
     let tracks = Query::select()
         .column(L::TrackUuid)
-        .from(media_file_artists::Entity)
+        .from(audio_artists::Entity)
         .and_where(matches(column(L::ArtistUuid)))
         .union(UnionType::Distinct, credited)
         .union(UnionType::Distinct, recorded)
-        .with_cte(with)
         .to_owned();
     column(media_files::Column::SourceUuid).in_subquery(tracks)
 }
@@ -1090,7 +985,7 @@ fn release_condition(id: Uuid, eligibility: Condition) -> SimpleExpr {
                 .eq(column(F::Id))
                 .and(column(V::TrackId).eq(column(T::Id))),
         )
-        .inner_join(verified::Entity, column(A::FileId).eq(column(F::Id)))
+        .inner_join(verified_audio(), column(A::FileId).eq(column(F::Id)))
         .cond_where(eligibility)
         .order_by(F::LocalAvailable.as_column_ref(), Order::Desc)
         .order_by_expr(lossless.into(), Order::Desc)

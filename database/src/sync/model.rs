@@ -1,11 +1,11 @@
 //! Rune source-row declarations and pure portable value conversions.
 
-use crate::actions::{file::validate_digest, resolved_metadata::edits::project_edit};
-use crate::entities::*;
-use migration::{
-    catalog_identity::{self, ParentKind},
-    project_portable_track,
+use crate::actions::{
+    file::validate_digest,
+    resolved_metadata::{lifecycle::allocate_handle, project_synced_track},
 };
+use crate::entities::*;
+use migration::catalog_identity::{self, ParentKind};
 use rust_decimal::Decimal;
 use sea_orm::sea_query;
 use sea_orm::{
@@ -126,20 +126,20 @@ async fn project_track_evidence<E: EntityTrait, T>(
     _before: Option<&RowView<E>>,
     _after: Option<&T>,
 ) -> Result<(), DbErr> {
-    project_portable_track(db, id).await
+    project_synced_track(db, id).await
 }
 
-sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for media_metadata::Entity {
+sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for source_tags::Entity {
     max_items: 128,
-    owners: [media_metadata::Column::FileId], constants: {},
-    key: id: Uuid => media_metadata::Column::SourceUuid,
+    owners: [source_tags::Column::FileId], constants: {},
+    key: id: Uuid => source_tags::Column::SourceUuid,
     fields: {
-        position: i32 => media_metadata::Column::Position,
-        key: String => media_metadata::Column::MetaKey,
-        value: String => media_metadata::Column::MetaValue,
+        position: i32 => source_tags::Column::Position,
+        key: String => source_tags::Column::MetaKey,
+        value: String => source_tags::Column::MetaValue,
     },
     defaults: {},
-    order: position => media_metadata::Column::Position,
+    order: position => source_tags::Column::Position,
     limits: { position => (0, 127), key => (0, 256), value => (0, 16384) },
 } }
 sync_orm::owned_list_mapping! { pub struct MixClause, MixClauseMap for mix_queries::Entity {
@@ -215,7 +215,7 @@ pub(crate) async fn adopt_portable_artist(tx: &DatabaseTransaction, id: Uuid) ->
     use music_metadata::artists::{Column, Entity};
     use sea_orm::QueryFilter;
 
-    // A synchronized merge can create the target before its artist record arrives.
+    // A tagged identifier can be resolved before its portable artist record arrives.
     Entity::update_many()
         .col_expr(Column::Portable, Expr::value(1))
         .filter(Column::Id.eq(id.to_string()))
@@ -233,6 +233,30 @@ async fn adopt_projected_artist(
     adopt_portable_artist(tx, id).await
 }
 
+async fn allocate_album_handle(
+    tx: &DatabaseTransaction,
+    id: Uuid,
+    _: Option<&RowView<portable_albums::Entity>>,
+    value: Option<&Album>,
+) -> Result<(), DbErr> {
+    if value.is_some() {
+        allocate_handle(tx, "album", &id.to_string()).await?;
+    }
+    Ok(())
+}
+
+async fn allocate_artist_handle(
+    tx: &DatabaseTransaction,
+    id: Uuid,
+    _: Option<&RowView<portable_artists::Entity>>,
+    value: Option<&Artist>,
+) -> Result<(), DbErr> {
+    if value.is_some() {
+        allocate_handle(tx, "artist", &id.to_string()).await?;
+    }
+    Ok(())
+}
+
 sync_orm::row_policies! {
     pub RuneModel,
     Collection,
@@ -242,31 +266,32 @@ sync_orm::row_policies! {
         collections: {
             Albums => {
                 tag: "albums",
-                entity: albums::Entity,
+                entity: portable_albums::Entity,
                 value: Album,
                 mapping: AlbumMap,
                 policy: {
-                    uuid: albums::Column::SourceUuid,
+                    uuid: portable_albums::Column::SourceUuid,
                     fields: {
-                        name: String => albums::Column::Name,
-                        group: String => albums::Column::Group
+                        name: String => portable_albums::Column::Name,
+                        group: String => portable_albums::Column::Group
                     },
                     defaults: {},
-                    source_filter: Condition::all().add(albums::Column::Name.is_not_null()),
+                    source_filter: Condition::all().add(portable_albums::Column::Name.is_not_null()),
                     clear_on_remove: {
-                        albums::Column::Name => None::<String>,
-                        albums::Column::Group => None::<String>
+                        portable_albums::Column::Name => None::<String>,
+                        portable_albums::Column::Group => None::<String>
                     },
                     effects: {
                         search => {
                             entity: search_index::Entity,
                             mapping: SearchMap,
-                            owner: |row: &RowView<albums::Entity>| -> Result<Vec<Value>, DbErr> {
-                                Ok(vec![Some(row.read::<i32>(albums::Column::Id)?.to_string()).into(), Some("album".to_owned()).into()])
+                            owner: |row: &RowView<portable_albums::Entity>| -> Result<Vec<Value>, DbErr> {
+                                Ok(vec![Some(row.read::<i32>(portable_albums::Column::Id)?.to_string()).into(), Some("album".to_owned()).into()])
                             },
-                            derive: |_: &RowView<albums::Entity>, value: Option<&Album>| search_documents(value.map(|value| value.name.as_str())),
+                            derive: |_: &RowView<portable_albums::Entity>, value: Option<&Album>| search_documents(value.map(|value| value.name.as_str())),
                         }
                     },
+                    after_project: { run: allocate_album_handle, reads: 1, mutations: 1 },
                     limits: {
                         name => (0, 16384),
                         group => (0, 16384)
@@ -278,14 +303,14 @@ sync_orm::row_policies! {
             },
             Artists => {
                 tag: "artists",
-                entity: artists::Entity,
+                entity: portable_artists::Entity,
                 value: Artist,
                 mapping: ArtistMap,
                 policy: {
-                    uuid: artists::Column::SourceUuid,
+                    uuid: portable_artists::Column::SourceUuid,
                     fields: {
-                        name: String => artists::Column::Name,
-                        group: String => artists::Column::Group
+                        name: String => portable_artists::Column::Name,
+                        group: String => portable_artists::Column::Group
                     },
                     defaults: {},
                     source_filter: Condition::all().add(Expr::col(sea_query::Alias::new("portable")).eq(1)),
@@ -293,13 +318,14 @@ sync_orm::row_policies! {
                         search => {
                             entity: search_index::Entity,
                             mapping: SearchMap,
-                            owner: |row: &RowView<artists::Entity>| -> Result<Vec<Value>, DbErr> {
-                                Ok(vec![Some(row.read::<i32>(artists::Column::Id)?.to_string()).into(), Some("artist".to_owned()).into()])
+                            owner: |row: &RowView<portable_artists::Entity>| -> Result<Vec<Value>, DbErr> {
+                                Ok(vec![Some(row.read::<i32>(portable_artists::Column::Id)?.to_string()).into(), Some("artist".to_owned()).into()])
                             },
-                            derive: |_: &RowView<artists::Entity>, value: Option<&Artist>| search_documents(value.map(|value| value.name.as_str())),
+                            derive: |_: &RowView<portable_artists::Entity>, value: Option<&Artist>| search_documents(value.map(|value| value.name.as_str())),
                         }
                     },
                     before_project: { run: adopt_projected_artist, mutations: 1 },
+                    after_project: { run: allocate_artist_handle, reads: 1, mutations: 1 },
                     limits: {
                         name => (0, 16384),
                         group => (0, 16384)
@@ -394,7 +420,7 @@ sync_orm::row_policies! {
                     local_reads: [media_files::Column::LocalAvailable, media_files::Column::FileName, media_files::Column::ChangeToken],
                     lists: {
                         metadata: MetadataTag => {
-                            entity: media_metadata::Entity,
+                            entity: source_tags::Entity,
                             mapping: MetadataMap,
                             owner: |row: &RowView<media_files::Entity>| -> Result<Vec<Value>, DbErr> {
                                 Ok(vec![row.read::<i32>(media_files::Column::Id)?.into()])
@@ -424,7 +450,7 @@ sync_orm::row_policies! {
                         };
                         Ok(vec![(media_files::Column::LocalAvailable, available.into())])
                     },
-                    after_project: { run: project_track_evidence, reads: 257, mutations: 8 },
+                    after_project: { run: project_track_evidence, reads: 261, mutations: 16 },
                     references: {
                         cover_art_id => "artworks"
                     },
@@ -479,14 +505,14 @@ sync_orm::row_policies! {
             },
             FileArtists => {
                 tag: "file_artists",
-                entity: media_file_artists::Entity,
+                entity: audio_artists::Entity,
                 value: FileArtist,
                 mapping: FileArtistMap,
                 policy: {
-                    uuid: media_file_artists::Column::SourceUuid,
+                    uuid: audio_artists::Column::SourceUuid,
                     fields: {
-                        file_id: Uuid => media_file_artists::Column::TrackUuid,
-                        artist_id: Uuid => media_file_artists::Column::ArtistUuid
+                        file_id: Uuid => audio_artists::Column::TrackUuid,
+                        artist_id: Uuid => audio_artists::Column::ArtistUuid
                     },
                     defaults: {},
                     references: {
@@ -521,18 +547,18 @@ sync_orm::row_policies! {
             },
             TrackAlbums => {
                 tag: "track_albums",
-                entity: media_file_albums::Entity,
+                entity: track_album_sources::Entity,
                 value: TrackAlbum,
                 mapping: TrackAlbumMap,
                 policy: {
-                    uuid: media_file_albums::Column::SourceUuid,
+                    uuid: track_album_sources::Column::SourceUuid,
                     fields: {
-                        track_id: Uuid => media_file_albums::Column::TrackUuid,
-                        album_id: Uuid => media_file_albums::Column::AlbumUuid,
-                        track_number: Option<i32> => media_file_albums::Column::TrackNumber
+                        track_id: Uuid => track_album_sources::Column::TrackUuid,
+                        album_id: Uuid => track_album_sources::Column::AlbumUuid,
+                        track_number: Option<i32> => track_album_sources::Column::TrackNumber
                     },
                     defaults: {},
-                    after_project: { run: project_track_evidence, reads: 257, mutations: 8 },
+                    after_project: { run: project_track_evidence, reads: 261, mutations: 16 },
                     references: {
                         track_id => "tracks",
                         album_id => "albums"
@@ -748,40 +774,7 @@ sync_orm::row_policies! {
                     },
                 }
             },
-            MetadataEdits => {
-                tag: "metadata-edits",
-                entity: music_metadata_sync_edits::Entity,
-                value: MetadataEdit,
-                mapping: MetadataEditMap,
-                policy: {
-                    uuid: music_metadata_sync_edits::Column::SourceUuid,
-                    fields: {
-                        kind: String => music_metadata_sync_edits::Column::Kind,
-                        owner: Uuid => music_metadata_sync_edits::Column::OwnerUuid,
-                        edition: Option<Uuid> => music_metadata_sync_edits::Column::EditionUuid,
-                        target: Option<Uuid> => music_metadata_sync_edits::Column::TargetUuid,
-                        label: Option<String> => music_metadata_sync_edits::Column::Label,
-                        generation: i64 => music_metadata_sync_edits::Column::Generation
-                    },
-                    defaults: {},
-                    after_project: { run: project_edit, reads: 0, mutations: 2 },
-                    limits: { kind => (5, 6), label => (1, 16384), generation => (0, i64::MAX as i128) },
-                    identity: |value: &MetadataEdit| -> Result<Uuid, DbErr> {
-                        if value.kind == "anchor" {
-                            let track = value.edition.ok_or_else(|| DbErr::Custom("missing edition anchor".into()))?;
-                            Ok(metadata_anchor_id(value.owner, track))
-                        } else {
-                            Ok(metadata_edit_id(&value.kind, value.owner))
-                        }
-                    },
-                    validate: |_: Uuid, value: Option<&MetadataEdit>| -> Result<(), DbErr> {
-                        if let Some(value) = value {
-                            validate_metadata_edit(value)?;
-                        }
-                        Ok(())
-                    },
-                }
-            }
+
         }
     }
 }
@@ -793,43 +786,6 @@ pub async fn encode_source_on<C: sea_orm::ConnectionTrait>(
     Ok(RuneModel::encode_on(db, key).await?)
 }
 
-pub fn metadata_edit_id(kind: &str, owner: Uuid) -> Uuid {
-    Uuid::new_v5(&owner, format!("rune:metadata-edit:{kind}").as_bytes())
-}
-
-pub fn metadata_anchor_id(edition: Uuid, track: Uuid) -> Uuid {
-    Uuid::new_v5(&metadata_edit_id("anchor", edition), track.as_bytes())
-}
-
-fn validate_metadata_edit(value: &MetadataEdit) -> Result<(), DbErr> {
-    let valid = !value.owner.is_nil()
-        && value.target.is_none_or(|id| !id.is_nil())
-        && match value.kind.as_str() {
-            "album" => {
-                value.edition.is_none()
-                    && value.generation > 0
-                    && value.label.is_some() == value.target.is_some()
-            }
-            "artist" => {
-                value.edition.is_none()
-                    && value.label.is_some()
-                    && value.generation == 0
-                    && value.target.is_some_and(|id| id != value.owner)
-            }
-            "anchor" => {
-                value.edition.is_some_and(|id| !id.is_nil())
-                    && value.target.is_none()
-                    && value.label.is_none()
-                    && value.generation == 0
-            }
-            _ => false,
-        };
-    if valid {
-        Ok(())
-    } else {
-        Err(DbErr::Custom("invalid catalog edit".into()))
-    }
-}
 pub async fn author_source_on(
     tx: &sea_orm::DatabaseTransaction,
     store: &crate::sync::SeaOrmSyncStore,

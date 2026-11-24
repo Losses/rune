@@ -16,10 +16,8 @@ pub(super) async fn install(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     // The SQLite backend rejects IndexColumn::Expr, including per-column COLLATE.
     // These indexes keep their expression keys instead of changing their semantics.
     for index in [
-        "CREATE INDEX music_metadata_album_field_lookup ON music_metadata_album_field_values(field, value COLLATE NOCASE, album_id) WHERE decision = 1;",
         "CREATE INDEX music_metadata_album_summary_title ON music_metadata_album_summaries(title COLLATE NOCASE, album_id);",
         "CREATE INDEX music_metadata_audio_disc_tracks ON music_metadata_audio(disc_id, (track_number IS NULL), track_number, file_id);",
-        "CREATE INDEX music_metadata_local_overlay_lookup ON music_metadata_local_overlays(field, value COLLATE NOCASE, album_id);",
         "CREATE INDEX music_metadata_artist_name ON music_metadata_artists(name COLLATE NOCASE, source_uuid);",
         "CREATE INDEX music_metadata_credits_lookup ON music_metadata_credits(scope, role, credited_as COLLATE NOCASE, file_id);",
         "CREATE INDEX music_metadata_values_lookup ON music_metadata_values(scope, field, qualifier, value COLLATE NOCASE, file_id);",
@@ -344,14 +342,8 @@ fn real(name: &str) -> ColumnDef {
 }
 
 // SeaQuery has no SQLite WITHOUT ROWID option. Its table suffix preserves the existing layout.
-fn tables() -> [TableCreateStatement; 29] {
+fn tables() -> [TableCreateStatement; 23] {
     [
-        Table::create()
-            .table(alias("music_metadata_album_groups"))
-            .col(text("id").primary_key().not_null())
-            .col(text("name").not_null())
-            .extra("WITHOUT ROWID")
-            .to_owned(),
         Table::create()
             .table(alias("music_metadata_albums"))
             .col(integer("legacy_id").primary_key().auto_increment())
@@ -373,72 +365,12 @@ fn tables() -> [TableCreateStatement; 29] {
                     false,
                 ),
             )
-            .col(text("group_id"))
             .col(
                 integer("needs_review")
                     .check(col("needs_review").is_in([0, 1]))
                     .default(0)
                     .not_null(),
             )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_albums"), alias("group_id"))
-                    .to(alias("music_metadata_album_groups"), alias("id"))
-                    .on_delete(ForeignKeyAction::SetNull),
-            )
-            .to_owned(),
-        // Provider proposals are owned by the edition and survive rescanning its files.
-        Table::create()
-            .table(alias("music_metadata_album_field_values"))
-            .col(text("album_id").not_null())
-            .col(
-                text("field")
-                    .check(col("field").is_in([
-                        "title",
-                        "version",
-                        "catalog_number",
-                        "release_date",
-                        "original_release_date",
-                        "labels",
-                        "release_type",
-                        "barcode",
-                        "release_country",
-                        "description",
-                    ]))
-                    .not_null(),
-            )
-            .col(text("provider").not_null())
-            .col(text("resource").not_null())
-            .col(text("value"))
-            .col(
-                integer("decision")
-                    .check(col("decision").is_in([0, 1, 2]))
-                    .not_null(),
-            )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(
-                        alias("music_metadata_album_field_values"),
-                        alias("album_id"),
-                    )
-                    .to(alias("music_metadata_albums"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .primary_key(
-                Index::create()
-                    .col(alias("album_id"))
-                    .col(alias("field"))
-                    .col(alias("provider"))
-                    .col(alias("resource")),
-            )
-            .check(col("field").ne("title").or(col("value").is_not_null()))
-            .check(
-                col("provider")
-                    .ne("")
-                    .and(col("resource").ne(""))
-                    .and(col("value").is_not_null()),
-            )
-            .extra("WITHOUT ROWID")
             .to_owned(),
         Table::create()
             .table(alias("music_metadata_release_identity"))
@@ -582,7 +514,6 @@ fn tables() -> [TableCreateStatement; 29] {
             .col(text("recording_content_hash"))
             .col(integer("recording_content_size"))
             .col(text("release_track_mbid"))
-            .col(text("confirmed_release_id"))
             .col(text("title").not_null())
             .col(text("track_title_key").not_null())
             .col(integer("track_number"))
@@ -655,34 +586,12 @@ fn tables() -> [TableCreateStatement; 29] {
                     .from(alias("music_metadata_audio"), alias("recording_id"))
                     .to(alias("music_metadata_recordings"), alias("id")),
             )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_audio"), alias("confirmed_release_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
-                    .on_delete(ForeignKeyAction::SetNull),
-            )
             .to_owned(),
         Table::create()
             .table(alias("music_metadata_recording_dirty"))
             .col(text("kind").not_null())
             .col(text("value").not_null())
             .primary_key(Index::create().col(alias("kind")).col(alias("value")))
-            .extra("WITHOUT ROWID")
-            .to_owned(),
-        // Shared track UUIDs resolve edition selections on devices with their own catalog UUIDs.
-        Table::create()
-            .table(alias("music_metadata_album_track_anchors"))
-            .col(text("track_uuid").primary_key().not_null())
-            .col(text("album_id").not_null())
-            .foreign_key(
-                ForeignKey::create()
-                    .from(
-                        alias("music_metadata_album_track_anchors"),
-                        alias("album_id"),
-                    )
-                    .to(alias("music_metadata_albums"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
             .extra("WITHOUT ROWID")
             .to_owned(),
         // A position on a release can link to multiple encodings or a range in a disc image.
@@ -723,11 +632,6 @@ fn tables() -> [TableCreateStatement; 29] {
         Table::create()
             .table(alias("music_metadata_audio_layouts"))
             .col(integer("file_id").primary_key())
-            .col(
-                text("kind")
-                    .check(col("kind").is_in(["manual", "cue"]))
-                    .not_null(),
-            )
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_audio_layouts"), alias("file_id"))
@@ -760,97 +664,6 @@ fn tables() -> [TableCreateStatement; 29] {
                     .col(alias("start_ms")),
             )
             .extra("WITHOUT ROWID")
-            .to_owned(),
-        // A sparse local source can mask a field without modifying lower-priority evidence.
-        Table::create()
-            .table(alias("music_metadata_local_overlays"))
-            .col(integer("id").primary_key())
-            .col(text("album_id"))
-            .col(text("disc_id"))
-            .col(text("audio_id"))
-            .col(text("track_id"))
-            .col(
-                text("field")
-                    .check(col("field").is_in([
-                        "title",
-                        "version",
-                        "catalog_number",
-                        "release_date",
-                        "original_release_date",
-                        "labels",
-                        "release_type",
-                        "barcode",
-                        "release_country",
-                        "description",
-                        "comment",
-                        "sort_title",
-                        "subtitle",
-                    ]))
-                    .not_null(),
-            )
-            .col(text("value"))
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_local_overlays"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_local_overlays"), alias("disc_id"))
-                    .to(alias("music_metadata_discs"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_local_overlays"), alias("audio_id"))
-                    .to(alias("music_metadata_audio"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_local_overlays"), alias("track_id"))
-                    .to(alias("music_metadata_release_tracks"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .check(
-                col("album_id")
-                    .is_not_null()
-                    .add(col("disc_id").is_not_null())
-                    .add(col("audio_id").is_not_null())
-                    .add(col("track_id").is_not_null())
-                    .eq(1),
-            )
-            .check(
-                col("field")
-                    .ne("title")
-                    .or(col("value").is_not_null())
-                    .or(col("disc_id").is_not_null()),
-            )
-            .index(
-                Index::create()
-                    .unique()
-                    .col(alias("album_id"))
-                    .col(alias("field")),
-            )
-            .index(
-                Index::create()
-                    .unique()
-                    .col(alias("disc_id"))
-                    .col(alias("field")),
-            )
-            .index(
-                Index::create()
-                    .unique()
-                    .col(alias("audio_id"))
-                    .col(alias("field")),
-            )
-            .index(
-                Index::create()
-                    .unique()
-                    .col(alias("track_id"))
-                    .col(alias("field")),
-            )
             .to_owned(),
         // Portable name identities and identified artists share one catalog.
         Table::create()
@@ -980,26 +793,6 @@ fn tables() -> [TableCreateStatement; 29] {
             .primary_key(Index::create().col(alias("file_id")).col(alias("field")))
             .extra("WITHOUT ROWID")
             .to_owned(),
-        Table::create()
-            .table(alias("music_metadata_release_keys"))
-            .col(text("album_id").not_null())
-            .col(text("field").not_null())
-            .col(text("value").not_null())
-            .col(integer("uses").check(col("uses").gt(0)).not_null())
-            .foreign_key(
-                ForeignKey::create()
-                    .from(alias("music_metadata_release_keys"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
-                    .on_delete(ForeignKeyAction::Cascade),
-            )
-            .primary_key(
-                Index::create()
-                    .col(alias("album_id"))
-                    .col(alias("field"))
-                    .col(alias("value")),
-            )
-            .extra("WITHOUT ROWID")
-            .to_owned(),
         // A committed scan can be reconciled later even if its caller is interrupted.
         Table::create()
             .table(alias("music_metadata_dirty_directories"))
@@ -1019,12 +812,6 @@ fn tables() -> [TableCreateStatement; 29] {
             .col(text("credited_as").not_null())
             .col(text("role").not_null())
             .col(text("artist_id"))
-            .col(
-                integer("artist_confirmed")
-                    .check(col("artist_confirmed").is_in([0, 1]))
-                    .default(0)
-                    .not_null(),
-            )
             .col(text("instrument"))
             .col(text("source_kind").not_null())
             .col(text("source_provider").not_null())
@@ -1097,27 +884,6 @@ fn tables() -> [TableCreateStatement; 29] {
                     .col(alias("position")),
             )
             .extra("WITHOUT ROWID")
-            .to_owned(),
-        // Manual decisions are replicated separately from local parser evidence.
-        Table::create()
-            .table(alias("music_metadata_sync_edits"))
-            .col(integer("id").primary_key().auto_increment())
-            .col(text("source_uuid").not_null().unique_key())
-            .col(
-                text("kind")
-                    .check(col("kind").is_in(["album", "artist", "anchor"]))
-                    .not_null(),
-            )
-            .col(text("owner_uuid").not_null())
-            .col(text("edition_uuid"))
-            .col(text("target_uuid"))
-            .col(text("label"))
-            .col(
-                integer("generation")
-                    .check(col("generation").gte(0))
-                    .default(0)
-                    .not_null(),
-            )
             .to_owned(),
         // Reserve negative browse IDs for richer identities while positive IDs stay compatible.
         Table::create()
@@ -1194,7 +960,7 @@ fn tables() -> [TableCreateStatement; 29] {
     ]
 }
 
-fn indexes() -> [IndexCreateStatement; 29] {
+fn indexes() -> [IndexCreateStatement; 22] {
     [
         Index::create()
             .name("music_metadata_album_uuid")
@@ -1215,25 +981,11 @@ fn indexes() -> [IndexCreateStatement; 29] {
             .col(alias("id"))
             .to_owned(),
         Index::create()
-            .name("music_metadata_album_group")
-            .table(alias("music_metadata_albums"))
-            .col(alias("group_id"))
-            .and_where(col("group_id").is_not_null())
-            .to_owned(),
-        Index::create()
             .name("music_metadata_file_digest")
             .table(alias("media_files"))
             .col(alias("content_hash"))
             .col(alias("content_size"))
             .and_where(col("content_hash").is_not_null())
-            .to_owned(),
-        Index::create()
-            .name("music_metadata_album_field_approved")
-            .table(alias("music_metadata_album_field_values"))
-            .unique()
-            .col(alias("album_id"))
-            .col(alias("field"))
-            .and_where(col("decision").eq(1).and(col("provider").ne("")))
             .to_owned(),
         Index::create()
             .name("music_metadata_release_identity_mbid")
@@ -1268,12 +1020,6 @@ fn indexes() -> [IndexCreateStatement; 29] {
             .name("music_metadata_recording_sources_recording")
             .table(alias("music_metadata_recording_sources"))
             .col(alias("recording_id"))
-            .to_owned(),
-        Index::create()
-            .name("music_metadata_audio_confirmed_release")
-            .table(alias("music_metadata_audio"))
-            .col(alias("confirmed_release_id"))
-            .and_where(col("confirmed_release_id").is_not_null())
             .to_owned(),
         Index::create()
             .name("music_metadata_audio_recording")
@@ -1311,12 +1057,6 @@ fn indexes() -> [IndexCreateStatement; 29] {
             .and_where(col("recording_isrc").is_not_null())
             .to_owned(),
         Index::create()
-            .name("music_metadata_album_track_anchors_album")
-            .table(alias("music_metadata_album_track_anchors"))
-            .col(alias("album_id"))
-            .col(alias("track_uuid"))
-            .to_owned(),
-        Index::create()
             .name("music_metadata_release_tracks_disc")
             .table(alias("music_metadata_release_tracks"))
             .col(alias("disc_id"))
@@ -1339,6 +1079,8 @@ fn indexes() -> [IndexCreateStatement; 29] {
             .name("music_metadata_track_release_keys_album")
             .table(alias("music_metadata_track_release_keys"))
             .col(alias("album_id"))
+            .col(alias("field"))
+            .col(alias("value"))
             .to_owned(),
         Index::create()
             .name("music_metadata_credits_artist")
@@ -1351,25 +1093,6 @@ fn indexes() -> [IndexCreateStatement; 29] {
             .table(alias("music_metadata_recording_credits"))
             .col(alias("artist_id"))
             .and_where(col("artist_id").is_not_null())
-            .to_owned(),
-        Index::create()
-            .name("music_metadata_sync_edit_owner")
-            .table(alias("music_metadata_sync_edits"))
-            .col(alias("kind"))
-            .col(alias("owner_uuid"))
-            .col(alias("edition_uuid"))
-            .to_owned(),
-        Index::create()
-            .name("music_metadata_sync_edit_edition")
-            .table(alias("music_metadata_sync_edits"))
-            .col(alias("edition_uuid"))
-            .and_where(col("edition_uuid").is_not_null())
-            .to_owned(),
-        Index::create()
-            .name("music_metadata_sync_edit_target")
-            .table(alias("music_metadata_sync_edits"))
-            .col(alias("kind"))
-            .col(alias("target_uuid"))
             .to_owned(),
     ]
 }

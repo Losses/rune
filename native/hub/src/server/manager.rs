@@ -3256,7 +3256,9 @@ mod lifecycle_tests {
             CollectionType, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
         };
         use crate::rpc::dispatch_gui_request;
-        use database::{actions::cover_art::assign_inspected, entities::artists};
+        use database::{
+            actions::cover_art::assign_inspected, entities::portable_artists as artists,
+        };
 
         let owner_dir = tempfile::tempdir()?;
         let peer_dir = tempfile::tempdir()?;

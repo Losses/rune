@@ -79,8 +79,6 @@ pub struct AlbumMetadata {
 
     // Fields owned by this entity.
     pub title: String,
-    /// The manually selected group of this release, if any.
-    pub group_id: Option<Uuid>,
     /// The available evidence matches more than one edition in this directory.
     #[serde(default)]
     pub needs_review: bool,
@@ -320,8 +318,6 @@ pub enum MetadataSourceKind {
     EmbeddedArtwork,
     Aggregate,
     External,
-    User,
-    LocalOverlay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

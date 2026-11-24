@@ -118,7 +118,7 @@ use database::credentials::{Credential, CredentialRef, Secret};
 use database::entities::media_cover_art;
 use database::entities::media_file_stats;
 use database::entities::media_files;
-use database::entities::media_metadata;
+use database::entities::source_tags as media_metadata;
 use database::playing_item::MediaFileHandle;
 use discovery::access_policy::PeerIdentity;
 use migration::catalog_identity::artwork;

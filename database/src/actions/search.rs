@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use deunicode::deunicode;
@@ -163,12 +163,6 @@ pub async fn search_for(
         }
     }
 
-    // Alias spellings stay searchable, but resolve to one canonical result.
-    if let Some(ids) = results.get_mut(&CollectionQueryType::Artist) {
-        super::artists::canonicalize_search_ids(main_db, ids).await?;
-        let mut seen = HashSet::new();
-        ids.retain(|id| seen.insert(*id));
-    }
     for (collection, kind) in [
         (CollectionQueryType::Album, super::browse::Kind::Album),
         (CollectionQueryType::Artist, super::browse::Kind::Artist),

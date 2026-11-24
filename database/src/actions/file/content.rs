@@ -17,6 +17,7 @@ use std::{
 use tokio::task;
 use uuid::Uuid;
 
+use crate::actions::resolved_metadata::queries::verified_audio;
 /// Maximum accepted audio object size (8 GiB).
 pub const MAX_BLOB_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Reserved application-managed content; ordinary library scans do not author it.
@@ -393,11 +394,11 @@ pub(in crate::actions) async fn index_cached_download(
         .parent()
         .and_then(Path::to_str)
         .unwrap_or_default();
-    use crate::entities::music_metadata::current_recording_audio as indexed;
+    use crate::entities::music_metadata::audio as indexed;
     use media_files::Column as C;
     let existing = Query::select()
         .column(indexed::Column::FileId)
-        .from(indexed::Entity)
+        .from(verified_audio())
         .and_where(
             Expr::col(indexed::Column::FileId.as_column_ref()).eq(Expr::col(C::Id.as_column_ref())),
         )

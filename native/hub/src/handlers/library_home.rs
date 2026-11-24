@@ -22,7 +22,10 @@ use ::database::{
         mixes::query_mix_media_files,
     },
     connection::{MainDbConnection, RecommendationDbConnection},
-    entities::{albums, artists, genres, media_files, mixes, playlists},
+    entities::{
+        genres, media_files, mixes, playlists, portable_albums as albums,
+        portable_artists as artists,
+    },
 };
 
 #[async_trait]

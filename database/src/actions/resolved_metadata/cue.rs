@@ -1,5 +1,6 @@
 //! Apply sidecar CUE layouts to already indexed audio images.
 
+use crate::actions::resolved_metadata::queries::verified_audio;
 use std::{
     collections::{BTreeMap, HashSet},
     io::Read,
@@ -13,7 +14,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 
 use crate::entities::{
     media_files,
-    music_metadata::{audio_layouts as layouts, current_recording_audio as verified},
+    music_metadata::{audio as verified, audio_layouts as layouts},
 };
 use sea_orm::{
     ColumnTrait, ExprTrait,
@@ -252,7 +253,6 @@ pub(in crate::actions) async fn reconcile_scan(
                     media_files::Entity,
                     column(media_files::Column::Id).eq(column(layouts::Column::FileId)),
                 )
-                .and_where(layouts::Column::Kind.eq("cue"))
                 .distinct(),
         )
         .await?;
@@ -291,7 +291,6 @@ pub(in crate::actions) async fn reconcile_directory(
                         column(layouts::Column::FileId).eq(column(media_files::Column::Id)),
                     )
                     .and_where(media_files::Column::Directory.eq(directory))
-                    .and_where(layouts::Column::Kind.eq("cue"))
                     .limit(1),
             )
             .await?
@@ -318,10 +317,10 @@ pub(in crate::actions) async fn reconcile_directory(
                     .map(|c| c.as_column_ref()),
                 )
                 .column(media_files::Column::FileName.as_column_ref())
-                .column(layouts::Column::Kind.as_column_ref())
+                .expr_as(column(layouts::Column::FileId).is_not_null(), "has_cue")
                 .from(media_files::Entity)
                 .inner_join(
-                    verified::Entity,
+                    verified_audio(),
                     column(verified::Column::FileId).eq(column(media_files::Column::Id)),
                 )
                 .left_join(
@@ -338,17 +337,13 @@ pub(in crate::actions) async fn reconcile_directory(
         *names.entry(name.to_ascii_lowercase()).or_insert(0u32) += 1;
     }
     for row in files {
-        let kind = row.try_get::<Option<String>>("", "kind")?;
-        if kind.as_deref() == Some("manual") {
-            continue;
-        }
         let file = row.try_get::<i32>("", "file_id")?;
         let name = row.try_get::<String>("", "file_name")?;
         let duration = row
             .try_get::<Option<i64>>("", "duration_ms")?
             .map(u64::try_from)
             .transpose()?;
-        let has_cue = kind.is_some();
+        let has_cue: bool = row.try_get("", "has_cue")?;
         // Case-fold only if neither the sidecars nor the audio directory are ambiguous.
         let match_name = images.get(&name).or_else(|| {
             if names.get(&name.to_ascii_lowercase()) != Some(&1) {
@@ -374,7 +369,6 @@ pub(in crate::actions) async fn reconcile_directory(
                 uuid(&row, "disc_id")?,
                 duration,
                 &layout,
-                "cue",
             )
             .await?;
         }

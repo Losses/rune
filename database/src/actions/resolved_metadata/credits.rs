@@ -1,10 +1,10 @@
 //! Storage for ordered, source-attributed credits and optional artist links.
 
+use crate::entities::music_metadata::audio as orm_audio;
 use crate::entities::music_metadata::credits as orm_credits;
-use crate::entities::music_metadata::{artist_redirects, audio as orm_audio};
 use sea_orm::ExprTrait;
-use sea_orm::sea_query::{Alias, BinOper, Expr, Func, Order, Query};
-use std::collections::{BTreeMap, BTreeSet};
+use sea_orm::sea_query::{Expr, Order, Query};
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use metadata::{
@@ -15,7 +15,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseTransaction, QueryResult, Va
 use uuid::Uuid;
 
 use super::{
-    CreditScope, column,
+    CreditScope,
     details::{Contributors, Selection},
 };
 
@@ -28,52 +28,13 @@ const SOURCE_KINDS: &[(&str, MetadataSourceKind)] = &[
     ("embedded_artwork", MetadataSourceKind::EmbeddedArtwork),
     ("aggregate", MetadataSourceKind::Aggregate),
     ("external", MetadataSourceKind::External),
-    ("user", MetadataSourceKind::User),
-    ("local_overlay", MetadataSourceKind::LocalOverlay),
 ];
-
-type LinkKey = (i32, String, String, Option<String>);
-
-async fn current_links(
-    db: &DatabaseTransaction,
-    file_id: i32,
-) -> Result<BTreeMap<LinkKey, Option<String>>> {
-    let rows = db
-        .query_all(
-            Query::select()
-                .columns([
-                    orm_credits::Column::Scope,
-                    orm_credits::Column::CreditedAs,
-                    orm_credits::Column::Role,
-                    orm_credits::Column::Instrument,
-                    orm_credits::Column::ArtistId,
-                ])
-                .from(orm_credits::Entity)
-                .and_where(Expr::col(orm_credits::Column::FileId).eq(Expr::val(file_id)))
-                .and_where(Expr::col(orm_credits::Column::SourceKind).eq(Expr::val("audio_tag")))
-                .and_where(Expr::col(orm_credits::Column::SourceProvider).eq(Expr::val("")))
-                .and_where(Expr::col(orm_credits::Column::ArtistConfirmed).eq(Expr::val(1))),
-        )
-        .await?;
-    rows.into_iter()
-        .map(|row| {
-            let key = (
-                row.try_get("", "scope")?,
-                row.try_get("", "credited_as")?,
-                row.try_get("", "role")?,
-                row.try_get("", "instrument")?,
-            );
-            Ok((key, row.try_get("", "artist_id")?))
-        })
-        .collect()
-}
 
 pub(super) async fn store(
     db: &DatabaseTransaction,
     file_id: i32,
     metadata: &LocalMetadata,
 ) -> Result<()> {
-    let mut linked = current_links(db, file_id).await?;
     let album_artist =
         super::artist_identity::primary(db, &metadata.album.base, "musicbrainz:album-artist")
             .await?;
@@ -86,19 +47,10 @@ pub(super) async fn store(
         (CreditScope::Audio, &metadata.audio.base, audio_artist),
     ] {
         for (position, credit) in base.credits.iter().flatten().enumerate() {
-            // Keep confirmed links for unchanged credits even if their order or tag alias changes.
-            let confirmed = linked.remove(&(
-                scope as i32,
-                credit.credited_as.clone(),
-                credit.role.clone(),
-                credit.instrument.clone(),
-            ));
-            let artist = confirmed.clone().unwrap_or_else(|| {
-                credit.artist_id.map(|id| id.to_string()).or_else(|| {
-                    (credit.role == "Primary Artist")
-                        .then(|| identified.clone())
-                        .flatten()
-                })
+            let artist = credit.artist_id.map(|id| id.to_string()).or_else(|| {
+                identified
+                    .clone()
+                    .filter(|_| credit.role == "Primary Artist")
             });
             rows.push(bind(
                 file_id,
@@ -106,7 +58,6 @@ pub(super) async fn store(
                 position.try_into()?,
                 credit,
                 artist,
-                confirmed.is_some(),
                 "",
             )?);
         }
@@ -124,7 +75,7 @@ pub(super) async fn store(
     insert(db, &rows).await
 }
 
-async fn insert(db: &DatabaseTransaction, rows: &[[Value; 15]]) -> Result<()> {
+async fn insert(db: &DatabaseTransaction, rows: &[[Value; 14]]) -> Result<()> {
     use orm_credits::Column as C;
     for rows in rows.chunks(64) {
         let mut insert = Query::insert();
@@ -135,7 +86,6 @@ async fn insert(db: &DatabaseTransaction, rows: &[[Value; 15]]) -> Result<()> {
             C::CreditedAs,
             C::Role,
             C::ArtistId,
-            C::ArtistConfirmed,
             C::Instrument,
             C::SourceKind,
             C::SourceProvider,
@@ -159,9 +109,8 @@ fn bind(
     position: i64,
     credit: &Credit,
     artist: Option<String>,
-    confirmed: bool,
     provider: &str,
-) -> Result<[Value; 15]> {
+) -> Result<[Value; 14]> {
     let source = &credit.source;
     let kind = source_name(source.kind)?;
     Ok([
@@ -171,7 +120,6 @@ fn bind(
         credit.credited_as.clone().into(),
         credit.role.clone().into(),
         artist.into(),
-        confirmed.into(),
         credit.instrument.clone().into(),
         kind.into(),
         provider.to_owned().into(),
@@ -192,7 +140,7 @@ pub(super) fn source_name(source: MetadataSourceKind) -> Result<&'static str> {
         .0)
 }
 
-/// Refresh a single external or user source in the caller's write transaction.
+/// Refresh a single provider source in the caller's write transaction.
 pub(super) async fn replace_source(
     db: &DatabaseTransaction,
     track_id: Uuid,
@@ -239,7 +187,6 @@ pub(super) async fn replace_source(
                 position.try_into()?,
                 credit,
                 credit.artist_id.map(|id| id.to_string()),
-                credit.artist_id.is_some(),
                 provider,
             )
         })
@@ -303,9 +250,7 @@ pub(super) async fn load(
 ) -> Result<()> {
     use orm_credits::Column as C;
     let mut query = selection.rows(orm_credits::Entity, C::FileId, C::Scope);
-    let priority = Expr::case(C::SourceKind.eq("user"), 0)
-        .case(C::SourceKind.eq("audio_tag"), 1)
-        .finally(2);
+    let priority = Expr::case(C::SourceKind.eq("audio_tag"), 0).finally(1);
     query
         .columns(
             [
@@ -322,17 +267,7 @@ pub(super) async fn load(
             ]
             .map(|c| c.as_column_ref()),
         )
-        .expr_as(
-            Func::coalesce([
-                column(artist_redirects::Column::TargetUuid),
-                column(C::ArtistId),
-            ]),
-            Alias::new("artist_id"),
-        )
-        .left_join(
-            artist_redirects::Entity,
-            column(artist_redirects::Column::SourceUuid).eq(column(C::ArtistId)),
-        )
+        .column(C::ArtistId.as_column_ref())
         .order_by_expr(priority.into(), Order::Asc)
         .order_by_columns(
             [C::SourceKind, C::SourceProvider, C::Position]
@@ -367,41 +302,4 @@ pub(super) async fn load(
     }
     base.credits = (!credits.is_empty()).then_some(credits);
     Ok(())
-}
-
-/// Associate a parsed credit with a known artist, or clear its association.
-pub(super) async fn link(
-    db: &impl ConnectionTrait,
-    track_id: Uuid,
-    scope: CreditScope,
-    credit: &Credit,
-    artist_id: Option<Uuid>,
-) -> Result<bool> {
-    use orm_credits::Column as C;
-    let file = Query::select()
-        .column(orm_audio::Column::FileId)
-        .from(orm_audio::Entity)
-        .and_where(orm_audio::Column::Id.eq(track_id.to_string()))
-        .to_owned();
-    let result = db
-        .execute(
-            Query::update()
-                .table(orm_credits::Entity)
-                .value(C::ArtistId, Expr::val(artist_id.map(|id| id.to_string())))
-                .value(C::ArtistConfirmed, Expr::val(1))
-                .and_where(column(C::FileId).eq(super::scalar(file)))
-                .and_where(C::Scope.eq(scope as i32))
-                .and_where(C::CreditedAs.eq(&credit.credited_as))
-                .and_where(C::Role.eq(&credit.role))
-                .and_where(
-                    column(C::Instrument)
-                        .binary(BinOper::Is, Expr::val(credit.instrument.as_deref())),
-                )
-                .and_where(C::SourceKind.eq(source_name(credit.source.kind)?))
-                .and_where(
-                    C::SourceProvider.eq(credit.source_provider.as_deref().unwrap_or_default()),
-                ),
-        )
-        .await?;
-    Ok(result.rows_affected() != 0)
 }

@@ -38,6 +38,7 @@ pub(super) async fn primary(
         group: Set(generate_group_name(&credit.credited_as)),
         musicbrainz_id: Set(Some(mbid.to_string())),
         portable: Set(0),
+        ..Default::default()
     })
     .on_conflict(
         OnConflict::column(artists::Column::Id)
@@ -47,5 +48,6 @@ pub(super) async fn primary(
     )
     .exec_without_returning(db)
     .await?;
+    super::lifecycle::allocate_handle(db, "artist", &id).await?;
     Ok(Some(id))
 }

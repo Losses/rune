@@ -1,7 +1,7 @@
 use anyhow::Result;
 use database::test_fixtures::causal_library as support;
 use database::{
-    entities::{media_files, media_metadata},
+    entities::{media_files, source_tags as media_metadata},
     sync::model::*,
 };
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};

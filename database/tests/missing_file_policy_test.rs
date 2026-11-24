@@ -4,7 +4,7 @@ use database::{
         logging::list_log,
         metadata::{MissingHostFilePolicy, scan_audio_file},
     },
-    entities::{media_files, media_metadata},
+    entities::{media_files, source_tags as media_metadata},
     sync::{
         SeaOrmSyncStore,
         model::{Collection, ObjectKey},

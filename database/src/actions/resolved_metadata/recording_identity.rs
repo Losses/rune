@@ -15,9 +15,13 @@ use metadata::model::RecordingIdentifiers;
 use sea_orm::{ColumnTrait, ConnectionTrait, QueryResult};
 use uuid::Uuid;
 
-use crate::entities::music_metadata::{recording_evidence, recording_sources};
+use crate::entities::music_metadata::recording_sources;
 
-use super::{column, uuid};
+use super::{
+    column,
+    queries::{EVIDENCE, field, recording_evidence},
+    uuid,
+};
 
 pub(super) const NAMESPACE: Uuid = Uuid::from_u128(0x59e7e858_d294_50cc_9468_d2b63f436799);
 
@@ -167,6 +171,38 @@ async fn queue(
     Ok(())
 }
 
+pub(super) async fn invalidate_stale_file(db: &impl ConnectionTrait, track: &str) -> Result<()> {
+    use crate::entities::media_files;
+    use media_files::Column as F;
+    use orm_audio::Column as A;
+
+    // The source-row projection has already updated the file's content version.
+    let previous = db
+        .query_one(
+            Query::select()
+                .columns(
+                    [A::RecordingId, A::RecordingMbid, A::RecordingIsrc].map(|c| c.as_column_ref()),
+                )
+                .from(orm_audio::Entity)
+                .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
+                .and_where(A::Id.eq(track))
+                .and_where(super::queries::matches_content().not()),
+        )
+        .await?;
+    if let Some(previous) = previous {
+        let mbid: Option<String> = previous.try_get("", "recording_mbid")?;
+        let isrc: Option<String> = previous.try_get("", "recording_isrc")?;
+        queue(
+            db,
+            uuid(&previous, "recording_id")?,
+            mbid.as_deref(),
+            isrc.as_deref(),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 enum Owner {
     Audio { file: i32, id: Uuid },
@@ -278,28 +314,30 @@ pub(in crate::actions) async fn reconcile(db: &impl ConnectionTrait) -> Result<(
 
 fn related_evidence() -> SelectStatement {
     use orm_recording_dirty::Column as D;
-    use recording_evidence::Column as E;
     let keys = Alias::new("keys");
     let kind = Expr::col((keys.clone(), D::Kind));
     let value = Expr::col((keys.clone(), D::Value));
 
     // Traverse both identifier types until the touched components stop growing.
-    let edges = |from: E, to: E, from_kind, to_kind| {
+    let edges = |from, to, from_kind, to_kind| {
         Query::select()
             .expr(Expr::val(to_kind))
-            .column(to)
+            .column((Alias::new(EVIDENCE), Alias::new(to)))
             .from(keys.clone())
-            .inner_join(recording_evidence::Entity, column(from).eq(value.clone()))
+            .inner_join(
+                recording_evidence(),
+                field(EVIDENCE, from).eq(value.clone()),
+            )
             .and_where(kind.clone().eq(from_kind))
-            .and_where(to.is_not_null())
+            .and_where(field(EVIDENCE, to).is_not_null())
             .to_owned()
     };
     let seed = Query::select()
         .columns([D::Kind, D::Value])
         .from(orm_recording_dirty::Entity)
         .and_where(D::Kind.ne("recording"))
-        .union(UnionType::Distinct, edges(E::Mbid, E::Isrc, "mbid", "isrc"))
-        .union(UnionType::Distinct, edges(E::Isrc, E::Mbid, "isrc", "mbid"))
+        .union(UnionType::Distinct, edges("mbid", "isrc", "mbid", "isrc"))
+        .union(UnionType::Distinct, edges("isrc", "mbid", "isrc", "mbid"))
         .to_owned();
     let cte = CommonTableExpression::new()
         .table_name(keys.clone())
@@ -310,17 +348,17 @@ fn related_evidence() -> SelectStatement {
     // Deduplicate rows that can be reached through both identifier paths.
     let matches = |identifier, identifier_kind| {
         Query::select()
-            .column((recording_evidence::Entity, Asterisk))
+            .column((Alias::new(EVIDENCE), Asterisk))
             .from(keys.clone())
             .inner_join(
-                recording_evidence::Entity,
-                column(identifier).eq(value.clone()),
+                recording_evidence(),
+                field(EVIDENCE, identifier).eq(value.clone()),
             )
             .and_where(kind.clone().eq(identifier_kind))
             .to_owned()
     };
-    matches(E::Mbid, "mbid")
-        .union(UnionType::Distinct, matches(E::Isrc, "isrc"))
+    matches("mbid", "mbid")
+        .union(UnionType::Distinct, matches("isrc", "isrc"))
         .with_cte(WithClause::new().recursive(true).cte(cte).to_owned())
         .to_owned()
 }

@@ -98,7 +98,7 @@ mod tests {
         collection::CollectionQueryType,
         search::{add_term, search_for},
     };
-    use database::entities::{albums, artists};
+    use database::entities::{portable_albums as albums, portable_artists as artists};
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, EntityTrait, Set};
     use std::collections::HashMap;

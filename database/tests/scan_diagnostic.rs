@@ -176,7 +176,7 @@ fn write_wav_with_info(path: &std_path::Path, tags: &[(&[u8; 4], &str)]) -> Resu
 #[tokio::test]
 async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
     use database::actions::{index::index_audio_library, resolved_metadata::CreditScope};
-    use database::entities::{artists, media_file_artists};
+    use database::entities::{audio_artists as media_file_artists, portable_artists as artists};
     use sea_orm::{
         ColumnTrait, ExprTrait,
         sea_query::{Alias, Order, Query},
@@ -263,21 +263,14 @@ async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
     let expected = [
         "Alpha", "Beta", "Delta", "Epsilon", "Eta", "Gamma", "Iota", "Theta", "Zeta",
     ];
-    for table in ["music_metadata_artists", "music_metadata_browse_artists"] {
-        let rows = db
-            .query_all(
-                Query::select()
-                    .column(Alias::new("name"))
-                    .from(Alias::new(table))
-                    .order_by(Alias::new("name"), Order::Asc),
-            )
-            .await?;
-        let names = rows
-            .iter()
-            .map(|row| row.try_get::<String>("", "name"))
-            .collect::<Result<Vec<_>, _>>()?;
-        assert_eq!(names, expected, "{table}");
-    }
+    use database::actions::collection::{CollectionQuery, CollectionQueryListMode};
+    let mut names = artists::Model::list(&db, 100, CollectionQueryListMode::Forward)
+        .await?
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, expected);
 
     // Structured credits retain the exact tag values used for attribution.
     artist_tags.sort_unstable();
@@ -456,7 +449,7 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
 #[tokio::test]
 async fn oversized_tag_stays_in_catalog_without_exceeding_sync_limit() -> Result<()> {
     use database::actions::metadata::get_metadata_summary_by_files;
-    use database::entities::media_metadata;
+    use database::entities::source_tags as media_metadata;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let temp = tempfile::tempdir()?;
     let root = temp.path();
