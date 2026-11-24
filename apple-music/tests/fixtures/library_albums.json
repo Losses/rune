@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "l.NWqWi1m",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.NWqWi1m",
+      "attributes": {
+        "artistName": "Elephante",
+        "genreNames": ["Electronic"],
+        "playParams": {"id": "l.NWqWi1m", "kind": "album", "isLibrary": true},
+        "dateAdded": "2021-10-06T16:47:33Z",
+        "artwork": {"width": 1200, "height": 1200, "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/76/15/f3/7615f398-b97c-0df7-e840-2d45c14c4f60/190296481482.jpg/{w}x{h}bb.jpg"},
+        "name": "Dopamine - Single",
+        "trackCount": 1,
+        "releaseDate": "2021-10-01"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "id": "p.RB1AAkGsv74Zkl",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.RB1AAkGsv74Zkl",
+      "attributes": {
+        "hasCatalog": false,
+        "description": {"standard": "My library playlist"},
+        "name": "New Playlist",
+        "canEdit": true,
+        "isPublic": false,
+        "playParams": {"id": "p.RB1AAkGsv74Zkl", "kind": "playlist", "isLibrary": true},
+        "dateAdded": "2021-09-30T13:28:29Z"
+      }
+    },
+    {
+      "id": "p.ldvAAZ3C3Qmop9",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.ldvAAZ3C3Qmop9",
+      "attributes": {
+        "hasCatalog": true,
+        "name": "Subscribed Playlist",
+        "canEdit": false,
+        "isPublic": false,
+        "playParams": {"id": "p.ldvAAZ3C3Qmop9", "kind": "playlist", "isLibrary": true, "globalId": "pl.u-example"}
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": "rec-3",
+      "type": "personal-recommendation",
+      "attributes": {
+        "title": {"stringForDisplay": "Recently Played"},
+        "kind": "recently-played",
+        "resourceTypes": ["albums"]
+      },
+      "relationships": {"contents": {"data": [
+        {"id": "alb1", "type": "albums", "attributes": {
+          "name": "Album One", "artistName": "Artist",
+          "artwork": {"url": "https://art.invalid/alb1/{w}x{h}.jpg", "width": 400, "height": 400}}}
+      ]}}
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "i.7PJNN4mfXlD68R",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.7PJNN4mfXlD68R",
+      "attributes": {"name": "Linked By Relationship", "artistName": "Some Artist", "playParams": {"id": "i.7PJNN4mfXlD68R", "kind": "song", "isLibrary": true}},
+      "relationships": {
+        "catalog": {
+          "href": "/v1/me/library/songs/i.7PJNN4mfXlD68R/catalog",
+          "data": [{"id": "1151618586", "type": "songs", "href": "/v1/catalog/us/songs/1151618586", "attributes": {"name": "Linked By Relationship", "isrc": "USXXX0000001"}}]
+        }
+      }
+    }
+  ]
+}
