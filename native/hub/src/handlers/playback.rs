@@ -92,9 +92,10 @@ pub(crate) fn reject_remote_independent_item(
     Ok(())
 }
 
-/// The streaming service of the library that owns `item`, read from its registry record alone,
-/// so nothing is built or contacted. None for a local item. `open_library` is the local library
-/// the request came with, which holds its own items.
+/// The streaming service of the library that owns `item`, from the binding of the open service
+/// library when the item is its own, else from its registry record alone, so nothing is built or
+/// contacted. None for a local item. `open_library` is the local library the request came with,
+/// which holds its own items.
 pub(crate) fn item_service(
     node: &NodeContext,
     open_library: Option<&LibraryHandle>,
@@ -108,6 +109,9 @@ pub(crate) fn item_service(
     })?;
     if open_library.is_some_and(|library| library.library_id == library_id) {
         return Ok(None);
+    }
+    if let Some(binding) = node.service_binding(library_id)? {
+        return Ok(Some(binding.service()));
     }
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     Ok(registry

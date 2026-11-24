@@ -13599,6 +13599,36 @@ async fn the_lyrics_of_a_service_track_come_from_its_library_while_a_local_libra
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lyrics_of_the_open_service_librarys_track_need_no_library_records() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+
+    // The library records cannot be read for now, but the open library's binding knows its own
+    // items without them.
+    let records = Path::new(&*node.config_path).join("libraries.json");
+    let kept = fs::read(&records)?;
+    fs::write(&records, b"unreadable")?;
+    let lyrics = dispatch_gui_request(
+        &ui,
+        &GetLyricByTrackIdRequest {
+            item: Some(service_item(record_id, "song-opaque")),
+            call_id: None,
+        },
+    )
+    .await;
+    fs::write(&records, kept)?;
+    assert!(!lyrics?.context("lyrics")?.lines.is_empty());
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_color_of_a_service_track_comes_from_its_cover_while_a_local_library_is_open()
 -> Result<()> {
     let dir = tempfile::tempdir()?;
