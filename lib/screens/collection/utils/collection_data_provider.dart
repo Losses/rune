@@ -267,6 +267,9 @@ class CollectionDataProvider with ChangeNotifier {
   Future<void>? _reloadPasses;
   bool _reloadAgain = false;
 
+  /// Loads the list again, keeping the items on screen until the new ones
+  /// have arrived. A failure keeps the old items and sets [pageError], and the
+  /// returned future completes either way.
   Future<void> reloadData() {
     final running = _reloadPasses;
     if (running != null) {
@@ -278,16 +281,10 @@ class CollectionDataProvider with ChangeNotifier {
 
   Future<void> _runReloadPasses() async {
     try {
-      while (true) {
+      do {
         _reloadAgain = false;
-        try {
-          await _startReload();
-        } catch (_) {
-          // A failed pass stands unless a later call asked for another.
-          if (!_reloadAgain) rethrow;
-        }
-        if (!_reloadAgain || _disposed) return;
-      }
+        await _startReload();
+      } while (_reloadAgain && !_disposed);
     } finally {
       _reloadPasses = null;
     }
@@ -309,7 +306,8 @@ class CollectionDataProvider with ChangeNotifier {
 
   // Keeps the old items on screen until the fresh pages have all arrived,
   // so a scrolled list does not jump back to the start. If a page fails,
-  // the old items stay and the next request reloads from page zero.
+  // the old items stay, [pageError] tells the screens, as a failed page does,
+  // and the next request reloads from page zero.
   Future<void> _reload(int generation) async {
     final fresh = <Group<InternalCollection>>[];
     var fetched = 0;
@@ -338,7 +336,6 @@ class CollectionDataProvider with ChangeNotifier {
       _pageRequested = false;
       pageError = error;
       notifyListeners();
-      rethrow;
     }
   }
 

@@ -125,7 +125,8 @@ void main() {
       pending = {0: Completer<(_Groups, bool)>()};
       final reload = provider.reloadData();
       pending[0]!.completeError(StateError('offline'));
-      await expectLater(reload, throwsStateError);
+      await reload;
+      expect(provider.pageError, isStateError);
       expect(_titles(provider.items), _pages('old', 2));
 
       pending = {};
@@ -181,13 +182,11 @@ void main() {
       pending = {2: Completer<(_Groups, bool)>()};
       final reload = provider.reloadData();
       final fetch = provider.fetchData();
-      final failures = [
-        expectLater(reload, throwsStateError),
-        expectLater(fetch, throwsStateError),
-      ];
       await Future<void>.delayed(Duration.zero);
       pending[2]!.completeError(StateError('offline'));
-      await Future.wait(failures);
+      // The failure is the provider's page error, as a failed page is.
+      await Future.wait([reload, fetch]);
+      expect(provider.pageError, isStateError);
       expect(_titles(provider.items), _pages('old', 2));
       expect(provider.cursor, 2);
       expect(provider.isLoading, isFalse);
@@ -217,7 +216,8 @@ void main() {
       pending = {0: Completer<(_Groups, bool)>()};
       final reload = provider.reloadData();
       pending[0]!.completeError(StateError('offline'));
-      await expectLater(reload, throwsStateError);
+      await reload;
+      expect(provider.pageError, isStateError);
       expect(provider.isLoading, isFalse);
       expect(provider.cursor, 1);
       expect(_titles(provider.items), _pages('old', 1));
@@ -255,6 +255,25 @@ void main() {
     appendPage.complete((_groups('old1-', 3), false));
     await append;
     expect(_titles(provider.items), _pages('new', 2));
+    provider.dispose();
+  });
+
+  test('a content change whose reload fails keeps the items and reports the '
+      'page error without throwing', () async {
+    final provider = makeProvider();
+    await provider.fetchData();
+    await provider.fetchData();
+
+    prefix = 'new';
+    pending = {0: Completer<(_Groups, bool)>()};
+    contentChanged.add(null);
+    pending[0]!.completeError(StateError('offline'));
+    // An error nobody handled would fail this test.
+    await pumpEventQueue();
+
+    expect(provider.pageError, isStateError);
+    expect(_titles(provider.items), _pages('old', 2));
+    expect(provider.isLoading, isFalse);
     provider.dispose();
   });
 
