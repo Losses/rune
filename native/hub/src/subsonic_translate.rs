@@ -2086,13 +2086,7 @@ pub(crate) async fn mix_query_request(
         }
         Plan::Collection(MixTarget::Playlist(id)) => paged(playlist_songs(binding, id).await?),
         Plan::All if !cover_only => {
-            song_page(
-                binding,
-                u32::try_from(cursor).unwrap_or(u32::MAX),
-                u32::try_from(page_size).unwrap_or(u32::MAX),
-                MixQueryRequest::wire_name(),
-            )
-            .await?
+            songs_from(binding, cursor, page_size, MixQueryRequest::wire_name()).await?
         }
         // The server cannot be asked for songs with a cover, so the song list is read, as far
         // as a bounded pool of it, and filtered here.
@@ -2138,10 +2132,21 @@ pub(crate) async fn mix_query_request(
 const RESOLVE_PAGE_SIZE: u32 = 500;
 
 /// The server's first `limit` songs in the order the tracks page lists them, read for
-/// `request`. Only an empty page ends the list: a server may return fewer songs than a page
-/// asks for. No page asks for more songs than are still wanted.
+/// `request`.
 async fn tracks_page_songs(
     binding: &SubsonicBinding,
+    limit: usize,
+    request: &'static str,
+) -> Result<Vec<SubsonicSong>> {
+    songs_from(binding, 0, limit, request).await
+}
+
+/// The server's songs in the order the tracks page lists them from `offset` on, at most `limit`
+/// of them, read for `request`. Only an empty page ends the list: a server may return fewer
+/// songs than a page asks for. No page asks for more songs than are still wanted.
+async fn songs_from(
+    binding: &SubsonicBinding,
+    offset: usize,
     limit: usize,
     request: &'static str,
 ) -> Result<Vec<SubsonicSong>> {
@@ -2149,7 +2154,7 @@ async fn tracks_page_songs(
     while songs.len() < limit {
         let page = song_page(
             binding,
-            u32::try_from(songs.len())?,
+            u32::try_from(offset.saturating_add(songs.len()))?,
             u32::try_from(limit - songs.len())
                 .map_or(RESOLVE_PAGE_SIZE, |left| left.min(RESOLVE_PAGE_SIZE)),
             request,
@@ -5788,6 +5793,28 @@ mod tests {
             library_tracks(library, &["song-1", "song-2", "gone"])
         );
         assert_eq!(endpoint_count(&server, "search3"), reads);
+    }
+
+    #[tokio::test]
+    async fn a_page_of_every_track_reads_on_past_a_short_server_page() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        server.state.song_page_cap.store(2, Ordering::SeqCst);
+        let mut request = mix_request(&[("lib::all", "true")]);
+        request.cursor = 1;
+        request.page_size = 3;
+        let page = mix_query_request(&binding, &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            page.files
+                .iter()
+                .map(|file| file.title.as_str())
+                .collect::<Vec<_>>(),
+            ["song-2", "song-3", "song-4"]
+        );
     }
 
     fn assert_secret_free(value: &str) {
