@@ -1663,20 +1663,37 @@ async fn a_status_from_before_a_pause_or_a_seek_is_dropped() -> Result<()> {
 
         // The host still played when it reported.
         f.report(status(1, true, 3_000))?;
-        f.settle().await?;
-        while f.events.try_recv().is_ok() {}
-        assert_eq!(next_progress(&mut f.events).await?, paused_at);
+        stays_paused_at(f, paused_at).await?;
 
         f.send(PlayerCommand::Seek(30.0))?;
         expect_paused(&mut f.events, &hosted).await?;
         f.report(status(2, false, 600))?;
-        f.settle().await?;
-        while f.events.try_recv().is_ok() {}
-        assert_eq!(next_progress(&mut f.events).await?, Duration::from_secs(30));
+        stays_paused_at(f, Duration::from_secs(30)).await?;
         f.assert_all_available();
         Ok(())
     })
     .await
+}
+
+// Checks that the current track stays paused at `position` while the player handles what was
+// sent so far, and for a few ticks after. A paused track reports its place once, and again only
+// when it changes, so the reports may hold none: a report of playing or of another place fails.
+async fn stays_paused_at(f: &mut Fixture, position: Duration) -> Result<()> {
+    let mut seen = f.settle().await?;
+    tokio::time::sleep(PROGRESS_INTERVAL * 3).await;
+    while let Ok(event) = f.events.try_recv() {
+        seen.push(event);
+    }
+    for event in &seen {
+        match event {
+            PlayerEvent::Progress {
+                position: reported, ..
+            } => anyhow::ensure!(*reported == position, "{seen:?}"),
+            PlayerEvent::Playing { .. } | PlayerEvent::Paused { .. } => bail!("{seen:?}"),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]
