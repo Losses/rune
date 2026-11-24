@@ -198,7 +198,14 @@ class FFTVisualizeState extends State<FFTVisualize>
           alignment: widget.alignment,
           child: SizedBox(
             height: parentHeight * 2,
-            child: CustomPaint(painter: FFTPainter(_bars, color, _glow)),
+            child: CustomPaint(
+              painter: FFTPainter(
+                _bars,
+                color,
+                _glow,
+                MediaQuery.devicePixelRatioOf(context),
+              ),
+            ),
           ),
         );
       },
@@ -250,7 +257,7 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 /// deviations: 59 of the player's 512 bars on a screen 640 pixels wide. In
 /// two, a pixel takes the few bars of its column, and then 25 columns. With
 /// nothing else on the screen of a Radxa ZERO 3, its GPU at 400 MHz, the glow
-/// in two passes loads the GPU 20%, in one 69%, and as the old blur filter
+/// in two passes loads the GPU 24%, in one 69%, and as the old blur filter
 /// drew it 32%.
 ///
 /// The image covers the area's upper half. It is drawn scaled up over that
@@ -280,6 +287,26 @@ class SpectrumGlow {
   /// in.
   static const int maxReach = 72;
 
+  /// The width in logical pixels of the seam that drawing two neighbouring
+  /// bars as separate lines left between them, on a screen of
+  /// [devicePixelRatio] pixels for each logical pixel.
+  ///
+  /// The glow before the shaders drew the bars as lines, one after another,
+  /// under a blur filter. Under Skia each line covers its part of a pixel the
+  /// two share, and blending the second over the first leaves the pixel short
+  /// by the product of the parts: if the first covers f, by f (1 - f). Over
+  /// where the seam falls in its pixel, which moves with the screen's width,
+  /// its pixel ratio and the window's place, that is a sixth of a pixel on
+  /// average, for as far up and down as both bars reach. The shaders take it
+  /// out, so that the glow is as bright as it was: on a Radxa ZERO 3 the
+  /// lines lost 11% of the glow, on desktops 1200 to 1600 wide 4 to 6% at a
+  /// pixel ratio of 1 and up to 4% at 2. Impeller drew the lines without
+  /// seams, and the glow keeps them whole there.
+  /// [ui.ImageFilter.isShaderFilterSupported] is how a Flutter app learns that
+  /// Impeller draws: it holds exactly when Impeller is on.
+  static double seamWidth(double devicePixelRatio) =>
+      ui.ImageFilter.isShaderFilterSupported ? 0 : 1 / (6 * devicePixelRatio);
+
   /// lib/shaders/spectrum_bars.frag, the first pass.
   final ui.FragmentShader _barsShader;
 
@@ -300,8 +327,15 @@ class SpectrumGlow {
       ? null
       : Size(_lastImage!.width.toDouble(), _lastImage!.height.toDouble());
 
-  /// Draws the glow of [values] over [size].
-  void paint(Canvas canvas, Size size, List<double> values, Color color) {
+  /// Draws the glow of [values] over [size], on a screen of
+  /// [devicePixelRatio] pixels for each logical pixel.
+  void paint(
+    Canvas canvas,
+    Size size,
+    List<double> values,
+    Color color,
+    double devicePixelRatio,
+  ) {
     if (values.isEmpty) return;
     assert(
       values.length <= maxBars,
@@ -326,7 +360,8 @@ class SpectrumGlow {
       ..setFloat(maxBars + 1, middle)
       ..setFloat(maxBars + 2, count.toDouble())
       ..setFloat(maxBars + 3, blurSigma)
-      ..setFloat(maxBars + 4, 1 / resolution);
+      ..setFloat(maxBars + 4, 1 / resolution)
+      ..setFloat(maxBars + 5, seamWidth(devicePixelRatio));
 
     // The glow below the middle line is the glow above it upside down. The
     // image covers the upper half of the area the blur filter drew into, and
@@ -418,7 +453,8 @@ class SpectrumGlow {
 }
 
 class FFTPainter extends CustomPainter {
-  FFTPainter(this.bars, this.color, this.glow) : super(repaint: bars);
+  FFTPainter(this.bars, this.color, this.glow, this.devicePixelRatio)
+    : super(repaint: bars);
 
   final FFTBars bars;
   final Color color;
@@ -426,13 +462,17 @@ class FFTPainter extends CustomPainter {
   /// The glow, or null while its shaders load.
   final SpectrumGlow? glow;
 
+  /// The screen's pixels for each logical pixel.
+  final double devicePixelRatio;
+
   @override
   void paint(Canvas canvas, Size size) =>
-      glow?.paint(canvas, size, bars.values, color);
+      glow?.paint(canvas, size, bars.values, color, devicePixelRatio);
 
   @override
   bool shouldRepaint(FFTPainter oldDelegate) =>
       oldDelegate.bars != bars ||
       oldDelegate.color != color ||
-      oldDelegate.glow != glow;
+      oldDelegate.glow != glow ||
+      oldDelegate.devicePixelRatio != devicePixelRatio;
 }

@@ -13,14 +13,11 @@ const _width = 640.0, _height = 160.0;
 const _margin = 48.0;
 const _color = Color(0xFF0078D4);
 
-/// What the spectrum drew before its glow became a shader: solid bars as wide
-/// as a band, under a blur of 12 and an opacity of 0.87.
-///
-/// The bars are one path. The app drew each as a line of its own, and where
-/// two narrow bars share a pixel, blending their partial coverage one after
-/// the other loses some of it: 512 bars over 640 pixels lost 12% of the glow,
-/// in seams up to 31 levels darker. One path covers each pixel by the bars'
-/// true area, which the shaders work out.
+/// The bars as the spectrum drew them before its glow became shaders
+/// (d50ea3ef), under its blur filter in [_blurredBars]: each a line as wide as
+/// a band, drawn one after another. Where two of them share a pixel, Skia
+/// blends the second's part over the first's and leaves seams, which the
+/// shaders take out on average ([SpectrumGlow.seamWidth]).
 class _Bars extends CustomPainter {
   _Bars(this.values);
 
@@ -28,21 +25,15 @@ class _Bars extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barWidth = size.width / values.length;
+    final paint = Paint()
+      ..color = _color
+      ..strokeWidth = size.width / values.length;
     final midY = size.height / 2;
-    final bars = Path();
     for (int i = 0; i < values.length; i++) {
+      final x = i * (size.width / values.length);
       final y = values[i] * size.height / 2;
-      bars.addRect(
-        Rect.fromLTRB(
-          (i - 0.5) * barWidth,
-          midY - y,
-          (i + 0.5) * barWidth,
-          midY + y,
-        ),
-      );
+      canvas.drawLine(Offset(x, midY - y), Offset(x, midY + y), paint);
     }
-    canvas.drawPath(bars, Paint()..color = _color);
   }
 
   @override
@@ -94,11 +85,16 @@ Future<_Glows> _glows(WidgetTester tester) async {
   );
 }
 
-Future<Uint8List> _pixels(WidgetTester tester, Key key) async {
+/// The pixels of [key], drawn at [pixelRatio] pixels for each logical pixel.
+Future<Uint8List> _pixels(
+  WidgetTester tester,
+  Key key, {
+  double pixelRatio = 1,
+}) async {
   final boundary =
       tester.renderObject(find.byKey(key)) as RenderRepaintBoundary;
   return (await tester.runAsync(() async {
-    final image = await boundary.toImage();
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
     final data = await image.toByteData();
     image.dispose();
     return data!.buffer.asUint8List();
@@ -174,23 +170,30 @@ double _below(double z) {
 }
 
 /// The glow's alpha in levels of 255 at ([x], [y]) in the bars' box, worked
-/// out from what it is: the bars under a Gaussian blur of
-/// [SpectrumGlow.blurSigma], faded to [SpectrumGlow.glowOpacity]. Bars more
-/// than 5 deviations away across add under 3e-7 each and are left out.
+/// out from what it is: the bars, less the seams of [SpectrumGlow.seamWidth]
+/// between neighbours as far up and down as both reach, under a Gaussian
+/// blur of [SpectrumGlow.blurSigma], faded to [SpectrumGlow.glowOpacity].
+/// Bars more than 5 deviations away across add under 3e-7 each and are left
+/// out.
 double _exactAlpha(List<double> values, double x, double y) {
   const sigma = SpectrumGlow.blurSigma;
   const middle = _height / 2;
   final barWidth = _width / values.length;
+  final seam = SpectrumGlow.seamWidth(1);
+  double across(double from, double to) =>
+      _below((to - x) / sigma) - _below((from - x) / sigma);
+  double along(double half) =>
+      _below((middle + half - y) / sigma) - _below((middle - half - y) / sigma);
   var glow = 0.0;
   for (var i = 0; i < values.length; i++) {
     final left = (i - 0.5) * barWidth;
     if (left + barWidth < x - 5 * sigma || left > x + 5 * sigma) continue;
     final h = values[i] * _height / 2;
-    final across =
-        _below((left + barWidth - x) / sigma) - _below((left - x) / sigma);
-    final along =
-        _below((middle + h - y) / sigma) - _below((middle - h - y) / sigma);
-    glow += across * along;
+    glow += across(left, left + barWidth) * along(h);
+    if (i > 0) {
+      final shorter = min(h, values[i - 1] * _height / 2);
+      glow -= across(left - seam / 2, left + seam / 2) * along(shorter);
+    }
   }
   return 255 * SpectrumGlow.glowOpacity * glow;
 }
@@ -206,58 +209,93 @@ void main() {
     'quiet': List.generate(64, (i) => 0.04 * (i % 5)),
   };
 
-  testWidgets('the shaders draw the glow the blurred, faded bars drew, and '
-      'drawing it at a third of the resolution changes it by 2 levels at most', (
-    tester,
-  ) async {
+  testWidgets('the glow is as the separate lines drew it before the shaders, '
+      'at pixel ratios of 1, 1.5 and 2', (tester) async {
+    final glows = await _glows(tester);
+    final glow = glows();
+    addTearDown(glow.dispose);
+    final results = <String, ({double brightness, _Difference difference})>{};
+
+    for (final seed in [1, 7]) {
+      final values = _playerSpectrum(seed);
+      final bars = FFTBars()..values = values;
+      addTearDown(bars.dispose);
+      for (final ratio in [1.0, 1.5, 2.0]) {
+        final before = Key('before $seed $ratio');
+        final after = Key('after $seed $ratio');
+        await tester.pumpWidget(_framed(before, _blurredBars(values)));
+        final drawn = await _pixels(tester, before, pixelRatio: ratio);
+        await tester.pumpWidget(
+          _framed(
+            after,
+            CustomPaint(painter: FFTPainter(bars, _color, glow, ratio)),
+          ),
+        );
+        final drawing = await _pixels(tester, after, pixelRatio: ratio);
+        var drawnAlpha = 0, drawingAlpha = 0;
+        for (var p = 3; p < drawn.length; p += 4) {
+          drawnAlpha += drawn[p];
+          drawingAlpha += drawing[p];
+        }
+        results['seed $seed, ratio $ratio'] = (
+          brightness: drawingAlpha / drawnAlpha,
+          difference: _compare(drawn, drawing),
+        );
+      }
+    }
+
+    // The blur filter is itself an approximation of a Gaussian (in tests,
+    // Skia's software blur), which the shaders work out to 3 deviations: they
+    // differ by up to 5 levels along the edges of the glow, in up to 2% of
+    // the pixels. Leaving the seams in (the glow 12% brighter at a ratio of
+    // 1), taking out seams of a sixth of a logical pixel at any ratio, seams
+    // as far up and down as the taller bar reaches, shaders given a deviation
+    // of 11, the glow at an opacity of 1, or the middle line a pixel off
+    // breaks one of these bounds.
+    expect(
+      results.values.every(
+        (r) =>
+            (r.brightness - 1).abs() <= 0.01 &&
+            r.difference.largest <= 5 &&
+            r.difference.overTwo <= 0.025 &&
+            r.difference.lost == 0,
+      ),
+      isTrue,
+      reason: '$results',
+    );
+  });
+
+  testWidgets('drawing the glow at a third of the resolution changes it by 2 '
+      'levels at most', (tester) async {
     final glows = await _glows(tester);
     final glow = glows();
     final fullGlow = glows(resolution: 1);
     addTearDown(glow.dispose);
     addTearDown(fullGlow.dispose);
-    final results = <String, _Difference>{};
     final scaling = <String, _Difference>{};
 
     for (final MapEntry(key: name, value: values) in cases.entries) {
-      const before = Key('before'), after = Key('after'), full = Key('full');
+      const after = Key('after'), full = Key('full');
       final bars = FFTBars()..values = values;
       addTearDown(bars.dispose);
-
-      await tester.pumpWidget(_framed(before, _blurredBars(values)));
-      final drawn = await _pixels(tester, before);
-
       await tester.pumpWidget(
-        _framed(after, CustomPaint(painter: FFTPainter(bars, _color, glow))),
+        _framed(after, CustomPaint(painter: FFTPainter(bars, _color, glow, 1))),
       );
       final drawing = await _pixels(tester, after);
-
       await tester.pumpWidget(
-        _framed(full, CustomPaint(painter: FFTPainter(bars, _color, fullGlow))),
+        _framed(
+          full,
+          CustomPaint(painter: FFTPainter(bars, _color, fullGlow, 1)),
+        ),
       );
       final fullDrawing = await _pixels(tester, full);
-
-      results[name] = _compare(drawn, fullDrawing);
       scaling[name] = _compare(fullDrawing, drawing);
     }
 
-    // The blur filter is itself an approximation of a Gaussian (in tests,
-    // Skia's software blur), which the shaders compute to 3 deviations: they
-    // differ by up to 5 levels, along the edges of the glow, in about 2% of
-    // the pixels. Shaders given a deviation of 11, the glow at an opacity of
-    // 1, the middle line a pixel off, or the bars blurred up and down or
-    // across only to 2 deviations breaks one of these bounds.
-    expect(
-      results.values.every(
-        (r) => r.largest <= 5 && r.overTwo <= 0.025 && r.lost == 0,
-      ),
-      isTrue,
-      reason: '$results',
-    );
     // Working the glow out at a third of the resolution, as the app does, and
-    // scaling it back up moves no pixel by more than 2 levels, which the image's rounding to
-    // whole levels before and after the scaling accounts for (few pixels move
-    // by 2: under 0.02% over 16 spectra, the bars a fraction of a pixel off or
-    // not). Drawing the small image a pixel and a half off, or scaling it up
+    // scaling it back up moves no pixel by more than 2 levels, which the
+    // image's rounding to whole levels before and after the scaling accounts
+    // for. Drawing the small image a pixel and a half off, or scaling it up
     // without filtering, breaks this bound.
     expect(
       scaling.values.every((r) => r.largest <= 2 && r.lost == 0),
@@ -283,7 +321,10 @@ void main() {
           addTearDown(bars.dispose);
           final key = Key('$name $label');
           await tester.pumpWidget(
-            _framed(key, CustomPaint(painter: FFTPainter(bars, _color, glow))),
+            _framed(
+              key,
+              CustomPaint(painter: FFTPainter(bars, _color, glow, 1)),
+            ),
           );
           final pixels = await _pixels(tester, key);
           final columns = (_width + 2 * _margin).toInt();
@@ -336,16 +377,15 @@ void main() {
     await tester.pumpWidget(
       _framed(
         after,
-        CustomPaint(painter: FFTPainter(bars, _color, glow)),
+        CustomPaint(painter: FFTPainter(bars, _color, glow, 1)),
         height: 161,
       ),
     );
     final drawing = await _pixels(tester, after);
 
-    // The bounds of the comparison above. Drawing the halves antialiased
-    // darkens the row the line crosses, by 49 levels here, and flipping the
-    // lower half about a line a pixel off leaves a row empty: either breaks
-    // these bounds.
+    // The bounds of the comparison with the lines. Drawing the halves
+    // antialiased darkens the row the line crosses, and flipping the lower
+    // half about a line a pixel off leaves a row empty: either breaks them.
     final difference = _compare(drawn, drawing);
     expect(
       difference.largest <= 5 &&
@@ -378,7 +418,7 @@ void main() {
       await tester.pumpWidget(
         _framed(
           Key(name),
-          CustomPaint(painter: FFTPainter(bars, _color, glow)),
+          CustomPaint(painter: FFTPainter(bars, _color, glow, 1)),
         ),
       );
       sizes[name] = glow.lastImageSize;
