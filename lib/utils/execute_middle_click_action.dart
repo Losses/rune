@@ -4,6 +4,7 @@ import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
 
+import '../providers/request_capabilities.dart';
 import 'api/operate_playback_with_mix_query.dart';
 import 'api/request_failure.dart';
 import 'dialogs/information/error.dart';
@@ -15,6 +16,11 @@ import 'playing_item.dart';
 import 'settings_manager.dart';
 import 'get_non_replace_operate_mode.dart';
 
+/// The action a middle click runs. A library without analysis data cannot
+/// roam, so the click plays instead.
+String middleClickActionFor(String action, {required bool canRoam}) =>
+    action == "StartRoaming" && !canRoam ? "StartPlaying" : action;
+
 Future<void> executeMiddleClickAction(
   BuildContext context,
   CollectionType collectionType,
@@ -25,6 +31,11 @@ Future<void> executeMiddleClickAction(
       "StartPlaying";
 
   if (!context.mounted) return;
+
+  middleClickAction = middleClickActionFor(
+    middleClickAction,
+    canRoam: canStartRoaming(context),
+  );
 
   try {
     switch (middleClickAction) {

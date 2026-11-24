@@ -12,6 +12,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/request_capabilities.dart';
 import '../../providers/library_open_state.dart';
 import '../../providers/status.dart';
+import '../../screens/collection/utils/is_user_generated.dart';
 import '../../utils/context_menu/offline_selection.dart';
 import '../../utils/l10n.dart';
 import '../../utils/playing_item.dart';
@@ -271,7 +272,110 @@ Widget playbackControls(
   ),
 );
 
+/// A page that shows what [read] tells of the open library, with [provider] as
+/// its capabilities when there is one.
+Widget capabilityProbe(
+  RequestCapabilitiesProvider? provider,
+  String Function(BuildContext context) read,
+) {
+  final app = FluentApp(
+    home: Builder(builder: (context) => Text(read(context))),
+  );
+  return provider == null
+      ? app
+      : ChangeNotifierProvider<RequestCapabilitiesProvider>.value(
+          value: provider,
+          child: app,
+        );
+}
+
 void main() {
+  group('collection creation', () {
+    String creatable(BuildContext context) => [
+      for (final type in [CollectionType.mix, CollectionType.playlist])
+        '${type.name}: ${canCreateCollection(context, type)}',
+    ].join(', ');
+
+    testWidgets('a mix may be created only when the capability allows it', (
+      tester,
+    ) async {
+      final provider = RequestCapabilitiesProvider(
+        changes: const Stream.empty(),
+        initial: snapshot().copyWith(
+          createMixRequest: const RequestCapabilityHidden(),
+        ),
+      );
+      addTearDown(provider.dispose);
+      await tester.pumpWidget(capabilityProbe(provider, creatable));
+      expect(find.text('mix: false, playlist: true'), findsOneWidget);
+    });
+
+    testWidgets('a mix may be created without a provider or a snapshot', (
+      tester,
+    ) async {
+      await tester.pumpWidget(capabilityProbe(null, creatable));
+      expect(find.text('mix: true, playlist: true'), findsOneWidget);
+
+      final provider = RequestCapabilitiesProvider(
+        changes: const Stream.empty(),
+      );
+      addTearDown(provider.dispose);
+      await tester.pumpWidget(capabilityProbe(provider, creatable));
+      expect(provider.snapshot, isNull);
+      expect(find.text('mix: true, playlist: true'), findsOneWidget);
+    });
+
+    testWidgets('an empty page follows a snapshot that comes later', (
+      tester,
+    ) async {
+      final changes = StreamController<RequestCapabilities>();
+      addTearDown(changes.close);
+      final provider = RequestCapabilitiesProvider(changes: changes.stream);
+      addTearDown(provider.dispose);
+      String detail(BuildContext context) => [
+        for (final type in [
+          CollectionType.mix,
+          CollectionType.playlist,
+          CollectionType.album,
+        ])
+          '${type.name}: ${emptyPageShowsDetail(context, type)}',
+      ].join(', ');
+      await tester.pumpWidget(capabilityProbe(provider, detail));
+      expect(
+        find.text('mix: true, playlist: true, album: true'),
+        findsOneWidget,
+      );
+
+      changes.add(
+        snapshot().copyWith(createMixRequest: const RequestCapabilityHidden()),
+      );
+      await tester.pump();
+      expect(
+        find.text('mix: false, playlist: true, album: true'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an M3U8 playlist may be imported only when available', (
+      tester,
+    ) async {
+      String importable(BuildContext context) =>
+          'import: ${canImportM3u8Playlist(context)}';
+      await tester.pumpWidget(capabilityProbe(null, importable));
+      expect(find.text('import: true'), findsOneWidget);
+
+      final provider = RequestCapabilitiesProvider(
+        changes: const Stream.empty(),
+        initial: snapshot().copyWith(
+          createM3u8PlaylistRequest: const RequestCapabilityHidden(),
+        ),
+      );
+      addTearDown(provider.dispose);
+      await tester.pumpWidget(capabilityProbe(provider, importable));
+      expect(find.text('import: false'), findsOneWidget);
+    });
+  });
+
   testWidgets('every capability reason has its own text', (tester) async {
     final texts = <CapabilityReason, String>{};
     await tester.pumpWidget(

@@ -761,19 +761,23 @@ class RuneLifecycleState extends State<RuneLifecycle> {
       unawaited(
         startCafePlaybackAfterOpen(
           libraryOpened: context.read<LibraryOpenStateProvider>().initialOpen,
-          play: () => operatePlaybackWithMixQuery(
-            queries: const QueryList([
-              ("lib::random", "1"),
-              ("filter::analyzed", "true"),
-              ("pipe::recommend", "-1"),
-            ]),
-            playbackMode: null,
-            hintPosition: -1,
-            initialPlaybackId: null,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.replace,
-            fallbackPlayingItems: [],
-          ).then((_) {}),
+          play: () async {
+            // A library without analysis data cannot roam.
+            if (!mounted || !canStartRoaming(context)) return;
+            await operatePlaybackWithMixQuery(
+              queries: const QueryList([
+                ("lib::random", "1"),
+                ("filter::analyzed", "true"),
+                ("pipe::recommend", "-1"),
+              ]),
+              playbackMode: null,
+              hintPosition: -1,
+              initialPlaybackId: null,
+              instantlyPlay: true,
+              operateMode: PlaylistOperateMode.replace,
+              fallbackPlayingItems: [],
+            );
+          },
         ),
       );
     }

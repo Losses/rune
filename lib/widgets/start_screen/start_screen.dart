@@ -166,7 +166,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               },
             ),
             if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
-                data.collectionType == CollectionType.mix)
+                data.collectionType == CollectionType.mix &&
+                canCreateCollection(context, data.collectionType))
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newMix),
@@ -188,7 +189,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 },
               ),
             if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
-                data.collectionType == CollectionType.playlist)
+                data.collectionType == CollectionType.playlist &&
+                canImportM3u8Playlist(context))
               MenuFlyoutItem(
                 leading: const Icon(Symbols.download),
                 text: Text(S.of(context).importM3u8),
@@ -226,6 +228,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final showEmptyDetail = emptyPageShowsDetail(context, data.collectionType);
     final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
@@ -280,6 +283,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                               hasRecommendation: false,
                               reloadData: data.reloadData,
                               userGenerated: isUserGenerated,
+                              showDetail: showEmptyDetail,
                             )
                           : Container(),
                     ),

@@ -13413,6 +13413,35 @@ async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subsonic_capabilities_hide_roaming_and_the_playlist_file_but_not_play_on() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+
+    // A Subsonic library has no analysis and no files of its own, so the UI hides what needs
+    // them. Another device can still play it.
+    let capabilities = capability_snapshot(&node)?;
+    assert_ne!(
+        capabilities.get_analyze_count_request,
+        RequestCapability::Available
+    );
+    assert_ne!(
+        capabilities.fetch_directory_tree_request,
+        RequestCapability::Available
+    );
+    assert_eq!(
+        capabilities.cast_resolved_items_request,
+        RequestCapability::Available
+    );
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_open_subsonic_library_answers_its_home() -> Result<()> {
     use crate::messages::{
         ComplexQuery, ComplexQueryRequest, LibraryHomeListMode, LibraryHomeQuery,

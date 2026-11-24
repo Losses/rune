@@ -68,6 +68,19 @@ void main() {
     expect(resumed, isTrue);
   });
 
+  test('a middle click roams only where the library can', () {
+    expect(middleClickActionFor('StartRoaming', canRoam: true), 'StartRoaming');
+    expect(
+      middleClickActionFor('StartRoaming', canRoam: false),
+      'StartPlaying',
+    );
+    expect(middleClickActionFor('AddToQueue', canRoam: false), 'AddToQueue');
+    expect(
+      middleClickActionFor('StartPlaying', canRoam: false),
+      'StartPlaying',
+    );
+  });
+
   testWidgets('collection Play on is hidden for a remote-control library', (
     tester,
   ) async {

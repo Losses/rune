@@ -111,6 +111,7 @@ class BandScreenState extends State<BandScreen> {
     final pageError = data.pageError;
 
     final isUserGenerated = userGenerated(data.collectionType);
+    final showEmptyDetail = emptyPageShowsDetail(context, data.collectionType);
 
     final direction =
         deviceType == DeviceType.band || deviceType == DeviceType.belt
@@ -143,6 +144,7 @@ class BandScreenState extends State<BandScreen> {
                 hasRecommendation: false,
                 reloadData: data.reloadData,
                 userGenerated: isUserGenerated,
+                showDetail: showEmptyDetail,
               )
             : Container(),
       ),

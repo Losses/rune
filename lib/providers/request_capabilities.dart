@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../bindings/bindings.dart';
+import 'library_open_state.dart';
 import 'status.dart';
 
 class RequestCapabilitiesProvider extends ChangeNotifier {
@@ -54,6 +55,20 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
       _snapshot?.addItemToMixRequest ?? const RequestCapabilityAvailable();
   RequestCapability get complexQueryRequest =>
       _snapshot?.complexQueryRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get getAnalyzeCountRequest =>
+      _snapshot?.getAnalyzeCountRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get fetchDirectoryTreeRequest =>
+      _snapshot?.fetchDirectoryTreeRequest ??
+      const RequestCapabilityAvailable();
+  RequestCapability get castResolvedItemsRequest =>
+      _snapshot?.castResolvedItemsRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get fetchAllPlaylistsRequest =>
+      _snapshot?.fetchAllPlaylistsRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get createMixRequest =>
+      _snapshot?.createMixRequest ?? const RequestCapabilityAvailable();
+  RequestCapability get createM3u8PlaylistRequest =>
+      _snapshot?.createM3u8PlaylistRequest ??
+      const RequestCapabilityAvailable();
 
   void _update(RequestCapabilities snapshot) {
     _snapshot = snapshot;
@@ -92,6 +107,52 @@ RequestCapability capabilityForRequest(
       ? const RequestCapabilityAvailable()
       : select(capabilities);
 }
+
+/// Whether the open library answers a request, so it may be asked. Without a
+/// capability provider every request counts as answered.
+bool requestAvailable(
+  BuildContext context,
+  RequestCapability Function(RequestCapabilitiesProvider provider) select, {
+  bool listen = false,
+}) =>
+    capabilityForRequest(context, select, listen: listen)
+        is RequestCapabilityAvailable;
+
+/// Whether the open library answers a request that belongs to the library, not
+/// to the device. A snapshot of another record, as a renderer sends while this
+/// device plays on it, says nothing about the library open here, so the request
+/// then counts as answered. While this device remote-controls a library, the
+/// snapshot is the one of that library.
+bool _libraryAnswers(
+  BuildContext context,
+  RequestCapability Function(RequestCapabilitiesProvider provider) select,
+) {
+  final capabilities = requestCapabilitiesOf(context, listen: false);
+  if (capabilities == null) return true;
+  final state = Provider.of<LibraryOpenStateProvider?>(context, listen: false);
+  final open = state?.openRecord;
+  if (state != null &&
+      !state.isRemoteControl &&
+      open != null &&
+      capabilities.snapshot?.recordId != open.recordId) {
+    return true;
+  }
+  return select(capabilities) is RequestCapabilityAvailable;
+}
+
+/// Whether the open library has analysis data to roam by, which the library of
+/// a streaming service does not.
+bool canStartRoaming(BuildContext context) =>
+    _libraryAnswers(context, (p) => p.getAnalyzeCountRequest);
+
+/// Whether the open library is made of files that a playlist file can list. The
+/// directory tree stands for that: only a library of files has one.
+bool canExportPlaylistFile(BuildContext context) =>
+    _libraryAnswers(context, (p) => p.fetchDirectoryTreeRequest);
+
+/// Whether the open library can be played on another device.
+bool canPlayOnOtherDevice(BuildContext context) =>
+    _libraryAnswers(context, (p) => p.castResolvedItemsRequest);
 
 RequestCapability _playPauseCapability(
   BuildContext context,
