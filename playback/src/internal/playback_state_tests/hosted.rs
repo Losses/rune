@@ -2904,6 +2904,36 @@ async fn time_the_player_did_not_run_does_not_count_as_silence() -> Result<()> {
     .await
 }
 
+// A command the player takes after a time it did not run, before its next progress tick, does
+// not count that time against the host: only the tick judges the deadline, once it left it out.
+#[tokio::test(start_paused = true)]
+async fn a_command_after_a_time_the_player_did_not_run_leaves_the_host_its_time() -> Result<()> {
+    let (mut internal, mut f) = hosted_engine(2, &[]);
+    let hosted = f.hosted("1440");
+    f.queue(std::slice::from_ref(&hosted))?;
+    f.send(PlayerCommand::Switch(0))?;
+    let event = run_until_track_state(&mut internal, &mut f.events).await?;
+    assert!(
+        matches!(&event, PlayerEvent::Playing { item, .. } if *item == hosted),
+        "{event:?}"
+    );
+    f.report(status(1, true, 0))?;
+    tokio::select! {
+        result = internal.run() => bail!("the player stopped: {result:?}"),
+        seen = f.settle() => drop(seen?),
+    }
+
+    // A minute passes in one step, and the player takes a command before its next tick.
+    tokio::time::advance(Duration::from_secs(60)).await;
+    internal.set_playback_mode(PlaybackMode::RepeatAll)?;
+    while let Ok(event) = f.events.try_recv() {
+        assert!(!matches!(event, PlayerEvent::Unavailable(..)), "{event:?}");
+    }
+    assert!(internal.hosted.is_some());
+    let _ = std::fs::remove_file(&f.wav_path);
+    f.host.check()
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_host_that_comes_up_again_gets_its_whole_run_again() -> Result<()> {
     let (internal, f) = run_engine();

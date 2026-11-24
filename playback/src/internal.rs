@@ -1429,7 +1429,9 @@ impl PlayerInternal {
                     if gap > FROZEN_GAP {
                         self.resume_after_freeze(gap.saturating_sub(PROGRESS_INTERVAL));
                     }
-                    if self.state != InternalPlaybackState::Stopped {
+                    // Only the tick judges a host's deadline, once it left out a time the process
+                    // did not run: a command taken before it may report progress too.
+                    if self.state != InternalPlaybackState::Stopped && !self.fail_overdue_host()? {
                         self.send_progress()?;
                     }
                 },
@@ -2806,14 +2808,7 @@ impl PlayerInternal {
             Instant::now(),
         );
 
-        if let Some(hosted) = &self.hosted {
-            if self.host_overdue(hosted) {
-                warn!(
-                    "Host {} did not report on its track in time",
-                    hosted.track.host
-                );
-                return self.hosted_failed(UnavailableReason::SourceUnreachable);
-            }
+        if self.hosted.is_some() {
             // The host reports the end of the track, so its position stands for the sink's.
             return self.report_progress(ProgressReport {
                 item: id,
@@ -3690,6 +3685,23 @@ impl PlayerInternal {
             Some(heard) => (heard.max(hosted.started_at), HOST_SILENCE_TIMEOUT),
         };
         since.elapsed() >= limit
+    }
+
+    // Fails the current hosted track when its host went quiet for too long. Returns whether it did.
+    fn fail_overdue_host(&mut self) -> Result<bool> {
+        let Some(hosted) = self
+            .hosted
+            .as_ref()
+            .filter(|hosted| self.host_overdue(hosted))
+        else {
+            return Ok(false);
+        };
+        warn!(
+            "Host {} did not report on its track in time",
+            hosted.track.host
+        );
+        self.hosted_failed(UnavailableReason::SourceUnreachable)?;
+        Ok(true)
     }
 
     // Play and Pause of a hosted track go to its host. While another track loads, the hosted one
