@@ -180,6 +180,7 @@ class Queue extends StatefulWidget {
 class _QueueState extends State<Queue> {
   final ScrollController _scrollController = ScrollController();
   late final StreamSubscription<RequestFailure> _failureSubscription;
+  static const _revealAttempts = 8;
   bool _revealScheduled = false;
 
   @override
@@ -206,14 +207,22 @@ class _QueueState extends State<Queue> {
     _failureSubscription.cancel();
   }
 
-  // Runs once, on the first build that has items, so the playing row is in
-  // view when the flyout opens. The rows build lazily and may differ in
-  // height, so the list first jumps to an estimate from the average row
-  // height, then the playing row, once built, is placed exactly.
+  // Runs once, on the first build that identifies the playing row, so the row
+  // is in view when the flyout opens. A build before the playback status
+  // arrives has no playing row yet, so it must not use up the one run. The
+  // rows build lazily and may differ in height, so the list jumps to an
+  // estimate from the average row height, then the playing row, once built, is
+  // placed exactly.
   void _revealCurrent(int index, int count) {
-    if (_revealScheduled) return;
+    if (_revealScheduled || index < 0) return;
     _revealScheduled = true;
-    if (index <= 0) return;
+    if (index == 0) return;
+    _jumpTowardsCurrent(index, count, _revealAttempts);
+  }
+
+  // The estimate improves with every jump because the rows built on the way
+  // raise or lower the average, so a few jumps reach a row the first one missed.
+  void _jumpTowardsCurrent(int index, int count, int attemptsLeft) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
       final position = _scrollController.position;
@@ -225,7 +234,12 @@ class _QueueState extends State<Queue> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final rowContext = _findCurrentRow(context);
-        if (rowContext == null) return;
+        if (rowContext == null) {
+          if (attemptsLeft > 1) {
+            _jumpTowardsCurrent(index, count, attemptsLeft - 1);
+          }
+          return;
+        }
         Scrollable.ensureVisible(rowContext, alignment: 0.2);
       });
     });

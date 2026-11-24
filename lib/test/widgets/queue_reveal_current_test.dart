@@ -14,7 +14,13 @@ import '../../providers/status.dart';
 import '../../widgets/playback_controller/queue.dart';
 
 void main() {
-  Future<void> pumpQueue(WidgetTester tester, {int? current}) async {
+  Future<void> pumpQueue(
+    WidgetTester tester, {
+    int? current,
+    int? laterCurrent,
+    int count = 100,
+    bool Function(int index)? unavailable,
+  }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(400, 400);
     addTearDown(tester.view.reset);
@@ -40,8 +46,11 @@ void main() {
     updates.add(
       PlaylistUpdate(
         items: [
-          for (var i = 0; i < 100; i++)
+          for (var i = 0; i < count; i++)
             PlaylistItem(
+              unavailable: unavailable != null && unavailable(i)
+                  ? PlaylistUnavailableReason.unreadable
+                  : null,
               item: PlayingItemRefIndependentFile(path: 'p$i'),
               artist: 'Artist',
               album: 'Album',
@@ -53,7 +62,7 @@ void main() {
         revision: Uint64.fromBigInt(BigInt.from(1)),
       ),
     );
-    if (current != null) {
+    void emit(int index) {
       statuses.add(
         RustSignalPack(
           PlaybackStatus(
@@ -62,8 +71,8 @@ void main() {
             progressSeconds: 0,
             progressPercentage: 0,
             duration: 60,
-            index: current,
-            itemRequest: PlayingItemRefIndependentFile(path: 'p$current'),
+            index: index,
+            itemRequest: PlayingItemRefIndependentFile(path: 'p$index'),
             playbackMode: PlaybackMode.sequential,
             ready: true,
             libPath: '',
@@ -72,6 +81,8 @@ void main() {
         ),
       );
     }
+
+    if (current != null) emit(current);
     await tester.pump();
     await tester.pump();
 
@@ -90,9 +101,11 @@ void main() {
         ),
       ),
     );
-    await tester.pump();
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
+    if (laterCurrent != null) {
+      emit(laterCurrent);
+      await tester.pumpAndSettle();
+    }
   }
 
   double offset(WidgetTester tester) =>
@@ -104,9 +117,12 @@ void main() {
     await pumpQueue(tester, current: 60);
 
     expect(find.text('Track 60'), findsOneWidget);
+    // Rows in the sliver cache are built but clipped, so the check is against
+    // the scrollable's own viewport, not the screen.
+    final viewport = tester.getRect(find.byType(Scrollable));
     final rect = tester.getRect(find.text('Track 60'));
-    expect(rect.top, greaterThanOrEqualTo(0));
-    expect(rect.bottom, lessThanOrEqualTo(400));
+    expect(rect.top, greaterThanOrEqualTo(viewport.top));
+    expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
     expect(offset(tester), greaterThan(0));
   });
 
@@ -122,5 +138,33 @@ void main() {
     await pumpQueue(tester);
 
     expect(offset(tester), 0);
+  });
+
+  testWidgets('the playing row is revealed when the status arrives after the '
+      'first build', (tester) async {
+    await pumpQueue(tester, laterCurrent: 60);
+
+    final viewport = tester.getRect(find.byType(Scrollable));
+    final rect = tester.getRect(find.text('Track 60'));
+    expect(rect.top, greaterThanOrEqualTo(viewport.top));
+    expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
+    expect(offset(tester), greaterThan(0));
+  });
+
+  testWidgets('the playing row is reached when rows differ in height', (
+    tester,
+  ) async {
+    await pumpQueue(
+      tester,
+      current: 650,
+      count: 1000,
+      unavailable: (i) => i >= 10 && i < 640,
+    );
+
+    final viewport = tester.getRect(find.byType(Scrollable));
+    expect(find.text('Track 650'), findsOneWidget);
+    final rect = tester.getRect(find.text('Track 650'));
+    expect(rect.top, greaterThanOrEqualTo(viewport.top));
+    expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
   });
 }
