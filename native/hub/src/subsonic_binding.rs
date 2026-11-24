@@ -13,8 +13,6 @@ use crate::{
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
-#[cfg(test)]
-use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str;
@@ -877,11 +875,6 @@ impl ServiceBinding for SubsonicBinding {
 
     fn close(&self) {
         self.stop_jukebox_polling();
-    }
-
-    #[cfg(test)]
-    fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
     }
 }
 

@@ -3,8 +3,6 @@
 pub(crate) mod covers;
 pub(crate) mod ids;
 
-#[cfg(test)]
-use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -80,10 +78,6 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
     /// the node shuts down. Opening another library in its place just drops the binding, so a
     /// binding must also stop that work when it is dropped.
     fn close(&self) {}
-
-    /// The binding as its service's own type, for tests that read the state of that service.
-    #[cfg(test)]
-    fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
 /// The player of a service that plays its library's tracks itself, such as a Subsonic server's

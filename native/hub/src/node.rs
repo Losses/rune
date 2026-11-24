@@ -47,8 +47,6 @@ use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
 use crate::service::ServiceBinding;
 use crate::session::PlayerWrap;
-#[cfg(test)]
-use crate::subsonic_binding::SubsonicBinding;
 use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
 use crate::{
@@ -1219,22 +1217,6 @@ impl NodeContext {
                 catalog: LibraryBinding::Service(binding),
                 ..
             }) if Arc::clone(binding).own_player().is_none() => Some(Arc::clone(binding)),
-            _ => None,
-        })
-    }
-
-    /// The open Subsonic binding, whose own state, such as the roles its probe found, tests read.
-    #[cfg(test)]
-    pub(crate) fn open_subsonic_binding(&self) -> Result<Option<Arc<SubsonicBinding>>> {
-        let ui = self
-            .ui_library
-            .lock()
-            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
-        Ok(match &*ui {
-            UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Service(binding),
-                ..
-            }) => Arc::clone(binding).into_any().downcast().ok(),
             _ => None,
         })
     }

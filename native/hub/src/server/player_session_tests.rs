@@ -430,7 +430,7 @@ async fn subsonic_relogin_response(
             state.user_received.notify_one();
             state.release_user.notified().await;
         }
-        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"downloadRole":rotated}}})
+        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":rotated}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
     } else {
@@ -1733,7 +1733,8 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Result<()> {
-    use crate::messages::ReplaceSubsonicCredentialRequest;
+    use crate::messages::{PlayRequest, ReplaceSubsonicCredentialRequest};
+    use crate::rpc::TargetRequest;
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -1757,7 +1758,7 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
         )
         .await?;
         // The old getUser response cannot finish the open until re-login has succeeded.
-        assert!(node.open_subsonic_binding()?.is_none());
+        assert!(!node.service_library_open());
         assert_eq!(
             node.credentials.get(credential).await?.secret.as_bytes(),
             b"new-password"
@@ -1774,10 +1775,11 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
     assert_eq!(playlists.len(), 1);
     assert_eq!(playlists[0].name, "Road");
     let binding = node
-        .open_subsonic_binding()?
+        .service_binding(record_id.0)?
         .context("open Subsonic binding")?;
-    assert!(
-        binding.probe.roles.download_role,
+    assert_eq!(
+        PlayRequest::slot(&binding.slots()),
+        Slot::Translate,
         "installed the old getUser response"
     );
 
@@ -11658,7 +11660,7 @@ async fn subsonic_library_opened_at_startup_answers_gui_requests_until_closed() 
             ui.main_token.is_cancelled(),
             "{mode:?} Subsonic GUI listeners kept running after close"
         );
-        assert!(node.open_subsonic_binding()?.is_none());
+        assert!(!node.service_library_open());
         assert!(node.current_ui().await.is_err());
         assert!(matches!(node.current_player()?, CurrentPlayer::Local));
 
@@ -11707,7 +11709,7 @@ async fn switching_to_and_from_a_subsonic_library_retires_the_previous_ui() -> R
         subsonic.main_token.is_cancelled(),
         "the Subsonic GUI listeners kept running after the local library opened"
     );
-    assert!(node.open_subsonic_binding()?.is_none());
+    assert!(!node.service_library_open());
     assert!(matches!(node.current_player()?, CurrentPlayer::Local));
     assert!(!local.main_token.is_cancelled());
 
