@@ -12,7 +12,7 @@ import 'package:rune/widgets/tile_group/tile_layout.dart';
 // its tiles. It must not rebuild them from scratch: their State stays.
 
 class _Probe extends StatefulWidget {
-  const _Probe();
+  const _Probe({super.key});
 
   @override
   State<_Probe> createState() => _ProbeState();
@@ -118,6 +118,48 @@ void main() {
         reason: 'State of tile $i',
       );
     }
+  });
+
+  testWidgets('TileGrid keeps the State of keyed tiles that swap places', (
+    tester,
+  ) async {
+    const spans = [TileSpan(1, 1), TileSpan(1, 1)];
+    final layout = layoutTiles(spans, rows: 1);
+    // Local keys: a GlobalKey would keep the State no matter how the Stack
+    // matches its children.
+    const a = ValueKey('a');
+    const b = ValueKey('b');
+
+    Widget grid(List<Key> keys) {
+      return TileGrid(
+        layout: layout,
+        spans: spans,
+        cellSize: cell,
+        gapSize: gap,
+        size: TileGrid.packedSize(layout, cell, gap),
+        children: [for (final k in keys) _Probe(key: k)],
+      );
+    }
+
+    await tester.pumpWidget(_host(StartScreenLayoutManager(), grid([a, b])));
+    final stateA = tester.state<_ProbeState>(find.byKey(a));
+    final stateB = tester.state<_ProbeState>(find.byKey(b));
+    final gridFinder = find.byType(TileGrid);
+    expect(_relativeTopLeft(tester, find.byKey(a), gridFinder), Offset.zero);
+
+    await tester.pumpWidget(_host(StartScreenLayoutManager(), grid([b, a])));
+
+    expect(tester.state<_ProbeState>(find.byKey(a)), same(stateA));
+    expect(tester.state<_ProbeState>(find.byKey(b)), same(stateB));
+    expect(
+      _relativeTopLeft(tester, find.byKey(b), gridFinder),
+      Offset.zero,
+      reason: 'b is now first',
+    );
+    expect(
+      _relativeTopLeft(tester, find.byKey(a), gridFinder),
+      const Offset(step, 0),
+    );
   });
 
   testWidgets('StartGroup keeps the State of its tiles when the rows change', (

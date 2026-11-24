@@ -9,6 +9,7 @@ import 'tile_layout.dart';
 /// Children keep their State when the layout changes as long as their order
 /// stays the same; key them when the order can change.
 class TileGrid extends StatelessWidget {
+  /// Creates a grid that places [children] at the cells of [layout].
   const TileGrid({
     super.key,
     required this.layout,
@@ -24,7 +25,11 @@ class TileGrid extends StatelessWidget {
 
   /// Size in cells of each tile.
   final List<TileSpan> spans;
+
+  /// Side of one cell, in logical pixels.
   final double cellSize;
+
+  /// Space between two neighbouring cells, in logical pixels.
   final double gapSize;
 
   /// The box of the grid itself.
@@ -87,7 +92,13 @@ class TileGrid extends StatelessWidget {
   }
 
   Widget _positioned(Rect r, TextDirection textDirection, Widget child) {
+    // The key of the child goes on the Positioned too. The Stack matches its
+    // children by key and position, so without it two keyed tiles that swap
+    // places would be matched by position and lose their State. It is wrapped
+    // because a GlobalKey must not sit on two widgets at once.
+    final key = child.key;
     return Positioned.directional(
+      key: key == null ? null : ValueKey<Key>(key),
       textDirection: textDirection,
       start: r.left,
       top: r.top,
