@@ -405,10 +405,7 @@ impl AppleLibrary {
                 // The storefront first: a read that starts after the new session began must
                 // not find the old account's.
                 self.client.forget_storefront();
-                // Before the session: a restore that reads the old account's files has taken
-                // its epochs before the session began, and is dropped by it.
-                self.clear_store();
-                self.caches.start_session();
+                self.forget_kept();
                 SignInChange::Changed
             }
         }
@@ -426,15 +423,18 @@ impl AppleLibrary {
         if self.tokens.replace(None) != Replaced::Same {
             self.client.forget_storefront();
         }
-        // Lists restored before any sign-in go too. The store first, so that a restore under
-        // way is retired by the session after it read.
-        self.clear_store();
-        self.caches.start_session();
+        // Lists restored before any sign-in go too.
+        self.forget_kept();
     }
 
-    fn clear_store(&self) {
-        if let Some(store) = &self.store {
-            store.clear();
+    /// Drops the lists kept on disk and begins a session. The store first, so that a restore
+    /// under way is retired by the session after it read. The session begins before the
+    /// store takes a save of its next generation, so a read of the old session is not
+    /// saved, however it is scheduled against this call.
+    fn forget_kept(&self) {
+        match &self.store {
+            Some(store) => store.clear_then(|| self.caches.start_session()),
+            None => self.caches.start_session(),
         }
     }
 

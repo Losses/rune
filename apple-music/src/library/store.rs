@@ -165,18 +165,24 @@ impl ListStore {
     /// Deletes every saved list and drops the saves not written yet. It waits for a write
     /// being made, so nothing is left of it either.
     pub fn clear(&self) {
+        self.clear_then(|| {});
+    }
+
+    /// Like [`clear`](Self::clear), and runs `then` before the new generation can be taken
+    /// or a save be accepted. What a read of the new generation finds is then what `then`
+    /// made, never what came before it.
+    pub fn clear_then(&self, then: impl FnOnce()) {
         // The folder first, so a save under the new generation is written after the deletion.
         let _io = lock(&self.0.io);
-        {
-            let mut state = lock(&self.0.state);
-            state.generation += 1;
-            state.pending.clear();
-        }
+        let mut state = lock(&self.0.state);
+        state.generation += 1;
+        state.pending.clear();
         match fs::remove_dir_all(&self.0.dir) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => log::warn!("Could not delete the kept Apple Music lists: {error}"),
         }
+        then();
     }
 
     /// Refuses every later save, drops the ones not written yet and waits for a write being
@@ -295,7 +301,9 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::env;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn saves_are_written_whole_and_read_back_by_another_store() {
@@ -333,6 +341,29 @@ mod tests {
         store.save(store.generation(), "names", Arc::new(vec!["f".to_owned()]));
         store.flush();
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_new_generation_is_taken_only_after_what_a_clear_runs() {
+        let dir = env::temp_dir().join(format!("apple-music-lists-{}", rand::random::<u64>()));
+        let store = ListStore::new(&dir);
+        let before = store.generation();
+        let ran = AtomicBool::new(false);
+        thread::scope(|scope| {
+            let reader = RefCell::new(None);
+            store.clear_then(|| {
+                reader.replace(Some(scope.spawn(|| {
+                    let generation = store.generation();
+                    (generation, ran.load(Ordering::SeqCst))
+                })));
+                thread::sleep(Duration::from_millis(200));
+                ran.store(true, Ordering::SeqCst);
+            });
+            let (generation, ran_before) = reader.take().unwrap().join().unwrap();
+            assert_ne!(generation, before);
+            assert!(ran_before);
+        });
+        store.clear();
     }
 
     #[cfg(unix)]
