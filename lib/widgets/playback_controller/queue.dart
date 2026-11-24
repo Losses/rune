@@ -222,10 +222,18 @@ class _QueueState extends State<Queue> {
     _jumpTowardsCurrent(index, count, _revealAttempts);
   }
 
+  // Runs [stage] at the end of a frame. A post-frame callback does not ask for
+  // a frame by itself, so one added after a frame was built, as every stage
+  // after the first is, would wait until something else changed on screen.
+  void _afterFrame(VoidCallback stage) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => stage());
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   // The estimate improves with every jump because the rows built on the way
   // raise or lower the average, so a few jumps reach a row the first one missed.
   void _jumpTowardsCurrent(int index, int count, int attemptsLeft) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _afterFrame(() {
       if (!mounted || !_scrollController.hasClients) return;
       final position = _scrollController.position;
       final rowExtent =
@@ -233,7 +241,7 @@ class _QueueState extends State<Queue> {
       position.jumpTo(
         ((index - 2) * rowExtent).clamp(0.0, position.maxScrollExtent),
       );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      _afterFrame(() {
         if (!mounted) return;
         final rowContext = _currentRowKey.currentContext;
         if (rowContext == null) {
