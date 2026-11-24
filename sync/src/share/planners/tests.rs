@@ -877,8 +877,9 @@ fn the_keeper_replaces_a_base_without_candidates_only_after_the_tail_outgrows_th
         manifest_gzip_bytes: 1_000,
         has_candidates,
     };
-    // Without candidates the content is not the denominator: a small tail waits even though the
-    // base holds no content, and the manifest decides when the base is replaced.
+    // Without candidates, cutting a new base cannot give it content (the tail also has no
+    // candidates), so the keeper waits regardless of tail size to avoid producing another
+    // empty base and causing oscillation.
     assert_eq!(
         plan_keeper(me, 2, &activities, newest(false), 1),
         KeeperDecision::Wait
@@ -889,11 +890,43 @@ fn the_keeper_replaces_a_base_without_candidates_only_after_the_tail_outgrows_th
     );
     assert_eq!(
         plan_keeper(me, 2, &activities, newest(false), 251),
-        KeeperDecision::CutBase(BaseCutReason::TailFraction)
+        KeeperDecision::Wait
     );
     // A base that holds candidates compares with its content, which is empty here.
     assert_eq!(
         plan_keeper(me, 2, &activities, newest(true), 1),
         KeeperDecision::CutBase(BaseCutReason::TailFraction)
+    );
+}
+
+#[test]
+fn the_keeper_does_not_cut_an_empty_base_when_the_tail_has_no_candidates() {
+    // Guard against the oscillation seen in sh15: empty base + empty tail -> cut -> empty base -> cut...
+    // An empty base has no candidates, so cutting a new base from a tail that also has no
+    // catalog content would produce yet another empty base. The keeper waits in that case.
+    let me = Uuid::from_u128(1);
+    let activities = [StreamActivity {
+        stream_id: me,
+        last_head_change_ms: 1,
+    }];
+    let empty_base = NewestBase::Present {
+        created_ms: 1,
+        content_gzip_bytes: 0,
+        manifest_gzip_bytes: 1_000,
+        has_candidates: false,
+    };
+    // Regardless of tail size, an empty base is not cut if the tail also lacks candidates.
+    // The tail size check is skipped for empty bases.
+    assert_eq!(
+        plan_keeper(me, 2, &activities, empty_base, 0),
+        KeeperDecision::Wait
+    );
+    assert_eq!(
+        plan_keeper(me, 2, &activities, empty_base, 1_000),
+        KeeperDecision::Wait
+    );
+    assert_eq!(
+        plan_keeper(me, 2, &activities, empty_base, 10_000),
+        KeeperDecision::Wait
     );
 }

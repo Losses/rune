@@ -527,7 +527,7 @@ pub fn plan_keeper(
         .copied()
         .min()
         .map_or(Keeper::None, Keeper::Stream);
-    let (age, base_bytes) = match newest_base {
+    let (age, base_bytes, has_candidates) = match newest_base {
         NewestBase::Absent => {
             return if keeper == Keeper::Stream(me) {
                 KeeperDecision::CutBase(BaseCutReason::Cadence)
@@ -549,6 +549,7 @@ pub fn plan_keeper(
             } else {
                 manifest_gzip_bytes
             },
+            has_candidates,
         ),
     };
     if age > BASE_MAX_AGE_MS {
@@ -560,7 +561,20 @@ pub fn plan_keeper(
     if age >= BASE_CADENCE_MS {
         return KeeperDecision::CutBase(BaseCutReason::Cadence);
     }
-    if retained_tail_gzip_bytes.saturating_mul(4) > base_bytes {
+    // A base without candidates cannot gain content from a tail that also has no
+    // candidates; cutting a new base in that scenario would merely produce another
+    // contentless base and cause oscillation. Only cut when the tail can supply
+    // catalog content (i.e., the base has candidates) or when the tail exceeds
+    // the manifest (for the legacy case where a base's content was not recorded).
+    let needs_cut = if has_candidates {
+        retained_tail_gzip_bytes.saturating_mul(4) > base_bytes
+    } else {
+        // Empty base: tail > manifest indicates a substantial tail exists, but only
+        // cut if the tail actually carries catalog content. A tail without candidates
+        // would produce another empty base, so we wait.
+        false
+    };
+    if needs_cut {
         return KeeperDecision::CutBase(BaseCutReason::TailFraction);
     }
     KeeperDecision::Wait
