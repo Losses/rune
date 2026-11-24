@@ -242,8 +242,9 @@ pub(super) struct Slot<T> {
     owed: AtomicBool,
     /// Counts failed first builds, so a caller that queued behind one can tell.
     build_failures: AtomicU64,
-    /// What the last first build failed with, handed to the callers that queued behind it.
-    build_failure: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
+    /// What the last first build failed with, and the epoch it was built under, handed to the
+    /// callers of that epoch that queued behind it.
+    build_failure: Mutex<Option<(u64, Arc<dyn Any + Send + Sync>)>>,
     /// How the last refresh in the background failed, until one works or a sign-in retires it.
     refresh_failure: Mutex<Option<RefreshFailure>>,
 }
@@ -304,15 +305,20 @@ impl<T: Clone> Slot<T> {
         }
         if self.build_failures.load(Ordering::Acquire) != failures {
             let failure = lock(&self.build_failure).clone();
-            if let Some(failure) = failure.and_then(|failure| failure.downcast::<E>().ok()) {
+            let epoch = self.epoch();
+            if let Some(failure) = failure
+                .filter(|(failed, _)| *failed == epoch)
+                .and_then(|(_, failure)| failure.downcast::<E>().ok())
+            {
                 return Err(failure);
             }
         }
+        let epoch = self.epoch();
         match self.build(now, build).await {
             Ok((value, _)) => Ok(value),
             Err(error) => {
                 let error = Arc::new(error);
-                *lock(&self.build_failure) = Some(error.clone());
+                *lock(&self.build_failure) = Some((epoch, error.clone()));
                 self.build_failures.fetch_add(1, Ordering::AcqRel);
                 Err(error)
             }
@@ -399,11 +405,11 @@ impl<T: Clone> Slot<T> {
         (cached.epoch == self.epoch.load(Ordering::Acquire)).then(|| cached.value.clone())
     }
 
-    /// Records that a refresh in the background failed at `now`, and whether Apple rejected
-    /// the tokens.
-    pub(super) fn refresh_failed(&self, now: Instant, rejected: bool) {
+    /// Records that a refresh in the background that began under `epoch` failed at `now`, and
+    /// whether Apple rejected the tokens. After a sign-in retired the slot, it counts for nothing.
+    pub(super) fn refresh_failed(&self, epoch: u64, now: Instant, rejected: bool) {
         *lock(&self.refresh_failure) = Some(RefreshFailure {
-            epoch: self.epoch(),
+            epoch,
             at: now,
             rejected,
         });
@@ -590,7 +596,7 @@ mod tests {
         let start = Instant::now();
         assert!(slot.last_refresh_failure().is_none());
 
-        slot.refresh_failed(start, true);
+        slot.refresh_failed(slot.epoch(), start, true);
         assert!(slot.refresh_cooling(start + REFRESH_RETRY / 2));
         assert!(!slot.refresh_cooling(start + REFRESH_RETRY));
         assert!(
@@ -600,8 +606,39 @@ mod tests {
 
         slot.refresh_worked();
         assert!(slot.last_refresh_failure().is_none());
-        slot.refresh_failed(start, true);
+        slot.refresh_failed(slot.epoch(), start, true);
         slot.invalidate();
         assert!(slot.last_refresh_failure().is_none());
+
+        // A refresh that began before a sign-in does not fail the slot of the next one.
+        let epoch = slot.epoch();
+        slot.invalidate();
+        slot.refresh_failed(epoch, start, true);
+        assert!(slot.last_refresh_failure().is_none());
+        assert!(!slot.refresh_cooling(start));
+    }
+
+    #[tokio::test]
+    async fn a_failed_build_is_not_shared_with_a_caller_of_the_next_sign_in() {
+        let slot = Arc::new(Slot::<u32>::default());
+        let start = Instant::now();
+        let first = {
+            let slot = slot.clone();
+            tokio::spawn(async move {
+                slot.get(start, TTL, || async {
+                    time::sleep(Duration::from_millis(100)).await;
+                    Err::<u32, _>("old account".to_owned())
+                })
+                .await
+            })
+        };
+        time::sleep(Duration::from_millis(20)).await;
+        slot.invalidate();
+        let second = slot
+            .get::<String, _, _>(start, TTL, || async { Ok(7) })
+            .await;
+
+        assert_eq!(*first.await.unwrap().unwrap_err(), "old account");
+        assert_eq!(*second.unwrap(), 7);
     }
 }

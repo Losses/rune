@@ -589,6 +589,7 @@ impl AppleLibrary {
                 slot: spec.slot,
             };
             let slot = (spec.slot)(&library.caches);
+            let epoch = slot.epoch();
             let served = slot.peek();
             let generation = library.store_generation();
             let now = library.clock.now();
@@ -611,7 +612,7 @@ impl AppleLibrary {
                         failure
                     );
                     let rejected = library.rejected_sign_in(&failure).await;
-                    slot.refresh_failed(library.clock.now(), rejected);
+                    slot.refresh_failed(epoch, library.clock.now(), rejected);
                 }
             }
         });
