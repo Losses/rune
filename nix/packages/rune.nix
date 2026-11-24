@@ -87,7 +87,7 @@ let
     inherit version src;
     pname = "libhub";
 
-    cargoHash = "sha256-UmaYXyfXMM/mU02qN96ulv22kR7KSfrnqsk4S8aJQZs=";
+    cargoHash = "sha256-uTllIIKHhXoTbeFG5LEx2O/vKuM3NeCdFrUHnrdj8sE=";
 
     nativeBuildInputs = [
       pkg-config
