@@ -907,7 +907,18 @@ impl LibrarySyncStore {
             .iter()
             .map(|segment| segment.bytes)
             .sum();
-        let keeper = plan_keeper(state.stream, now_ms, &activities, newest, tail_bytes);
+        let tail_has_candidates = entries.iter().any(|entry| match &entry.event {
+            sync::Event::Key(delta) => !delta.added.is_empty(),
+            sync::Event::Merge(delta) => !delta.added.is_empty(),
+        });
+        let keeper = plan_keeper(
+            state.stream,
+            now_ms,
+            &activities,
+            newest,
+            tail_bytes,
+            tail_has_candidates,
+        );
         let bulk_cut = cursor_status == ExportCursorStatus::NeedsBase
             || matches!(
                 plan_publish(PublishInput {

@@ -437,7 +437,7 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
         },
     ];
     assert_eq!(
-        plan_keeper(me, 100, &activities, NewestBase::Absent, 0),
+        plan_keeper(me, 100, &activities, NewestBase::Absent, 0, false),
         KeeperDecision::CutBase(BaseCutReason::Cadence)
     );
     assert_eq!(
@@ -451,7 +451,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            25
+            25,
+            true
         ),
         KeeperDecision::Wait
     );
@@ -466,7 +467,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            26
+            26,
+            true
         ),
         KeeperDecision::CutBase(BaseCutReason::TailFraction)
     );
@@ -481,7 +483,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            0
+            0,
+            false
         ),
         KeeperDecision::NotKeeper {
             keeper: Keeper::None
@@ -508,7 +511,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            0
+            0,
+            false
         ),
         KeeperDecision::NotKeeper {
             keeper: Keeper::Stream(me)
@@ -534,7 +538,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            0
+            0,
+            false
         ),
         KeeperDecision::CutBase(BaseCutReason::Cadence)
     );
@@ -558,7 +563,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            0
+            0,
+            false
         ),
         KeeperDecision::NotKeeper {
             keeper: Keeper::Stream(me)
@@ -584,7 +590,8 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
                 manifest_gzip_bytes: 100,
                 has_candidates: true,
             },
-            0
+            0,
+            false
         ),
         KeeperDecision::CutBase(BaseCutReason::MaximumAge)
     );
@@ -877,24 +884,27 @@ fn the_keeper_replaces_a_base_without_candidates_only_after_the_tail_outgrows_th
         manifest_gzip_bytes: 1_000,
         has_candidates,
     };
-    // Without candidates, cutting a new base cannot give it content (the tail also has no
-    // candidates), so the keeper waits regardless of tail size to avoid producing another
-    // empty base and causing oscillation.
+    // An empty base with an empty tail: no cut (would produce another empty base)
     assert_eq!(
-        plan_keeper(me, 2, &activities, newest(false), 1),
+        plan_keeper(me, 2, &activities, newest(false), 1, false),
+        KeeperDecision::Wait
+    );
+    // An empty base with a tail that carries candidates: cut when tail*4 > manifest
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(false), 250, true),
         KeeperDecision::Wait
     );
     assert_eq!(
-        plan_keeper(me, 2, &activities, newest(false), 250),
-        KeeperDecision::Wait
+        plan_keeper(me, 2, &activities, newest(false), 251, true),
+        KeeperDecision::CutBase(BaseCutReason::TailFraction)
+    );
+    // A base that holds candidates uses content bytes as threshold regardless of tail.
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(true), 1, true),
+        KeeperDecision::CutBase(BaseCutReason::TailFraction)
     );
     assert_eq!(
-        plan_keeper(me, 2, &activities, newest(false), 251),
-        KeeperDecision::Wait
-    );
-    // A base that holds candidates compares with its content, which is empty here.
-    assert_eq!(
-        plan_keeper(me, 2, &activities, newest(true), 1),
+        plan_keeper(me, 2, &activities, newest(true), 1, false),
         KeeperDecision::CutBase(BaseCutReason::TailFraction)
     );
 }
@@ -916,17 +926,17 @@ fn the_keeper_does_not_cut_an_empty_base_when_the_tail_has_no_candidates() {
         has_candidates: false,
     };
     // Regardless of tail size, an empty base is not cut if the tail also lacks candidates.
-    // The tail size check is skipped for empty bases.
+    // The tail size check is skipped for empty bases without candidate-carrying tails.
     assert_eq!(
-        plan_keeper(me, 2, &activities, empty_base, 0),
+        plan_keeper(me, 2, &activities, empty_base, 0, false),
         KeeperDecision::Wait
     );
     assert_eq!(
-        plan_keeper(me, 2, &activities, empty_base, 1_000),
+        plan_keeper(me, 2, &activities, empty_base, 1_000, false),
         KeeperDecision::Wait
     );
     assert_eq!(
-        plan_keeper(me, 2, &activities, empty_base, 10_000),
+        plan_keeper(me, 2, &activities, empty_base, 10_000, false),
         KeeperDecision::Wait
     );
 }

@@ -507,15 +507,17 @@ pub enum KeeperDecision {
     CutBase(BaseCutReason),
 }
 
-/// Elect the smallest active stream and apply the base age and retained-tail rules. The tail
-/// fraction compares with the content of a base that holds candidates and with the manifest of a
-/// base that holds none.
+/// Elect the smallest active stream and apply the base age and retained-tail rules.
+/// For a base with candidates, the tail fraction is compared against its content bytes.
+/// For an empty base (no candidates), the keeper only cuts when the tail carries catalog
+/// content (indicated by `tail_has_candidates`).
 pub fn plan_keeper(
     me: Uuid,
     now_ms: u64,
     activities: &[StreamActivity],
     newest_base: NewestBase,
     retained_tail_gzip_bytes: u64,
+    tail_has_candidates: bool,
 ) -> KeeperDecision {
     let active: Vec<_> = activities
         .iter()
@@ -563,15 +565,16 @@ pub fn plan_keeper(
     }
     // A base without candidates cannot gain content from a tail that also has no
     // candidates; cutting a new base in that scenario would merely produce another
-    // contentless base and cause oscillation. Only cut when the tail can supply
-    // catalog content (i.e., the base has candidates) or when the tail exceeds
-    // the manifest (for the legacy case where a base's content was not recorded).
+    // contentless base and cause oscillation.
     let needs_cut = if has_candidates {
+        // Base has candidates: use content size as threshold
+        retained_tail_gzip_bytes.saturating_mul(4) > base_bytes
+    } else if tail_has_candidates {
+        // Empty base but tail carries catalog content: use manifest size as threshold
+        // (the tail's candidates will become the new base's content)
         retained_tail_gzip_bytes.saturating_mul(4) > base_bytes
     } else {
-        // Empty base: tail > manifest indicates a substantial tail exists, but only
-        // cut if the tail actually carries catalog content. A tail without candidates
-        // would produce another empty base, so we wait.
+        // Empty base, tail has no candidates: cutting would produce another empty base
         false
     };
     if needs_cut {
