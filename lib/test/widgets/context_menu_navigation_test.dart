@@ -46,6 +46,10 @@ enum _Close {
 
 var _close = _Close.item;
 
+/// How the menus' items open their page: pushed on the current page, or as the
+/// app's Go to items do.
+var _navigate = $push;
+
 /// The data the menus wait for before they open, as the track menus load
 /// theirs. Null when it is there at once.
 Completer<void>? _loading;
@@ -88,7 +92,7 @@ class _RowState extends State<_Row> {
               closeAfterClick: _close == _Close.item,
               onPressed: () {
                 if (_close == _Close.flyout) Flyout.of(context).close();
-                $push(route, arguments: arguments);
+                _navigate(route, arguments: arguments);
               },
             ),
         ],
@@ -180,6 +184,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
   addTearDown(tester.view.reset);
   addTearDown(() {
     _close = _Close.item;
+    _navigate = $push;
     _loading = null;
   });
   cafeMode = false;
@@ -521,6 +526,65 @@ void main() {
     expect($pop(), isTrue);
     await tester.pumpAndSettle();
     expected.closed();
+  });
+
+  for (final close in _Close.values) {
+    testWidgets('Go to from a page opened from search replaces it, again and '
+        'again, and back returns to search as it was, the menus ${close.how}', (
+      tester,
+    ) async {
+      final expected = await _start(tester);
+      _close = close;
+      _navigate = $goTo;
+      final search = _shownPage(tester);
+
+      await _goFromMenu(tester, 'Go to Album');
+      expected.opened(_album);
+      expect(_parent(tester), 'Search');
+
+      // The artist replaces the album, directly above search.
+      await _goFromMenu(tester, 'Go to Artist');
+      expect(_names(), ['/library', _search, _artist]);
+      expect(_routes.names, ['/library', _search, _artist]);
+      expect($router.path, _artist);
+      expect(_parent(tester), 'Search');
+
+      await _goFromMenu(tester, 'Go to Album');
+      await _goFromMenu(tester, 'Go to Artist');
+      await _goFromMenu(tester, 'Go to Album');
+      expect(_names(), ['/library', _search, _album]);
+      expect(_routes.names, ['/library', _search, _album]);
+      expect(_parent(tester), 'Search');
+
+      navigateBackwardWithPop();
+      await tester.pumpAndSettle();
+      expect(_names(), ['/library', _search]);
+      expect(_routes.names, ['/library', _search]);
+      expect($router.path, _search);
+      expect(_shownPage(tester), same(search));
+    });
+  }
+
+  testWidgets('Go to from a page not opened from search stacks, and back '
+      'returns to the page', (tester) async {
+    await _pumpApp(tester);
+    _navigate = $goTo;
+    expect($pop(), isTrue);
+    await tester.pumpAndSettle();
+    $push(_album, arguments: QueryTracksParameter(9, 'Nine'));
+    await tester.pumpAndSettle();
+    final album = _shownPage(tester);
+
+    await _goFromMenu(tester, 'Go to Artist');
+    expect(_names(), ['/library', _album, _artist]);
+    expect(_routes.names, ['/library', _album, _artist]);
+    expect(_parent(tester), 'Artists');
+
+    navigateBackwardWithPop();
+    await tester.pumpAndSettle();
+    expect(_names(), ['/library', _album]);
+    expect(_routes.names, ['/library', _album]);
+    expect(_shownPage(tester), same(album));
   });
 
   testWidgets('a dialog takes its own entry out of the history when it goes, '

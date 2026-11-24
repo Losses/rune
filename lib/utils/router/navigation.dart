@@ -204,6 +204,19 @@ Future<T?>? $replace<T extends Object?>(String routeName, {Object? arguments}) {
   return navigation.pushReplacementNamed(routeName, arguments: p);
 }
 
+/// Opens the page [routeName] that the user jumped to from a menu, as Go to
+/// Album and Go to Artist do. A page opened from search stays one level under
+/// Search, so a page reached from it replaces it instead of stacking on it, and
+/// going back leads to search. Anywhere else the page is pushed on the current
+/// one, and going back leads to the page the user came from.
+Future<T?>? $goTo<T extends Object?>(String routeName, {Object? arguments}) {
+  final fromSearch =
+      $router.path != '/search' && $history.previousPageIs('/search');
+  return fromSearch
+      ? $replace<T>(routeName, arguments: arguments)
+      : $push<T>(routeName, arguments: arguments);
+}
+
 /// Whether the root navigator is currently mounted.
 bool get $$hasRootNavigator => rootNavigatorKey.currentState != null;
 
