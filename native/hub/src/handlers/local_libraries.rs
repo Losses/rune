@@ -19,7 +19,7 @@ use crate::{
         SetLibraryBackgroundSyncResponse,
     },
     node::NodeContext,
-    service::covers::delete_service_cover_cache,
+    service::folder::delete_service_library_folder,
     utils::{GlobalParams, ParamsExtractor},
 };
 
@@ -209,9 +209,11 @@ impl Signal for RemoveLibraryRecordRequest {
             ));
         }
         let library_id = record.and_then(|record| record.catalog_library_id());
-        let subsonic_library_id = record.and_then(|record| {
-            matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
-                .then(|| record.catalog_library_id().unwrap_or(record.record_id.0))
+        let service_library_id = record.and_then(|record| {
+            record
+                .protocol
+                .service()
+                .map(|_| record.catalog_library_id().unwrap_or(record.record_id.0))
         });
         if !LibraryRegistry::remove_record(config, LibraryRecordId(id), &node.credentials).await? {
             return Err(removal_failure(
@@ -222,8 +224,8 @@ impl Signal for RemoveLibraryRecordRequest {
             node.stop_library_sync(library_id).await;
             node.library_pool.release_background(library_id).await;
         }
-        if let Some(library_id) = subsonic_library_id {
-            delete_service_cover_cache(config, library_id).await?;
+        if let Some(library_id) = service_library_id {
+            delete_service_library_folder(config, library_id).await?;
         }
         // The item playing here may belong to the library that went away.
         node.item_capabilities_changed();

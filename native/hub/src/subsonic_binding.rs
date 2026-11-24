@@ -8,6 +8,7 @@ use crate::{
     service::{
         ServiceBinding, ServiceFuture, ServicePlayer,
         covers::{CoverSource, ServiceCoverCache, cover_cache_root},
+        folder::prepare_service_library_folder,
         ids::RemoteIdMap,
     },
     utils::Broadcaster,
@@ -409,6 +410,7 @@ impl SubsonicBinding {
         broadcaster: Arc<dyn Broadcaster>,
         visualizer: Arc<Visualizer>,
     ) -> Self {
+        prepare_service_library_folder(&config_dir, library_id);
         Self {
             library_id,
             play_on_this_device,
