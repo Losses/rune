@@ -21,6 +21,7 @@ implement_rinf_rust_signal_trait!(IncommingClientPermissionNotification);
 implement_rinf_rust_signal_trait!(TrustedClientsChanged);
 
 implement_rinf_rust_signal_trait!(VisualizerScenesChanged);
+implement_rinf_rust_signal_trait!(VisualizerInputsChanged);
 
 implement_rinf_rust_signal_trait!(RequestFailedResponse);
 

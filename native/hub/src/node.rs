@@ -57,7 +57,7 @@ use crate::{
         LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlaylistItem,
         ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
         RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, RequestCapability,
-        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate, VisualizerInputsChanged,
     },
     server::{
         ServerManager, WebSocketService,
@@ -68,7 +68,7 @@ use crate::{
         RinfRustSignal, nid::get_or_create_node_id, sync_settings::SyncSettings,
     },
 };
-use ::visualizer::Visualizer;
+use ::visualizer::{Visualizer, VisualizerInputs};
 use database::library_registry::LibraryRecordId;
 use discovery::DiscoveryParams;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
@@ -240,6 +240,10 @@ pub struct NodeContext {
     /// How many `HiddenLocalSession`s are alive. The session's events stay out of the UI while
     /// any is.
     local_session_hidden: Arc<AtomicUsize>,
+    /// What Dart was last told the current source gives the visualizer. Changed only under the
+    /// `current_player` lock, like the inputs themselves: that lock is taken first, this one
+    /// after it.
+    published_visualizer_inputs: StdMutex<Option<VisualizerInputs>>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -468,6 +472,7 @@ impl NodeContext {
             current_player,
             local_player_tenure: Arc::default(),
             local_session_hidden,
+            published_visualizer_inputs: StdMutex::new(None),
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
@@ -1043,8 +1048,7 @@ impl NodeContext {
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
         *current = player;
-        self.visualizer().set_inputs(current.visualizer_inputs());
-        Ok(())
+        self.publish_visualizer_inputs(&current)
     }
 
     /// The current tenure of the local player as the UI's player.
@@ -1059,7 +1063,26 @@ impl NodeContext {
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
-        self.visualizer().set_inputs(current.visualizer_inputs());
+        self.publish_visualizer_inputs(&current)
+    }
+
+    /// Gives the visualizer what `current` feeds it, and tells Dart when that changed, so the UI
+    /// follows a source that stops or starts feeding the visualizer without asking. Call it
+    /// under the `current_player` lock, which orders what is published. The message goes
+    /// through the UI's own broadcaster, as the node's would take that lock again.
+    fn publish_visualizer_inputs(&self, current: &CurrentPlayer) -> Result<()> {
+        let inputs = current.visualizer_inputs();
+        self.visualizer().set_inputs(inputs);
+        let mut published = self
+            .published_visualizer_inputs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Published visualizer inputs lock poisoned"))?;
+        if *published != Some(inputs) {
+            *published = Some(inputs);
+            self.gui_broadcaster.broadcast(&VisualizerInputsChanged {
+                inputs: inputs.into(),
+            });
+        }
         Ok(())
     }
 

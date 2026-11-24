@@ -127,6 +127,16 @@ pub enum VisualizerInputs {
     Full,
 }
 
+impl From<visualizer::VisualizerInputs> for VisualizerInputs {
+    fn from(value: visualizer::VisualizerInputs) -> Self {
+        match value {
+            visualizer::VisualizerInputs::None => Self::None,
+            visualizer::VisualizerInputs::SpectrumOnly => Self::SpectrumOnly,
+            visualizer::VisualizerInputs::Full => Self::Full,
+        }
+    }
+}
+
 /// Inputs required by a scene to produce the picture it was designed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
 #[serde(rename_all = "snake_case")]
@@ -427,6 +437,14 @@ pub struct ListVisualizerPresetsResponse {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct VisualizerScenesChanged {
     pub presets: Vec<VisualizerPresetEntry>,
+}
+
+/// What the current source gives the visualizer, sent whenever that changes, as when a
+/// jukebox's visualizer feed drops or returns, or the current player changes. The UI follows
+/// it without asking, also while no visualizer runs.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct VisualizerInputsChanged {
+    pub inputs: VisualizerInputs,
 }
 
 /// Whether the visualizer copies what it sees in each frame for the in-app lab

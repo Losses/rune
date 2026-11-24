@@ -98,6 +98,8 @@ class VisualizerScenesProvider extends ChangeNotifier {
   bool _loaded = false;
   bool _sceneShowing = false;
   VisualizerInputs _inputs = VisualizerInputs.none;
+  // What the current source gives as Rust last pushed it, null until it did.
+  VisualizerInputs? _sourceInputs;
   Future<void>? _refreshing;
   bool _refreshAgain = false;
   Future<void> _applying = Future.value();
@@ -105,10 +107,20 @@ class VisualizerScenesProvider extends ChangeNotifier {
   final VisualizerSceneStore _store;
   final void Function(SetVisualizerScenesRequest request) _sendScenes;
   StreamSubscription<VisualizerScenesChanged>? _scenesChanged;
+  StreamSubscription<VisualizerInputsChanged>? _inputsChanged;
 
   VisualizerScenesProvider()
     : _store = _SettingsSceneStore(),
       _sendScenes = _sendScenesToRust {
+    // What Rust pushed before this provider existed counts as well.
+    final pushed = VisualizerInputsChanged.latestRustSignal?.message.inputs;
+    if (pushed != null) {
+      _sourceInputs = pushed;
+      _inputs = pushed;
+    }
+    _listenToInputs(
+      VisualizerInputsChanged.rustSignalStream.map((event) => event.message),
+    );
     if (isVisualizerSupported) {
       _listen(
         VisualizerScenesChanged.rustSignalStream.map((event) => event.message),
@@ -117,16 +129,18 @@ class VisualizerScenesProvider extends ChangeNotifier {
     }
   }
 
-  /// A provider that only listens to [scenesChanged], with its own store and
-  /// without Rust, the settings or the scene folder.
+  /// A provider that only listens to [scenesChanged] and [inputsChanged], with
+  /// its own store and without Rust, the settings or the scene folder.
   @visibleForTesting
   VisualizerScenesProvider.listening({
     required Stream<VisualizerScenesChanged> scenesChanged,
     required VisualizerSceneStore store,
     required void Function(SetVisualizerScenesRequest request) sendScenes,
+    Stream<VisualizerInputsChanged>? inputsChanged,
   }) : _store = store,
        _sendScenes = sendScenes {
     _listen(scenesChanged);
+    if (inputsChanged != null) _listenToInputs(inputsChanged);
   }
 
   static void _sendScenesToRust(SetVisualizerScenesRequest request) =>
@@ -139,6 +153,17 @@ class VisualizerScenesProvider extends ChangeNotifier {
   /// Rust sends the list when it is ready and whenever it changes.
   void _listen(Stream<VisualizerScenesChanged> scenesChanged) {
     _scenesChanged = scenesChanged.listen((event) => _apply(event.presets));
+  }
+
+  /// Rust sends what the source gives whenever that changes, as when a
+  /// jukebox's visualizer feed drops or returns: the scenes follow it also
+  /// while no visualizer runs to be asked.
+  void _listenToInputs(Stream<VisualizerInputsChanged> inputsChanged) {
+    _inputsChanged = inputsChanged.listen((event) {
+      _sourceInputs = event.inputs;
+      _inputs = event.inputs;
+      notifyListeners();
+    });
   }
 
   @visibleForTesting
@@ -161,8 +186,11 @@ class VisualizerScenesProvider extends ChangeNotifier {
 
   VisualizerInputs get inputs => _inputs;
 
+  /// What the visualizer reports when asked, at its start or while it runs.
+  /// Once Rust has pushed what the source gives, the push decides: a report
+  /// asked for before a change may arrive after it.
   void setInputs(VisualizerInputs inputs) {
-    if (_inputs == inputs) return;
+    if (_sourceInputs != null || _inputs == inputs) return;
     _inputs = inputs;
     notifyListeners();
   }
@@ -432,6 +460,7 @@ class VisualizerScenesProvider extends ChangeNotifier {
   @override
   void dispose() {
     _scenesChanged?.cancel();
+    _inputsChanged?.cancel();
     _imports.close();
     super.dispose();
   }

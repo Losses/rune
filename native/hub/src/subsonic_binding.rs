@@ -1090,7 +1090,8 @@ mod visualizer_feed_tests {
         backends::remote::{decode_message, encode_message},
         messages::{
             PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, RealtimeFFT,
-            VisualizerFeedChart, VisualizerFeedCovers,
+            VisualizerFeedChart, VisualizerFeedCovers, VisualizerInputs as PushedInputs,
+            VisualizerInputsChanged,
         },
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -1148,6 +1149,7 @@ mod visualizer_feed_tests {
         names: Mutex<Vec<String>>,
         playback_states: Mutex<Vec<PlaybackState>>,
         playback_statuses: Mutex<Vec<PlaybackStatus>>,
+        pushed_inputs: Mutex<Vec<PushedInputs>>,
     }
 
     #[derive(Serialize)]
@@ -1238,6 +1240,9 @@ mod visualizer_feed_tests {
             if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
                 self.playback_states.lock().unwrap().push(status.state);
                 self.playback_statuses.lock().unwrap().push(status.clone());
+            }
+            if let Some(changed) = message.as_any().downcast_ref::<VisualizerInputsChanged>() {
+                self.pushed_inputs.lock().unwrap().push(changed.inputs);
             }
         }
     }
@@ -2046,6 +2051,72 @@ mod visualizer_feed_tests {
         })
         .await
         .unwrap();
+
+        node.close_ui(&node.token).await;
+        node.shutdown().await.unwrap();
+        server.abort();
+    }
+
+    /// The UI follows what the jukebox's feed gives the visualizer, as the node tells it each
+    /// time that changes, also while no visualizer runs to be asked.
+    #[tokio::test]
+    async fn the_ui_hears_the_jukebox_inputs_as_the_feed_drops_and_returns() {
+        use crate::node::NodeContext;
+        use crate::server::utils::device::RunMode;
+
+        let (url, state, server) = server(true, true).await;
+        let node_dir = TempDir::new().unwrap();
+        let path = node_dir.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
+        let signals = Arc::new(Signals::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            signals.clone(),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await
+        .unwrap();
+        let root = TempDir::new().unwrap();
+        let binding = open_binding_for(
+            url,
+            &root,
+            Arc::new(Signals::default()),
+            Arc::clone(node.visualizer()),
+        )
+        .await;
+        node.set_open_service_catalog(None, binding.clone())
+            .await
+            .unwrap();
+        let last_pushed = || signals.pushed_inputs.lock().unwrap().last().copied();
+        wait_until("the UI to hear the live feed", || async {
+            Ok((last_pushed() == Some(PushedInputs::Full)).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(true, Ordering::SeqCst);
+        state.feed_drop.notify_one();
+        wait_until("the UI to hear that the feed is gone", || async {
+            Ok((last_pushed() == Some(PushedInputs::None)).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(false, Ordering::SeqCst);
+        wait_until("the UI to hear that the feed is back", || async {
+            Ok((last_pushed() == Some(PushedInputs::Full)).then_some(()))
+        })
+        .await
+        .unwrap();
+        // Each change is told once, however often the inputs were published again.
+        let pushed = signals.pushed_inputs.lock().unwrap().clone();
+        assert!(
+            pushed.windows(2).all(|pair| pair[0] != pair[1]),
+            "{pushed:?}"
+        );
 
         node.close_ui(&node.token).await;
         node.shutdown().await.unwrap();
