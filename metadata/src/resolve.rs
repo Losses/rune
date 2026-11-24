@@ -594,10 +594,11 @@ fn resolve(
         );
     }
     if audio.title.is_empty() && use_path_evidence {
+        // Plain filenames retain their extension, while numbered names supply a track title.
         audio.title = filename
             .as_ref()
             .map(|parts| &parts[3])
-            .unwrap_or(stem)
+            .unwrap_or(&node.filename)
             .to_owned();
         set_source(
             &mut audio.base,
