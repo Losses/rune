@@ -13199,6 +13199,87 @@ async fn closed_service_library_is_not_opened_for_item_metadata() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn log_requests_answer_while_a_service_library_is_open() -> Result<()> {
+    use crate::messages::{ClearLogRequest, ListLogRequest, RemoveLogRequest};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+
+    // The library keeps no log on this device, so the log page shows nothing and the
+    // requests that change the log find nothing to change.
+    let ui = node.current_ui().await?;
+    let log = dispatch_gui_request(
+        &ui,
+        &ListLogRequest {
+            cursor: 0,
+            page_size: 10,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("the log page")?;
+    assert!(log.result.is_empty());
+    let removed = dispatch_gui_request(&ui, &RemoveLogRequest { id: 1, call_id: None })
+        .await?
+        .context("the removed entry")?;
+    assert_eq!(removed.id, 1);
+    assert!(
+        dispatch_gui_request(&ui, &ClearLogRequest { call_id: None })
+            .await?
+            .is_some()
+    );
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
+    use crate::messages::{SetVisualizerLogRequest, StartVisualizerRequest};
+    use crate::visualizer::VISUALIZER;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+    let ui = node.current_ui().await?;
+
+    assert!(
+        dispatch_gui_request(&ui, &SetVisualizerLogRequest { enabled: false, call_id: None })
+            .await?
+            .is_some()
+    );
+    // The test holds the player's audio, so the visualizer finds it in use and reports that
+    // instead of starting its renderer, which needs a GPU. The start gets that far only when the
+    // open library does not stop it first.
+    let tap = ui.player.lock().await.pcm_tap();
+    let audio = tap.take_consumer().context("the player's audio")?;
+    let started = dispatch_gui_request(
+        &ui,
+        &StartVisualizerRequest {
+            width: 16,
+            height: 16,
+            fps: 1,
+            call_id: None,
+        },
+    )
+    .await;
+    tap.restore_consumer(audio);
+    assert!(started?.is_some());
+    let reported = VISUALIZER.status().last_error.unwrap_or_default();
+    assert!(reported.contains("PCM tap"), "unexpected report: {reported}");
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_registration_uses_single_role_and_rejects_no_roles() -> Result<()> {
     use crate::messages::RegisterLibraryFailureKind;
 

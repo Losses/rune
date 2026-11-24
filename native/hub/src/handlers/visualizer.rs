@@ -2,8 +2,9 @@ use crate::node::NodeContext;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
+use uuid::Uuid;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 
 use ::playback::player::Playable;
@@ -14,10 +15,9 @@ use ::visualizer::{
 
 use crate::{
     Session, Signal, flutter_bridge,
-    library_pool::LibraryHandle,
     messages::*,
     request_error::ExpectedRequestError,
-    utils::{Broadcaster, GlobalParams, ParamsExtractor, require_library},
+    utils::{Broadcaster, GlobalParams, LocalLibrary, ParamsExtractor},
     visualizer::{VISUALIZER, provide_covers},
 };
 use std::path as std_path;
@@ -78,14 +78,16 @@ static STARTING_OR_STOPPING: Mutex<()> = Mutex::const_new(());
 impl ParamsExtractor for StartVisualizerRequest {
     type Params = (
         Arc<Mutex<dyn Playable>>,
-        Option<LibraryHandle>,
+        LocalLibrary,
+        Option<Uuid>,
         Arc<NodeContext>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.player),
-            all_params.library.clone(),
+            LocalLibrary::from_global(all_params),
+            all_params.library_id,
             all_params.node.clone(),
         )
     }
@@ -94,28 +96,33 @@ impl ParamsExtractor for StartVisualizerRequest {
 impl Signal for StartVisualizerRequest {
     type Params = (
         Arc<Mutex<dyn Playable>>,
-        Option<LibraryHandle>,
+        LocalLibrary,
+        Option<Uuid>,
         Arc<NodeContext>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (player, library, node): Self::Params,
+        (player, library, library_id, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
+        let library = library.or_service()?;
         let _turn = STARTING_OR_STOPPING.lock().await;
-        crate::visualizer_log::write_to(Arc::clone(&library.main_db));
-        provide_covers(
-            &node,
-            Arc::clone(&library.fsio),
-            Arc::clone(&library.main_db),
-            Arc::clone(&library.recommend_db),
-            library.library_id,
-            player.lock().await.get_status().item,
-        );
+        let library_id = match &library {
+            Some(library) => {
+                crate::visualizer_log::write_to(Arc::clone(&library.main_db));
+                library.library_id
+            }
+            // A service library keeps no log on this device, and the binding of the playing
+            // track's library finds the covers.
+            None => {
+                crate::visualizer_log::detach();
+                library_id.context("The open service library has no id")?
+            }
+        };
+        provide_covers(&node, library_id, player.lock().await.get_status().item);
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
         if let Some(input) = VISUALIZER.stop() {
@@ -586,15 +593,15 @@ fn announce_scenes(broadcaster: &dyn Broadcaster) {
 }
 
 impl ParamsExtractor for SetVisualizerLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.library.clone()
+        LocalLibrary::from_global(all_params)
     }
 }
 
 impl Signal for SetVisualizerLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
     type Response = ();
 
     async fn handle(
@@ -603,9 +610,12 @@ impl Signal for SetVisualizerLogRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
+        let library = library.or_service()?;
         crate::visualizer_log::set_diagnostics(dart_signal.enabled);
-        crate::visualizer_log::write_to(Arc::clone(&library.main_db));
+        match library {
+            Some(library) => crate::visualizer_log::write_to(Arc::clone(&library.main_db)),
+            None => crate::visualizer_log::detach(),
+        }
         Ok(Some(()))
     }
 }

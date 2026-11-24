@@ -1195,6 +1195,19 @@ impl NodeContext {
         })
     }
 
+    /// Whether the UI's open library is a service library.
+    pub(crate) fn service_library_open(&self) -> bool {
+        self.ui_library.lock().is_ok_and(|ui| {
+            matches!(
+                &*ui,
+                UiLibrary::Open(OpenLibraryState {
+                    catalog: LibraryBinding::Service(_),
+                    ..
+                })
+            )
+        })
+    }
+
     /// The open service library, when this device plays its tracks itself.
     pub(crate) fn open_service_played_here(&self) -> Result<Option<Arc<dyn ServiceBinding>>> {
         let ui = self

@@ -6,21 +6,20 @@ use ::database::actions::logging::{LogLevel, clear_logs, delete_log, list_log};
 
 use crate::{
     Session, Signal,
-    library_pool::LibraryHandle,
     messages::*,
-    utils::{GlobalParams, ParamsExtractor, require_library},
+    utils::{GlobalParams, LocalLibrary, ParamsExtractor},
 };
 
 impl ParamsExtractor for ListLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.library.clone()
+        LocalLibrary::from_global(all_params)
     }
 }
 
 impl Signal for ListLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
     type Response = ListLogResponse;
 
     async fn handle(
@@ -29,7 +28,13 @@ impl Signal for ListLogRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
+        // A service library keeps no log on this device.
+        let Some(library) = library.or_service()? else {
+            return Ok(Some(ListLogResponse {
+                call_id: None,
+                result: Vec::new(),
+            }));
+        };
         let request = dart_signal;
 
         let result = list_log(
@@ -68,15 +73,15 @@ impl Signal for ListLogRequest {
 }
 
 impl ParamsExtractor for ClearLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.library.clone()
+        LocalLibrary::from_global(all_params)
     }
 }
 
 impl Signal for ClearLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
     type Response = ClearLogResponse;
     async fn handle(
         &self,
@@ -84,7 +89,9 @@ impl Signal for ClearLogRequest {
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
+        let Some(library) = library.or_service()? else {
+            return Ok(Some(ClearLogResponse { call_id: None }));
+        };
         clear_logs(&library.main_db)
             .await
             .with_context(|| "Failed to clear logs")?;
@@ -94,15 +101,15 @@ impl Signal for ClearLogRequest {
 }
 
 impl ParamsExtractor for RemoveLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        all_params.library.clone()
+        LocalLibrary::from_global(all_params)
     }
 }
 
 impl Signal for RemoveLogRequest {
-    type Params = Option<LibraryHandle>;
+    type Params = LocalLibrary;
     type Response = RemoveLogResponse;
     async fn handle(
         &self,
@@ -110,8 +117,13 @@ impl Signal for RemoveLogRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
         let request = dart_signal;
+        let Some(library) = library.or_service()? else {
+            return Ok(Some(RemoveLogResponse {
+                call_id: None,
+                id: request.id,
+            }));
+        };
 
         delete_log(&library.main_db, request.id)
             .await

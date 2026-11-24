@@ -153,6 +153,34 @@ pub fn require_library(library: Option<LibraryHandle>) -> Result<LibraryHandle> 
     })
 }
 
+/// The local library a request about this device's own data works on, as the UI has it open. A
+/// streaming service library keeps no such data on this device, so while one is open there is
+/// none, and such a request answers as if there were nothing to read or change.
+#[derive(Clone)]
+pub struct LocalLibrary {
+    library: Option<LibraryHandle>,
+    service_open: bool,
+}
+
+impl LocalLibrary {
+    pub fn from_global(params: &GlobalParams) -> Self {
+        Self {
+            library: params.library.clone(),
+            service_open: params.node.service_library_open(),
+        }
+    }
+
+    /// The local library, or none while a service library is open. Without any open library it
+    /// is the expected `Unavailable` error that `require_library` gives.
+    pub fn or_service(self) -> Result<Option<LibraryHandle>> {
+        match (self.library, self.service_open) {
+            (Some(library), _) => Ok(Some(library)),
+            (None, true) => Ok(None),
+            (None, false) => require_library(None).map(Some),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct GlobalParams {
     pub node: Arc<NodeContext>,

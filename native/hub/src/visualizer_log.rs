@@ -70,6 +70,12 @@ fn queue(level: LogLevel, operation: &str, detail: String) {
 /// The database the writer inserts into: the library open now.
 static TARGET: Mutex<Option<Arc<MainDbConnection>>> = Mutex::new(None);
 
+/// Stop writing to the database of the library open before, for a library that keeps no log on
+/// this device. Entries are not written until `write_to` names a database again.
+pub fn detach() {
+    *TARGET.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Write the entries to `main_db` from now on, the ones that waited first. Every call replaces
 /// the database, so that entries go to the library open now; only the first call starts the
 /// writer, which needs the runtime.
