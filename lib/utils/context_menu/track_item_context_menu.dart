@@ -310,7 +310,7 @@ Widget buildTrackItemContextMenu(
           leading: const Icon(Symbols.face),
           text: Text(S.of(context).goToArtist),
           onPressed: () => {
-            $push(
+            $goTo(
               '/artists/detail',
               arguments: QueryTracksParameter(
                 item.artists[0].id,
@@ -329,7 +329,7 @@ Widget buildTrackItemContextMenu(
                   leading: const Icon(Symbols.face),
                   text: Text(x.name),
                   onPressed: () => {
-                    $push(
+                    $goTo(
                       '/artists/detail',
                       arguments: QueryTracksParameter(x.id, x.name),
                     ),
@@ -342,7 +342,7 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.album),
         text: Text(S.of(context).goToAlbum),
         onPressed: () => {
-          $push(
+          $goTo(
             '/albums/detail',
             arguments: QueryTracksParameter(item.album.id, item.album.name),
           ),

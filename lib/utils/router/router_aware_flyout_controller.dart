@@ -6,14 +6,75 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'history.dart';
 import 'context_menu_route_entry.dart';
 
+/// Hands each flyout of a [RouterAwareFlyoutController] the route it is shown
+/// on as the route is pushed, so the flyout can close its own route before it
+/// is built and after other routes are pushed over it.
+///
+/// Every navigator that shows these flyouts needs one. An observer watches one
+/// navigator at a time, so each navigator has its own.
+class FlyoutRouteObserver extends NavigatorObserver {
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final settings = route.settings;
+    if (settings is _FlyoutSettings && route is ModalRoute) {
+      settings.flyout._route = route;
+    }
+  }
+}
+
+/// The settings a flyout's route is pushed with. They are the flyout's own, so
+/// they tell [FlyoutRouteObserver] which flyout the route belongs to.
+class _FlyoutSettings extends RouteSettings {
+  _FlyoutSettings(this.flyout, RouteSettings settings)
+    : super(name: settings.name, arguments: settings.arguments);
+
+  final _OpenFlyout flyout;
+}
+
+/// A flyout a [RouterAwareFlyoutController] has open: its entry in the
+/// navigation history and the route it is shown on.
+class _OpenFlyout {
+  _OpenFlyout(this._given);
+
+  final RouteSettings? _given;
+
+  late final entry = ContextMenuRouteEntry(name: 'flyout', pop: close);
+
+  late final RouteSettings settings = _FlyoutSettings(
+    this,
+    _given ?? RouteSettings(name: 'flyout', arguments: entry),
+  );
+
+  /// The route the flyout is shown on, from the moment it is pushed. A flyout
+  /// shown on a navigator without a [FlyoutRouteObserver] has none.
+  ModalRoute<dynamic>? _route;
+
+  /// Closes the flyout's own route if it is still open: with its exit
+  /// transition when it is the top route, and at once from under the routes
+  /// above it otherwise. A route already on its way out, or gone, is left
+  /// alone, so the route under a closing flyout is never popped in its place.
+  void close() {
+    final route = _route;
+    if (route == null || !route.isActive) return;
+    final navigator = route.navigator!;
+    if (route.isCurrent) {
+      navigator.pop();
+    } else {
+      navigator.removeRoute(route);
+    }
+  }
+}
+
 /// A wrapper around [FlyoutController] that integrates with the application's
 /// routing system to properly handle back navigation when flyouts are open.
 class RouterAwareFlyoutController {
   /// The underlying flyout controller
   final FlyoutController _controller = FlyoutController();
 
+  /// The flyouts shown and not yet closed, each with its own entry and route.
+  final Set<_OpenFlyout> _flyouts = {};
+
   bool _disposed = false;
-  final _openFlyouts = <VoidCallback>{};
 
   /// Whether the owner has let go of this controller.
   bool get isDisposed => _disposed;
@@ -28,6 +89,11 @@ class RouterAwareFlyoutController {
   ///
   /// Menus load their data first and open afterwards, and the widget that owns
   /// the controller can be gone by then. Nothing is shown in that case.
+  ///
+  /// The flyout's entry in the history closes the flyout's own route, and
+  /// leaves the history when the flyout is closed, however that happens. The
+  /// route comes from the [FlyoutRouteObserver] of the navigator the flyout is
+  /// shown on.
   Future<T?> showFlyout<T>({
     required WidgetBuilder builder,
     bool barrierDismissible = true,
@@ -49,38 +115,18 @@ class RouterAwareFlyoutController {
   }) async {
     if (_disposed) return null;
 
-    ModalRoute<dynamic>? route;
-    void removeFlyout() {
-      final current = route;
-      if (current != null && current.isActive) {
-        current.navigator?.removeRoute(current);
-      }
-    }
-
-    final modalEntry = ContextMenuRouteEntry(
-      name: 'flyout',
-      arguments: null,
-      canPop: null,
-      pop: () {
-        final current = route;
-        if (current != null && current.isCurrent) {
-          current.navigator?.pop();
-        }
-      },
-    );
-
-    _openFlyouts.add(removeFlyout);
-    $history.pushContextMenu(modalEntry);
+    // The entry is registered before the flyout is shown, so that a page
+    // pushed meanwhile closes it.
+    final flyout = _OpenFlyout(settings);
+    _flyouts.add(flyout);
+    $history.pushContextMenu(flyout.entry);
 
     try {
       return await _controller.showFlyout<T>(
         builder: (context) {
-          route = ModalRoute.of(context);
-          if (_disposed) {
-            // The owner can disappear before the flyout's first build.
-            scheduleMicrotask(removeFlyout);
-            return const SizedBox.shrink();
-          }
+          // The owner can disappear before the flyout's first build, and its
+          // dispose has already asked for the route to be closed.
+          if (_disposed) return const SizedBox.shrink();
           return builder(context);
         },
         barrierDismissible: barrierDismissible,
@@ -97,32 +143,37 @@ class RouterAwareFlyoutController {
         transitionBuilder: transitionBuilder,
         transitionDuration: transitionDuration,
         position: position,
-        settings: settings,
+        settings: flyout.settings,
         barrierRecognizer: barrierRecognizer,
       );
     } finally {
-      $history.remove(modalEntry);
-      _openFlyouts.remove(removeFlyout);
+      // The flyout is closed. A menu item may already have pushed a page on
+      // top of its entry, or closed the entry along with its route.
+      _flyouts.remove(flyout);
+      $history.remove(flyout.entry);
       // Fluent notifies listeners after the Navigator completes its push.
-      if (_disposed && _openFlyouts.isEmpty) _controller.dispose();
+      if (_disposed && _flyouts.isEmpty) _controller.dispose();
     }
   }
 
   /// Access to the underlying controller for other operations
   FlyoutController get controller => _controller;
 
-  /// Disposes of resources used by this controller
+  /// Closes the flyouts still open, each with its own entry wherever it is in
+  /// the history, and lets go of the controller once they are closed.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    if (_openFlyouts.isEmpty) {
-      _controller.dispose();
-      return;
+
+    for (final flyout in _flyouts) {
+      $history.remove(flyout.entry);
+      // The owner is disposed while the tree is locked, so the navigator
+      // closes the route after.
+      scheduleMicrotask(flyout.close);
     }
-    // Unmount runs while the widget tree is locked. Remove each owned route
-    // after this frame's synchronous work, even if another route covers it.
-    for (final remove in _openFlyouts) {
-      scheduleMicrotask(remove);
-    }
+
+    // FlyoutController extends ChangeNotifier, and a flyout still open tells
+    // it when it closes.
+    if (_flyouts.isEmpty) _controller.dispose();
   }
 }

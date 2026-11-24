@@ -28,6 +28,7 @@ import 'utils/dialogs/failed_to_initialize_library.dart';
 import 'utils/remote_connection_messages.dart';
 import 'utils/share_sync_messages.dart';
 import 'utils/router/navigation.dart';
+import 'utils/router/router_aware_flyout_controller.dart';
 import 'utils/locale.dart';
 import 'utils/rune_log.dart';
 import 'utils/scene_files.dart';
@@ -524,6 +525,9 @@ class Rune extends StatefulWidget {
 }
 
 class _RuneState extends State<Rune> {
+  /// Hands the menus shown on the app's own navigator their routes.
+  final _flyoutRoutes = FlyoutRouteObserver();
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
@@ -539,6 +543,7 @@ class _RuneState extends State<Rune> {
               ? '/cover_wall'
               : "/library",
           navigatorKey: rootNavigatorKey,
+          navigatorObservers: [_flyoutRoutes],
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
