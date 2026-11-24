@@ -82,6 +82,7 @@ Future<Library> pumpDialog(
   tester.view.physicalSize = const Size(1920, 1080);
   addTearDown(tester.view.reset);
   final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+  addTearDown(sizes.dispose);
   final library = Library(songs: songs, failsAt: failsAt, timesOutAt: timesOutAt)..playlist.addAll(inPlaylist);
   // Reads the count the playlist starts with.
   library.added;
