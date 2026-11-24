@@ -26,21 +26,10 @@ impl<K> Default for RemoteIdMap<K> {
 
 impl<K: Copy + Eq + Hash + Debug> RemoteIdMap<K> {
     pub(crate) fn intern(&mut self, kind: K, remote_id: &str) -> Result<i32> {
-        self.intern_counted_with(kind, kind, remote_id)
-    }
-
-    /// Like `intern`, but a new id is the next of `counter`'s count, which `counter` and every
-    /// kind counted with it share, so kinds that the same requests name never get the same id.
-    pub(crate) fn intern_counted_with(
-        &mut self,
-        kind: K,
-        counter: K,
-        remote_id: &str,
-    ) -> Result<i32> {
         if let Some(id) = self.forward.get(&kind).and_then(|ids| ids.get(remote_id)) {
             return Ok(*id);
         }
-        let next = self.next.entry(counter).or_default();
+        let next = self.next.entry(kind).or_default();
         *next = next
             .checked_add(1)
             .ok_or_else(|| ExpectedRequestError::invalid_input("Catalog ID map is full"))?;
@@ -101,24 +90,5 @@ mod tests {
             Some(ExpectedRequestError::InvalidInput { .. })
         ));
         assert!(error.to_string().contains("Unknown catalog ID: Artist 0"));
-    }
-
-    #[test]
-    fn kinds_counted_together_never_share_an_id() {
-        let mut ids = RemoteIdMap::default();
-        let album = ids.intern(Kind::Album, "a").unwrap();
-        let track = ids
-            .intern_counted_with(Kind::Track, Kind::Album, "a")
-            .unwrap();
-        let next_album = ids.intern(Kind::Album, "b").unwrap();
-        assert_eq!((album, track, next_album), (1, 2, 3));
-        assert_eq!(
-            ids.intern_counted_with(Kind::Track, Kind::Album, "a")
-                .unwrap(),
-            track
-        );
-        assert_eq!(ids.resolve(Kind::Track, track).unwrap(), "a");
-        assert!(ids.resolve(Kind::Album, track).is_err());
-        assert!(ids.resolve(Kind::Track, album).is_err());
     }
 }
