@@ -132,6 +132,9 @@ pub struct PcmInput {
     pub channels: Arc<AtomicU32>,
     /// Sample rate of the samples (0 while unknown).
     pub sample_rate: Arc<AtomicU32>,
+    /// Callback to get a new consumer when the old one is abandoned.
+    /// Returns None if no new consumer is available.
+    pub on_consumer_abandoned: Box<dyn Fn() -> Option<Consumer<f32>> + Send + Sync>,
 }
 
 /// One rendered picture.
@@ -1422,14 +1425,34 @@ fn run(
             }
         }
 
-        let channels = match input.channels.load(Ordering::Relaxed) {
+        let mut channels = match input.channels.load(Ordering::Relaxed) {
             0 => 2,
             n => n as usize,
         };
-        drain(&mut input.consumer, &mut pcm);
+
+        // If the consumer is abandoned (due to a format change recreating the ring),
+        // get a new consumer and re-read channels from the new format.
+        if input.consumer.is_abandoned() {
+            if let Some(new_consumer) = (input.on_consumer_abandoned)() {
+                input.consumer = new_consumer;
+                // Re-read channels after consumer replacement to get the current format
+                channels = match input.channels.load(Ordering::Relaxed) {
+                    0 => 2,
+                    n => n as usize,
+                };
+                drain(&mut input.consumer, &mut pcm);
+            } else {
+                // No new consumer available, skip this frame
+                pcm.clear();
+                // Continue processing commands - don't return early
+            }
+        } else {
+            drain(&mut input.consumer, &mut pcm);
+        }
         // The tracker hears every sample, also while the window is out of sight, so it keeps
         // the beat for when it is back.
-        match input.sample_rate.load(Ordering::Relaxed) {
+        let sample_rate = input.sample_rate.load(Ordering::Relaxed);
+        match sample_rate {
             0 => {}
             rate if rate != tracker.sample_rate() => tracker = BeatTracker::new(rate),
             _ => {}

@@ -7,9 +7,11 @@
 
 use std::f32::consts::TAU;
 use std::path::Path;
-use std::sync::{Arc, atomic::AtomicU32};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use playback::pcm_tap::PcmTap;
 use rtrb::RingBuffer;
 use std::env;
 use std::fs;
@@ -41,13 +43,25 @@ fn main() -> anyhow::Result<()> {
         .map(|t| t.split(',').filter_map(|s| s.parse().ok()).collect())
         .unwrap_or_else(|| vec![2.0, 6.0, 12.0]);
 
-    let (mut producer, consumer) = RingBuffer::new(1 << 16);
+    let (producer, consumer) = RingBuffer::new(1 << 16);
+    // Create a PcmTap to manage the consumer lifecycle
+    let tap = PcmTap::new();
+    tap.restore_consumer(consumer);
+    // Set the sample rate before starting - the visualizer needs to know the format
+    tap.sample_rate().store(SAMPLE_RATE, Ordering::Relaxed);
+    tap.channels().store(2, Ordering::Relaxed);
+    let mut producer = producer;
     let visualizer = Visualizer::new();
+    let on_consumer_abandoned = {
+        let tap = Arc::clone(&tap);
+        move || tap.take_consumer()
+    };
     visualizer.start(
         PcmInput {
-            consumer,
-            channels: Arc::new(AtomicU32::new(2)),
-            sample_rate: Arc::new(AtomicU32::new(SAMPLE_RATE)),
+            consumer: tap.take_consumer().unwrap(),
+            channels: tap.channels(),
+            sample_rate: tap.sample_rate(),
+            on_consumer_abandoned: Box::new(on_consumer_abandoned),
         },
         size().0,
         size().1,

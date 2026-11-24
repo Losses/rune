@@ -119,16 +119,24 @@ impl Signal for StartVisualizerRequest {
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
         if let Some(input) = VISUALIZER.stop() {
-            tap.restore_consumer(input.consumer);
+            // Use the callback if available
+            if let Some(new_consumer) = (input.on_consumer_abandoned)() {
+                tap.restore_consumer(new_consumer);
+            }
         }
         let Some(consumer) = tap.take_consumer() else {
             return report("start", Err(anyhow::anyhow!("The PCM tap is in use")));
         };
         tap.set_enabled(true);
+        let on_consumer_abandoned = {
+            let tap = Arc::clone(&tap);
+            move || tap.take_consumer()
+        };
         let input = PcmInput {
             consumer,
             channels: tap.channels(),
             sample_rate: tap.sample_rate(),
+            on_consumer_abandoned: Box::new(on_consumer_abandoned),
         };
         flutter_bridge::prepare_visualizer(dart_signal.width, dart_signal.height).await;
         let result = VISUALIZER.start(
