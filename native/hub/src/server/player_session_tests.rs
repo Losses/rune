@@ -102,7 +102,7 @@ use crate::{
     request_owner::Implementation,
     rpc::{Slot, UnsupportedReason, dispatch_gui_request},
     server::api::fetch_device_info_at_port,
-    session::store::SessionState,
+    session::store::{SessionState, StoredInterruptedItem},
     utils::{GlobalParams, subsonic_binding_for_playback},
 };
 use database::actions::{
@@ -8863,6 +8863,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     let target_before = wait_player(&b, |status| status.position >= Duration::from_secs(1)).await?;
+    let sampled_at = Instant::now();
     let source_queue = source_before
         .playlist
         .iter()
@@ -8876,6 +8877,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     };
     a_signals.0.lock().unwrap().clear();
     dispatch_gui_request(&controller.global_params, &handoff).await?;
+    let handoff_elapsed = sampled_at.elapsed();
     let b_status = wait_player(&b, |status| {
         status.index == Some(3 + source_index)
             && status.item == source_before.item
@@ -8886,6 +8888,29 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     let remote_session_id = b.global_params.node.session()?.session_id().await;
+    // B keeps playing between the first sample and the handoff load. Check
+    // the saved interruption against that interval, then check the actual
+    // takeback against the saved cursor rather than the earlier sample.
+    let block = b_status.playlist[3 + source_index]
+        .block
+        .context("inserted block")?;
+    let store = b_dir.path().join("sessions/local.json");
+    let interrupted = wait_until("persisted handoff block", || async {
+        Ok(SessionState::read(&store)?.handoff_block(block))
+    })
+    .await?;
+    let StoredInterruptedItem::Item { item, position, .. } = interrupted.interrupted else {
+        anyhow::bail!("playing target was not captured");
+    };
+    assert_eq!(Some(PlayingItem::from(item)), target_before.item);
+    let tolerance = Duration::from_millis(1500);
+    assert!(
+        position >= Duration::from_secs(1)
+            && position + tolerance >= target_before.position
+            && position <= target_before.position + handoff_elapsed + tolerance,
+        "interruption {position:?}, sample {:?}, elapsed {handoff_elapsed:?}",
+        target_before.position
+    );
     wait_until("renderer queue refresh after handoff", || async {
         let has_remote = a_signals.0.lock().unwrap().iter().any(|(name, payload)| {
             name == "PlaylistUpdate"
@@ -9128,7 +9153,11 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     })
     .await?;
     assert_eq!(b_paused.item, target_before.item);
-    assert!(b_paused.position.abs_diff(target_before.position) <= Duration::from_millis(1500));
+    assert!(
+        b_paused.position.abs_diff(position) <= tolerance,
+        "restored {:?}, interrupted at {position:?}",
+        b_paused.position
+    );
     controller.global_params.player.lock().await.pause();
     wait_player(controller, |status| status.state == PlayerPlaybackState::Paused).await?;
 
