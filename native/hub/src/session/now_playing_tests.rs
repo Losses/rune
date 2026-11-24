@@ -191,12 +191,30 @@ async fn a_track_that_a_slow_service_names_late_is_named_again() -> Result<()> {
     // The lookup goes on, and the session is told to name the track again once it lands.
     timeout(Duration::from_secs(10), late_names.notified()).await?;
     assert_eq!(started.elapsed(), service.delay);
+    assert_eq!(service.lookups.load(Ordering::SeqCst), 1);
 
-    // That finds the name the binding holds now, even though the service is as slow as before.
+    // The session names the track from what the binding holds now, and asks the service nothing.
+    let mut item_state = ItemEventState {
+        last_item: Some(item.clone()),
+        library: Some(ResolvedLibrary {
+            library_id,
+            fsio: None,
+            media_root: String::new(),
+            implementation: Implementation::Service(Arc::clone(&binding)),
+        }),
+        ..ItemEventState::default()
+    };
+    name_late_track(&mut item_state, &None, true).await;
+    assert_eq!(item_state.metadata.title, "Late Name");
+    assert_eq!(service.lookups.load(Ordering::SeqCst), 1);
+
+    // A later status of the track, as when it starts again, asks the service once more, and takes
+    // the name the binding holds when the service is as slow as before. That lookup is dropped
+    // then, so it tells the session nothing.
     let (named, _) =
         service_track_metadata(&binding, &item, "slow", None, Some(&late_names)).await?;
     assert_eq!(named.title, "Late Name");
-    // Nothing more is asked for once the track is named.
+    assert_eq!(service.lookups.load(Ordering::SeqCst), 2);
     assert!(
         timeout(Duration::from_secs(30), late_names.notified())
             .await
