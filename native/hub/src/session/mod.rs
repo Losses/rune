@@ -3,7 +3,7 @@ pub(crate) mod store;
 
 use std::{
     collections::HashMap,
-    future::pending,
+    future::{pending, ready},
     path::{Path, PathBuf},
     slice::from_ref,
     sync::{
@@ -24,6 +24,7 @@ use database::{
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
 use fsio::FsIo;
+use futures::future::BoxFuture;
 use playback::{
     PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
@@ -39,7 +40,7 @@ use scrobbling::{
 };
 use sea_orm::TransactionTrait;
 use tokio::{
-    sync::{Mutex, mpsc},
+    sync::{Mutex, mpsc, oneshot},
     task::JoinHandle,
     time::{Instant, sleep_until, timeout},
 };
@@ -54,7 +55,7 @@ use crate::{
         ScrobbleServiceStatus, ScrobbleServiceStatusUpdated, VisualizerFeedChart,
         VisualizerFeedCovers,
     },
-    node::NodeContext,
+    node::{HiddenLocalSession, NodeContext},
     request_error::ExpectedRequestError,
     request_owner::Implementation,
     server::PairedAudioResolver,
@@ -97,6 +98,15 @@ pub struct PlayerSession {
     node: Weak<NodeContext>,
     persistence_writes: Arc<AtomicUsize>,
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
+    /// Asks the event loop to show this session in the UI again.
+    show_requests: mpsc::UnboundedSender<ShowRequest>,
+}
+
+/// Asks the event loop to show this session in the UI again once it has handled everything the
+/// player reported before. The loop drops `hidden` then and answers `shown`.
+struct ShowRequest {
+    hidden: HiddenLocalSession,
+    shown: oneshot::Sender<()>,
 }
 
 struct ControllerEntry {
@@ -116,6 +126,13 @@ struct AttachedController {
 
 /// How long detaching a controller waits for its connection to finish closing.
 const DETACH_CONTROLLER_DEADLINE: Duration = Duration::from_secs(5);
+
+/// How long a switch back to this device's player waits for its session to be shown again. Tests
+/// wait as long as for any other step, so that a slow run never stops waiting early.
+#[cfg(not(test))]
+const SHOW_AGAIN_WAIT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const SHOW_AGAIN_WAIT: Duration = crate::test_wait::TEST_DEADLINE;
 
 /// Owns one attached controller entry for the lifetime of its WebSocket.
 pub(crate) struct AttachedControllerGuard {
@@ -368,6 +385,26 @@ impl PlayerSession {
         self.reemit_to(&node.gui_broadcaster).await
     }
 
+    /// Asks the event loop, before this returns, to show this session in the UI again after this
+    /// device's player became current again, and `hidden` keeps it out of the UI until then. The
+    /// loop shows it once it has handled everything the player reported before, whether or not
+    /// anyone still waits. The returned future waits for that no longer than `SHOW_AGAIN_WAIT`,
+    /// and a session still catching up by then stays hidden until it has.
+    pub(crate) fn show_again(&self, hidden: HiddenLocalSession) -> impl Future<Output = ()> {
+        let (shown, answer) = oneshot::channel();
+        // A stopped event loop sends nothing more. The request comes back and is dropped, which
+        // shows the session and answers at once.
+        let _ = self.show_requests.send(ShowRequest { hidden, shown });
+        async move {
+            if timeout(SHOW_AGAIN_WAIT, answer).await.is_err() {
+                log::warn!(
+                    "The session is still catching up with its player after {SHOW_AGAIN_WAIT:?}, \
+                     and is shown again once it has"
+                );
+            }
+        }
+    }
+
     pub(crate) async fn reemit_to(&self, broadcaster: &Arc<dyn Broadcaster>) -> Result<()> {
         let Some(node) = self.node.upgrade() else {
             return Ok(());
@@ -490,6 +527,7 @@ impl PlayerSession {
         } else {
             None
         };
+        let (show_requests, show_receiver) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             player,
             scrobbler: Arc::new(Mutex::new(ScrobblingManager::new(
@@ -504,8 +542,9 @@ impl PlayerSession {
             node: Arc::downgrade(node),
             persistence_writes: Arc::new(AtomicUsize::new(0)),
             attached_controllers: StdMutex::new(Vec::new()),
+            show_requests,
         });
-        session.start_events(node).await;
+        session.start_events(node, show_receiver).await;
         session.player.lock().await.restore_tagged(
             state.queue_entries(),
             state.index,
@@ -537,7 +576,11 @@ impl PlayerSession {
         result
     }
 
-    async fn start_events(&self, node: &Arc<NodeContext>) {
+    async fn start_events(
+        &self,
+        node: &Arc<NodeContext>,
+        mut show_requests: mpsc::UnboundedReceiver<ShowRequest>,
+    ) {
         let player = self.player.lock().await;
         let status = player.subscribe_status();
         let playlist = player.subscribe_playlist();
@@ -584,6 +627,12 @@ impl PlayerSession {
                 late_covers: Some(late_cover_tx),
                 ..ItemEventState::default()
             };
+            // The requests to show the session again that are still waiting, and the status
+            // barrier they wait for. The player answers a barrier once it has queued its reports
+            // of everything it did before, so one sent after the last request comes after every
+            // report from before this device's player became current again.
+            let mut shows = Vec::new();
+            let mut barrier: Option<BoxFuture<'static, PlayerStatus>> = None;
             loop {
                 tokio::select! {
                     biased;
@@ -591,6 +640,11 @@ impl PlayerSession {
                         if let Some(manager) = &controls { let _ = manager.lock().await.controls.detach(); }
                         return;
                     },
+                    Some(show) = show_requests.recv() => {
+                        shows.push(show);
+                        barrier = Some(player.lock().await.status_after_pending());
+                    }
+                    _ = async { match barrier.as_mut() { Some(barrier) => barrier.await, None => pending().await } } => barrier = None,
                     Ok(played) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
                             handle_played_event(&node, played, &mut item_state, &scrobbler).await;
@@ -617,6 +671,28 @@ impl PlayerSession {
                         if let Some(node) = weak.upgrade() {
                             let revision = event_state.lock().await.queue_revision;
                             handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id, revision).await;
+                        }
+                    }
+                    // Taken in a later pass than the one that saw the barrier answered, and only
+                    // when no status or queue report is waiting, so the loop has handled every
+                    // report the player queued before answering.
+                    _ = ready(()), if barrier.is_none() && !shows.is_empty() => {
+                        // Dropping the hidden sessions lets the session's events reach the UI.
+                        let answers: Vec<_> = shows
+                            .drain(..)
+                            .map(|ShowRequest { hidden, shown }| {
+                                drop(hidden);
+                                shown
+                            })
+                            .collect();
+                        if let Some(node) = weak.upgrade()
+                            && let Ok(session) = node.session()
+                            && let Err(error) = session.reemit_to(&broadcaster).await
+                        {
+                            log::warn!("Could not show the session again: {error:#}");
+                        }
+                        for shown in answers {
+                            let _ = shown.send(());
                         }
                     }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),

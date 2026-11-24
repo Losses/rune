@@ -55,6 +55,7 @@ use std::{
     sync::{
         Arc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
+        mpsc as std_mpsc,
     },
 };
 use anyhow::Error;
@@ -135,7 +136,7 @@ use serde::de::DeserializeOwned;
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::{accept_async, connect_async};
@@ -12441,6 +12442,411 @@ async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()
     assert_eq!(warm.cover_art_path.as_deref(), Some(cover.as_str()));
 
     server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// Records every signal, and stops a session's event loop in the broadcast of its next status
+/// until released, as a loop that falls behind its player would be.
+#[derive(Default)]
+struct HeldStatusSignals {
+    signals: RecordedSignals,
+    hold: StdMutex<Option<StatusHold>>,
+}
+
+struct StatusHold {
+    session_id: String,
+    held: oneshot::Sender<Duration>,
+    release: std_mpsc::Receiver<()>,
+}
+
+impl HeldStatusSignals {
+    /// Holds the event loop of session `session_id` in the broadcast of its next status. Returns
+    /// where that status put the track, and what releases the loop.
+    async fn hold_next_status(&self, session_id: &str) -> Result<(Duration, std_mpsc::Sender<()>)> {
+        let (held, loop_held) = oneshot::channel();
+        let (release, released) = std_mpsc::channel();
+        *self.hold.lock().unwrap() = Some(StatusHold {
+            session_id: session_id.to_owned(),
+            held,
+            release: released,
+        });
+        let held_at = timeout(TEST_DEADLINE, loop_held)
+            .await
+            .context("the event loop sent no status to hold")??;
+        Ok((held_at, release))
+    }
+
+    /// The statuses of session `session_id` recorded so far, as state and position.
+    fn statuses(&self, session_id: &str) -> Vec<(PlaybackState, Duration)> {
+        self.signals
+            .decoded::<PlaybackStatus>("PlaybackStatus")
+            .into_iter()
+            .filter(|status| status.session_id == session_id)
+            .map(|status| {
+                let position = Duration::from_secs_f64(f64::from(status.progress_seconds));
+                (status.state, position)
+            })
+            .collect()
+    }
+}
+
+impl Broadcaster for HeldStatusSignals {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        self.signals.broadcast(message);
+        let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() else {
+            return;
+        };
+        let hold = self
+            .hold
+            .lock()
+            .unwrap()
+            .take_if(|hold| hold.session_id == status.session_id);
+        if let Some(hold) = hold {
+            let _ = hold
+                .held
+                .send(Duration::from_secs_f64(f64::from(status.progress_seconds)));
+            // Blocking here hands this worker's other tasks on, which only the multi-thread
+            // runtime does.
+            let _ = tokio::task::block_in_place(|| hold.release.recv());
+        }
+    }
+}
+
+/// Two paired nodes, the second a host the first can open as an @RR library. The first, which
+/// sends its UI to `signals`, plays a track of its own.
+async fn local_playing_beside_rr_host(
+    signals: Arc<HeldStatusSignals>,
+) -> Result<(Vec<TempDir>, Fixture, Fixture, String)> {
+    use crate::messages::PlayRequest;
+
+    let a_dir = tempfile::tempdir()?;
+    let b_dir = tempfile::tempdir()?;
+    let a = fixture_with_broadcaster(
+        a_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals,
+    )
+    .await?;
+    let b = fixture(b_dir.path()).await?;
+    b.global_params
+        .node
+        .set_open_local_catalog(
+            None,
+            b.global_params.library_id.context("renderer library id")?,
+        )
+        .await?;
+    let address = super::paired_full(&b, &a).await?;
+    let fingerprint = super::info(&b).await?.fingerprint;
+    a.global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
+        .await?;
+
+    let local_track = session_audio(&a, "local-held-behind-rr.ogg").await?;
+    queue_session(&a, &[local_track]).await?;
+    dispatch_gui_request(&a.global_params, &PlayRequest { call_id: None }).await?;
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Playing).await?;
+    Ok((vec![a_dir, b_dir], a, b, fingerprint))
+}
+
+/// How many statuses of session `session_id` playing past `after` its event loop handled before
+/// its first paused one. The session sends its controllers what its loop handled, whether the UI
+/// was shown it or not.
+async fn playing_handled_before_the_pause(
+    sent: &mut broadcast::Receiver<Vec<u8>>,
+    session_id: &str,
+    after: Duration,
+) -> Result<usize> {
+    use crate::backends::remote::decode_message;
+    use tokio::sync::broadcast::error::RecvError;
+
+    timeout(TEST_DEADLINE, async {
+        let mut playing = 0;
+        loop {
+            let frame = match sent.recv().await {
+                Ok(frame) => frame,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(error) => return Err(Error::new(error)),
+            };
+            let Some(status) = decode_message(&frame)
+                .filter(|(name, _, _)| name == "PlaybackStatus")
+                .and_then(|(_, payload, _)| rinf::deserialize::<PlaybackStatus>(&payload).ok())
+                .filter(|status| status.session_id == session_id)
+            else {
+                continue;
+            };
+            let position = Duration::from_secs_f64(f64::from(status.progress_seconds));
+            match status.state {
+                PlaybackState::Playing if position > after => playing += 1,
+                PlaybackState::Paused => return Ok(playing),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .context("the session's event loop sent no paused status")?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_close_shows_no_local_status_from_before_the_pause() -> Result<()> {
+    let signals = Arc::new(HeldStatusSignals::default());
+    let (_dirs, a, b, fingerprint) = local_playing_beside_rr_host(signals.clone()).await?;
+    let node = a.global_params.node.clone();
+    let local_session_id = node.session()?.session_id().await;
+    // What the session sends controllers shows what its event loop handled, shown in the UI
+    // or not.
+    let mut sent = node.websocket_service.broadcast_tx.subscribe();
+
+    // The session's event loop falls behind its player: it stops in the broadcast of one status
+    // while the player reports once more that it plays, and then pauses. The player's status
+    // queue holds 16 reports and clears when full, and a paused player reports nothing new, so
+    // the queue keeps these reports however long the rest takes.
+    let (held_at, release) = signals.hold_next_status(&local_session_id).await?;
+    let held_since = Instant::now();
+    wait_player(&a, |status| status.position >= held_at + Duration::from_millis(50)).await?;
+    a.global_params.player.lock().await.pause();
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Paused).await?;
+    let played_held = held_since.elapsed();
+
+    let remote = super::open_remote_control_record(node.clone(), &fingerprint).await?;
+    let paused = node.session()?.playback_snapshot().await.0;
+    assert_eq!(paused.state, PlayerPlaybackState::Paused);
+    let paused_position = paused.position;
+
+    signals.signals.clear();
+    let closing = tokio::spawn({
+        let node = node.clone();
+        let token = remote.main_token.clone();
+        async move { node.close_ui(&token).await }
+    });
+    wait_until("this device's player to be current again", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
+    })
+    .await?;
+    release.send(())?;
+    closing.await?;
+
+    let stale = playing_handled_before_the_pause(&mut sent, &local_session_id, held_at).await?;
+    assert!(
+        stale > 0,
+        "inconclusive: the status queue overflowed while the player played for {played_held:?} \
+         behind the loop"
+    );
+
+    let shown = signals.statuses(&local_session_id);
+    assert!(!shown.is_empty(), "the local session was not shown again");
+    for (state, position) in &shown {
+        assert!(
+            *state == PlaybackState::Paused
+                && position.abs_diff(paused_position) <= Duration::from_millis(100),
+            "the local session showed more than its pause at {paused_position:?}: {shown:?}"
+        );
+    }
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_close_lets_a_renderer_attached_meanwhile_stay_current() -> Result<()> {
+    let signals = Arc::new(HeldStatusSignals::default());
+    let (_dirs, a, b, fingerprint) = local_playing_beside_rr_host(signals.clone()).await?;
+    let node = a.global_params.node.clone();
+    let session = node.session()?;
+    let local_session_id = session.session_id().await;
+    let (_, release) = signals.hold_next_status(&local_session_id).await?;
+    let remote = super::open_remote_control_record(node.clone(), &fingerprint).await?;
+
+    // The close makes this device's player current again, and its session waits for the held
+    // loop to be shown again.
+    let closing = tokio::spawn({
+        let node = node.clone();
+        let token = remote.main_token.clone();
+        async move { node.close_ui(&token).await }
+    });
+    wait_until("this device's player to be current again", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
+    })
+    .await?;
+    // Meanwhile this device's player plays, as a handoff back to it starts the track before
+    // the player is current, and the host is attached as a renderer.
+    a.global_params.player.lock().await.play();
+    wait_player(&a, |status| status.state == PlayerPlaybackState::Playing).await?;
+    node.attach_renderer(&fingerprint).await?;
+    assert!(
+        !closing.is_finished(),
+        "inconclusive: the close stopped waiting for the session's event loop"
+    );
+    signals.signals.clear();
+    release.send(())?;
+    closing.await?;
+
+    // The renderer attached last is the current player, as stored and as the node sees it.
+    for player in [node.current_player_snapshot()?, node.current_player()?] {
+        assert!(
+            matches!(
+                player,
+                CurrentPlayer::RunePeer { link: Some(link), .. }
+                    if link.fingerprint() == fingerprint
+            ),
+            "the attached renderer is not the current player"
+        );
+    }
+    // This device's player, left for the renderer, is paused, and its session stays out of the
+    // UI.
+    assert_eq!(
+        session.playback_snapshot().await.0.state,
+        PlayerPlaybackState::Paused
+    );
+    let shown = signals.statuses(&local_session_id);
+    assert!(
+        shown.is_empty(),
+        "the local session was shown beside the renderer: {shown:?}"
+    );
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_close_shows_the_local_session_when_its_caller_stops_waiting() -> Result<()> {
+    let signals = Arc::new(HeldStatusSignals::default());
+    let (_dirs, a, b, fingerprint) = local_playing_beside_rr_host(signals.clone()).await?;
+    let node = a.global_params.node.clone();
+    let local_session_id = node.session()?.session_id().await;
+    let (_, release) = signals.hold_next_status(&local_session_id).await?;
+    let remote = super::open_remote_control_record(node.clone(), &fingerprint).await?;
+
+    // The close waits for the held loop to show the session again, and its caller stops waiting
+    // meanwhile. The close asks for that in the same step as it makes this device's player
+    // current, so its caller stops waiting only once it has asked.
+    signals.signals.clear();
+    let closing = tokio::spawn({
+        let node = node.clone();
+        let token = remote.main_token.clone();
+        async move { node.close_ui(&token).await }
+    });
+    wait_until("this device's player to be current again", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
+    })
+    .await?;
+    closing.abort();
+    assert!(
+        closing.await.is_err_and(|error| error.is_cancelled()),
+        "the close finished before its caller stopped waiting"
+    );
+    release.send(())?;
+
+    // The loop shows the session again all the same, and only once it has handled the statuses
+    // from before the pause that it held.
+    wait_until("the local session to be shown again", || async {
+        Ok(signals
+            .statuses(&local_session_id)
+            .iter()
+            .any(|(state, _)| *state == PlaybackState::Paused)
+            .then_some(()))
+    })
+    .await?;
+    let shown = signals.statuses(&local_session_id);
+    assert!(
+        shown.iter().all(|(state, _)| *state == PlaybackState::Paused),
+        "the local session showed statuses from before the pause: {shown:?}"
+    );
+
+    node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_player_current_again_hides_statuses_its_player_reports_late() -> Result<()> {
+    use crate::messages::PlayRequest;
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(HeldStatusSignals::default());
+    // The status the real player caches. Its thread that reports statuses takes this lock for
+    // every report.
+    let cached = Arc::new(OnceLock::new());
+    let f = fixture_with_player(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+        ReconnectConfig::default(),
+        RunMode::App,
+        Box::new({
+            let cached = Arc::clone(&cached);
+            move |player: player::Player| -> Arc<Mutex<dyn Playable>> {
+                let _ = cached.set(Arc::clone(&player.current_status));
+                Arc::new(Mutex::new(player))
+            }
+        }),
+    )
+    .await?;
+    let track = session_audio(&f, "local-reports-late.ogg").await?;
+    queue_session(&f, &[track]).await?;
+    dispatch_gui_request(&f.global_params, &PlayRequest { call_id: None }).await?;
+    wait_player(&f, |status| status.state == PlayerPlaybackState::Playing).await?;
+    let node = f.global_params.node.clone();
+    let session_id = node.session()?.session_id().await;
+    let mut sent = node.websocket_service.broadcast_tx.subscribe();
+
+    // The player's reports fall behind: its thread that sends them waits for the cached status
+    // while the player plays on. Nothing here reads that status until it is let go.
+    let cached = Arc::clone(cached.get().context("the player's cached status")?);
+    let (blocked, reports_blocked) = oneshot::channel();
+    let (unblock, unblocked) = std_mpsc::channel::<()>();
+    let blocking = thread::spawn(move || {
+        let cached = cached.lock().unwrap();
+        let _ = blocked.send(cached.position);
+        let _ = unblocked.recv();
+    });
+    let blocked_at = timeout(TEST_DEADLINE, reports_blocked).await??;
+    sleep(Duration::from_millis(250)).await;
+    // Another player takes over, and this device's player pauses, which it also reports late.
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away.clone()).await?;
+
+    // This device's player is current again before it has sent what it reported before the
+    // pause.
+    signals.signals.clear();
+    let returning = tokio::spawn({
+        let node = node.clone();
+        async move { node.transition_current_player(away, CurrentPlayer::Local).await }
+    });
+    wait_until("this device's player to be current again", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
+    })
+    .await?;
+    unblock.send(())?;
+    blocking
+        .join()
+        .map_err(|_| anyhow::anyhow!("the thread holding the cached status panicked"))?;
+    returning.await??;
+
+    let late = playing_handled_before_the_pause(
+        &mut sent,
+        &session_id,
+        blocked_at + Duration::from_millis(50),
+    )
+    .await?;
+    assert!(late > 0, "inconclusive: the player sent no report late from before the pause");
+    let shown = signals.statuses(&session_id);
+    assert!(!shown.is_empty(), "the local session was not shown again");
+    assert!(
+        shown.iter().all(|(state, _)| *state == PlaybackState::Paused),
+        "the local session showed statuses from before the pause: {shown:?}"
+    );
+
     node.shutdown().await?;
     Ok(())
 }
