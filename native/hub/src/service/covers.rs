@@ -363,6 +363,20 @@ impl ServiceCoverCache {
         });
     }
 
+    /// Starts downloading the cover of what plays now, which its status shows once the cover is
+    /// cached and which nothing asks for again. Like a cover a request waits for, it goes ahead of
+    /// the scheduled covers and is never dropped from the queue, so the status does get it.
+    pub(crate) fn schedule_playing<S: CoverSource>(
+        self: &Arc<Self>,
+        source: Arc<S>,
+        cover_id: String,
+    ) {
+        let cache = Arc::clone(self);
+        tokio::spawn(async move {
+            let _ = cache.ensure(source, &cover_id, true).await;
+        });
+    }
+
     /// The path of a cover once it is cached, downloaded now when it is not. The download goes
     /// ahead of the scheduled ones.
     pub(crate) async fn ensure_cached<S: CoverSource>(
@@ -674,6 +688,17 @@ mod tests {
         cache.downloads.lock().next_order
     }
 
+    /// How many scheduled covers, which no request waits for, wait in the download queue.
+    fn scheduled_in_line(cache: &ServiceCoverCache) -> usize {
+        cache
+            .downloads
+            .lock()
+            .waiting
+            .iter()
+            .filter(|waiting| !waiting.awaited.load(Ordering::SeqCst))
+            .count()
+    }
+
     fn pending(cache: &ServiceCoverCache) -> usize {
         cache.pending.lock().unwrap().len()
     }
@@ -812,6 +837,33 @@ mod tests {
         assert_eq!(in_line(&cache, "first"), Some(true));
         source.finish(10_000);
         assert!(asked.await.unwrap().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn the_playing_cover_is_not_dropped_beyond_the_bound() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        cache.schedule_playing(Arc::clone(&source), "playing".to_owned());
+        until("playing", || in_line(&cache, "playing").is_some()).await;
+        let taken = places_taken(&cache);
+        // More scheduled covers than the bound allows arrive after it. Nothing asks for the
+        // playing cover again, so it must keep its place.
+        let pages = MAX_WAITING_SCHEDULED + 1;
+        for index in 0..pages {
+            cache.schedule(Arc::clone(&source), format!("page-{index}"));
+        }
+        until("every page in line and the bound kept", || {
+            places_taken(&cache) == taken + pages as u64
+                && scheduled_in_line(&cache) == MAX_WAITING_SCHEDULED
+        })
+        .await;
+        assert!(in_line(&cache, "playing").is_some());
+        source.finish(1);
+        until("the fifth download", || source.started().len() == 5).await;
+        assert_eq!(source.started()[4], "playing");
+        source.finish(10_000);
     }
 
     #[tokio::test(start_paused = true)]

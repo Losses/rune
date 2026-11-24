@@ -470,7 +470,7 @@ impl SubsonicBinding {
                                     && cover.is_none()
                                     && let Some(id) = cover_id
                                 {
-                                    covers.schedule(Arc::clone(&client), id.to_owned());
+                                    covers.schedule_playing(Arc::clone(&client), id.to_owned());
                                 }
                                 broadcast_jukebox(
                                     &*broadcaster,
@@ -663,7 +663,7 @@ impl SubsonicBinding {
                 && let Some(id) = cover_id
             {
                 self.covers
-                    .schedule(Arc::clone(&self.client), id.to_owned());
+                    .schedule_playing(Arc::clone(&self.client), id.to_owned());
             }
             broadcast_jukebox(
                 &*self.covers.broadcaster,
