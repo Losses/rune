@@ -85,13 +85,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   // it, not one each.
   bool _reloadRunning = false;
   bool _reloadPending = false;
-  // Whether a background failure dialog is open anywhere. Lists of stacked
-  // pages fail together, and the user needs the error only once.
-  static bool _showingFailure = false;
-
-  /// Lets a test start without the failure dialog an earlier test left open.
-  @visibleForTesting
-  static void resetFailureDialogGuard() => _showingFailure = false;
+  // Whether this list's failure dialog is open, so that refreshes failing
+  // while it is open add no second one.
+  bool _showingFailure = false;
   // A failure the hub reported, or a request that got no answer in time.
   Object? _failure;
   bool _reachedEnd = false;
@@ -266,13 +262,15 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   // Decides what a failed load shows. Tracks already on the page stay and the
   // failure shows in the error dialog, one at a time; with none, the page
-  // shows the failure.
+  // shows the failure. Only the list of the page shown opens the dialog: the
+  // lists of the pages stacked under it fail together with it, and the user
+  // needs the error once.
   void _loadFailed(Object error) {
     if (_loadedItems.isEmpty) {
       if (_shownFailure(error)) setState(() => _failure = error);
       return;
     }
-    if (_showingFailure) return;
+    if (_showingFailure || ModalRoute.isCurrentOf(context) == false) return;
     _showingFailure = true;
     final s = S.of(context);
     showErrorDialog(

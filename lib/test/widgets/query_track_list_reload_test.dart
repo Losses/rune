@@ -69,7 +69,6 @@ void main() {
   final s = lookupAppLocalizations(const Locale('en'));
 
   setUp(() {
-    QueryTrackListViewState.resetFailureDialogGuard();
     contentChanged = StreamController<void>.broadcast(sync: true);
   });
 
@@ -167,6 +166,62 @@ void main() {
     expect(find.text('old-0'), findsNothing);
     expect(find.text('new-0'), findsOneWidget);
   });
+
+  testWidgets(
+    'only the list of the page shown reports a failed refresh, not the lists '
+    'of the pages stacked under it',
+    (tester) async {
+      Future<List<InternalMediaFile>> Function(int cursor) below =
+          (cursor) async => _tracks('below', cursor, 5);
+      await pumpList(
+        tester,
+        const QueryList([('lib::artist', '1')]),
+        loadMixPage: (queries, cursor, size) => below(cursor),
+      );
+
+      Future<List<InternalMediaFile>> Function(int cursor) above =
+          (cursor) async => _tracks('above', cursor, 5);
+      final layout = StartScreenLayoutManager();
+      addTearDown(layout.dispose);
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).first,
+      );
+      navigator.push(
+        PageRouteBuilder<void>(
+          pageBuilder: (context, _, _) => PageContentFrame(
+            top: false,
+            child: QueryTrackListView(
+              layoutManager: layout,
+              queries: const QueryList([('lib::artist', '2')]),
+              mode: null,
+              contentChanged: contentChanged.stream,
+              loadMixPage: (queries, cursor, size) => above(cursor),
+              loadPlaylistPage: fetchPlaylistOccurrences,
+            ),
+          ),
+        ),
+      );
+      await _settle(tester);
+      expect(find.text('above-0'), findsOneWidget);
+
+      final timeout = TimeoutException('no answer');
+      below = (cursor) async => throw _unavailable;
+      above = (cursor) async => throw timeout;
+      contentChanged.add(null);
+      await _settle(tester);
+
+      expect(find.byType(ContentDialog), findsOneWidget);
+      expect(find.text(requestErrorText(s, timeout)), findsOneWidget);
+      expect(find.text(requestErrorText(s, _unavailable)), findsNothing);
+
+      await tester.tap(find.text(s.close));
+      await _settle(tester);
+      navigator.pop();
+      await _settle(tester);
+      expect(find.text('below-0'), findsOneWidget);
+      expect(find.byType(ContentDialog), findsNothing);
+    },
+  );
 
   testWidgets(
     'a failed refresh keeps the playlist cursors of the pages still to load',
