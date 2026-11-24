@@ -49,6 +49,40 @@ class _Bars extends CustomPainter {
   bool shouldRepaint(_Bars oldDelegate) => true;
 }
 
+/// The bars as the spectrum drew them before its glow became shaders
+/// (d50ea3ef), each a line as wide as a band, drawn one after another.
+class _Lines extends CustomPainter {
+  _Lines(this.values);
+
+  final List<double> values;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = _color
+      ..strokeWidth = size.width / values.length;
+    final midY = size.height / 2;
+    for (int i = 0; i < values.length; i++) {
+      final x = i * (size.width / values.length);
+      final y = values[i] * size.height / 2;
+      canvas.drawLine(Offset(x, midY - y), Offset(x, midY + y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_Lines oldDelegate) => true;
+}
+
+/// The glow before the shaders: [_Lines] under a blur of 12 and an opacity
+/// of 0.87.
+Widget _oldGlow(List<double> values) => Opacity(
+  opacity: 0.87,
+  child: ImageFiltered(
+    imageFilter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+    child: CustomPaint(painter: _Lines(values)),
+  ),
+);
+
 Widget _framed(Key key, Widget bars, {double height = _height}) =>
     Directionality(
       textDirection: TextDirection.ltr,
@@ -205,6 +239,52 @@ void main() {
     'a lone bar': List.generate(64, (i) => i == 20 ? 0.6 : 0),
     'quiet': List.generate(64, (i) => 0.04 * (i % 5)),
   };
+
+  testWidgets('on a screen 640 pixels wide at a pixel ratio of 1, the glow is '
+      'as bright as the glow before the shaders', (tester) async {
+    final glows = await _glows(tester);
+    final glow = glows();
+    addTearDown(glow.dispose);
+    final results = <String, ({double brightness, _Difference difference})>{};
+
+    for (final seed in [1, 7, 11]) {
+      final values = _playerSpectrum(seed);
+      final bars = FFTBars()..values = values;
+      addTearDown(bars.dispose);
+      final before = Key('before $seed'), after = Key('after $seed');
+      await tester.pumpWidget(_framed(before, _oldGlow(values)));
+      final drawn = await _pixels(tester, before);
+      await tester.pumpWidget(
+        _framed(after, CustomPaint(painter: FFTPainter(bars, _color, glow))),
+      );
+      final drawing = await _pixels(tester, after);
+      var drawnAlpha = 0, drawingAlpha = 0;
+      for (var p = 3; p < drawn.length; p += 4) {
+        drawnAlpha += drawn[p];
+        drawingAlpha += drawing[p];
+      }
+      results['seed $seed'] = (
+        brightness: drawingAlpha / drawnAlpha,
+        difference: _compare(drawn, drawing),
+      );
+    }
+
+    // The old glow's seams took 11% off where the bars are dense and nothing
+    // where they stand apart; the opacity takes the same off everywhere, so
+    // the two differ by up to 7 levels in about 13% of the pixels, and in
+    // all by under half a percent. The glow at the old opacity of 0.87 is
+    // 12% brighter, which breaks the bound.
+    expect(
+      results.values.every(
+        (r) =>
+            (r.brightness - 1).abs() <= 0.01 &&
+            r.difference.largest <= 8 &&
+            r.difference.lost == 0,
+      ),
+      isTrue,
+      reason: '$results',
+    );
+  });
 
   testWidgets('the shaders draw the glow the blurred, faded bars drew, and '
       'drawing it at a third of the resolution changes it by 2 levels at most', (

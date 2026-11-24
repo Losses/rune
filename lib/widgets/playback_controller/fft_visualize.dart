@@ -268,7 +268,22 @@ class SpectrumGlow {
   });
 
   static const double blurSigma = 12.0;
-  static const double glowOpacity = 0.87;
+
+  /// The glow's opacity, which keeps it as bright as the glow before the
+  /// shaders on the kiosk of a Radxa ZERO 3: a screen 640 pixels wide at a
+  /// pixel ratio of 1.
+  ///
+  /// That glow drew the bars as lines, one after another, at an opacity of
+  /// 0.87. Under Skia, two lines that share a pixel each cover part of it,
+  /// and blending the second over the first leaves seams: how much they take
+  /// off moves with a bar's width in pixels and with where the window sits
+  /// on the pixel grid. The shaders draw the bars whole. On the kiosk, the
+  /// one place where the old glow had a single look, it was 0.891 of theirs
+  /// at 0.87 (on the board, the same spectrum drawn both ways), so the glow
+  /// takes 0.87 * 0.891. On desktops under Skia the old glow lost 4 to 6% at
+  /// a pixel ratio of 1 and up to 4% at 2, and under Impeller nothing, so
+  /// there the glow is up to 11% fainter than it was.
+  static const double glowOpacity = 0.775;
 
   /// The bars the shaders take: the player sends 512 bands, the magnitudes of
   /// a 512 point FFT (playback/src/internal.rs). lib/shaders/spectrum_bars.frag
