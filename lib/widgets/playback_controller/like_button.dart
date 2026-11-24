@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:rinf/rinf.dart';
+
 import '../../bindings/bindings.dart';
 import '../../utils/api/request_failure.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -37,6 +41,7 @@ class _LikeButtonState extends State<LikeButton> {
   final Map<PlayingItem, int> _pendingWrites = {};
   // Whether the item's library answers about its likes, as it last declared.
   bool? _answers;
+  StreamSubscription<RustSignalPack<SetLikedResponse>>? _likesSet;
 
   PlayingItem? get _likeableItem {
     final current = item;
@@ -47,7 +52,27 @@ class _LikeButtonState extends State<LikeButton> {
   void initState() {
     super.initState();
     item = widget.item;
+    _likesSet = SetLikedResponse.rustSignalStream.listen(_onLikeSet);
     _fetchLikedStatus();
+  }
+
+  @override
+  void dispose() {
+    _likesSet?.cancel();
+    super.dispose();
+  }
+
+  /// A like set anywhere, as from a menu, shows here when it is of the item
+  /// shown. This button's own writes show when they return.
+  void _onLikeSet(RustSignalPack<SetLikedResponse> signal) {
+    final current = _likeableItem;
+    if (current == null ||
+        _pendingWrites.containsKey(current) ||
+        PlayingItem.fromRequest(signal.message.item) != current) {
+      return;
+    }
+    ++_requestGeneration;
+    if (mounted) setState(() => liked = signal.message.liked);
   }
 
   @override

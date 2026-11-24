@@ -111,6 +111,7 @@ class _MenuTargetState extends State<_MenuTarget> {
         },
         loadMixes: () async => const [],
         loadMediaFile: (_) async => _track,
+        fetchLikedStatus: (_) async => false,
       );
     } else {
       openCollectionItemContextMenu(
@@ -123,6 +124,7 @@ class _MenuTargetState extends State<_MenuTarget> {
         'Album',
         null,
         true,
+        () async => const [],
         () async => const [],
       );
     }

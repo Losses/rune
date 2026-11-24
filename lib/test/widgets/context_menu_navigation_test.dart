@@ -117,6 +117,7 @@ class _RowState extends State<_Row> {
         loadPlaylists: () async => const [],
         loadMixes: () async => const [],
         loadMediaFile: (_) async => _song,
+        fetchLikedStatus: (_) async => false,
       );
       return;
     }
