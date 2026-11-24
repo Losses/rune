@@ -333,6 +333,8 @@ pub(crate) async fn create_playlist_request(
         .create_playlist(&request.name, &[])
         .await
         .map_err(|error| subsonic_request_error(binding, error))?;
+    // The playlist exists from now on, whether or not it can be read back.
+    playlist_entries_changed(binding);
     let remote = binding
         .client
         .playlists()
@@ -346,7 +348,6 @@ pub(crate) async fn create_playlist_request(
             actual: "no matching playlist returned".into(),
         })?;
     let id = playlist_id(binding, &created.id)?;
-    playlist_entries_changed(binding);
     Ok(Some(CreatePlaylistResponse {
         playlist: Playlist {
             id,
@@ -5633,6 +5634,27 @@ mod tests {
         .unwrap();
         assert_eq!(announced(), before + 3);
         assert!(!playlist_ids(&binding).await.contains_key("Renamed"));
+    }
+
+    #[tokio::test]
+    async fn a_created_subsonic_playlist_is_announced_when_it_cannot_be_read_back() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        // The server gives the new playlist the id of one it lists already, so the read back
+        // cannot tell the new one apart.
+        server.state.playlists.lock().unwrap()[0].id = "playlist-2".into();
+        let before = server.broadcasts.load(Ordering::SeqCst);
+        let created = create_playlist_request(
+            &binding,
+            &CreatePlaylistRequest {
+                name: "Fresh".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await;
+        assert!(created.is_err());
+        assert_eq!(server.broadcasts.load(Ordering::SeqCst), before + 1);
     }
 
     fn assert_secret_free(value: &str) {
