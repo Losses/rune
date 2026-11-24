@@ -38,6 +38,7 @@ Widget _list(
   QueryTrackPageLoader loader, {
   QueryList queries = const QueryList([('lib::album', '1')]),
   PlaylistPageLoader playlistLoader = fetchPlaylistOccurrences,
+  Stream<void>? contentChanged,
 }) => MultiProvider(
   providers: [
     ChangeNotifierProvider(create: (_) => StartScreenLayoutManager()),
@@ -63,6 +64,7 @@ Widget _list(
             mode: null,
             loadMixPage: loader,
             loadPlaylistPage: playlistLoader,
+            contentChanged: contentChanged,
           ),
         ),
       ),
@@ -174,9 +176,7 @@ void main() {
     expect(find.textContaining('TimeoutException'), findsOneWidget);
   });
 
-  testWidgets('a later page timing out keeps the loaded tracks', (
-    tester,
-  ) async {
+  testWidgets('a later page timing out shows the dialog once', (tester) async {
     tester.view.physicalSize = const Size(2400, 600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -193,7 +193,41 @@ void main() {
     }
     expect(cursors, contains(20));
     expect(find.text('Track 0'), findsOneWidget);
-    expect(find.textContaining('TimeoutException'), findsNothing);
+    expect(find.textContaining('TimeoutException'), findsOneWidget);
+    expect(find.byType(ContentDialog), findsOneWidget);
+    expect(find.text('Unknown Error'), findsWidgets);
+  });
+
+  testWidgets('a later page failing again keeps one dialog', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(2400, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final changes = StreamController<void>.broadcast(sync: true);
+    addTearDown(changes.close);
+    final cursors = <int>[];
+    await tester.pumpWidget(
+      _list((_, cursor, _) async {
+        cursors.add(cursor);
+        if (cursor == 0) return _page(0);
+        throw TimeoutException('no answer');
+      }, contentChanged: changes.stream),
+    );
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byType(ContentDialog), findsOneWidget);
+    final failures = cursors.where((c) => c == 20).length;
+
+    // The library changed, so the failed page is requested and fails again.
+    changes.add(null);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(cursors.where((c) => c == 20).length, greaterThan(failures));
+    expect(find.byType(ContentDialog), findsOneWidget);
+    expect(find.text('Track 0'), findsOneWidget);
   });
 
   testWidgets('a later page failing at once is requested only once', (
@@ -219,6 +253,8 @@ void main() {
     }
     expect(cursors.where((c) => c == 20), hasLength(1));
     expect(find.text('Track 0'), findsOneWidget);
+    expect(find.byType(ContentDialog), findsOneWidget);
+    expect(find.text('Unknown Error'), findsWidgets);
   });
 
   testWidgets(

@@ -395,14 +395,13 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         setState(() {
           _loadingIndices.remove(cursor);
           _failedPages.add(cursor);
-          if (!_shownFailure(error)) return;
-          // Tracks already loaded stay on the page.
-          if (_loadedItems.isEmpty) {
-            _failure = error;
-          } else {
-            logger.w('Failed to load tracks from $cursor: $error');
-          }
         });
+        if (!_shownFailure(error)) return;
+        // Tracks already loaded stay on the page.
+        if (_loadedItems.isNotEmpty) {
+          logger.w('Failed to load tracks from $cursor: $error');
+        }
+        _loadFailed(error);
       });
     }
   }
