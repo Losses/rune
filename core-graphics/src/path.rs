@@ -47,8 +47,9 @@ impl CGPath {
 
     /// Calls `closure` once for each element in the path.
     ///
-    /// Each `CGPathElementRef` is valid only for the duration of that callback. Copy element data
-    /// that must outlive the callback.
+    /// Core Graphics passes a `const CGPathElement *` to the applier and does not define an
+    /// ownership or retain operation for that pointer. This wrapper treats each element as a
+    /// callback-scoped borrow. Copy element data that must outlive the callback.
     ///
     /// A closure must have exclusive mutable access:
     ///
