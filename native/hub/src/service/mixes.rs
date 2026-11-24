@@ -27,7 +27,7 @@ pub(crate) fn unsupported_query(request: &'static str) -> Error {
 }
 
 /// A collection whose tracks a query names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MixTarget {
     Album(i32),
     Artist(i32),
@@ -35,7 +35,7 @@ pub(crate) enum MixTarget {
 }
 
 /// One item a query names: a collection, or a single track.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MixItem {
     Collection(MixTarget),
     Track(i32),
@@ -44,7 +44,8 @@ pub(crate) enum MixItem {
 /// The order the items of `Plan::Items` are listed in, as a local library lists a mix of
 /// several: the single tracks first, in the order the queries name them, then the collections
 /// in that order. Each collection lists its songs in its own order, and a song comes once,
-/// where it first comes (see `first_of_each_key`).
+/// where it first comes (see `first_of_each_key`). An item named again comes only where it
+/// first comes, so a collection is read once.
 pub(crate) fn union_order(items: &[MixItem]) -> impl Iterator<Item = MixItem> + '_ {
     let tracks = items
         .iter()
@@ -52,7 +53,11 @@ pub(crate) fn union_order(items: &[MixItem]) -> impl Iterator<Item = MixItem> + 
     let collections = items
         .iter()
         .filter(|item| matches!(item, MixItem::Collection(_)));
-    tracks.chain(collections).copied()
+    let mut seen = HashSet::new();
+    tracks
+        .chain(collections)
+        .copied()
+        .filter(move |item| seen.insert(*item))
 }
 
 /// The songs in order, each key once, where it first comes, as a local library lists each file
@@ -299,6 +304,18 @@ mod tests {
                 plan: Plan::Collection(MixTarget::Album(4)),
                 cover_only: true
             }
+        );
+    }
+
+    #[test]
+    fn a_union_names_each_item_once() {
+        let album = MixItem::Collection(MixTarget::Album(1));
+        let artist = MixItem::Collection(MixTarget::Artist(2));
+        let track = MixItem::Track(5);
+        let items = [album, track, artist, album, track, artist];
+        assert_eq!(
+            union_order(&items).collect::<Vec<_>>(),
+            [track, album, artist]
         );
     }
 
