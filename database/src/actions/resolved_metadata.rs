@@ -39,10 +39,13 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use crate::entities::music_metadata::{
-    album_evidence, album_summaries, albums as orm_albums, audio as orm_audio,
-    current_recording_audio as verified, dirty_summaries, dirty_tracks as orm_dirty_tracks,
-    disc_evidence, discs as orm_discs,
+use crate::entities::{
+    media_files,
+    music_metadata::{
+        album_evidence, album_summaries, albums as orm_albums, audio as orm_audio,
+        current_recording_audio as verified, dirty_summaries, dirty_tracks as orm_dirty_tracks,
+        disc_evidence, discs as orm_discs,
+    },
 };
 use details::Selection;
 
@@ -177,7 +180,7 @@ pub(super) async fn contains(db: &impl ConnectionTrait, file_id: i32) -> Result<
 
 pub(super) async fn store(
     db: &DatabaseTransaction,
-    file: &crate::entities::media_files::Model,
+    file: &media_files::Model,
     metadata: &LocalMetadata,
     moved_from: Option<&str>,
 ) -> Result<()> {
@@ -187,7 +190,7 @@ pub(super) async fn store(
 
 async fn store_on(
     db: &DatabaseTransaction,
-    file: &crate::entities::media_files::Model,
+    file: &media_files::Model,
     metadata: &LocalMetadata,
     moved_from: Option<&str>,
     managed: bool,
@@ -300,7 +303,7 @@ async fn store_on(
 
 pub(in crate::actions) async fn store_download(
     db: &DatabaseTransaction,
-    file: &crate::entities::media_files::Model,
+    file: &media_files::Model,
     metadata: &LocalMetadata,
 ) -> Result<()> {
     let scope = store_on(db, file, metadata, None, true).await?;

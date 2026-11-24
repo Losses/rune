@@ -19,14 +19,14 @@ fn is_audio_file(entry: &FsNode) -> bool {
     }
 }
 
-/// The audio files under `path`, and the entries left out because their path
-/// is not valid Unicode.
-fn scan_audio_files<P: AsRef<Path>>(
-    fsio: &FsIo,
-    path: &P,
-) -> Result<(Vec<FsNode>, Vec<PathBuf>, Vec<PathBuf>), fsio::FileIoError> {
-    let walk = fsio.walk_dir(path.as_ref(), true)?;
-    let root = path.as_ref();
+struct ScanEntries {
+    files: Vec<FsNode>,
+    skipped: Vec<PathBuf>,
+    cues: Vec<PathBuf>,
+}
+
+fn scan_audio_files(fsio: &FsIo, root: &Path) -> Result<ScanEntries, fsio::FileIoError> {
+    let walk = fsio.walk_dir(root, true)?;
     let mut candidates = Vec::new();
     let mut cues = Vec::new();
     for node in walk.nodes {
@@ -46,8 +46,8 @@ fn scan_audio_files<P: AsRef<Path>>(
         .collect();
 
     // Treat files below an album's immediate SCANS directory as attachments.
-    Ok((
-        candidates
+    Ok(ScanEntries {
+        files: candidates
             .into_iter()
             .filter(|entry| {
                 !entry
@@ -66,9 +66,9 @@ fn scan_audio_files<P: AsRef<Path>>(
                     })
             })
             .collect(),
-        walk.skipped,
+        skipped: walk.skipped,
         cues,
-    ))
+    })
 }
 
 /// Recognize audio layout sidecars in a filesystem listing.
@@ -91,9 +91,14 @@ pub struct AudioScanner {
 
 impl AudioScanner {
     pub fn new<P: AsRef<Path>>(fsio: &FsIo, path: &P) -> Result<Self, fsio::FileIoError> {
-        let (files, skipped, cues) = scan_audio_files(fsio, path)?;
+        let root = path.as_ref();
+        let ScanEntries {
+            files,
+            skipped,
+            cues,
+        } = scan_audio_files(fsio, root)?;
         Ok(AudioScanner {
-            root_path: path.as_ref().to_path_buf(),
+            root_path: root.to_path_buf(),
             iterator: files.into_iter(),
             skipped,
             cues,

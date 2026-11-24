@@ -140,6 +140,7 @@ pub fn blob_path_for_track(
 
 use super::access::materialized_path;
 use crate::{
+    actions::resolved_metadata,
     entities::{media_files, sync_download_jobs},
     sync::SeaOrmSyncStore,
 };
@@ -365,7 +366,7 @@ pub async fn attach_download(
 
     // A verified download keeps the catalog track's identity and uses the scanner's index writer.
     if let Some(resolved) = resolved {
-        crate::actions::resolved_metadata::store_download(&tx, &row, &resolved).await?;
+        resolved_metadata::store_download(&tx, &row, &resolved).await?;
     }
     if let Some(job) = job {
         sync_download_jobs::Entity::delete_by_id(job.id)

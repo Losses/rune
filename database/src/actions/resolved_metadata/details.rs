@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use anyhow::Result;
 use metadata::{
@@ -476,9 +476,7 @@ fn add_value(
             source_path = format!("{field}.{key}");
             let kind = ReleaseSecondaryType::from_label(&key)
                 .ok_or_else(|| anyhow::anyhow!("unknown secondary release type {key}"))?;
-            if let std::collections::btree_map::Entry::Vacant(entry) =
-                lists.album.secondary_types.entry(kind)
-            {
+            if let Entry::Vacant(entry) = lists.album.secondary_types.entry(kind) {
                 entry.insert(value == "1");
                 true
             } else {

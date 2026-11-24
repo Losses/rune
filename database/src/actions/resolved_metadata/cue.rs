@@ -201,11 +201,11 @@ fn decode_sheet(bytes: Vec<u8>) -> Result<String> {
         [first @ (0xff | 0xfe), second, rest @ ..]
             if *first != *second && matches!(*second, 0xff | 0xfe) =>
         {
-            ensure!(rest.len().is_multiple_of(2), "truncated UTF-16 CUE sheet");
-            let units = rest
-                .chunks_exact(2)
-                .map(|chunk| {
-                    let pair = [chunk[0], chunk[1]];
+            let (pairs, remainder) = rest.as_chunks::<2>();
+            ensure!(remainder.is_empty(), "truncated UTF-16 CUE sheet");
+            let units = pairs
+                .iter()
+                .map(|&pair| {
                     if *first == 0xff {
                         u16::from_le_bytes(pair)
                     } else {

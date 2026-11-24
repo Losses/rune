@@ -19,7 +19,10 @@ use crate::{
     error::ExpectedError,
     sync::{
         SeaOrmSyncStore,
-        model::{Collection, ObjectKey, author_source_on, metadata_anchor_id, metadata_edit_id},
+        model::{
+            Collection, MetadataEdit, ObjectKey, author_source_on, metadata_anchor_id,
+            metadata_edit_id,
+        },
     },
 };
 
@@ -335,12 +338,14 @@ pub async fn edit_album_group(
         author_edit(
             &tx,
             store,
-            "album",
-            edition,
-            None,
-            group,
-            label.as_deref(),
-            generation,
+            MetadataEdit {
+                kind: "album".to_owned(),
+                owner: edition,
+                edition: None,
+                target: group,
+                label: label.clone(),
+                generation,
+            },
         )
         .await?;
     }
@@ -503,7 +508,19 @@ pub(in crate::actions) async fn publish_edition_anchors(
         .await?;
     for row in rows {
         let track = super::uuid(&row, "id")?;
-        author_edit(tx, store, "anchor", edition, Some(track), None, None, 0).await?;
+        author_edit(
+            tx,
+            store,
+            MetadataEdit {
+                kind: "anchor".to_owned(),
+                owner: edition,
+                edition: Some(track),
+                target: None,
+                label: None,
+                generation: 0,
+            },
+        )
+        .await?;
     }
     Ok(())
 }
@@ -511,20 +528,24 @@ pub(in crate::actions) async fn publish_edition_anchors(
 async fn author_edit(
     db: &DatabaseTransaction,
     store: &SeaOrmSyncStore,
-    kind: &str,
-    owner: Uuid,
-    edition: Option<Uuid>,
-    target: Option<Uuid>,
-    label: Option<&str>,
-    generation: i64,
+    edit: MetadataEdit,
 ) -> Result<()> {
+    // Derive the identifier with the same edit fields used by sync validation.
+    let MetadataEdit {
+        kind,
+        owner,
+        edition,
+        target,
+        label,
+        generation,
+    } = edit;
     let id = if kind == "anchor" {
         metadata_anchor_id(
             owner,
             edition.ok_or_else(|| invalid("Missing shared track"))?,
         )
     } else {
-        metadata_edit_id(kind, owner)
+        metadata_edit_id(&kind, owner)
     };
     db.execute(
         Query::insert()
@@ -540,11 +561,11 @@ async fn author_edit(
             ])
             .values_panic([
                 Expr::val(id.to_string()),
-                Expr::val(kind.to_owned()),
+                Expr::val(kind),
                 Expr::val(owner.to_string()),
                 Expr::val(edition.map(|id| id.to_string())),
                 Expr::val(target.map(|id| id.to_string())),
-                Expr::val(label.map(str::to_owned)),
+                Expr::val(label),
                 Expr::val(generation),
             ])
             .on_conflict(
@@ -603,12 +624,14 @@ pub async fn merge_artists(
         author_edit(
             &tx,
             store,
-            "artist",
-            source,
-            None,
-            Some(target),
-            Some(&name),
-            0,
+            MetadataEdit {
+                kind: "artist".to_owned(),
+                owner: source,
+                edition: None,
+                target: Some(target),
+                label: Some(name.clone()),
+                generation: 0,
+            },
         )
         .await?;
     }

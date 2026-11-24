@@ -396,9 +396,9 @@ pub enum ArtworkSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MusicMetadata {
-    Album(AlbumMetadata),
-    Disc(DiscMetadata),
-    Audio(AudioMetadata),
+    Album(Box<AlbumMetadata>),
+    Disc(Box<DiscMetadata>),
+    Audio(Box<AudioMetadata>),
 }
 
 impl DiscMetadata {

@@ -46,7 +46,8 @@ pub(crate) fn legacy_tags(tags: &RawTagMap, blacklist: Option<Vec<&str>>) -> Vec
             let include = !blacklist.contains(&key.as_str());
             values
                 .iter()
-                .filter_map(move |value| include.then(|| (key.clone(), value.clone())))
+                .filter(move |_| include)
+                .map(move |value| (key.clone(), value.clone()))
         })
         .collect()
 }
