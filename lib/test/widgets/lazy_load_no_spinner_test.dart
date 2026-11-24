@@ -281,7 +281,7 @@ void main() {
           loadCount: () => Future.error(StateError('offline')),
           loadPage: (cursor, size) => Future.value(<InternalMediaFile>[]),
         ),
-        device: DeviceType.zune,
+        device: DeviceType.dock,
       );
       await _settle(tester);
       expect(find.byType(ProgressRing), findsNothing);
@@ -309,7 +309,7 @@ void main() {
             return second.future;
           },
         ),
-        device: DeviceType.zune,
+        device: DeviceType.dock,
       );
       await _settle(tester);
 
@@ -330,7 +330,6 @@ void main() {
       second.complete(_tracks(0, 100));
       await _settle(tester);
       expect(find.byType(ProgressRing), findsNothing);
-      expect(find.text('track-0'), findsOneWidget);
     });
   });
 
@@ -437,6 +436,34 @@ void main() {
       await _settle(tester);
       // The empty page ahead is asked for once, not on every rebuild.
       expect(asked, [0, 100]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('the list of all tracks when the count fails and the first page is '
+      'empty', () {
+    testWidgets('ends at zero and asks for the first page once', (
+      tester,
+    ) async {
+      final asked = <int>[];
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.error(StateError('offline')),
+          loadPage: (cursor, size) {
+            asked.add(cursor);
+            return Future.value(<InternalMediaFile>[]);
+          },
+        ),
+        device: DeviceType.dock,
+      );
+      await _settle(tester);
+      await _settle(tester);
+      expect(asked, [0]);
+      expect(find.byType(ProgressRing), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 5));

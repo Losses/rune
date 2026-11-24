@@ -68,13 +68,17 @@ class TrackListViewState extends State<TrackListView> {
   }
 
   void _restartListing() {
-    _generation++;
-    _staleItems.addAll(_loadedItems);
-    _loadedItems.clear();
-    _loadingIndices.clear();
-    _failedPages.clear();
-    _retriedPages.clear();
-    _firstPageSettled = false;
+    // The list is built again, so that the ring shows while the count of the
+    // restart is pending.
+    setState(() {
+      _generation++;
+      _staleItems.addAll(_loadedItems);
+      _loadedItems.clear();
+      _loadingIndices.clear();
+      _failedPages.clear();
+      _retriedPages.clear();
+      _firstPageSettled = false;
+    });
     _initializeData();
   }
 
@@ -87,6 +91,8 @@ class TrackListViewState extends State<TrackListView> {
       setState(() {
         _totalCount = count;
         _isInitialized = true;
+        // An empty list has no first page to wait for.
+        if (count == 0) _firstPageSettled = true;
         _staleItems.removeWhere((index, _) => index >= count);
       });
       // Pre-load first page
@@ -131,10 +137,8 @@ class TrackListViewState extends State<TrackListView> {
           }
           _loadingIndices.remove(cursor);
           // A short page is the end of the list, which stops the pages ahead
-          // of it from being asked for when the count was not known. An empty
-          // first page is left alone, the list shows its empty state for it.
-          if (newItems.length < _pageSize &&
-              (cursor > 0 || newItems.isNotEmpty)) {
+          // of it from being asked for when the count was not known.
+          if (newItems.length < _pageSize) {
             _totalCount = min(_totalCount, cursor + newItems.length);
           }
           if (cursor == 0) _firstPageSettled = true;
@@ -188,8 +192,7 @@ class TrackListViewState extends State<TrackListView> {
   Widget build(BuildContext context) {
     // The ring stays until the first page has come or failed, so the list is
     // never a screen of blank places. A reload keeps the stale tracks instead.
-    final waitingForFirstPage =
-        _totalCount > 0 && !_firstPageSettled && _staleItems.isEmpty;
+    final waitingForFirstPage = !_firstPageSettled && _staleItems.isEmpty;
     if (!_isInitialized || waitingForFirstPage) {
       return const Center(child: ProgressRing());
     }
