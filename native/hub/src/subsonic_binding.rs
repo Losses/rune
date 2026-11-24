@@ -2093,6 +2093,12 @@ mod visualizer_feed_tests {
             .await
             .unwrap();
         let last_pushed = || signals.pushed_inputs.lock().unwrap().last().copied();
+        // The feed that drops is one the server took.
+        wait_until("the feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
         wait_until("the UI to hear the live feed", || async {
             Ok((last_pushed() == Some(PushedInputs::Full)).then_some(()))
         })
@@ -2113,6 +2119,7 @@ mod visualizer_feed_tests {
         })
         .await
         .unwrap();
+        assert_eq!(state.connections.load(Ordering::SeqCst), 2);
         // Each change is told once, however often the inputs were published again.
         let pushed = signals.pushed_inputs.lock().unwrap().clone();
         assert!(
