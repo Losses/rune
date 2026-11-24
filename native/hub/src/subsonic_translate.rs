@@ -1673,10 +1673,13 @@ async fn ensure_artists(binding: &SubsonicBinding) -> Result<()> {
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let mut order = Vec::with_capacity(artists.len());
     for artist in artists {
         let id = catalog.ids.intern(SubsonicIdKind::Artist, &artist.id)?;
+        order.push(id);
         catalog.artists.insert(id, artist);
     }
+    catalog.artist_order = order;
     catalog.artists_loaded = true;
     Ok(())
 }
@@ -2404,19 +2407,19 @@ impl HomeSource for SubsonicBinding {
                         .catalog
                         .lock()
                         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-                    // Subsonic dates no artist, so they stay in the server's order, which is
-                    // the order their ids were given in.
-                    let mut items: Vec<HomeItem> = catalog
-                        .artists
+                    // Subsonic dates no artist, so they stay in the order the server lists
+                    // them.
+                    Ok(catalog
+                        .artist_order
                         .iter()
-                        .map(|(id, artist)| HomeItem {
-                            id: *id,
-                            name: artist.name.clone(),
-                            cover: artist.cover_art.clone(),
+                        .filter_map(|id| {
+                            catalog.artists.get(id).map(|artist| HomeItem {
+                                id: *id,
+                                name: artist.name.clone(),
+                                cover: artist.cover_art.clone(),
+                            })
                         })
-                        .collect();
-                    items.sort_by_key(|item| item.id);
-                    Ok(items)
+                        .collect())
                 }
                 CollectionType::Playlist => Ok(interned_playlists(self)
                     .await?
@@ -5682,6 +5685,41 @@ mod tests {
             library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
         );
         assert_eq!(resolved.start_index, Some(2));
+    }
+
+    #[tokio::test]
+    async fn home_artists_keep_the_server_order_whatever_was_numbered_first() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
+        // A search numbered the second artist before the artist list was read.
+        binding
+            .catalog
+            .lock()
+            .unwrap()
+            .ids
+            .intern(SubsonicIdKind::Artist, "artist-2")
+            .unwrap();
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![ComplexQuery {
+                    title: "Artists".into(),
+                    query: LibraryHomeQuery::Artists(LibraryHomeListMode::Forward),
+                }],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            home.result[0]
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Artist One", "Artist Two"]
+        );
     }
 
     fn assert_secret_free(value: &str) {

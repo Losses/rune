@@ -389,6 +389,8 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
     pub(crate) artists_loaded: bool,
+    /// The ids of the artists in the order the server lists them, once they are loaded.
+    pub(crate) artist_order: Vec<i32>,
     pub(crate) albums_loaded: bool,
     /// The keys of the first songs of the whole song list, how many were asked for, and when
     /// they were read.
