@@ -1,5 +1,49 @@
-//! Roon credit roles and aliases from the local article snapshot dated 2026-11-23.
-//! https://help.roonlabs.com/portal/en/kb/articles/credit-roles
+//! Roon credit roles and aliases generated from `R:\Credit Roles.mhtml`.
+//! [Credit Roles on the Roon Labs Help Center](https://help.roonlabs.com/portal/en/kb/articles/credit-roles)
+//!
+//! The help center renders the article with JavaScript, so a plain HTTP download
+//! may omit the role table. Wait for the table to load in a browser, then save
+//! the rendered page as MHTML. Builds use the checked-in table below.
+//!
+//! To regenerate the rows in `ROLES`, run this Python script with `beautifulsoup4`
+//! installed and pass the path to the saved MHTML file. The single-cell
+//! `Page last changed` footer is included to reproduce the original table.
+//!
+//! ```python
+//! import json
+//! import sys
+//! from collections import defaultdict
+//! from email import policy
+//! from email.parser import BytesParser
+//!
+//! from bs4 import BeautifulSoup
+//!
+//! # Decode the archive's HTML part as UTF-8 after MIME transfer decoding.
+//! with open(sys.argv[1], "rb") as archive:
+//!     message = BytesParser(policy=policy.default).parse(archive)
+//! part = next(p for p in message.walk() if p.get_content_type() == "text/html")
+//! html = part.get_payload(decode=True).decode("utf-8")
+//! soup = BeautifulSoup(html, "html.parser")
+//! table = soup.select_one('[data-id="article_description"] table')
+//!
+//! # Blank first cells continue the previous canonical credit.
+//! roles = defaultdict(set)
+//! for row in table.select("tr"):
+//!     cells = row.find_all(["td", "th"], recursive=False)
+//!     labels = [cell.get_text(" ", strip=True) for cell in cells]
+//!     if not labels or labels == ["Canonical Credit", "Supported Aliases"]:
+//!         continue
+//!     if labels[0]:
+//!         canonical = labels[0]
+//!     for label in filter(None, labels):
+//!         roles[label.lower()].add(canonical)
+//!
+//! # Sort both the lookup keys and the deduplicated canonical credits.
+//! for key, values in sorted(roles.items()):
+//!     key = json.dumps(key, ensure_ascii=False)
+//!     values = json.dumps(sorted(values), ensure_ascii=False)
+//!     print(f"    ({key}, &{values}),")
+//! ```
 
 // Sorted by lowercase key for binary search.
 #[rustfmt::skip]
