@@ -16,12 +16,15 @@ use log::{debug, error, info, warn};
 use rodio::{PlayError, Sink, Source, source::SeekError};
 use tokio::{
     sync::{mpsc, oneshot},
-    time::{Instant, interval, sleep_until},
+    time::{Instant, MissedTickBehavior, interval, sleep_until},
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::buffered::{RuneBuffered, rune_buffered};
 use crate::decoder::RuneDecoder;
+use crate::hosted::{
+    FROZEN_GAP, HostAction, HostBridge, HostCommand, HostEvent, HostedTrack, RUN_LIMIT,
+};
 use crate::listen::ListenProgress;
 use crate::output_stream::{Outputs, RuneOutputStream, RuneOutputStreamHandle};
 use crate::pcm_tap::PcmTap;
@@ -29,8 +32,8 @@ use crate::player::{
     AudioPlaybackNote, AudioSourceMode, ClearHandoffBlocksResult, HandoffBlockId,
     HandoffLoadResult, InterruptedItem, LibraryTrackKey, PausedPlayback, PlaybackSource,
     PlaybackSourceResolver, PlayerCommandError, PlayerStatus, PlayingItem, PlaylistEdit,
-    PlaylistPlacement, QueueEntry, RemoteAudioError, ServiceItem, TakeBackBlockResult,
-    UnavailableReason,
+    PlaylistPlacement, QueueEntry, RemoteAudioError, RemoteAudioSource, ServiceItem, ServiceTarget,
+    TakeBackBlockResult, UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
 use crate::shared_source::SharedSource;
@@ -47,6 +50,18 @@ use tokio::task;
 use tokio::time as tokio_time;
 
 const SOURCE_START_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a host that was told to play a track may take to report on it, before the track counts
+/// as unreachable.
+const HOST_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a host that plays a track may go without reporting, before the track counts as
+/// unreachable.
+const HOST_SILENCE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long finding out whether a host plays the next track may take. A track that takes longer
+/// is not given to the host in advance, and is handed over as usual once it is current.
+const HOST_NEXT_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often the player reports where the current track stands. A report that comes
+/// [`FROZEN_GAP`] later than the one before means that the process did not run meanwhile.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 async fn bound_source_start<T>(
     limit: Duration,
@@ -227,11 +242,7 @@ async fn open_library_stream(
     ))
 }
 
-async fn open_service_stream(
-    resolver: &Arc<dyn PlaybackSourceResolver>,
-    item: ServiceItem,
-) -> Result<(AnySource, PathBuf)> {
-    let remote = resolver.resolve_service(item).await?;
+async fn open_service_stream(remote: RemoteAudioSource) -> Result<(AnySource, PathBuf)> {
     let size = remote.size;
     let guard = remote.cancellation.clone().drop_guard();
     let failed = remote.failure_reason;
@@ -276,6 +287,63 @@ async fn open_service_stream(
         AnySource::Online(rune_buffered(decoder), failed),
         PathBuf::new(),
     ))
+}
+
+/// What a load brings: audio this player decodes, or a track that a platform host plays.
+#[derive(Debug)]
+pub enum LoadedSource {
+    Audio(AnySource),
+    Hosted(HostedTrack),
+}
+
+impl From<AnySource> for LoadedSource {
+    fn from(source: AnySource) -> Self {
+        Self::Audio(source)
+    }
+}
+
+// The id under which `host` plays `item`, if it does. A track the resolver fails on, or takes
+// too long with, counts as one that `host` does not play.
+async fn hosted_by(
+    resolver: &Arc<dyn PlaybackSourceResolver>,
+    item: &PlayingItem,
+    host: &str,
+) -> Option<HostedTrack> {
+    let PlayingItem::LibraryTrack { library_id, track } = item else {
+        return None;
+    };
+    let target = async {
+        match resolver
+            .resolve_track(library_id.to_string(), track.clone())
+            .await?
+        {
+            LibraryTrackKey::Service(track) => resolver
+                .resolve_service(ServiceItem {
+                    library_id: *library_id,
+                    track,
+                })
+                .await
+                .map(Some),
+            LibraryTrackKey::Rune(_) => Ok(None),
+        }
+    };
+    match tokio::time::timeout(HOST_NEXT_TIMEOUT, target).await {
+        Ok(Ok(Some(ServiceTarget::Hosted(track)))) if track.host == host => Some(track),
+        // A stream that is not opened is not watched either.
+        Ok(Ok(Some(ServiceTarget::Stream(remote)))) => {
+            remote.cancellation.cancel();
+            None
+        }
+        Ok(Ok(_)) => None,
+        Ok(Err(error)) => {
+            debug!("Could not tell whether host {host} plays {item}: {error:?}");
+            None
+        }
+        Err(_) => {
+            warn!("Finding out whether host {host} plays {item} took too long");
+            None
+        }
+    }
 }
 
 impl Debug for AnySource {
@@ -400,7 +468,7 @@ pub enum PlayerCommand {
     },
     LoadComplete {
         generation: u64,
-        result: Box<Result<AnySource>>,
+        result: Box<Result<LoadedSource>>,
         item: PlayingItem,
         original_item: PlayingItem,
         path: PathBuf,
@@ -453,6 +521,13 @@ pub enum PlayerCommand {
     SetMixWithOthers(bool),
     StatusAfterPending(oneshot::Sender<PlayerStatus>),
     Output(OutputEvent),
+    Hosted(HostEvent),
+    // Whether the host of the current track plays the track after the last one it holds, as
+    // asked in `request`.
+    HostRunResolved {
+        request: u64,
+        track: Option<HostedTrack>,
+    },
 }
 
 /// What happened to this device's audio output. The player decides from its own state whether to
@@ -524,6 +599,9 @@ pub enum PlayerEvent {
         ready: bool,
     },
     VolumeUpdate(f32),
+    // The host that plays the current track, from when a hosted track becomes current until no
+    // hosted track is.
+    HostedChanged(Option<String>),
     PlaylistUpdated(Vec<PlaylistItem>),
     RealtimeFFT(Vec<f32>),
     Log(InternalLog),
@@ -601,6 +679,180 @@ struct LoadedTrack {
     // Where the track stands in the playlist, which the events report.
     playlist_index: usize,
     path: PathBuf,
+}
+
+/// The current track once it was handed to a platform host, which plays it. The host contract is
+/// in [`crate::hosted`].
+///
+/// The host's queue follows the player's play order from the current track on, a run of tracks
+/// ahead: the tracks that Next goes to one after another, as long as the same host plays them,
+/// up to the run limit. The host plays on through them by itself, so playback goes on while the
+/// player cannot run, as in an app that the system suspended. A hand-over `set`s the current
+/// track at index 0. The tracks of the run follow with an `add` each, in order, once the resolver
+/// said that the host plays them; the hand-over itself never waits for that. After every command
+/// the player works out the run again. When a queue edit or a change of the playback mode changed
+/// it, the host loses the tracks it holds from the first one that no longer follows on, at once
+/// and from the tail, and gets the tracks that follow now with an `add` each once they are known.
+/// The current track plays on throughout.
+///
+/// At the end of the current track the host moves on to the next one by itself, without a gap,
+/// and reports a status one index higher with that track's id. The player then counts the current
+/// track as played through and makes the next one current where Next would have gone, without a
+/// new hand-over. A host that could not report for a while reports a status several indexes
+/// higher, and the tracks between count as played through too. A report at a higher index with
+/// an id that the player does not hold there, or while the player holds nothing there, is about a
+/// track the player had taken out of the host's queue as the host moved on to it: the current
+/// track counts as played through just the same, and the track that comes next loads and is
+/// handed over anew, which replaces the host's queue.
+///
+/// Entries before the current one stay in the host's queue until the next `set`, and only the
+/// last entry is ever removed, so a host index names the same track until then. The current track
+/// stands at `index`, and the tracks of the run that the host holds at the indexes after it.
+///
+/// Next, while the host holds the track that Next goes to, is a `skip` to it. Previous, Switch
+/// and any other load hand the track they bring over with a new `set`, as does Next to anything
+/// else. A seek is a `skip` within the current track, and leaves the run where it is.
+struct HostedPlayback {
+    track: HostedTrack,
+    // Where the current track stands in the host's queue.
+    index: u32,
+    // The batch that gave the host the current track: the `set`, or the `add` that queued it as
+    // the next one. An end or a failure counts from it on, up to the latest batch.
+    since_revision: u64,
+    // The latest batch that moved the host: one that changed which entry is current, where it
+    // stands or whether it plays. A status from before it may undo what it did, so a status
+    // counts from it on. Batches that only add or remove the next entry or set the gain move
+    // nothing, so that a volume drag or a queue edit does not make the host's reports stale.
+    status_revision: u64,
+    latest_revision: u64,
+    run: HostRun,
+    playing: bool,
+    // Where the track stood when the host last reported, or when it was last told to move, and
+    // when that was.
+    position: Duration,
+    reported_at: Instant,
+    // When the host was last told to play the track, and when it last reported on it since it
+    // was handed over.
+    started_at: Instant,
+    heard_at: Option<Instant>,
+    // The host lost the track once and was given it again.
+    recovered: bool,
+    ended: bool,
+}
+
+/// The tracks after the current hosted one in play order, as far as its host is concerned: those
+/// it holds, in the order it plays them, and what is known of the track after the last of them.
+#[derive(Default)]
+struct HostRun {
+    // The host holds these right after the current track, at the indexes that follow it.
+    queued: Vec<QueuedTrack>,
+    tail: RunTail,
+}
+
+/// A track that the host holds after the current one, given to it in `revision`.
+struct QueuedTrack {
+    item: PlayingItem,
+    track: HostedTrack,
+    revision: u64,
+}
+
+/// The track after the last one that the host holds in advance.
+#[derive(Default)]
+enum RunTail {
+    /// No more tracks are wanted: none follows that the host could be given, as the playlist
+    /// ends, the playback mode is repeat-one, or the next track is of another library or marked
+    /// unavailable, or the run is as long as it may be.
+    #[default]
+    Nothing,
+    /// The resolver is asked whether the host plays `item`. `request` tells its answer from the
+    /// answers to earlier questions, and the lookup stops when this is dropped.
+    Resolving {
+        request: u64,
+        item: PlayingItem,
+        _lookup: Lookup,
+    },
+    /// `item` follows, but the host does not get it in advance, and the run ends before it:
+    /// another player plays it, the resolver could not tell in time, or the host failed it. It is
+    /// loaded as usual once it is current.
+    Declined { item: PlayingItem },
+}
+
+impl HostRun {
+    // Takes the tracks from `offset` on out of the run, and returns the batch that takes them out
+    // of the host's queue, where the current track stands at `current`. The host only ever loses
+    // its last entry, so they go from the tail. What follows the run is no longer known.
+    fn cut_from(&mut self, offset: usize, current: u32) -> Vec<HostAction> {
+        let stale = (offset..self.queued.len())
+            .rev()
+            .map(|position| HostAction::Remove {
+                index: host_index(current, position + 1),
+            })
+            .collect();
+        self.queued.truncate(offset);
+        self.tail = RunTail::Nothing;
+        stale
+    }
+}
+
+impl RunTail {
+    fn item(&self) -> Option<&PlayingItem> {
+        match self {
+            Self::Nothing => None,
+            Self::Resolving { item, .. } | Self::Declined { item } => Some(item),
+        }
+    }
+}
+
+// The host index of the entry `offset` places after the one at `index`.
+fn host_index(index: u32, offset: usize) -> u32 {
+    index.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX))
+}
+
+/// A lookup of the next track, which stops once nothing waits for its answer.
+struct Lookup(tokio::task::JoinHandle<()>);
+
+impl Drop for Lookup {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+impl HostedPlayback {
+    // Where the track stands now: it moves on from the last report while it plays.
+    fn position(&self) -> Duration {
+        if self.playing {
+            self.position + self.reported_at.elapsed()
+        } else {
+            self.position
+        }
+    }
+
+    fn report(&mut self, position: Duration, playing: bool) {
+        self.position = position;
+        self.playing = playing;
+        self.reported_at = Instant::now();
+    }
+
+    // Whether an end or a failure that the host reported in `revision` for the entry at `index`
+    // is about the current track.
+    fn is_current(&self, revision: u64, index: u32) -> bool {
+        index == self.index && (self.since_revision..=self.latest_revision).contains(&revision)
+    }
+
+    // Whether `actions` move the host: change which entry is current, where it stands or
+    // whether it plays.
+    fn moves(actions: &[HostAction]) -> bool {
+        actions.iter().any(|action| {
+            !matches!(
+                action,
+                HostAction::Add { .. } | HostAction::Remove { .. } | HostAction::SetGain { .. }
+            )
+        })
+    }
+}
+
+fn offset_ms(position: Duration) -> u64 {
+    u64::try_from(position.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The place a seek asks for, in seconds. A place before the start is the start, and a value
@@ -718,6 +970,18 @@ pub(crate) struct PlayerInternal {
     unavailable: HashMap<PlayingItem, UnavailableReason>,
     // Where outputs come from, and how they stop and start again.
     outputs: Arc<dyn Outputs>,
+    host_bridge: Arc<RwLock<Option<Arc<dyn HostBridge>>>>,
+    hosted: Option<HostedPlayback>,
+    // The revision of the last batch sent to a host.
+    host_revision: u64,
+    // Hosts that said they cannot play, and why, until they say they can.
+    hosts_unable: HashMap<String, UnavailableReason>,
+    // The last question about a track of the host's run.
+    host_run_request: u64,
+    // How many tracks after the current hosted one its host holds at most: the run limit of the
+    // host contract, which the host plays on through while the player cannot run, so that an
+    // album goes to it whole.
+    host_run_limit: usize,
 }
 
 impl PlayerInternal {
@@ -775,11 +1039,29 @@ impl PlayerInternal {
             resume_after_interruption: false,
             unavailable: HashMap::new(),
             outputs,
+            host_bridge: Arc::new(RwLock::new(None)),
+            hosted: None,
+            host_revision: 0,
+            hosts_unable: HashMap::new(),
+            host_run_request: 0,
+            host_run_limit: RUN_LIMIT,
         }
     }
 
+    pub fn with_host_bridge(
+        mut self,
+        host_bridge: Arc<RwLock<Option<Arc<dyn HostBridge>>>>,
+    ) -> Self {
+        self.host_bridge = host_bridge;
+        self
+    }
+
     pub async fn run(&mut self) -> Result<()> {
-        let mut progress_interval = interval(Duration::from_millis(100));
+        let mut progress_interval = interval(PROGRESS_INTERVAL);
+        // After a time that the process did not run, one report comes rather than every one that
+        // was missed.
+        progress_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut last_tick = Instant::now();
 
         let fft_receiver = match self.realtime_fft.lock() {
             Ok(fft) => fft.subscribe(),
@@ -883,7 +1165,13 @@ impl PlayerInternal {
                                 self.load_at(Some(index), pending.play, mapped, pending.restore_position)?;
                                 continue;
                             }
-                            match *result {
+                            let result = match *result {
+                                Ok(LoadedSource::Hosted(track)) => {
+                                    self.check_host(&track).map(|()| LoadedSource::Hosted(track))
+                                }
+                                result => result,
+                            };
+                            match result {
                                 Ok(source) => {
                                     if let Some(entry) = self.playlist.get_mut(playlist_index)
                                         && entry.item == original_item && entry.item != item
@@ -894,11 +1182,22 @@ impl PlayerInternal {
                                     let start = self.restore_position.take();
                                     let (index, mapped) = self.cursor_for_position(playlist_index, position.mapped);
                                     let track = LoadedTrack { item, index, mapped, playlist_index, path };
-                                    if play {
-                                        self.setup_sink(source, track, start)?;
-                                    } else {
-                                        self.loaded_paused(track, start.unwrap_or_default())?;
-                                        self.complete_ready_loads();
+                                    match source {
+                                        LoadedSource::Hosted(hosted) if play => {
+                                            self.start_hosted(hosted, track, start.unwrap_or_default())?;
+                                        }
+                                        // A hosted track that comes up paused waits as a local one
+                                        // does, and the first play loads it again for its host.
+                                        source => {
+                                            self.release_host()?;
+                                            match source {
+                                                LoadedSource::Audio(source) if play => self.setup_sink(source, track, start)?,
+                                                _ => {
+                                                    self.loaded_paused(track, start.unwrap_or_default())?;
+                                                    self.complete_ready_loads();
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -1109,7 +1408,13 @@ impl PlayerInternal {
                                 .context("Failed to send player status barrier")?;
                         },
                         PlayerCommand::Output(event) => self.output_event(event)?,
+                        PlayerCommand::Hosted(event) => self.host_event(event)?,
+                        PlayerCommand::HostRunResolved { request, track } => {
+                            self.host_run_resolved(request, track);
+                        }
                     };
+                    // Whatever the command changed, the host holds the tracks that follow.
+                    self.sync_host_run();
                     self.complete_current(Ok(()));
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -1118,6 +1423,12 @@ impl PlayerInternal {
                     }
                 },
                 _ = progress_interval.tick() => {
+                    let now = Instant::now();
+                    let gap = now.saturating_duration_since(last_tick);
+                    last_tick = now;
+                    if gap > FROZEN_GAP {
+                        self.resume_after_freeze(gap.saturating_sub(PROGRESS_INTERVAL));
+                    }
                     if self.state != InternalPlaybackState::Stopped {
                         self.send_progress()?;
                     }
@@ -1211,6 +1522,7 @@ impl PlayerInternal {
                 return Ok(());
             }
 
+            self.cut_host_run();
             self.load_generation = self.load_generation.wrapping_add(1);
             let generation = self.load_generation;
             self.play_when_loaded = play;
@@ -1284,7 +1596,7 @@ impl PlayerInternal {
                             let source = open_local_source(fsio, path.clone())
                                 .await
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
-                            Ok((source, path, resolved_item.clone()))
+                            Ok((source.into(), path, resolved_item.clone()))
                         }
                         PlayingItem::LibraryTrack { .. }
                             if matches!(library_track_key, Some(LibraryTrackKey::Rune(_))) =>
@@ -1301,7 +1613,7 @@ impl PlayerInternal {
                                 );
                                 if requires_stream {
                                     let (source, path) = open_library_stream(resolver, id).await?;
-                                    return Ok((source, path, resolved_item.clone()));
+                                    return Ok((source.into(), path, resolved_item.clone()));
                                 }
                                 resolver
                                     .local_path(id)
@@ -1318,7 +1630,7 @@ impl PlayerInternal {
                             let source = open_local_source(fsio, path.clone())
                                 .await
                                 .with_context(|| format!("Failed to open file: {path:?}"))?;
-                            Ok((source, path, resolved_item.clone()))
+                            Ok((source.into(), path, resolved_item.clone()))
                         }
                         PlayingItem::LibraryTrack { library_id, .. }
                             if matches!(library_track_key, Some(LibraryTrackKey::Service(_))) =>
@@ -1333,8 +1645,16 @@ impl PlayerInternal {
                                     _ => bail!("Service track key unavailable"),
                                 },
                             };
-                            let (source, path) = open_service_stream(resolver, item).await?;
-                            Ok((source, path, resolved_item.clone()))
+                            match resolver.resolve_service(item).await? {
+                                ServiceTarget::Stream(remote) => {
+                                    let (source, path) = open_service_stream(remote).await?;
+                                    Ok((source.into(), path, resolved_item.clone()))
+                                }
+                                ServiceTarget::Hosted(track) => {
+                                    let path = track.path();
+                                    Ok((LoadedSource::Hosted(track), path, resolved_item.clone()))
+                                }
+                            }
                         }
                         PlayingItem::LibraryTrack { .. } => {
                             bail!("library track resolver unavailable")
@@ -1353,7 +1673,7 @@ impl PlayerInternal {
                                 probe_decoder(reader, ext.map(str::to_owned), None).await?;
                             decoder.set_failure_sink(failed.clone());
                             Ok((
-                                AnySource::Online(rune_buffered(decoder), failed),
+                                AnySource::Online(rune_buffered(decoder), failed).into(),
                                 PathBuf::new(),
                                 resolved_item.clone(),
                             ))
@@ -1631,6 +1951,9 @@ impl PlayerInternal {
         if loading {
             self.set_play_when_loaded(true);
         }
+        if self.hosted.is_some() {
+            return self.set_hosted_playing(true, loading);
+        }
 
         if !loading && self.output_stale && self.current_track_index.is_some() {
             return self.reopen_output();
@@ -1692,6 +2015,9 @@ impl PlayerInternal {
         let loading = self.state == InternalPlaybackState::Loading;
         if loading {
             self.set_play_when_loaded(false);
+        }
+        if self.hosted.is_some() {
+            return self.set_hosted_playing(false, loading);
         }
 
         if let Some(sink) = &self.sink {
@@ -1757,6 +2083,10 @@ impl PlayerInternal {
 
     fn output_event(&mut self, event: OutputEvent) -> Result<()> {
         info!("Audio output event: {event:?}");
+        // The host of a hosted track owns its audio session, unless a track that loads takes over.
+        if self.hosted.is_some() && self.state != InternalPlaybackState::Loading {
+            return Ok(());
+        }
         match event {
             OutputEvent::Interrupted => {
                 // The system stopped the output, and pausing stops it on this side too. The same
@@ -1965,6 +2295,7 @@ impl PlayerInternal {
         self.state = InternalPlaybackState::Stopped;
         // The output plays nothing more: the next track opens one of its own.
         self.suspend_output();
+        let hosted = self.release_host()?;
         if let Some(sink) = self.sink.take() {
             sink.stop();
             info!("Playback stopped");
@@ -1972,8 +2303,9 @@ impl PlayerInternal {
                 .send(PlayerEvent::Stopped)
                 .with_context(|| "Failed to send Stopped event")?;
             self.state = InternalPlaybackState::Stopped;
-        } else if self.output_stale {
-            // A track whose output failed to open still shows as paused.
+        } else if self.output_stale || hosted {
+            // A track whose output failed to open still shows as paused, and a hosted track has
+            // no sink.
             self.event_sender
                 .send(PlayerEvent::Stopped)
                 .with_context(|| "Failed to send Stopped event")?;
@@ -1991,9 +2323,17 @@ impl PlayerInternal {
     }
 
     fn next(&mut self) -> Result<()> {
+        if self.skip_to_host_next()? {
+            return Ok(());
+        }
+        self.next_with(true)
+    }
+
+    // Loads the next track, playing or paused.
+    fn next_with(&mut self, play: bool) -> Result<()> {
         if let Some(index) = self.current_track_index {
             if let Some(next_index) = self.playback_strategy.next(index, self.playlist.len()) {
-                self.load(Some(next_index), true, true)?;
+                self.load(Some(next_index), play, true)?;
             } else {
                 info!("End of playlist reached");
                 self.event_sender
@@ -2046,6 +2386,9 @@ impl PlayerInternal {
     // Where the current track stands: where a seek put it while its output was stopped, where it
     // starts once an output opens while it has none that plays, or else where its sink is.
     fn current_position(&self) -> Option<Duration> {
+        if let Some(hosted) = &self.hosted {
+            return Some(hosted.position());
+        }
         if let Some(position) = self.pending_seek {
             return Some(position);
         }
@@ -2078,6 +2421,9 @@ impl PlayerInternal {
             warn!("Seek to {seconds} s ignored: it is no place in a track");
             return Ok(SeekOutcome::CannotApply);
         };
+        if self.hosted.is_some() {
+            return self.seek_hosted(position);
+        }
 
         if self.output_stale {
             // A stale stream never takes the seek, and waiting for it would stall the player.
@@ -2345,6 +2691,7 @@ impl PlayerInternal {
         self.resume_after_interruption = false;
         self.sink = None;
         self._stream = None;
+        self.release_host()?;
         info!("Playlist cleared");
         self.event_sender
             .send(PlayerEvent::Stopped)
@@ -2458,6 +2805,25 @@ impl PlayerInternal {
             self.state == InternalPlaybackState::Playing,
             Instant::now(),
         );
+
+        if let Some(hosted) = &self.hosted {
+            if self.host_overdue(hosted) {
+                warn!(
+                    "Host {} did not report on its track in time",
+                    hosted.track.host
+                );
+                return self.hosted_failed(UnavailableReason::SourceUnreachable);
+            }
+            // The host reports the end of the track, so its position stands for the sink's.
+            return self.report_progress(ProgressReport {
+                item: id,
+                index,
+                path,
+                position,
+                playback_mode,
+                ready: true,
+            });
+        }
 
         if let Some(sink) = &self.sink {
             // While a track loads, the previous one keeps the sink and may still run out. Its end
@@ -2614,6 +2980,7 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.set_volume(volume);
         }
+        self.command_host(vec![HostAction::SetGain { gain: volume }]);
         self.event_sender
             .send(PlayerEvent::VolumeUpdate(volume))
             .with_context(|| "Failed to send VolumeUpdate event")?;
@@ -2673,6 +3040,934 @@ impl PlayerInternal {
 
         info!("Adaptive switching status changed: {:#?}", { x });
 
+        Ok(())
+    }
+
+    fn host_bridge(&self) -> Option<Arc<dyn HostBridge>> {
+        match self.host_bridge.read() {
+            Ok(slot) => slot.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    // Sends a batch to a host under a new revision, and returns that revision.
+    fn send_to_host(&mut self, host: &str, actions: Vec<HostAction>) -> u64 {
+        self.host_revision += 1;
+        let revision = self.host_revision;
+        match self.host_bridge() {
+            Some(bridge) => bridge.send(HostCommand {
+                host: host.to_owned(),
+                revision,
+                actions,
+            }),
+            None => warn!("No host bridge, so {actions:?} for host {host} is dropped"),
+        }
+        revision
+    }
+
+    // Sends a batch to the host of the current track, if a host plays it, and returns its
+    // revision.
+    fn command_host(&mut self, actions: Vec<HostAction>) -> Option<u64> {
+        let host = self.hosted.as_ref()?.track.host.clone();
+        let moves = HostedPlayback::moves(&actions);
+        let revision = self.send_to_host(&host, actions);
+        if let Some(hosted) = &mut self.hosted {
+            hosted.latest_revision = revision;
+            if moves {
+                hosted.status_revision = revision;
+            }
+        }
+        Some(revision)
+    }
+
+    // The batch that hands tracks over: the host's queue becomes `ids`, and the first of them
+    // plays from `position`, or waits paused there.
+    fn hand_over_actions(
+        &self,
+        ids: Vec<String>,
+        position: Duration,
+        play: bool,
+    ) -> Vec<HostAction> {
+        vec![
+            HostAction::Set { ids },
+            HostAction::Skip {
+                index: 0,
+                offset_ms: offset_ms(position),
+            },
+            HostAction::SetGain { gain: self.volume },
+            if play {
+                HostAction::Start
+            } else {
+                HostAction::Stop
+            },
+        ]
+    }
+
+    // Whether a hosted track can be handed to its host. Without a bridge, or with a host that
+    // said it cannot play, it fails as a load does.
+    fn check_host(&self, track: &HostedTrack) -> Result<()> {
+        let (error, problem) = if self.host_bridge().is_none() {
+            (
+                RemoteAudioError::LibraryUnavailable,
+                "no host bridge is set",
+            )
+        } else {
+            match self.hosts_unable.get(&track.host) {
+                None => return Ok(()),
+                Some(UnavailableReason::AccessRevoked) => (
+                    RemoteAudioError::AccessRevoked,
+                    "the host is not authorized",
+                ),
+                Some(_) => (RemoteAudioError::LibraryUnavailable, "the host cannot play"),
+            }
+        };
+        Err(anyhow::Error::new(error).context(format!(
+            "Hosted track {} of {}: {problem}",
+            track.key, track.host
+        )))
+    }
+
+    // The track that Next goes to from the track at `index`, and the index it goes to, when the
+    // host that plays `current` may get it in advance. Only a track of the same library is asked
+    // about, so that telling costs no request to another library's service, and not one marked
+    // unavailable. Under repeat-one the same track plays again, which its host is given anew at
+    // its end.
+    fn host_next_after(&self, index: usize, current: &PlayingItem) -> Option<(usize, PlayingItem)> {
+        if self.playback_mode == PlaybackMode::RepeatOne || self.playlist.is_empty() {
+            return None;
+        }
+        let PlayingItem::LibraryTrack { library_id, .. } = current else {
+            return None;
+        };
+        let next = self.playback_strategy.next(index, self.playlist.len())?;
+        let entry = self.playlist.get(self.resolve_index(next, true)?)?;
+        match &entry.item {
+            PlayingItem::LibraryTrack {
+                library_id: next_library,
+                ..
+            } if next_library == library_id && !self.unavailable.contains_key(&entry.item) => {
+                Some((next, entry.item.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    // The tracks that the host of the current track holds after it, as the play order stands:
+    // those that Next goes to one after another, up to the first that the host may not get in
+    // advance, and no more than the run limit. A play order that comes back to the current track
+    // ends the run there.
+    fn wanted_host_run(&self) -> Vec<PlayingItem> {
+        let (Some(start), Some(current)) = (self.current_track_index, self.current_item.as_ref())
+        else {
+            return Vec::new();
+        };
+        let mut run = Vec::new();
+        let mut index = start;
+        while run.len() < self.host_run_limit {
+            let Some((next, item)) = self.host_next_after(index, current) else {
+                break;
+            };
+            if next == start {
+                break;
+            }
+            run.push(item);
+            index = next;
+        }
+        run
+    }
+
+    // Hands a hosted track to its host, which plays it from `position` in place of any output
+    // here. The new `set` replaces whatever the host held. The track after it follows with an
+    // `add`, once the resolver says that the same host plays it.
+    fn start_hosted(
+        &mut self,
+        track: HostedTrack,
+        loaded: LoadedTrack,
+        position: Duration,
+    ) -> Result<()> {
+        self.suspend_output();
+        if let Some(sink) = self.sink.take() {
+            sink.stop();
+        }
+        self._stream = None;
+        self.active_stream_failure = None;
+        self.output_stale = false;
+        self.restore_position = None;
+        self.pending_seek = None;
+        self.resume_after_interruption = false;
+        let previous_host = match self.hosted.take() {
+            // Another host takes over, so the one that played stops and forgets its tracks.
+            Some(previous) if previous.track.host != track.host => {
+                self.send_to_host(
+                    &previous.track.host,
+                    vec![HostAction::Stop, HostAction::Clear],
+                );
+                Some(previous.track.host)
+            }
+            previous => previous.map(|previous| previous.track.host),
+        };
+
+        let host = track.host.clone();
+        let actions = self.hand_over_actions(vec![track.key.clone()], position, true);
+        let revision = self.send_to_host(&host, actions);
+        info!("Track handed to host {host}: {}", track.key);
+        let now = Instant::now();
+        self.hosted = Some(HostedPlayback {
+            track,
+            index: 0,
+            since_revision: revision,
+            status_revision: revision,
+            latest_revision: revision,
+            run: HostRun::default(),
+            playing: true,
+            position,
+            reported_at: now,
+            started_at: now,
+            heard_at: None,
+            recovered: false,
+            ended: false,
+        });
+        if previous_host.as_ref() != Some(&host) {
+            self.event_sender
+                .send(PlayerEvent::HostedChanged(Some(host)))
+                .context("Failed to send HostedChanged event")?;
+        }
+
+        let LoadedTrack {
+            item,
+            index,
+            mapped,
+            playlist_index,
+            path,
+        } = loaded;
+        self.current_track_index = Some(index);
+        self.current_track_mapped = mapped;
+        self.current_item = Some(item.clone());
+        self.current_track_path = Some(path.clone());
+        self.state = InternalPlaybackState::Playing;
+        self.event_sender
+            .send(PlayerEvent::Playing {
+                item,
+                index: playlist_index,
+                path,
+                playback_mode: self.playback_mode,
+                position,
+            })
+            .context("Failed to send the state of the hosted track")?;
+        self.start_listen(position, true, Instant::now());
+        self.complete_load_completions(Ok(()));
+        Ok(())
+    }
+
+    // Hands the current track to its host again where it stands, playing or paused as it was,
+    // after the host lost it, together with the tracks of the run that the host held. Not once
+    // the track ended or while another track loads.
+    fn hand_over_again(&mut self) {
+        if self.state == InternalPlaybackState::Loading {
+            return;
+        }
+        let Some(hosted) = &self.hosted else {
+            return;
+        };
+        if hosted.ended {
+            return;
+        }
+        let mut ids = vec![hosted.track.key.clone()];
+        ids.extend(
+            hosted
+                .run
+                .queued
+                .iter()
+                .map(|queued| queued.track.key.clone()),
+        );
+        let (host, position, playing) =
+            (hosted.track.host.clone(), hosted.position(), hosted.playing);
+        info!("Handing the track to host {host} again at {position:?}");
+        let actions = self.hand_over_actions(ids, position, playing);
+        let revision = self.send_to_host(&host, actions);
+        if let Some(hosted) = &mut self.hosted {
+            hosted.index = 0;
+            hosted.since_revision = revision;
+            hosted.status_revision = revision;
+            hosted.latest_revision = revision;
+            for queued in &mut hosted.run.queued {
+                queued.revision = revision;
+            }
+            hosted.report(position, playing);
+            hosted.started_at = Instant::now();
+            hosted.heard_at = None;
+        }
+    }
+
+    // The host no longer holds the current track where the player put it: it reported no current
+    // entry, as after a restart, or another track at the current track's index. The track goes
+    // to the host again once, and fails if the host loses it again.
+    fn host_lost_track(&mut self) -> Result<()> {
+        let Some(hosted) = &mut self.hosted else {
+            return Ok(());
+        };
+        if hosted.ended || self.state == InternalPlaybackState::Loading {
+            return Ok(());
+        }
+        if hosted.recovered {
+            warn!("Host {} lost its track again", hosted.track.host);
+            return self.hosted_failed(UnavailableReason::SourceUnreachable);
+        }
+        hosted.recovered = true;
+        self.hand_over_again();
+        Ok(())
+    }
+
+    // The current track stops being hosted, so its host stops and forgets what it held. Returns
+    // whether a hosted track was current.
+    fn release_host(&mut self) -> Result<bool> {
+        let Some(hosted) = self.hosted.take() else {
+            return Ok(false);
+        };
+        self.send_to_host(
+            &hosted.track.host,
+            vec![HostAction::Stop, HostAction::Clear],
+        );
+        self.event_sender
+            .send(PlayerEvent::HostedChanged(None))
+            .context("Failed to send HostedChanged event")?;
+        Ok(true)
+    }
+
+    // A track starts to load while the host plays the current one. The host loses the tracks it
+    // holds after the current one, from the tail, so that it stops at the end of the current
+    // track rather than play on into its run until the new track takes over. A load that fails
+    // leaves the run to the next command, which fills it again.
+    fn cut_host_run(&mut self) {
+        let Some(hosted) = &mut self.hosted else {
+            return;
+        };
+        if hosted.ended {
+            return;
+        }
+        let stale = hosted.run.cut_from(0, hosted.index);
+        if !stale.is_empty() {
+            self.command_host(stale);
+        }
+    }
+
+    // Keeps the tracks that the host holds after the current one in step with the play order. It
+    // runs after every command and acts only where the run that follows changed: the host loses
+    // the tracks it holds from the first one that no longer follows on, at once and from the
+    // tail, so that it does not move on to them, and gets the tracks that follow now one after
+    // another, each once the resolver says that it plays that one too. A lookup still running for
+    // a track that no longer follows stops.
+    fn sync_host_run(&mut self) {
+        let Some(hosted) = &self.hosted else {
+            return;
+        };
+        // A track that loads replaces what the host holds.
+        if hosted.ended || self.state == InternalPlaybackState::Loading {
+            return;
+        }
+        let wanted = self.wanted_host_run();
+        let Some(hosted) = &mut self.hosted else {
+            return;
+        };
+        let run = &mut hosted.run;
+        let kept = run
+            .queued
+            .iter()
+            .zip(&wanted)
+            .take_while(|(queued, item)| queued.item == **item)
+            .count();
+        let settled = kept == run.queued.len()
+            && match run.tail.item() {
+                Some(item) => wanted.get(kept) == Some(item),
+                None => wanted.len() == kept,
+            };
+        if settled {
+            return;
+        }
+        let stale = run.cut_from(kept, hosted.index);
+        let host = hosted.track.host.clone();
+        if !stale.is_empty() {
+            self.command_host(stale);
+        }
+        let Some(item) = wanted.into_iter().nth(kept) else {
+            return;
+        };
+        self.host_run_request += 1;
+        let request = self.host_run_request;
+        let resolver = match self.source_resolver.read() {
+            Ok(slot) => slot.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        let commands = self.commands_sender.clone();
+        let asked = item.clone();
+        let lookup = tokio::spawn(async move {
+            let track = match resolver {
+                Some(resolver) => hosted_by(&resolver, &asked, &host).await,
+                None => None,
+            };
+            if commands
+                .send(PlayerCommand::HostRunResolved { request, track })
+                .is_err()
+            {
+                debug!("The player stopped before it heard whether host {host} plays {asked}");
+            }
+        });
+        if let Some(hosted) = &mut self.hosted {
+            hosted.run.tail = RunTail::Resolving {
+                request,
+                item,
+                _lookup: Lookup(lookup),
+            };
+        }
+    }
+
+    // The resolver said whether the host of the current track plays the track after the last
+    // one it holds. A track it plays joins the tail of the host's queue, and the next command
+    // goes on with the track after it. An answer to an older question, or one that comes while
+    // another track loads, is dropped.
+    fn host_run_resolved(&mut self, request: u64, track: Option<HostedTrack>) {
+        let loading = self.state == InternalPlaybackState::Loading;
+        let Some(hosted) = &mut self.hosted else {
+            return;
+        };
+        let RunTail::Resolving {
+            request: asked,
+            item,
+            ..
+        } = &hosted.run.tail
+        else {
+            return;
+        };
+        if *asked != request {
+            return;
+        }
+        let item = item.clone();
+        if loading || hosted.ended {
+            hosted.run.tail = RunTail::Nothing;
+            return;
+        }
+        let Some(track) = track else {
+            hosted.run.tail = RunTail::Declined { item };
+            return;
+        };
+        hosted.run.tail = RunTail::Nothing;
+        let add = HostAction::Add {
+            ids: vec![track.key.clone()],
+        };
+        let Some(revision) = self.command_host(vec![add]) else {
+            return;
+        };
+        info!("Host {} holds a track ahead: {}", track.host, track.key);
+        if let Some(hosted) = &mut self.hosted {
+            hosted.run.queued.push(QueuedTrack {
+                item,
+                track,
+                revision,
+            });
+        }
+    }
+
+    // Makes the track that the host holds `steps` entries after the current one current, without
+    // handing it over again, as long as Next goes from the current track through the tracks that
+    // the host holds before it to it. Those between count as played through, as the host played
+    // them; the current one is the caller's to count. Returns whether it moved.
+    fn move_along_run(&mut self, steps: usize, playing: bool, position: Duration) -> Result<bool> {
+        let (Some(hosted), Some(mut index)) = (&self.hosted, self.current_track_index) else {
+            return Ok(false);
+        };
+        if steps == 0 || steps > hosted.run.queued.len() || self.playlist.is_empty() {
+            return Ok(false);
+        }
+        // Where Next goes, step by step, as long as it brings the tracks that the host holds.
+        let mut passed = Vec::with_capacity(steps);
+        for queued in &hosted.run.queued[..steps] {
+            let Some(next) = self.playback_strategy.next(index, self.playlist.len()) else {
+                return Ok(false);
+            };
+            let Some(at) = self.resolve_index(next, true).filter(|at| {
+                self.playlist
+                    .get(*at)
+                    .is_some_and(|entry| entry.item == queued.item)
+            }) else {
+                return Ok(false);
+            };
+            passed.push((next, at));
+            index = next;
+        }
+        let Some(hosted) = &mut self.hosted else {
+            return Ok(false);
+        };
+        let mut moved = hosted.run.queued.drain(..steps).collect::<Vec<_>>();
+        let Some(arrived) = moved.pop() else {
+            return Ok(false);
+        };
+        let path = arrived.track.path();
+        hosted.track = arrived.track;
+        hosted.index = host_index(hosted.index, steps);
+        hosted.since_revision = arrived.revision;
+        hosted.report(position, playing);
+        hosted.started_at = Instant::now();
+        hosted.heard_at = None;
+        hosted.recovered = false;
+        // The host played the tracks between while the player did not hear it, so none of their
+        // time counts as listened here.
+        for (between, (_, at)) in moved.into_iter().zip(&passed) {
+            self.end_of_track(
+                between.item,
+                *at,
+                between.track.path(),
+                Duration::ZERO,
+                None,
+            )?;
+        }
+        self.current_track_index = Some(index);
+        self.current_track_mapped = true;
+        self.current_item = Some(arrived.item);
+        self.current_track_path = Some(path);
+        self.state = if playing {
+            InternalPlaybackState::Playing
+        } else {
+            InternalPlaybackState::Paused
+        };
+        self.listen_continues = false;
+        self.listen.reset(position, playing, Instant::now());
+        self.send_track_state(playing, position)?;
+        Ok(true)
+    }
+
+    // Counts the track `item` at playlist position `index` as played through, with the time
+    // that was heard of it and when that began.
+    fn end_of_track(
+        &self,
+        item: PlayingItem,
+        index: usize,
+        path: PathBuf,
+        listened: Duration,
+        started_at: Option<SystemTime>,
+    ) -> Result<()> {
+        self.event_sender
+            .send(PlayerEvent::EndOfTrack {
+                item,
+                index,
+                path,
+                playback_mode: self.playback_mode,
+                listened,
+                started_at,
+            })
+            .with_context(|| "Failed to send EndOfTrack event")
+    }
+
+    // Counts the current track as played through, with the time heard of it up to now: a host
+    // reports where its track stands only now and then. Returns whether there was a track.
+    fn end_current_track(&mut self) -> Result<bool> {
+        let (Some(item), Some(index), Some(path)) = (
+            self.current_item.clone(),
+            self.current_playlist_index(),
+            self.current_track_path.clone(),
+        ) else {
+            return Ok(false);
+        };
+        if let Some(hosted) = &self.hosted {
+            self.listen
+                .update(hosted.position(), hosted.playing, Instant::now());
+        }
+        self.end_of_track(
+            item,
+            index,
+            path,
+            self.listen.heard(),
+            self.listen.started_at(),
+        )?;
+        Ok(true)
+    }
+
+    // The host moved past the tracks it holds up to the entry `steps` after the current one, but
+    // the player does not hold that entry, or its run no longer follows on to it, as when an edit
+    // took tracks out as the host played on. The tracks it holds where the host passed them, the
+    // longest stretch from the start of the run that still follows on, count as played through,
+    // as the host played them, and the track after them loads and is handed over anew, which
+    // replaces the host's queue. None that the host played plays again.
+    fn host_moved_past_run(&mut self, steps: usize, playing: bool) -> Result<()> {
+        let held = self
+            .hosted
+            .as_ref()
+            .map_or(0, |hosted| hosted.run.queued.len());
+        for passed in (1..steps.min(held + 1)).rev() {
+            if self.move_along_run(passed, playing, Duration::ZERO)? {
+                if !self.end_current_track()? {
+                    return Ok(());
+                }
+                break;
+            }
+        }
+        if let Some(hosted) = &mut self.hosted {
+            hosted.ended = true;
+        }
+        self.next_with(playing)
+    }
+
+    // The host moved on by itself to the entry `steps` after the current one, playing the track
+    // `id`, which counts the current track as played through, and those between. When that is the
+    // track the player queued there, and Next still goes to it, it becomes current without a new
+    // hand-over. Otherwise the host moved on to a track that the player had taken out of its
+    // queue as it did: the current track ends once, and the track that comes next loads and is
+    // handed over anew, which replaces the host's queue.
+    fn host_moved_on(
+        &mut self,
+        steps: usize,
+        id: Option<&str>,
+        playing: bool,
+        position: Duration,
+    ) -> Result<()> {
+        if !self.end_current_track()? {
+            return Ok(());
+        }
+        let queued = self.hosted.as_ref().is_some_and(|hosted| {
+            steps
+                .checked_sub(1)
+                .and_then(|last| hosted.run.queued.get(last))
+                .is_some_and(|queued| Some(queued.track.key.as_str()) == id)
+        });
+        if queued && self.move_along_run(steps, playing, position)? {
+            if let Some(hosted) = &mut self.hosted {
+                hosted.heard_at = Some(Instant::now());
+            }
+            return Ok(());
+        }
+        warn!("The host moved on to a track that does not come next: {id:?}");
+        self.host_moved_past_run(steps, playing)
+    }
+
+    // Next while the host holds the track that Next goes to: the host skips to it, as it would
+    // move on by itself at the end of the current track, and nothing is handed over again.
+    // Returns whether it did.
+    fn skip_to_host_next(&mut self) -> Result<bool> {
+        let Some(hosted) = &self.hosted else {
+            return Ok(false);
+        };
+        if hosted.ended || self.state == InternalPlaybackState::Loading {
+            return Ok(false);
+        }
+        let skip = HostAction::Skip {
+            index: hosted.index + 1,
+            offset_ms: 0,
+        };
+        if !self.move_along_run(1, true, Duration::ZERO)? {
+            return Ok(false);
+        }
+        self.command_host(vec![skip, HostAction::Start]);
+        info!("Skipped to the track that the host holds next");
+        Ok(true)
+    }
+
+    // The process did not run for `gap`, as in an app that the system suspended, and no report
+    // of the host could reach the player meanwhile. That time does not count against the host of
+    // the current track, which may well have played on: it has as long to report as it had when
+    // the player stopped. Nor does the track's place run on through it, as the player cannot tell
+    // what the host did meanwhile until it reports.
+    fn resume_after_freeze(&mut self, gap: Duration) {
+        let Some(hosted) = &mut self.hosted else {
+            return;
+        };
+        info!("The player did not run for {gap:?}, so the host's deadlines leave that out");
+        let now = Instant::now();
+        hosted.started_at = (hosted.started_at + gap).min(now);
+        hosted.reported_at = (hosted.reported_at + gap).min(now);
+        if let Some(heard) = &mut hosted.heard_at {
+            *heard = (*heard + gap).min(now);
+        }
+    }
+
+    // Whether the host of a track that is to play went quiet for too long: it did not report in
+    // time after it was told to play, or it stopped reporting. A track that loads takes over
+    // anyway.
+    fn host_overdue(&self, hosted: &HostedPlayback) -> bool {
+        if !hosted.playing || hosted.ended || self.state == InternalPlaybackState::Loading {
+            return false;
+        }
+        let (since, limit) = match hosted.heard_at {
+            None => (hosted.started_at, HOST_STATUS_TIMEOUT),
+            Some(heard) => (heard.max(hosted.started_at), HOST_SILENCE_TIMEOUT),
+        };
+        since.elapsed() >= limit
+    }
+
+    // Play and Pause of a hosted track go to its host. While another track loads, the hosted one
+    // follows them as an older track's sink does.
+    fn set_hosted_playing(&mut self, playing: bool, loading: bool) -> Result<()> {
+        let Some(hosted) = &mut self.hosted else {
+            return Ok(());
+        };
+        let position = hosted.position();
+        hosted.report(position, playing);
+        if playing {
+            hosted.started_at = Instant::now();
+        }
+        // Counts the segment that ended here, as play and pause of a track this player plays do.
+        let observed_at = Instant::now();
+        if playing {
+            let was_playing = self.state == InternalPlaybackState::Playing;
+            self.listen.update(position, was_playing, observed_at);
+            if !was_playing {
+                self.listen.rebase(position, !loading, observed_at);
+            }
+        } else {
+            self.listen.update(position, false, observed_at);
+        }
+        self.command_host(vec![if playing {
+            HostAction::Start
+        } else {
+            HostAction::Stop
+        }]);
+        self.send_track_state(playing, position)?;
+        if !loading {
+            self.state = if playing {
+                InternalPlaybackState::Playing
+            } else {
+                InternalPlaybackState::Paused
+            };
+        }
+        Ok(())
+    }
+
+    // A seek moves the current track only: the track the host holds next stays.
+    fn seek_hosted(&mut self, position: Duration) -> Result<SeekOutcome> {
+        let Some(hosted) = &mut self.hosted else {
+            return Ok(SeekOutcome::CannotApply);
+        };
+        let playing = hosted.playing;
+        let before = hosted.position();
+        hosted.report(position, playing);
+        // The move itself is not listening.
+        let observed_at = Instant::now();
+        self.listen.update(before, playing, observed_at);
+        self.listen.rebase(position, playing, observed_at);
+        let skip = HostAction::Skip {
+            index: hosted.index,
+            offset_ms: offset_ms(position),
+        };
+        self.command_host(vec![skip]);
+        info!("Seeking the hosted track to {position:?}");
+        self.send_track_state(playing, position)?;
+        Ok(SeekOutcome::Applied)
+    }
+
+    fn host_event(&mut self, event: HostEvent) -> Result<()> {
+        let loading = self.state == InternalPlaybackState::Loading;
+        match event {
+            HostEvent::HostReady {
+                host,
+                authorized,
+                can_play,
+            } => {
+                let current = self
+                    .hosted
+                    .as_ref()
+                    .is_some_and(|hosted| hosted.track.host == host);
+                let refusal = if !authorized {
+                    Some(UnavailableReason::AccessRevoked)
+                } else if !can_play {
+                    Some(UnavailableReason::LibraryUnavailable)
+                } else {
+                    None
+                };
+                match refusal {
+                    Some(reason) => {
+                        warn!("Host {host} cannot play: {reason:?}");
+                        self.hosts_unable.insert(host, reason);
+                        if current {
+                            return self.hosted_failed(reason);
+                        }
+                    }
+                    None => {
+                        self.hosts_unable.remove(&host);
+                        // A host that comes up again lost what it held.
+                        if current {
+                            self.hand_over_again();
+                        }
+                    }
+                }
+            }
+            HostEvent::JukeboxStatus {
+                host,
+                revision,
+                current_index,
+                current_id,
+                playing,
+                position_ms,
+            } => {
+                let Some(hosted) = self.hosted.as_mut().filter(|hosted| {
+                    hosted.track.host == host
+                        && (hosted.status_revision..=hosted.latest_revision).contains(&revision)
+                }) else {
+                    return Ok(());
+                };
+                let position = Duration::from_millis(position_ms);
+                match current_index {
+                    Some(index)
+                        if index == hosted.index
+                            && current_id.as_deref() == Some(hosted.track.key.as_str()) =>
+                    {
+                        let changed = hosted.playing != playing;
+                        hosted.report(position, playing);
+                        hosted.heard_at = Some(Instant::now());
+                        if changed {
+                            self.send_track_state(playing, position)?;
+                            if !loading {
+                                self.state = if playing {
+                                    InternalPlaybackState::Playing
+                                } else {
+                                    InternalPlaybackState::Paused
+                                };
+                            }
+                        }
+                    }
+                    // The host holds no track, as after a restart, or another one where the
+                    // current track should be.
+                    None => return self.host_lost_track(),
+                    Some(index) if index == hosted.index => {
+                        warn!("Host {host} holds {current_id:?} where the current track should be");
+                        return self.host_lost_track();
+                    }
+                    Some(index) if index > hosted.index => {
+                        // As with a track that ends while another loads, the load takes over.
+                        if hosted.ended || loading {
+                            return Ok(());
+                        }
+                        let steps = usize::try_from(index - hosted.index).unwrap_or(usize::MAX);
+                        return self.host_moved_on(steps, current_id.as_deref(), playing, position);
+                    }
+                    Some(index) => {
+                        debug!("Ignoring a status of host {host} about entry {index}");
+                    }
+                }
+            }
+            HostEvent::JukeboxItemFailed {
+                host,
+                revision,
+                index,
+                reason,
+            } => {
+                let Some(hosted) = self
+                    .hosted
+                    .as_mut()
+                    .filter(|hosted| hosted.track.host == host)
+                else {
+                    return Ok(());
+                };
+                if hosted.is_current(revision, index) {
+                    warn!("Host {host} failed to play its track: {reason:?}");
+                    return self.hosted_failed(reason.into());
+                }
+                // The host failed a track it holds after the current one, and does not move on
+                // to it. That track and those after it leave the host's queue, from the tail, and
+                // the run ends before it. It is handed over as usual once it is current, failing
+                // then if it still does.
+                let failed = index
+                    .checked_sub(hosted.index + 1)
+                    .and_then(|offset| usize::try_from(offset).ok())
+                    .filter(|offset| {
+                        hosted.run.queued.get(*offset).is_some_and(|queued| {
+                            (queued.revision..=hosted.latest_revision).contains(&revision)
+                        })
+                    });
+                if let Some(offset) = failed {
+                    warn!("Host {host} cannot play the track it holds at {index}: {reason:?}");
+                    let item = hosted.run.queued[offset].item.clone();
+                    let stale = hosted.run.cut_from(offset, hosted.index);
+                    hosted.run.tail = RunTail::Declined { item };
+                    self.command_host(stale);
+                }
+            }
+            HostEvent::JukeboxEnded {
+                host,
+                revision,
+                index,
+            } => {
+                let Some(hosted) = self.hosted.as_ref().filter(|hosted| {
+                    hosted.track.host == host
+                        && (hosted.since_revision..=hosted.latest_revision).contains(&revision)
+                        && !hosted.ended
+                }) else {
+                    return Ok(());
+                };
+                // An entry before the current one ended before the host moved on to the current
+                // one, which plays on.
+                if index.is_some_and(|index| index < hosted.index) {
+                    debug!("Ignoring an end of host {host} about entry {index:?}");
+                    return Ok(());
+                }
+                // A track the user paused just as it ended leaves the next one paused.
+                let play = hosted.playing;
+                // The host played on through the tracks it held after the current one while it
+                // could not report, and the last of them ended. They all played through.
+                let ahead = index
+                    .and_then(|index| index.checked_sub(hosted.index))
+                    .filter(|steps| *steps > 0);
+                if let Some(steps) = ahead
+                    && !loading
+                {
+                    if !self.end_current_track()? {
+                        return Ok(());
+                    }
+                    let steps = usize::try_from(steps).unwrap_or(usize::MAX);
+                    if !self.move_along_run(steps, play, Duration::ZERO)? {
+                        warn!("Host {host} ended an entry that the player does not hold there");
+                        return self.host_moved_past_run(steps, play);
+                    }
+                }
+                let Some(hosted) = &mut self.hosted else {
+                    return Ok(());
+                };
+                let position = hosted.position();
+                hosted.report(position, false);
+                hosted.ended = true;
+                // As with an older track's sink that runs out while a track loads, the end
+                // either started this load or was skipped by the listener.
+                if loading {
+                    return Ok(());
+                }
+                if !self.end_current_track()? {
+                    return Ok(());
+                }
+                if self.state != InternalPlaybackState::Stopped {
+                    self.next_with(play)?;
+                }
+            }
+            HostEvent::Unknown => {}
+        }
+        Ok(())
+    }
+
+    // The host cannot play the current track. It is marked unavailable and playback moves on, as
+    // after a stream that fails. While another track loads, that track takes over instead.
+    fn hosted_failed(&mut self, reason: UnavailableReason) -> Result<()> {
+        let (Some(item), Some(failed_index)) =
+            (self.current_item.clone(), self.current_playlist_index())
+        else {
+            return Ok(());
+        };
+        let Some(hosted) = &mut self.hosted else {
+            return Ok(());
+        };
+        let play = hosted.playing;
+        let loading = self.state == InternalPlaybackState::Loading;
+        if loading {
+            hosted.report(hosted.position(), false);
+        } else {
+            self.stop()?;
+        }
+        self.unavailable.insert(item.clone(), reason);
+        self.event_sender
+            .send(PlayerEvent::Unavailable(item, reason))?;
+        if loading {
+            return Ok(());
+        }
+        if let Some(next) = self.find_available_after(failed_index) {
+            self.load(Some(next), play, true)?;
+        } else {
+            self.event_sender.send(PlayerEvent::EndOfPlaylist)?;
+        }
         Ok(())
     }
 }
@@ -3377,6 +4672,12 @@ mod playback_state_tests {
             (&*self.outputs as &dyn any::Any)
                 .downcast_ref()
                 .expect("the player of these tests has test outputs")
+        }
+
+        /// Lets the host hold at most `limit` tracks after the current hosted one.
+        fn with_host_run_limit(mut self, limit: usize) -> Self {
+            self.host_run_limit = limit;
+            self
         }
     }
 
@@ -6929,4 +8230,11 @@ mod playback_state_tests {
     async fn load_at_a_position_during_a_load_comes_up_paused_there() -> Result<()> {
         check_load_at_position_during_a_load(false).await
     }
+
+    // Hosted tracks, which a platform host plays. The fake host records the batches it is sent
+    // and applies them to a model of a host's queue, which checks them against the host
+    // contract: every index the player sends names an entry, an `add` carries one id, and only
+    // the entry after the current one is ever removed. The tests report the host's events,
+    // written out or taken from the model.
+    mod hosted;
 }

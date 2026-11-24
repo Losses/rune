@@ -117,6 +117,26 @@ impl MediaControlManager {
     pub fn subscribe_controller_events(&self) -> SimpleReceiver<MediaControlEvent> {
         self.event_sender.subscribe()
     }
+
+    /// A platform host plays the current track and shows Now Playing for it itself. On iOS,
+    /// where such a host does that in the app's own place, Rune's Now Playing gives way until
+    /// [`Self::reclaim_commands`]; elsewhere nothing changes.
+    pub fn yield_commands(&mut self) -> Result<()> {
+        #[cfg(target_os = "ios")]
+        if let Err(e) = self.controls.yield_commands() {
+            bail!(Error::msg(format!("{e:?}")));
+        }
+        Ok(())
+    }
+
+    /// The host let go of Now Playing, and Rune's own comes back.
+    pub fn reclaim_commands(&mut self) -> Result<()> {
+        #[cfg(target_os = "ios")]
+        if let Err(e) = self.controls.reclaim_commands() {
+            bail!(Error::msg(format!("{e:?}")));
+        }
+        Ok(())
+    }
 }
 
 pub async fn handle_media_control_event(

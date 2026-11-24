@@ -11,6 +11,7 @@ mod shared_source;
 pub mod buffered;
 pub mod controller;
 pub mod decoder;
+pub mod hosted;
 pub mod output_stream;
 pub mod pcm_tap;
 pub mod player;

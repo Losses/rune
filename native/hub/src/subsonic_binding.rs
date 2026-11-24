@@ -30,7 +30,7 @@ use database::playing_item::PlayingItemMetadataSummary;
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
-    RemoteAudioSource, UnavailableReason,
+    RemoteAudioSource, ServiceTarget, UnavailableReason,
 };
 use subsonic::{
     SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicCredentials, SubsonicJukebox,
@@ -845,7 +845,7 @@ impl ServiceBinding for SubsonicBinding {
         })
     }
 
-    fn playback_source<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, RemoteAudioSource> {
+    fn playback_source<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, ServiceTarget> {
         Box::pin(async move {
             let song = self
                 .client
@@ -858,7 +858,7 @@ impl ServiceBinding for SubsonicBinding {
                 .unwrap_or_else(|| "audio".to_owned());
             let cancellation = CancellationToken::new();
             let failure_reason = Arc::new(Mutex::new(None));
-            Ok(RemoteAudioSource {
+            Ok(ServiceTarget::Stream(RemoteAudioSource {
                 request: Arc::new(SubsonicAudioRequest {
                     client: Arc::clone(&self.client),
                     track_id: track.to_owned(),
@@ -871,7 +871,7 @@ impl ServiceBinding for SubsonicBinding {
                 size: song.size.unwrap_or_default(),
                 cancellation,
                 failure_reason,
-            })
+            }))
         })
     }
 

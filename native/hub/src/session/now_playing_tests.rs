@@ -77,6 +77,7 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
                 playback_mode: PlaybackMode::Sequential,
                 ready: true,
                 volume: 1.0,
+                hosted_by: None,
             },
             &mut item_state,
             &None,
@@ -120,6 +121,7 @@ fn the_position_of_an_item_waits_for_its_name_and_its_state_does_not() {
         playback_mode: PlaybackMode::Sequential,
         ready: true,
         volume: 1.0,
+        hosted_by: None,
     };
     let at_seven = |progress: Option<MediaPosition>| {
         progress.is_some_and(|position| position.0 == Duration::from_secs(7))
@@ -226,7 +228,7 @@ impl ServiceBinding for SlowService {
     fn playback_source<'a>(
         &'a self,
         _track: &'a str,
-    ) -> crate::service::ServiceFuture<'a, playback::player::RemoteAudioSource> {
+    ) -> crate::service::ServiceFuture<'a, playback::player::ServiceTarget> {
         Box::pin(async { anyhow::bail!("no playback") })
     }
 }
@@ -418,6 +420,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
             playback_mode: PlaybackMode::Sequential,
             ready: true,
             volume: 1.0,
+            hosted_by: None,
         },
         &mut item_state,
         &None,
@@ -699,6 +702,7 @@ impl ScriptedSession {
             playback_mode: PlaybackMode::Sequential,
             ready: true,
             volume: 1.0,
+            hosted_by: None,
         }
     }
 
@@ -889,6 +893,7 @@ async fn what_the_item_supports_is_told_once_it_can_be() -> Result<()> {
         playback_mode: PlaybackMode::Sequential,
         ready: true,
         volume: 1.0,
+        hosted_by: None,
     };
     let registry = dir.path().join("libraries.json");
     let _ = fs::remove_file(&registry);

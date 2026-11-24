@@ -1022,7 +1022,10 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     );
     fixture.global_params.player.lock().await.stop();
     let binding = service_binding_for_library(&node, record.record_id.0).await?;
-    let source = binding.playback_source("song-opaque").await?;
+    let player::ServiceTarget::Stream(source) = binding.playback_source("song-opaque").await?
+    else {
+        anyhow::bail!("a Subsonic track must play from a stream");
+    };
     let ranged = source.request.get(Some((12, Some(23)))).await?;
     assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
     assert!(stream_ranges.lock().unwrap().iter().any(Option::is_some));
