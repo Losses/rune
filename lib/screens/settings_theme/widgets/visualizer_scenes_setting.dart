@@ -30,7 +30,7 @@ class VisualizerScenesSetting extends StatelessWidget {
 
     final s = S.of(context);
     final theme = FluentTheme.of(context);
-    final scenes = provider.scenes;
+    final scenes = provider.arrangedScenes;
     final enabledCount = scenes.where((scene) => scene.enabled).length;
 
     return Padding(

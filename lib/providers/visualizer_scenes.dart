@@ -184,6 +184,13 @@ class VisualizerScenesProvider extends ChangeNotifier {
       )
       .toList();
 
+  /// The scenes the settings list, in the order the user arranged them: those
+  /// the source can feed now, as [scenes], or every scene while it gives no
+  /// audio at all, as with a track that a platform host plays. No scene could
+  /// run then, and the list would be empty.
+  List<VisualizerScene> get arrangedScenes =>
+      _inputs == VisualizerInputs.none ? List.unmodifiable(_scenes) : scenes;
+
   VisualizerInputs get inputs => _inputs;
 
   /// What the visualizer reports when asked, at its start or while it runs.
@@ -479,11 +486,12 @@ class VisualizerScenesProvider extends ChangeNotifier {
 
   /// Moves a scene, with the semantics of `ReorderableColumn.onReorder`.
   ///
-  /// The list on screen leaves out the scenes the current input cannot run,
-  /// so the indexes are of [scenes]. [placeArranged] puts the new visible
-  /// order back among the hidden scenes, which keep their places.
+  /// The list on screen is [arrangedScenes], which may leave out the scenes
+  /// the current input cannot run, so the indexes are of it. [placeArranged]
+  /// puts the new visible order back among the hidden scenes, which keep
+  /// their places.
   void reorder(int oldIndex, int newIndex) {
-    final shown = scenes;
+    final shown = arrangedScenes;
     if (oldIndex < 0 ||
         oldIndex >= shown.length ||
         newIndex < 0 ||
