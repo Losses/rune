@@ -99,7 +99,9 @@ class NavigationBarState extends State<NavigationBar> {
       case HeaderTapAction.pop:
         $pop();
       case HeaderTapAction.replace:
-        setState(() => $replace(item.path));
+        setState(() {
+          $replace(item.path);
+        });
     }
   }
 
