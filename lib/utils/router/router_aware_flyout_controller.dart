@@ -163,9 +163,14 @@ class RouterAwareFlyoutController {
       return await _controller.showFlyout<T>(
         builder: (context) {
           if (_disposed) {
-            // The owner can disappear before the flyout's first build.
+            // The owner can disappear before the flyout's first build. The
+            // route is still told, as a route pushed over it hides it from
+            // close.
             scheduleMicrotask(flyout.close);
-            return const SizedBox.shrink();
+            return _RouteProbe(
+              onRoute: flyout._shown,
+              child: const SizedBox.shrink(),
+            );
           }
           return _RouteProbe(onRoute: flyout._shown, child: builder(context));
         },

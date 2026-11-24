@@ -157,11 +157,15 @@ class _Routes extends NavigatorObserver {
     routes[routes.indexOf(oldRoute!)] = newRoute!;
   }
 
-  /// The routes by the names the history gives them: a page by its name and
-  /// a menu as 'flyout'.
+  /// The routes by the names the history gives them: a page by its name, a
+  /// dialog as 'modal' and a menu as 'flyout'.
   List<String> get names => [
     for (final route in routes)
-      route is NoEffectPageRoute ? route.settings.name! : 'flyout',
+      switch (route) {
+        NoEffectPageRoute() => route.settings.name!,
+        RawDialogRoute() => 'modal',
+        _ => 'flyout',
+      },
   ];
 }
 
@@ -526,6 +530,33 @@ void main() {
     expect($pop(), isTrue);
     await tester.pumpAndSettle();
     expected.closed();
+  });
+
+  testWidgets('a menu let go of before it is drawn closes under a dialog '
+      'opened over it', (tester) async {
+    final expected = await _start(tester);
+
+    // The menu's route is pushed and not yet built when its owner lets go of
+    // it, and a dialog opens over it before it is closed.
+    await tester.tap(
+      find.byKey(const ValueKey('row $_search')),
+      buttons: kSecondaryButton,
+    );
+    expect(_routes.names.last, 'flyout');
+    tester.state<_RowState>(find.byType(_Row))._controller.dispose();
+    unawaited(
+      $showModal<void>(
+        tester.element(find.byType(_Page)),
+        (context, close) => const Text('a dialog'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_names(), ['/library', _search, 'modal']);
+    expect(_routes.names, ['/library', _search, 'modal']);
+
+    expect($pop(), isTrue);
+    await tester.pumpAndSettle();
+    expected.check();
   });
 
   for (final close in _Close.values) {
