@@ -126,8 +126,11 @@ class TurntileScreenImplementationState
       child: FutureBuilder<List<Group<InternalCollection>>>(
         future: data.summary,
         builder: (context, snapshot) {
+          // A failed summary keeps its error while the next one loads, so the
+          // spinner also waits for the items: those that stayed are shown.
           if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
+              !snapshot.hasData &&
+              data.items.isEmpty) {
             return const Center(child: ProgressRing());
           } else if (snapshot.hasError && data.items.isEmpty) {
             // Only with nothing on screen: a reload whose summary fails keeps
