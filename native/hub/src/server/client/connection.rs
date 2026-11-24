@@ -7,12 +7,11 @@ use log::error;
 use rinf::DartSignal;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, mpsc};
-use tokio_tungstenite::{connect_async, tungstenite};
-use tungstenite::Message;
+use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 use hub::{
-    backends::remote::{decode_message, encode_message, encode_request},
+    backends::remote::{RemoteStream, decode_message, encode_message, encode_request},
     messages::RemoteRequestFailed,
     request_error::ExpectedRequestError,
     rpc::{RequestScope, TargetRequest},
@@ -28,9 +27,8 @@ pub struct WSConnection {
 }
 
 impl WSConnection {
-    pub async fn connect(url: String, library_id: Uuid) -> Result<Self> {
-        let (ws_stream, _) = connect_async(url).await?;
-        let (write, mut read) = ws_stream.split();
+    pub async fn connect(stream: RemoteStream, library_id: Uuid) -> Result<Self> {
+        let (write, mut read) = stream.split();
 
         let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
         let response_channels = Arc::new(RwLock::new(

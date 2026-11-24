@@ -1537,6 +1537,7 @@
   "libraryUntrusted": "這个裝置未受信任。",
   "libraryInvalidSource": "此資料夾無通用作媒體庫。",
   "libraryStorageFailure": "無通儲存媒體庫。",
+  "libraryNewerVersion": "這个媒體庫是用較新的 Rune 版本做的。請佇這台設備更新 Rune 才通開。",
   "libraryShareStoreUnavailable": "共享儲存無通使用。同步會自動重試。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
   "libraryRemoteUnreachable": "無通連線到裝置。",

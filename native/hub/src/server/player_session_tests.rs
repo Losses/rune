@@ -7622,13 +7622,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     let source_dir = tempfile::tempdir()?;
     let target_dir = tempfile::tempdir()?;
     let signals = Arc::new(RecordedSignals::default());
-    let source = fixture_with_broadcaster(
-        source_dir.path(),
-        Uuid::new_v4(),
-        Duration::from_secs(300),
-        signals.clone(),
-    )
-    .await?;
+    let source = fixture(source_dir.path()).await?;
     let target = fixture_with_broadcaster(
         target_dir.path(),
         Uuid::new_v4(),
@@ -7727,6 +7721,33 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
         call_id: None,
         target: Some(target_fingerprint.clone()),
     };
+    // Once the renderer is attached, the source GUI correctly suppresses local
+    // session events. Sample the real source at the target's load boundary:
+    // a source that is still playing here must not pass the ordering check.
+    let source_session = source.global_params.node.session()?;
+    let order_signals: Arc<dyn Broadcaster> = signals.clone();
+    let target_node = Arc::downgrade(&target.global_params.node);
+    let load = "HandoffLoadRequest";
+    target
+        .global_params
+        .node
+        .websocket_service
+        .override_handler(load, move |payload, session, library_id| {
+            let source_session = source_session.clone();
+            let order_signals = order_signals.clone();
+            let target_node = target_node.clone();
+            async move {
+                source_session
+                    .reemit_to(&order_signals)
+                    .await
+                    .expect("sample source session");
+                let node = target_node.upgrade().expect("target node");
+                dispatch_remote(load, &payload, session, library_id, &node)
+                    .await
+                    .expect("real handoff load handler")
+            }
+        })
+        .await;
     signals.clear();
     dispatch_gui_request(&source.global_params, &handoff).await?;
     let source_session_id = source

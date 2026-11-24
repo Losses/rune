@@ -822,7 +822,7 @@ mod tests {
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../testdata/chained_ogg")
+            .join("tests/fixtures/chained_ogg")
             .join(name)
     }
 

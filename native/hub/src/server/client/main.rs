@@ -10,7 +10,7 @@ pub mod repl;
 pub mod utils;
 pub mod verify;
 
-use std::{process::exit, sync::Arc};
+use std::{path::Path, process::exit, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -35,6 +35,7 @@ use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
 use editor::{EditorConfig, create_editor};
 use fs::VirtualFS;
+use hub::backends::remote::connect_controller;
 use hub::messages::TrustedServerCertificate;
 use hub::server::api::{add_trusted_server, edit_trusted_hosts, remove_trusted_device};
 use utils::{
@@ -66,43 +67,44 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Repl(args) => repl_mode(&args.service_url, args.library_id).await,
+        Cli::Repl(args) => {
+            let config_dir = get_config_dir()?;
+            repl_mode(&args.service_url, args.library_id, config_dir).await
+        }
         Cli::Discovery(cmd) => handle_discovery_command(cmd).await,
         Cli::Remote(cmd) => handle_remote_command(cmd).await,
     }
 }
 
-async fn repl_mode(service_url: &str, library_id: Uuid) -> Result<()> {
-    let service_url = match validate_and_format_url(service_url) {
-        Ok(x) => x,
-        Err(e) => {
-            error!("{e}");
-            return Ok(());
-        }
-    };
+async fn repl_mode(service_url: &str, library_id: Uuid, config_dir: &Path) -> Result<()> {
+    let address: DeviceAddress = service_url.parse().map_err(Error::msg)?;
+    let service_url = address.url(DeviceScheme::Wss, "/ws")?;
 
     println!("Welcome to the Rune Speaker Command Line Interface");
     println!("Service URL: {service_url}");
     println!("\nType 'help' to see available commands");
 
     let config = EditorConfig::default();
-    let connection = match WSConnection::connect(service_url.clone(), library_id).await {
-        Ok(x) => x,
-        Err(e) => {
-            error!("{e}");
-            return Ok(());
-        }
-    };
+    let validator = CertValidator::new(config_dir).await?;
+    let stream = connect_controller(
+        address.host(),
+        address.port(),
+        config_dir
+            .to_str()
+            .context("Config directory is not valid UTF-8")?,
+        validator.clone(),
+    )
+    .await?;
+    let connection = WSConnection::connect(stream, library_id).await?;
     let connection = Arc::new(connection);
     let fs = Arc::new(RwLock::new(VirtualFS::new(connection)));
     let mut editor = create_editor(config, fs.clone())?;
 
-    let config_dir = get_config_dir()?;
     let state: Arc<AppState> = Arc::new(AppState {
         fs: fs.clone(),
-        validator: CertValidator::new(config_dir.join("certs")).await?,
+        validator,
         discovery: Arc::new(Mutex::new(None)),
-        config_dir: config_dir.clone(),
+        config_dir: config_dir.to_path_buf(),
     });
 
     loop {
@@ -318,15 +320,24 @@ fn setup_logging() -> Result<()> {
     Ok(())
 }
 
-fn validate_and_format_url(input: &str) -> Result<String> {
-    let address: DeviceAddress = input.parse().map_err(Error::msg)?;
-    Ok(address.url(DeviceScheme::Wss, "/ws")?.to_string())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::trust_discovered_server;
+    use super::{repl_mode, trust_discovered_server};
     use ::discovery::client::CertValidator;
+    use hub::backends::remote::RemoteConnectError;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn repl_reports_a_connection_failure_to_its_caller() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = repl_mode("127.0.0.1:1", Uuid::new_v4(), directory.path())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<RemoteConnectError>(),
+            Some(RemoteConnectError::UntrustedEndpoint)
+        ));
+    }
 
     #[tokio::test]
     async fn discovered_trust_does_not_store_an_unverified_fingerprint() {

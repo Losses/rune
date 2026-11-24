@@ -8,3 +8,12 @@ pub enum ExpectedError {
     #[error("{detail}")]
     InvalidInput { detail: String },
 }
+
+/// A library database written by a newer version of Rune: it records
+/// migrations newer than any this version has, so this version leaves it as
+/// it is and does not open it.
+#[derive(Debug, Error)]
+#[error("the library database was written by a newer version of Rune ({})", .migrations.join(", "))]
+pub struct NewerLibraryDatabase {
+    pub migrations: Vec<String>,
+}

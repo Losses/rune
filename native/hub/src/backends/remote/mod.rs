@@ -58,10 +58,9 @@ use crate::{
     },
     visualizer::ChartItem,
 };
-#[cfg(test)]
-use ::discovery::protocol_version::PROTOCOL_VERSION;
 use ::discovery::protocol_version::{
-    Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION_HEADER, ProtocolVersion, compatibility,
+    Compatibility, DEVICE_ALIAS_HEADER, PROTOCOL_VERSION, PROTOCOL_VERSION_HEADER, ProtocolVersion,
+    compatibility,
 };
 use ::discovery::{
     client::{CertValidator, select_best_host},
@@ -199,7 +198,32 @@ pub(crate) fn token_error(error: anyhow::Error) -> RemoteConnectError {
     protocol(error)
 }
 
-pub(crate) type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+/// A WebSocket stream to a paired Rune server's control endpoint.
+pub type RemoteStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// Connects to a paired Rune server's control socket with the certificate trust,
+/// authorization and protocol handshake the remote backend requires.
+///
+/// The server must list this device as approved. The returned stream has passed
+/// the pinned TLS check, the bearer-token authorization and the protocol version
+/// checks on both the request and the server's response.
+pub async fn connect_controller(
+    host: &str,
+    port: u16,
+    config_path: &str,
+    validator: CertValidator,
+) -> std::result::Result<RemoteStream, RemoteConnectError> {
+    connect_remote_with_version(
+        host,
+        port,
+        config_path,
+        validator,
+        &SyncTokenStore::default(),
+        PROTOCOL_VERSION,
+    )
+    .await
+}
+
 type PendingReplies = Arc<Mutex<HashMap<Uuid, oneshot::Sender<Result<(String, Vec<u8>)>>>>>;
 
 /// A node-owned control connection to a remote renderer.

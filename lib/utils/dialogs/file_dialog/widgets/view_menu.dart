@@ -136,27 +136,50 @@ class _FileDialogViewMenuState extends State<FileDialogViewMenu> {
           child: FlyoutContent(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: IntrinsicWidth(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  track,
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final named in FileDialogView.named)
-                          _ViewRow(
-                            icon: fileDialogViewIcon(named),
-                            label: fileDialogViewLabel(context, named),
-                            current: named == view,
-                            onPressed: () {
-                              _controller.setView(named);
-                              _close();
-                            },
-                          ),
-                      ],
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      track,
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final named in FileDialogView.named)
+                              _ViewRow(
+                                icon: fileDialogViewIcon(named),
+                                label: fileDialogViewLabel(context, named),
+                                current: named == view,
+                                onPressed: () {
+                                  _controller.setView(named);
+                                  _close();
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Below the views, as a menu's separator draws it.
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Divider(
+                      style: DividerThemeData(
+                        horizontalMargin: EdgeInsets.zero,
+                      ),
                     ),
+                  ),
+                  _HiddenItemsRow(
+                    shown: _controller.showHidden,
+                    label: S.of(context).fileDialogHiddenItems,
+                    onPressed: () {
+                      _controller.setShowHidden(!_controller.showHidden);
+                      _close();
+                    },
                   ),
                 ],
               ),
@@ -207,6 +230,60 @@ class _ViewRow extends StatelessWidget {
               Icon(icon, size: 16),
               const SizedBox(width: 12),
               Text(label),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Whether hidden items show: a check mark under the slider's track when
+/// they do, and the label lined up with the views' names.
+class _HiddenItemsRow extends StatelessWidget {
+  const _HiddenItemsRow({
+    required this.shown,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final bool shown;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    return HoverButton(
+      onPressed: onPressed,
+      semanticLabel: label,
+      focusEnabled: false,
+      builder: (context, states) => Semantics(
+        toggled: shown,
+        child: Container(
+          height: _rowHeight,
+          margin: const EdgeInsetsDirectional.only(start: 4, end: 4),
+          decoration: BoxDecoration(
+            color: ButtonThemeData.uncheckedInputColor(
+              theme,
+              states,
+              transparentWhenNone: true,
+            ),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: _trackWidth - 4,
+                child: shown ? const Icon(Symbols.check, size: 16) : null,
+              ),
+              // Where the views' icons are, so the label lines up with
+              // their names.
+              const SizedBox(width: 8 + 16 + 12),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 16),
+                child: Text(label),
+              ),
             ],
           ),
         ),

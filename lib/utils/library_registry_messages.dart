@@ -39,5 +39,6 @@ String libraryRegistryFailureMessage(
   OpenLibraryFailureKind.remoteProtocol => s.libraryRemoteProtocolFailure,
   OpenLibraryFailureKind.protocolIncompatible => s.libraryProtocolIncompatible,
   OpenLibraryFailureKind.notSupportedYet => s.libraryNotSupportedYet,
+  OpenLibraryFailureKind.newerVersion => s.libraryNewerVersion,
   _ => s.unknownError,
 };

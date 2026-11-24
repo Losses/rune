@@ -709,6 +709,7 @@ pub async fn get_percentile_analysis_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixtures::fixtures::{audio_fixture, audio_fixture_at};
     use analysis::analysis::{AnalysisParameter, AnalysisResult, AudioStat};
     use migration::{Migrator, MigratorTrait};
     use sea_orm::{Database, Set};
@@ -793,8 +794,8 @@ mod tests {
         let fsio = FsIo::new();
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("track.ogg");
-        std::fs::copy(crate::test_fixtures::fixtures::audio_fixture_at(1), &path)?;
-        let expected = hash_file(&fsio, &crate::test_fixtures::fixtures::audio_fixture())?;
+        std::fs::copy(audio_fixture_at(1), &path)?;
+        let expected = hash_file(&fsio, &audio_fixture())?;
         let observed = media_files::Model {
             id: 1,
             file_name: "track.ogg".into(),
