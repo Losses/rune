@@ -601,3 +601,15 @@ async fn a_catalog_artists_albums_are_read_for_at_most_twenty_pages() {
     assert_eq!(albums.len(), 20);
     assert_eq!(server.seen().len(), 20);
 }
+
+#[test]
+fn a_library_song_without_attributes_still_names_its_catalog_song() {
+    let song: apple_music::models::LibrarySong = serde_json::from_value(json!({
+        "id": "i.lib1",
+        "type": "library-songs",
+        "relationships": {"catalog": {"data": [{"id": "1001", "type": "songs"}]}}
+    }))
+    .unwrap();
+
+    assert_eq!(song.catalog_id(), Some("1001"));
+}

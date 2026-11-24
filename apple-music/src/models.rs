@@ -258,21 +258,19 @@ impl LibrarySong {
     /// The catalog id of this song: `playParams.catalogId`, else the id of the
     /// `catalog` relationship when it was included.
     pub fn catalog_id(&self) -> Option<&str> {
-        let attrs = self.attributes.as_ref()?;
-        if let Some(id) = attrs
-            .play_params
+        self.attributes
             .as_ref()
-            .and_then(|p| p.catalog_id.as_deref())
-        {
-            return Some(id);
-        }
-        self.relationships
-            .as_ref()?
-            .catalog
-            .as_ref()?
-            .data
-            .first()
-            .map(|r| r.id.as_str())
+            .and_then(|attributes| attributes.play_params.as_ref())
+            .and_then(|params| params.catalog_id.as_deref())
+            .or_else(|| {
+                self.relationships
+                    .as_ref()?
+                    .catalog
+                    .as_ref()?
+                    .data
+                    .first()
+                    .map(|r| r.id.as_str())
+            })
     }
 
     /// The store item behind this song: [`Self::catalog_id`], else the id it was
