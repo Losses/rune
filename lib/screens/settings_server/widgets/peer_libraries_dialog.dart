@@ -211,7 +211,10 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
                       final library = state.libraries[index];
                       final selected = selectedLibraryId == library.libraryId;
                       final path = paths[library.libraryId];
-                      final subtitle = library.sync == DeviceSyncLevel.pull
+                      final canSync = library.sync != DeviceSyncLevel.none;
+                      final subtitle = !canSync
+                          ? s.libraryNotShared
+                          : library.sync == DeviceSyncLevel.pull
                           ? s.readOnly
                           : library.added
                           ? s.sharedLibraryAdded
@@ -232,7 +235,8 @@ class _PeerLibrariesDialogState extends State<PeerLibrariesDialog> {
                               )
                             else
                               Button(
-                                onPressed: busy.contains(library.libraryId)
+                                onPressed:
+                                    busy.contains(library.libraryId) || !canSync
                                     ? null
                                     : () => _add(library),
                                 child: Text(s.addSharedLibrary),
