@@ -4011,13 +4011,14 @@ impl PlayerInternal {
         else {
             return Ok(());
         };
-        let Some(hosted) = &mut self.hosted else {
+        let Some(play) = self.hosted.as_ref().map(|hosted| hosted.playing) else {
             return Ok(());
         };
-        let play = hosted.playing;
         let loading = self.state == InternalPlaybackState::Loading;
         if loading {
-            hosted.report(hosted.position(), false);
+            // The host lets go of the track it failed, so that Play and Pause meanwhile wait for
+            // the track that loads rather than go to it.
+            self.release_host()?;
         } else {
             self.stop()?;
         }

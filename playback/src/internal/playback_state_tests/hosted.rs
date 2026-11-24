@@ -1171,6 +1171,38 @@ async fn a_failure_during_a_load_marks_the_track_and_leaves_the_queue_to_the_loa
 }
 
 #[tokio::test]
+async fn a_host_that_cannot_play_during_a_load_follows_no_play() -> Result<()> {
+    let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[1]);
+    with_engine(internal, f, async |f| {
+        let (hosted, track) = (f.hosted("1440"), f.local(0));
+        start_first(f, &[hosted.clone(), track.clone(), f.local(1)], None).await?;
+        f.report(status(1, true, 0))?;
+        f.send(PlayerCommand::Switch(1))?;
+        tokio::time::timeout(TEST_DEADLINE, f.started.notified()).await?;
+        f.report(ready(HOST, true, false))?;
+        expect_unavailable(&mut f.events, &hosted).await?;
+
+        // The host lets go of the track it failed, so Play waits for the track that loads.
+        f.send(PlayerCommand::Play)?;
+        let seen = f.settle().await?;
+        assert!(
+            !any(&seen, |event| matches!(
+                event,
+                PlayerEvent::Playing { item, .. } if *item == hosted
+            )),
+            "{seen:?}"
+        );
+        assert_eq!(f.host.take(1).await?, vec![released(2)]);
+        f.release.notify_one();
+        expect_playing(&mut f.events, &track).await?;
+        f.settle().await?;
+        assert!(f.host.sent_nothing());
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
 async fn a_track_the_host_fails_is_unavailable_and_the_next_one_plays() -> Result<()> {
     let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[]);
     with_engine(internal, f, async |f| {
