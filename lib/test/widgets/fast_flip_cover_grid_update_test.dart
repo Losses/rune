@@ -85,4 +85,14 @@ void main() {
       b.dispose();
     },
   );
+
+  test('a grid painted with another cell count repaints', () {
+    FlipGridPainter painter(int gridCount) => FlipGridPainter(
+      const [],
+      rotates: const [0],
+      fallbackColors: const [Color(0xFFFF0000)],
+      gridCount: gridCount,
+    );
+    expect(painter(3).shouldRepaint(painter(2)), isTrue);
+  });
 }
