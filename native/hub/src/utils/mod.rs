@@ -2266,6 +2266,15 @@ pub(crate) async fn record_library_item_played(
     let PlayingItem::LibraryTrack { library_id, .. } = item else {
         return Ok(());
     };
+    // A service counts the plays of its own tracks, which have no local statistics, and its
+    // library has no catalog on this device to look them up in.
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    if registry
+        .record(LibraryRecordId(*library_id))
+        .is_ok_and(|record| record.protocol.service().is_some())
+    {
+        return Ok(());
+    }
     let library = node.library_pool.acquire(*library_id).await?;
     let implementation = playback_implementation_for_library(node, &library).await?;
     implementation.record_played(item, &library).await

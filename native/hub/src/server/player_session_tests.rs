@@ -27,10 +27,11 @@ use crate::request_owner::{CurrentPlayer, OpenLibrary};
 use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{
     files_to_playback_request, library_item_metadata, open_library_by_record_on_node,
-    playback_implementation_for_item, register_local_library_on_node,
-    register_opendal_library_on_node, register_remote_control_on_node,
-    register_subsonic_library_on_node, register_subsonic_library_with_node,
-    replace_subsonic_credential_on_node, report_item_played_through,
+    playback_implementation_for_item, record_library_item_played,
+    register_local_library_on_node, register_opendal_library_on_node,
+    register_remote_control_on_node, register_subsonic_library_on_node,
+    register_subsonic_library_with_node, replace_subsonic_credential_on_node,
+    report_item_played_through,
 };
 use axum::Router;
 use axum::extract::{Path as AxumPath, Query, State};
@@ -13273,6 +13274,57 @@ async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
     assert!(started?.is_some());
     let reported = VISUALIZER.status().last_error.unwrap_or_default();
     assert!(reported.contains("PCM tap"), "unexpected report: {reported}");
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn played_service_track_leaves_local_statistics_alone() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let local_id = session_audio(&fixture, "service-played.ogg").await?;
+    let local_item = PlayingItem::from(library_track_for_id(&fixture, local_id).await?);
+    let library = fixture.global_params.test_library();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let played_through = || async {
+        Ok::<_, Error>(
+            media_file_stats::Entity::find()
+                .all(&*library.main_db)
+                .await?
+                .iter()
+                .map(|stats| stats.played_through)
+                .sum::<i32>(),
+        )
+    };
+
+    // A played track of the service is recorded by nothing on this device.
+    record_library_item_played(
+        &node,
+        &PlayingItem::LibraryTrack {
+            library_id,
+            track: "song-opaque".into(),
+        },
+    )
+    .await?;
+    assert_eq!(played_through().await?, 0);
+
+    // The service's implementation leaves local statistics alone even for a track this device
+    // holds, which only the local one counts.
+    let binding = node
+        .service_binding(library_id)?
+        .context("the open service binding")?;
+    Implementation::Service(binding)
+        .record_played(&local_item, library)
+        .await?;
+    assert_eq!(played_through().await?, 0);
+    Implementation::Local
+        .record_played(&local_item, library)
+        .await?;
+    assert_eq!(played_through().await?, 1);
 
     server.abort();
     node.shutdown().await?;
