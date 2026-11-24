@@ -1805,5 +1805,8 @@
   "fileDialogReplace": "Ersetzen",
   "fileDialogItemCount": "{count, plural, =1{1 Element} other{{count} Elemente}}",
   "fileDialogNavigationPane": "Navigationsbereich",
-  "fileDialogItems": "Elemente"
+  "fileDialogItems": "Elemente",
+  "addingToPlaylist": "Wird zur Wiedergabeliste hinzugefügt",
+  "addingToPlaylistPreparing": "Wird vorbereitet",
+  "addingToPlaylistProgress": "{added} von {total}"
 }

@@ -1807,5 +1807,8 @@
   "fileDialogReplace": "Sostituisci",
   "fileDialogItemCount": "{count, plural, =1{1 elemento} other{{count} elementi}}",
   "fileDialogNavigationPane": "Riquadro di Spostamento",
-  "fileDialogItems": "Elementi"
+  "fileDialogItems": "Elementi",
+  "addingToPlaylist": "Aggiunta alla playlist",
+  "addingToPlaylistPreparing": "Preparazione",
+  "addingToPlaylistProgress": "{added} di {total}"
 }

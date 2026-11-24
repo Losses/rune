@@ -1807,5 +1807,8 @@
   "fileDialogReplace": "Anstataŭigi",
   "fileDialogItemCount": "{count, plural, =1{1 ero} other{{count} eroj}}",
   "fileDialogNavigationPane": "Naviga Panelo",
-  "fileDialogItems": "Eroj"
+  "fileDialogItems": "Eroj",
+  "addingToPlaylist": "Aldonado al Ludlisto",
+  "addingToPlaylistPreparing": "Preparado",
+  "addingToPlaylistProgress": "{added} el {total}"
 }

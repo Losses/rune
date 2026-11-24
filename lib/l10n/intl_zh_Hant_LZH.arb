@@ -1805,5 +1805,8 @@
   "fileDialogReplace": "代之",
   "fileDialogItemCount": "{count, plural, other{{count} 物}}",
   "fileDialogNavigationPane": "導覽之窗",
-  "fileDialogItems": "諸物"
+  "fileDialogItems": "諸物",
+  "addingToPlaylist": "增至錄中",
+  "addingToPlaylistPreparing": "備",
+  "addingToPlaylistProgress": "{total} 之 {added}"
 }

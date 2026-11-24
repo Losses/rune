@@ -1807,5 +1807,8 @@
   "fileDialogReplace": "リプレイス",
   "fileDialogItemCount": "{count, plural, other{{count} アイテム}}",
   "fileDialogNavigationPane": "ナビゲーションペイン",
-  "fileDialogItems": "アイテム"
+  "fileDialogItems": "アイテム",
+  "addingToPlaylist": "プレイリストにアドしています",
+  "addingToPlaylistPreparing": "プレパレーション",
+  "addingToPlaylistProgress": "{added} オブ {total}"
 }
