@@ -119,10 +119,9 @@ impl Signal for StartVisualizerRequest {
         let tap = player.lock().await.pcm_tap();
         // A restart: take the audio back from the running visualizer first.
         if let Some(input) = VISUALIZER.stop() {
-            // Use the callback if available
-            if let Some(new_consumer) = (input.on_consumer_abandoned)() {
-                tap.restore_consumer(new_consumer);
-            }
+            // Restore the consumer back to the tap, just like StopVisualizerRequest does.
+            // The callback (on_consumer_abandoned) is no longer used for restarting.
+            tap.restore_consumer(input.consumer);
         }
         let Some(consumer) = tap.take_consumer() else {
             return report("start", Err(anyhow::anyhow!("The PCM tap is in use")));

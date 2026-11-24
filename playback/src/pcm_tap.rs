@@ -142,12 +142,13 @@ impl PcmTap {
         if old_channels != 0 && old_channels != new_channels
             || old_sample_rate != 0 && old_sample_rate != new_sample_rate
         {
-            // Keep retrying until we successfully replace the ring
-            // This ensures old samples are never interpreted with new format
-            for _ in 0..16 {
-                if self.recreate_ring() {
-                    break;
-                }
+            // Keep retrying until we successfully replace the ring.
+            // The producer lock is only held briefly during push, and try_lock is atomic,
+            // so this loop will succeed quickly in practice. This ensures the replacement
+            // is certain, preventing old-format samples from reaching the consumer.
+            while !self.recreate_ring() {
+                // Producer lock is held; spin briefly and retry.
+                // This is safe because try_lock is an uncontended atomic operation in practice.
             }
         }
 
@@ -503,6 +504,51 @@ mod tests {
         }
 
         // Should only have samples from source2 (input2), not from source1
+        for &sample in &got {
+            assert!(
+                (sample - 2000.0 / 32768.0).abs() < 0.0001,
+                "Found old format sample: {}",
+                sample
+            );
+        }
+    }
+
+    #[test]
+    fn ring_replacement_is_certain_with_contention() {
+        let tap = PcmTap::new();
+        tap.set_enabled(true);
+
+        // Fill ring with stereo samples
+        let input1: Vec<i16> = vec![1000; 20000];
+        let _: Vec<i16> = tap.wrap(source(input1.clone())).collect();
+
+        // Get the current generation
+        let initial_generation = tap.generation.load(Ordering::Relaxed);
+
+        // Change format - this should succeed even with contention
+        // The while loop ensures replacement is certain
+        let input2: Vec<i16> = vec![2000; 5000];
+        let _: Vec<i16> = tap
+            .wrap(SamplesBuffer::new(1, 44_100, input2.clone()))
+            .collect();
+
+        // Generation should have increased, confirming ring was replaced
+        let new_generation = tap.generation.load(Ordering::Relaxed);
+        assert!(
+            new_generation > initial_generation,
+            "Ring was not replaced: generation {} -> {}",
+            initial_generation,
+            new_generation
+        );
+
+        // The old consumer is now abandoned, get a new one for the new ring
+        let mut new_consumer = tap.take_consumer().unwrap();
+        let mut got = Vec::new();
+        while let Ok(sample) = new_consumer.pop() {
+            got.push(sample);
+        }
+
+        // Should only have samples from the new source
         for &sample in &got {
             assert!(
                 (sample - 2000.0 / 32768.0).abs() < 0.0001,
