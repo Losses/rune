@@ -577,9 +577,9 @@ impl ScriptedSession {
         }
     }
 
-    /// The player plays `item` at `position` and reports it.
-    async fn plays(&self, item: &PlayingItem, position: Duration) {
-        self.player.lock().await.report(PlayerStatus {
+    /// The status of the player as it plays `item` at `position`.
+    fn playing(item: &PlayingItem, position: Duration) -> PlayerStatus {
+        PlayerStatus {
             item: Some(item.clone()),
             index: Some(0),
             path: None,
@@ -591,7 +591,15 @@ impl ScriptedSession {
             playback_mode: PlaybackMode::Sequential,
             ready: true,
             volume: 1.0,
-        });
+        }
+    }
+
+    /// The player plays `item` at `position` and reports it.
+    async fn plays(&self, item: &PlayingItem, position: Duration) {
+        self.player
+            .lock()
+            .await
+            .report(Self::playing(item, position));
     }
 
     /// The tracks the statuses of the session named, with their titles, in the order told.
@@ -641,6 +649,44 @@ async fn a_late_name_does_not_read_the_queue_again() -> Result<()> {
     })
     .await?;
     assert_eq!(session.told.queue_updates(&session.session_id), 0);
+    session.stop().await
+}
+
+/// A late name goes out on the status the session handled last. The reports the player queued
+/// before it come first and in their order, so the UI never shows again a track that playback has
+/// left, and no track starts twice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_late_name_never_goes_out_ahead_of_reports_queued_before_it() -> Result<()> {
+    let session = ScriptedSession::start().await?;
+    let [slow, next, last] = ["slow", "next", "last"].map(|track| session.track(track));
+    // Were the player asked where it is once the name lands, it would have moved on twice by
+    // then, and queued those reports before it answered.
+    *session
+        .player
+        .lock()
+        .await
+        .reported_on_barrier
+        .lock()
+        .unwrap() = vec![
+        ScriptedSession::playing(&next, Duration::ZERO),
+        ScriptedSession::playing(&last, Duration::ZERO),
+    ];
+    session.plays(&slow, Duration::from_secs(1)).await;
+    session.until_told("slow", "Late Name").await?;
+    session.plays(&next, Duration::ZERO).await;
+    session.plays(&last, Duration::ZERO).await;
+    session.until_told("last", "Late Name").await?;
+    let told = |track: &str, title: &str| (track.to_owned(), title.to_owned());
+    assert_eq!(
+        session.told(),
+        [
+            told("slow", "Unknown Title"),
+            told("slow", "Late Name"),
+            told("next", "Late Name"),
+            told("last", "Late Name"),
+        ]
+    );
+    assert_eq!(session.service.started.load(Ordering::SeqCst), 3);
     session.stop().await
 }
 

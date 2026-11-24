@@ -649,6 +649,10 @@ impl PlayerSession {
             // report from before this device's player became current again.
             let mut shows = Vec::new();
             let mut barrier: Option<BoxFuture<'static, PlayerStatus>> = None;
+            // The status the loop handled last, and whether a track named late waits to go out
+            // again on it.
+            let mut last_status: Option<PlayerStatus> = None;
+            let mut late_name = false;
             loop {
                 tokio::select! {
                     biased;
@@ -669,6 +673,7 @@ impl PlayerSession {
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
+                        last_status = Some(value.clone());
                         handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
                     Some(late) = late_cover_rx.recv() => {
@@ -678,6 +683,7 @@ impl PlayerSession {
                             // Statuses still queued come before this snapshot. If the player has
                             // moved to another item, they report that change in order.
                             if status.item == item_state.last_item {
+                                last_status = Some(status.clone());
                                 handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                             }
                         }
@@ -711,6 +717,18 @@ impl PlayerSession {
                             let _ = shown.send(());
                         }
                     }
+                    // A track named late goes out again only when no status report waits, and on
+                    // the status handled last: a snapshot taken from the player now could be newer
+                    // than reports still queued, which would then take the UI back.
+                    _ = ready(()), if late_name => {
+                        late_name = false;
+                        let Some(node) = weak.upgrade() else { return };
+                        if name_late_track(&mut item_state, &controls, true).await
+                            && let Some(status) = last_status.clone()
+                        {
+                            handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                        }
+                    }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
                     Ok(detail) = crash.recv() => broadcaster.broadcast(&CrashResponse { detail }),
                     Ok(error) = logs.recv() => {
@@ -721,15 +739,10 @@ impl PlayerSession {
                         handle_scrobbler_error(weak.upgrade(), error).await;
                     }
                     Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
-                    // Only the status is named again: the queue names its tracks as it is read,
-                    // and reading it again would ask the service about every queued track.
-                    _ = rename_items.notified() => {
-                        let Some(node) = weak.upgrade() else { return };
-                        let status = player.lock().await.status_after_pending();
-                        let status = status.await;
-                        name_late_track(&mut item_state, &controls, true).await;
-                        handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
-                    }
+                    // A service named a track late. Only its status goes out again, once no report
+                    // waits: the queue names its tracks as it is read, and reading it again would
+                    // ask the service about every queued track.
+                    _ = rename_items.notified() => late_name = true,
                     _ = item_capabilities_changed.notified() => {
                         let Some(node) = weak.upgrade() else { return };
                         item_capabilities::changed(&node, &mut item_state, broadcaster.as_ref()).await;
@@ -1024,33 +1037,34 @@ async fn show_late_cover(
 /// binding that looked it up holds by now. The track keeps its place in playback, so it is not
 /// started again, and its service is not asked again. A track whose library could not be had is
 /// looked up again in full. `now_playing` says whether the caller reports what plays now.
+/// Returns whether the track's status is to go out again, named or to be looked up.
 async fn name_late_track(
     item_state: &mut ItemEventState,
     controls: &Option<Arc<Mutex<MediaControlManager>>>,
     now_playing: bool,
-) {
+) -> bool {
     let Some(item) = item_state.last_item.clone() else {
-        return;
+        return false;
     };
     let PlayingItem::LibraryTrack { track, .. } = &item else {
-        return;
+        return false;
     };
     if item_state.metadata_found {
-        return;
+        return false;
     }
     let binding = match &item_state.library {
         Some(ResolvedLibrary {
             implementation: Implementation::Service(binding),
             ..
         }) => Arc::clone(binding),
-        Some(_) => return,
+        Some(_) => return false,
         None => {
             item_state.last_item = None;
-            return;
+            return true;
         }
     };
     let Some(metadata) = binding.cached_summary(track) else {
-        return;
+        return false;
     };
     item_state.metadata = metadata;
     item_state.metadata_found = true;
@@ -1066,6 +1080,7 @@ async fn name_late_track(
         )
         .await;
     }
+    true
 }
 
 /// Turns a player status into the GUI report. `now_playing` is `None` when only
