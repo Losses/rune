@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -61,6 +61,9 @@ pub(crate) enum SubsonicIdKind {
 /// How many fetched songs a binding keeps at most.
 const MAX_FETCHED_SONGS: usize = 2000;
 
+/// How long a list read from the server is kept for paging and for the home.
+pub(crate) const LIST_TTL: Duration = Duration::from_secs(60);
+
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
@@ -79,6 +82,8 @@ pub(crate) struct SubsonicBinding {
     feed_link_changes: watch::Sender<u64>,
     /// The visualizer of the node this jukebox plays for, which its feed writes.
     visualizer: Arc<Visualizer>,
+    /// What the random groups of the home are drawn with, rotated over time.
+    pub(crate) home_seed: u64,
 }
 
 /// The running visualizer feed connection loop.
@@ -385,6 +390,13 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) songs: HashMap<i32, SubsonicSong>,
     pub(crate) artists_loaded: bool,
     pub(crate) albums_loaded: bool,
+    /// The keys of the first songs of the whole song list, how many were asked for, and when
+    /// they were read.
+    pub(crate) all_songs: Option<(Instant, usize, Arc<Vec<String>>)>,
+    /// The first songs of the whole song list, as read to keep only those with a cover, and when.
+    pub(crate) song_pool: Option<(Instant, Arc<Vec<SubsonicSong>>)>,
+    /// The ids of every album, oldest added first, and when they were read.
+    pub(crate) albums_by_addition: Option<(Instant, Arc<Vec<i32>>)>,
 }
 
 impl SubsonicBinding {
@@ -414,6 +426,7 @@ impl SubsonicBinding {
             visualizer_feed: Mutex::new(None),
             feed_link_changes: watch::channel(0).0,
             visualizer,
+            home_seed: rand::random(),
         }
     }
 

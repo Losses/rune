@@ -13413,6 +13413,59 @@ async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_open_subsonic_library_answers_its_home() -> Result<()> {
+    use crate::messages::{
+        ComplexQuery, ComplexQueryRequest, LibraryHomeListMode, LibraryHomeQuery,
+    };
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+
+    // The library home asks for its summaries because the library offers them.
+    assert_eq!(
+        capability_snapshot(&node)?.complex_query_request,
+        RequestCapability::Available
+    );
+    let group = |title: &str, query| ComplexQuery {
+        title: title.into(),
+        query,
+    };
+    let mode = LibraryHomeListMode::Forward;
+    let ui = node.current_ui().await?;
+    let home = dispatch_gui_request(
+        &ui,
+        &ComplexQueryRequest {
+            queries: vec![
+                group("Artists", LibraryHomeQuery::Artists(mode)),
+                group("Playlists", LibraryHomeQuery::Playlists(mode)),
+                group("Tracks", LibraryHomeQuery::Tracks(mode)),
+            ],
+            call_id: None,
+        },
+    )
+    .await?
+    .context("the library home")?;
+    let names = |index: usize| {
+        home.result[index]
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(0), ["Artist", "Beta"]);
+    assert_eq!(names(1), ["Road"]);
+    assert_eq!(names(2), ["Song title"]);
+    assert!(calls.lock().unwrap().iter().any(|call| call == "getPlaylists"));
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn played_service_track_leaves_local_statistics_alone() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;

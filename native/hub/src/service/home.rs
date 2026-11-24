@@ -1,0 +1,445 @@
+//! The library home of a streaming service's library: the groups a home screen asks for.
+
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::{Error, Result};
+use futures::future::try_join_all;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+
+use crate::messages::{
+    CollectionType, ComplexQueryEntry, ComplexQueryGroup, ComplexQueryRequest,
+    ComplexQueryResponse, LibraryHomeListMode, LibraryHomeQuery, MixQuery, RequestErrorKind,
+};
+use crate::request_error::classify;
+use crate::service::ServiceFuture;
+
+/// How many entries a group holds, as for a local library.
+const GROUP_LIMIT: usize = 25;
+
+/// How long a random group keeps its entries, which lets covers settle.
+const SEED_SECONDS: u64 = 600;
+
+/// The seed a random group uses at `seconds` since the epoch: the same for a stretch of time,
+/// then another.
+fn rotated_seed(base: u64, seconds: u64) -> u64 {
+    base.wrapping_add(seconds / SEED_SECONDS)
+}
+
+/// A source's random seed for now, from its fixed `base`.
+pub(crate) fn rotating_seed(base: u64) -> u64 {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    rotated_seed(base, seconds)
+}
+
+/// Whether the error says the account may not read the library, as when the service rejects
+/// its sign-in or needs a new one: the caller needs to hear of it.
+fn denies_the_account(error: &Error) -> bool {
+    classify(error) == RequestErrorKind::PermissionDenied
+}
+
+/// An album, artist or playlist as listed, with the address of its cover if it has one.
+#[derive(Clone)]
+pub(crate) struct HomeItem {
+    pub(crate) id: i32,
+    pub(crate) name: String,
+    pub(crate) cover: Option<String>,
+}
+
+/// A track as listed, not numbered yet: only the tracks a group shows are.
+#[derive(Clone)]
+pub(crate) struct HomeTrack {
+    /// The service's own id of the track.
+    pub(crate) remote: String,
+    pub(crate) name: String,
+    pub(crate) cover: Option<String>,
+}
+
+/// What a service lists for the home. Every list comes oldest added first where the service
+/// knows when things were added, and in the service's own order where it does not. The home
+/// reverses a list to show the newest first.
+pub(crate) trait HomeSource: Send + Sync {
+    /// Every album, artist or playlist.
+    fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>>;
+
+    /// Tracks to pick the home's tracks from, at least `limit` of them if the library has so
+    /// many. A service that cannot list its whole library cheaply gives a sample of `limit`
+    /// tracks, and the group is that sample.
+    fn tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>>;
+
+    /// The tracks the user likes.
+    fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>>;
+
+    /// The ids of the tracks, which are numbered if they were not.
+    fn number(&self, tracks: Vec<HomeTrack>) -> Result<Vec<HomeItem>>;
+
+    /// The cached covers among `(object id, cover address)` pairs.
+    fn cover_paths(&self, covers: Vec<(i32, String)>) -> ServiceFuture<'_, HashMap<i32, String>>;
+
+    /// A number that stays the same for a while, so a random group shows the same entries
+    /// each time the home is read, and changes now and then. `rotating_seed` makes it.
+    fn random_seed(&self) -> u64;
+}
+
+/// The entries a group shows, taken from `items` as the list mode asks.
+fn pick<T>(
+    mut items: Vec<T>,
+    mode: LibraryHomeListMode,
+    seed: u64,
+    name: impl Fn(&T) -> &str,
+) -> Vec<T> {
+    match mode {
+        LibraryHomeListMode::Name => items.sort_by(|left, right| name(left).cmp(name(right))),
+        LibraryHomeListMode::Forward => {}
+        LibraryHomeListMode::Reverse => items.reverse(),
+        LibraryHomeListMode::Random => items.shuffle(&mut StdRng::seed_from_u64(seed)),
+    }
+    items.truncate(GROUP_LIMIT);
+    items
+}
+
+fn query_of(operator: &str, id: i32) -> MixQuery {
+    MixQuery {
+        operator: operator.to_owned(),
+        parameter: id.to_string(),
+    }
+}
+
+/// Entries for albums, artists or playlists, each opening its own tracks.
+async fn collection_entries(
+    source: &dyn HomeSource,
+    collection_type: CollectionType,
+    operator: &str,
+    mode: LibraryHomeListMode,
+) -> Result<Vec<ComplexQueryEntry>> {
+    let items = pick(
+        source.collections(collection_type).await?,
+        mode,
+        source.random_seed(),
+        |item| &item.name,
+    );
+    let covers = source.cover_paths(cover_pairs(&items)).await?;
+    Ok(items
+        .into_iter()
+        .map(|item| ComplexQueryEntry {
+            queries: vec![query_of(operator, item.id)],
+            cover_art_map: cover_of(&covers, item.id),
+            id: item.id,
+            name: item.name,
+            collection_type,
+            readonly: true,
+        })
+        .collect())
+}
+
+/// Entries for tracks. Each plays the listed tracks, starting from itself, as a local
+/// library's do.
+async fn track_entries(
+    source: &dyn HomeSource,
+    tracks: Vec<HomeTrack>,
+    mode: LibraryHomeListMode,
+) -> Result<Vec<ComplexQueryEntry>> {
+    let picked = pick(tracks, mode, source.random_seed(), |track| &track.name);
+    let items = source.number(picked)?;
+    let covers = source.cover_paths(cover_pairs(&items)).await?;
+    let all: Vec<i32> = items.iter().map(|item| item.id).collect();
+    Ok(items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| ComplexQueryEntry {
+            queries: all
+                .iter()
+                .cycle()
+                .skip(index)
+                .take(all.len())
+                .map(|id| query_of("lib::track", *id))
+                .collect(),
+            cover_art_map: cover_of(&covers, item.id),
+            id: item.id,
+            name: item.name,
+            collection_type: CollectionType::Track,
+            readonly: false,
+        })
+        .collect())
+}
+
+fn cover_pairs(items: &[HomeItem]) -> Vec<(i32, String)> {
+    items
+        .iter()
+        .filter_map(|item| item.cover.clone().map(|cover| (item.id, cover)))
+        .collect()
+}
+
+fn cover_of(covers: &HashMap<i32, String>, id: i32) -> HashMap<i32, String> {
+    covers
+        .get(&id)
+        .map(|path| HashMap::from([(id, path.clone())]))
+        .unwrap_or_default()
+}
+
+async fn group_entries(
+    source: &dyn HomeSource,
+    query: LibraryHomeQuery,
+) -> Result<Vec<ComplexQueryEntry>> {
+    match query {
+        LibraryHomeQuery::Artists(mode) => {
+            collection_entries(source, CollectionType::Artist, "lib::artist", mode).await
+        }
+        LibraryHomeQuery::Albums(mode) => {
+            collection_entries(source, CollectionType::Album, "lib::album", mode).await
+        }
+        LibraryHomeQuery::Playlists(mode) => {
+            collection_entries(source, CollectionType::Playlist, "lib::playlist", mode).await
+        }
+        LibraryHomeQuery::Tracks(mode) => {
+            // A local library lists tracks by name in the order they were added.
+            let mode = match mode {
+                LibraryHomeListMode::Name => LibraryHomeListMode::Forward,
+                mode => mode,
+            };
+            track_entries(source, source.tracks(GROUP_LIMIT).await?, mode).await
+        }
+        LibraryHomeQuery::Liked => {
+            track_entries(source, source.liked().await?, LibraryHomeListMode::Forward).await
+        }
+        LibraryHomeQuery::Genres(_) | LibraryHomeQuery::Mixes(_) | LibraryHomeQuery::Most => {
+            Ok(Vec::new())
+        }
+    }
+}
+
+/// Answers every group asked for, in order. A group the service cannot answer is empty and
+/// logged. A failure that denies the account fails the whole request, and so does a failure
+/// that leaves the whole home without an entry: the groups that never ask the service, such as
+/// mixes, would otherwise hide an unreachable server.
+pub(crate) async fn complex_query(
+    source: &dyn HomeSource,
+    request: &ComplexQueryRequest,
+) -> Result<ComplexQueryResponse> {
+    let groups = request.queries.iter().map(|query| async move {
+        let (entries, failure) = match group_entries(source, query.query).await {
+            Ok(entries) => (entries, None),
+            Err(error) if denies_the_account(&error) => return Err(error),
+            Err(error) => {
+                log::warn!("Could not list the home group {}: {error:#}", query.title);
+                (Vec::new(), Some(error))
+            }
+        };
+        Ok((
+            ComplexQueryGroup {
+                domain: query.query.domain(),
+                title: query.title.clone(),
+                entries,
+            },
+            failure,
+        ))
+    });
+    let (groups, failures): (Vec<_>, Vec<_>) = try_join_all(groups).await?.into_iter().unzip();
+    let failures: Vec<Error> = failures.into_iter().flatten().collect();
+    if groups.iter().all(|group| group.entries.is_empty())
+        && let Some(error) = failures.into_iter().next()
+    {
+        return Err(error);
+    }
+    Ok(ComplexQueryResponse {
+        call_id: None,
+        result: groups,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::anyhow;
+
+    use super::*;
+    use crate::messages::ComplexQuery;
+    use crate::request_error::ExpectedRequestError;
+
+    fn numbers(count: i32) -> Vec<i32> {
+        (0..count).collect()
+    }
+
+    fn picked(items: Vec<i32>, mode: LibraryHomeListMode, seed: u64) -> Vec<i32> {
+        pick(items, mode, seed, |_| "")
+    }
+
+    #[test]
+    fn reverse_lists_the_newest_first_and_stops_at_the_cap() {
+        let found = picked(numbers(40), LibraryHomeListMode::Reverse, 0);
+        assert_eq!(found.len(), GROUP_LIMIT);
+        assert_eq!(found[0], 39);
+        assert_eq!(found[24], 15);
+        let few = picked(numbers(3), LibraryHomeListMode::Reverse, 0);
+        assert_eq!(few, [2, 1, 0]);
+        let forward = picked(numbers(40), LibraryHomeListMode::Forward, 0);
+        assert_eq!(forward, numbers(25));
+    }
+
+    #[test]
+    fn random_picks_are_bounded_stable_for_a_seed_and_from_the_list() {
+        let first = picked(numbers(100), LibraryHomeListMode::Random, 7);
+        assert_eq!(first.len(), GROUP_LIMIT);
+        assert!(first.iter().all(|item| (0..100).contains(item)));
+        let mut distinct = first.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), GROUP_LIMIT);
+        assert_eq!(first, picked(numbers(100), LibraryHomeListMode::Random, 7));
+        // A short list is all there, in some order.
+        let mut all = picked(numbers(5), LibraryHomeListMode::Random, 7);
+        all.sort_unstable();
+        assert_eq!(all, numbers(5));
+    }
+
+    #[test]
+    fn name_sorts_by_the_name() {
+        let items = vec!["b", "c", "a"];
+        let found = pick(items, LibraryHomeListMode::Name, 0, |item| item);
+        assert_eq!(found, ["a", "b", "c"]);
+    }
+
+    /// What a source's artists do: answer, or fail as the variant says. Its albums always fail.
+    #[derive(Clone, Copy)]
+    enum Artists {
+        Answer,
+        SignedOut,
+        Unreachable,
+    }
+
+    struct Failing {
+        artists: Artists,
+    }
+
+    impl HomeSource for Failing {
+        fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>> {
+            let artists = self.artists;
+            Box::pin(async move {
+                match (collection_type, artists) {
+                    (CollectionType::Album, _) | (_, Artists::Unreachable) => {
+                        Err(anyhow!("the service is unreachable"))
+                    }
+                    (_, Artists::SignedOut) => Err(ExpectedRequestError::ServiceSignInRequired {
+                        record_id: "record".into(),
+                    }
+                    .into()),
+                    (_, Artists::Answer) => Ok(vec![HomeItem {
+                        id: 1,
+                        name: "Artist".into(),
+                        cover: None,
+                    }]),
+                }
+            })
+        }
+
+        fn tracks(&self, _: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn number(&self, _: Vec<HomeTrack>) -> Result<Vec<HomeItem>> {
+            Ok(Vec::new())
+        }
+
+        fn cover_paths(&self, _: Vec<(i32, String)>) -> ServiceFuture<'_, HashMap<i32, String>> {
+            Box::pin(async { Ok(HashMap::new()) })
+        }
+
+        fn random_seed(&self) -> u64 {
+            0
+        }
+    }
+
+    fn asks() -> ComplexQueryRequest {
+        let mode = LibraryHomeListMode::Forward;
+        ComplexQueryRequest {
+            queries: vec![
+                ComplexQuery {
+                    title: "Albums".into(),
+                    query: LibraryHomeQuery::Albums(mode),
+                },
+                ComplexQuery {
+                    title: "Artists".into(),
+                    query: LibraryHomeQuery::Artists(mode),
+                },
+            ],
+            call_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_group_that_fails_is_empty_and_the_others_still_answer() {
+        let response = complex_query(
+            &Failing {
+                artists: Artists::Answer,
+            },
+            &asks(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.result[0].title, "Albums");
+        assert!(response.result[0].entries.is_empty());
+        assert_eq!(response.result[1].entries[0].name, "Artist");
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_failure_fails_the_whole_request() {
+        let error = complex_query(
+            &Failing {
+                artists: Artists::SignedOut,
+            },
+            &asks(),
+        )
+        .await
+        .err()
+        .unwrap();
+        // The albums fail first, so only the sign-in failure can have failed the request.
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::ServiceSignInRequired { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_service_that_answers_no_group_fails_the_request() {
+        // A group that never asks the service, like mixes, does not hide the failure.
+        let mut request = asks();
+        request.queries.push(ComplexQuery {
+            title: "Mixes".into(),
+            query: LibraryHomeQuery::Mixes(LibraryHomeListMode::Forward),
+        });
+        let error = complex_query(
+            &Failing {
+                artists: Artists::Unreachable,
+            },
+            &request,
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(format!("{error:#}").contains("unreachable"));
+    }
+
+    #[test]
+    fn the_seed_holds_for_a_while_and_then_changes() {
+        assert_eq!(rotated_seed(5, 0), rotated_seed(5, SEED_SECONDS - 1));
+        assert_ne!(rotated_seed(5, 0), rotated_seed(5, SEED_SECONDS));
+        let now = picked(
+            numbers(100),
+            LibraryHomeListMode::Random,
+            rotated_seed(5, 0),
+        );
+        let later = picked(
+            numbers(100),
+            LibraryHomeListMode::Random,
+            rotated_seed(5, SEED_SECONDS),
+        );
+        assert_ne!(now, later);
+    }
+}

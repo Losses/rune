@@ -1,7 +1,10 @@
 //! What the hub needs from a streaming service's library, whichever service it is.
 
 pub(crate) mod covers;
+pub(crate) mod home;
 pub(crate) mod ids;
+pub(crate) mod mixes;
+pub(crate) mod positional_occurrences;
 
 use std::sync::Arc;
 

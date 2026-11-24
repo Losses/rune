@@ -1,12 +1,12 @@
 use anyhow::{Result, anyhow};
 use database::actions::collection::CollectionQueryType;
-use database::actions::playlists::OCCURRENCE_PAGE_SIZES;
 use database::actions::utils::generate_group_name;
 use database::error::ExpectedError;
 use lyric::lrc::parse_lrc;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
+    time::Instant,
 };
 use subsonic::{
     SearchLimits, SubsonicAlbum, SubsonicArtist, SubsonicError, SubsonicPlaylist,
@@ -18,9 +18,10 @@ use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
     AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist, AudioAvailability,
     AudioOrigin, CastPreflightRequest, Collection, CollectionGroup, CollectionGroupSummary,
-    CollectionGroupSummaryResponse, CollectionType, CreatePlaylistRequest, CreatePlaylistResponse,
-    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchCollectionByIdsRequest,
-    FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    CollectionGroupSummaryResponse, CollectionType, ComplexQueryRequest, ComplexQueryResponse,
+    CreatePlaylistRequest, CreatePlaylistResponse, FetchAllPlaylistsRequest,
+    FetchAllPlaylistsResponse, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
+    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
     FetchMediaFilesRequest, FetchMediaFilesResponse, FetchParsedMediaFileRequest,
     FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
@@ -29,10 +30,9 @@ use crate::messages::{
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest,
     HandoffLoadRequest, LibraryContentChanged, LoadPlay, LoadRequest, LoadResolvedItemsRequest,
     LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection, MediaFile,
-    MediaFileSummary, MixQuery, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
-    NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
-    PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PlaylistRevisionRequest,
-    PlaylistRevisionResponse, PreviousRequest, RefreshSessionRequest,
+    MediaFileSummary, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest, NextRequest,
+    PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist, PlaylistOperateMode,
+    PlaylistRevisionRequest, PlaylistRevisionResponse, PreviousRequest, RefreshSessionRequest,
     RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
     RemovePlaylistResponse, RemoveRequest, ReorderPlaylistItemPositionRequest,
     ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
@@ -45,11 +45,17 @@ use crate::messages::{
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
-use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
-use crate::utils::{RESOLVED_TRACK_LIMIT, resolved_start};
-use database::actions::mixes::QueryOperator;
+use crate::service::{
+    ServiceFuture,
+    home::{self, HomeItem, HomeSource, HomeTrack},
+    mixes::{self, MixItem, MixSource, MixTarget, Plan},
+    positional_occurrences::{
+        listed_after, occurrence_id, occurrence_page, occurrence_position, occurrences_response,
+        parse_occurrence_id, playlist_fingerprint,
+    },
+};
+use crate::subsonic_binding::{LIST_TTL, SubsonicBinding, SubsonicIdKind};
 use reqwest::StatusCode as ReqwestStatusCode;
-use std::result;
 use uuid::Uuid;
 
 fn subsonic_track_id(binding: &SubsonicBinding, item: Option<&PlayingItemRef>) -> Result<String> {
@@ -439,7 +445,9 @@ pub(crate) async fn add_item_to_playlist_request(
 }
 
 /// Tells open listings that a playlist's entries moved, so they list it again rather than
-/// page or edit with occurrences of the old order.
+/// page or edit with occurrences of the old order. Subsonic names entries only by their order,
+/// so an occurrence is a position together with the fingerprint of the order it was listed in
+/// (see `positional_occurrences`).
 fn playlist_entries_changed(binding: &SubsonicBinding) {
     binding
         .covers
@@ -447,58 +455,6 @@ fn playlist_entries_changed(binding: &SubsonicBinding) {
         .broadcast(&LibraryContentChanged {
             path: String::new(),
         });
-}
-
-/// The length of a playlist fingerprint, in lowercase hexadecimal digits.
-const PLAYLIST_FINGERPRINT_LEN: usize = 16;
-
-/// Identifies one order of a playlist's entries.
-fn playlist_fingerprint<'a>(songs: impl IntoIterator<Item = &'a str>) -> String {
-    let mut hasher = blake3::Hasher::new();
-    for song in songs {
-        hasher.update(&(song.len() as u64).to_le_bytes());
-        hasher.update(song.as_bytes());
-    }
-    hasher.finalize().to_hex()[..PLAYLIST_FINGERPRINT_LEN].to_owned()
-}
-
-fn is_playlist_fingerprint(value: &str) -> bool {
-    value.len() == PLAYLIST_FINGERPRINT_LEN
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// Names a playlist entry. Subsonic names entries only by their order, so an occurrence is
-/// a position together with the fingerprint of the order it was listed in.
-fn occurrence_id(position: impl std::fmt::Display, fingerprint: &str) -> String {
-    format!("{position}@{fingerprint}")
-}
-
-/// The position and listing fingerprint an occurrence ID names.
-fn parse_occurrence_id(value: &str) -> Result<(usize, &str)> {
-    value
-        .split_once('@')
-        .filter(|(_, fingerprint)| is_playlist_fingerprint(fingerprint))
-        .and_then(|(position, fingerprint)| Some((position.parse().ok()?, fingerprint)))
-        .ok_or_else(|| {
-            ExpectedRequestError::invalid_input("Invalid Subsonic playlist occurrence").into()
-        })
-}
-
-/// The position of a listed occurrence in `songs`. A position names the entry it was listed
-/// for only while the playlist keeps the order it was listed in, so an occurrence listed
-/// before any change to the playlist is rejected.
-fn occurrence_position((position, fingerprint): (usize, &str), songs: &[String]) -> Result<usize> {
-    if fingerprint != playlist_fingerprint(songs.iter().map(String::as_str)) {
-        return Err(ExpectedRequestError::PlaylistChanged.into());
-    }
-    if position >= songs.len() {
-        return Err(
-            ExpectedRequestError::invalid_input("Unknown Subsonic playlist occurrence").into(),
-        );
-    }
-    Ok(position)
 }
 
 pub(crate) async fn remove_item_from_playlist_request(
@@ -563,109 +519,31 @@ async fn cached_cover_map(
     Ok((map, missing))
 }
 
-/// The occurrence a listing page continues after. A cursor names the last entry of the
-/// previous page, so a cursor whose occurrence names another position did not come from a
-/// listing.
-fn occurrence_page_cursor(
-    after: Option<&PlaylistOccurrenceCursor>,
-) -> Result<Option<(usize, &str)>> {
-    let Some(cursor) = after else {
-        return Ok(None);
-    };
-    match parse_occurrence_id(&cursor.occurrence_id) {
-        Ok((position, fingerprint))
-            if i32::try_from(position).is_ok_and(|id| id == cursor.position) =>
-        {
-            Ok(Some((position, fingerprint)))
-        }
-        _ => Err(ExpectedRequestError::invalid_input(
-            "Invalid Subsonic playlist occurrence cursor",
-        )
-        .into()),
-    }
-}
-
 /// Lists a playlist's entries in order, repeats included, named as the playlist edits above
 /// name them. A page continues only the order the previous page was listed in.
 pub(crate) async fn fetch_playlist_occurrences_request(
     binding: &SubsonicBinding,
     request: &FetchPlaylistOccurrencesRequest,
 ) -> Result<Option<FetchPlaylistOccurrencesResponse>> {
-    if !OCCURRENCE_PAGE_SIZES.contains(&request.page_size) {
-        return Err(ExpectedRequestError::invalid_input(format!(
-            "Playlist page size must be {}..={}",
-            OCCURRENCE_PAGE_SIZES.start(),
-            OCCURRENCE_PAGE_SIZES.end()
-        ))
-        .into());
-    }
-    let after = occurrence_page_cursor(request.after.as_ref())?;
+    let after = listed_after(request)?;
     let songs = playlist_songs(binding, request.playlist_id).await?;
-    let fingerprint = playlist_fingerprint(songs.iter().map(|song| song.id.as_str()));
-    let start = match after {
-        None => 0,
-        Some((position, listed)) if listed == fingerprint => position + 1,
-        Some(_) => return Err(ExpectedRequestError::PlaylistChanged.into()),
-    };
-    let end = songs
-        .len()
-        .min(start.saturating_add(usize::try_from(request.page_size)?));
-    let more = end < songs.len();
-    let mut covers = Vec::new();
-    let entries = {
-        let mut catalog = binding
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-        songs
-            .into_iter()
-            .enumerate()
-            .take(end)
-            .skip(start)
-            .map(|(position, song)| {
-                let position = i32::try_from(position).map_err(|_| {
-                    ExpectedRequestError::invalid_input("Subsonic playlist is too large")
-                })?;
-                let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-                let cover_art_id = song
-                    .cover_art
-                    .as_deref()
-                    .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
-                    .transpose()?;
-                if let Some(cover) = &song.cover_art {
-                    covers.push((id, cover.clone()));
-                }
-                let file = subsonic_media_file(binding, id, cover_art_id, &song);
-                let track_uuid = song.id.clone();
-                catalog.songs.insert(id, song);
-                Ok(PlaylistOccurrence {
-                    occurrence_id: occurrence_id(position, &fingerprint),
-                    position,
-                    track_uuid,
-                    file: Some(file),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?
-    };
-    let next = more
-        .then(|| entries.last())
-        .flatten()
-        .map(|entry| PlaylistOccurrenceCursor {
-            position: entry.position,
-            occurrence_id: entry.occurrence_id.clone(),
-        });
+    let page = occurrence_page(
+        after,
+        songs.iter().map(|song| song.id.as_str()),
+        request.page_size,
+    )?;
+    let (files, covers) = translate_songs(binding, &songs[page.range.clone()])?;
     let cover_art_map = if request.bake_cover_arts {
         subsonic_cover_map(binding, covers).await?
     } else {
         HashMap::new()
     };
-    Ok(Some(FetchPlaylistOccurrencesResponse {
-        request_id: request.request_id.clone(),
-        entries,
-        next,
+    Ok(Some(occurrences_response(
+        request,
+        page,
+        files,
         cover_art_map,
-        call_id: request.call_id,
-    }))
+    )?))
 }
 
 async fn subsonic_cover_map(
@@ -770,6 +648,36 @@ pub(crate) async fn search_for_request(
     }))
 }
 
+/// The song a track id names: as listed before, or else as the server gives it now, which is
+/// kept.
+async fn song_by_id(binding: &SubsonicBinding, id: i32) -> Result<SubsonicSong> {
+    let (remote_id, cached_song) = {
+        let catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        (
+            catalog.ids.resolve(SubsonicIdKind::Track, id)?.to_owned(),
+            catalog.songs.get(&id).cloned(),
+        )
+    };
+    if let Some(song) = cached_song {
+        return Ok(song);
+    }
+    let song = binding
+        .client
+        .song(&remote_id)
+        .await
+        .map_err(|error| subsonic_request_error(binding, error))?;
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+    catalog.songs.insert(id, song.clone());
+    Ok(song)
+}
+
 pub(crate) async fn fetch_media_file_by_ids_request(
     binding: &SubsonicBinding,
     request: &FetchMediaFileByIdsRequest,
@@ -777,33 +685,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
     let mut media_files = Vec::with_capacity(request.ids.len());
     let mut covers = Vec::with_capacity(request.ids.len());
     for id in &request.ids {
-        let (remote_id, cached_song) = {
-            let catalog = binding
-                .catalog
-                .lock()
-                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-            (
-                catalog.ids.resolve(SubsonicIdKind::Track, *id)?.to_owned(),
-                catalog.songs.get(id).cloned(),
-            )
-        };
-        let song = match cached_song {
-            Some(song) => song,
-            None => {
-                let song = binding
-                    .client
-                    .song(&remote_id)
-                    .await
-                    .map_err(|error| subsonic_request_error(binding, error))?;
-                let mut catalog = binding
-                    .catalog
-                    .lock()
-                    .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-                let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-                catalog.songs.insert(id, song.clone());
-                song
-            }
-        };
+        let song = song_by_id(binding, *id).await?;
         let cover_art_id = {
             let mut catalog = binding
                 .catalog
@@ -2011,51 +1893,6 @@ enum DetailQuery {
     RandomCovers(u32),
 }
 
-fn parse_detail_query(queries: &[MixQuery], request: &'static str) -> Result<DetailQuery> {
-    let Ok(operators) = queries
-        .iter()
-        .map(|query| QueryOperator::parse(&query.operator, &query.parameter))
-        .collect::<result::Result<Vec<_>, _>>()
-    else {
-        return Err(unsupported_detail_query(request).into());
-    };
-    match operators.as_slice() {
-        [QueryOperator::LibArtist(id)] => Ok(DetailQuery::Artist(*id)),
-        [QueryOperator::LibAlbum(id)] => Ok(DetailQuery::Album(*id)),
-        // An album's page asks for its tracks in track-number order, and `detail_songs` already
-        // lists an album by disc and track number, the order a local library's track numbers
-        // (disc * 1000 + track) give.
-        [
-            QueryOperator::LibAlbum(id),
-            QueryOperator::SortTrackNumber(true),
-        ]
-        | [
-            QueryOperator::SortTrackNumber(true),
-            QueryOperator::LibAlbum(id),
-        ] => Ok(DetailQuery::Album(*id)),
-        [
-            QueryOperator::LibRandom(count),
-            QueryOperator::FilterWithCoverArt(true),
-        ]
-        | [
-            QueryOperator::FilterWithCoverArt(true),
-            QueryOperator::LibRandom(count),
-        ] => Ok(DetailQuery::RandomCovers(
-            u32::try_from(*count)
-                .unwrap_or(1)
-                .clamp(1, SUBSONIC_RANDOM_SONGS_MAX),
-        )),
-        _ => Err(unsupported_detail_query(request).into()),
-    }
-}
-
-fn unsupported_detail_query(request: &'static str) -> ExpectedRequestError {
-    ExpectedRequestError::Unsupported {
-        request,
-        reason: UnsupportedReason::NotImplemented,
-    }
-}
-
 fn intern_songs(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Result<()> {
     let mut catalog = binding
         .catalog
@@ -2150,22 +1987,116 @@ async fn cache_covers(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Hash
         .await
 }
 
+/// A page of the whole song list, in the order the server's empty search gives them, read for
+/// `request`.
+async fn song_page(
+    binding: &SubsonicBinding,
+    offset: u32,
+    count: u32,
+    request: &'static str,
+) -> Result<Vec<SubsonicSong>> {
+    Ok(binding
+        .client
+        .search_with_song_offset(
+            "",
+            SearchLimits {
+                songs: count,
+                ..Default::default()
+            },
+            offset,
+        )
+        .await
+        .map_err(|error| empty_search_error(binding, error, request))?
+        .songs)
+}
+
+/// The first songs of the whole song list, at most [`mixes::MAX_COVER_POOL`], read page after
+/// page and kept for [`LIST_TTL`]. A cover filter has to look at every song, and the pages of
+/// its list are asked for one after another.
+async fn song_pool(binding: &SubsonicBinding) -> Result<Arc<Vec<SubsonicSong>>> {
+    if let Some((read, songs)) = &binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+        .song_pool
+        && read.elapsed() < LIST_TTL
+    {
+        return Ok(Arc::clone(songs));
+    }
+    let songs: Vec<SubsonicSong> = mixes::first_of_each_key(
+        tracks_page_songs(binding, mixes::MAX_COVER_POOL, MixQueryRequest::wire_name()).await?,
+        |song| song.id.clone(),
+    );
+    let songs = Arc::new(songs);
+    binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+        .song_pool = Some((Instant::now(), Arc::clone(&songs)));
+    Ok(songs)
+}
+
 pub(crate) async fn mix_query_request(
     binding: &SubsonicBinding,
     request: &MixQueryRequest,
 ) -> Result<Option<MixQueryResponse>> {
-    let query = parse_detail_query(&request.queries, MixQueryRequest::wire_name())?;
-    let cover_wall = matches!(query, DetailQuery::RandomCovers(_));
-    // `getRandomSongs` takes no seed, so the pages of a seeded random list could not agree.
-    if cover_wall && request.random_seed.is_some() {
-        return Err(unsupported_detail_query(MixQueryRequest::wire_name()).into());
-    }
-    let mut songs = detail_songs(binding, query)
-        .await?
-        .into_iter()
-        .skip(usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX))
-        .take(usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX))
-        .collect::<Vec<_>>();
+    let planned = mixes::plan(&request.queries, MixQueryRequest::wire_name())?;
+    let cover_only = planned.cover_only;
+    let cover_wall = matches!(planned.plan, Plan::Random(_));
+    let cursor = usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX);
+    let page_size = usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX);
+    // Songs without a cover are dropped before the page is cut, so a page of a cover filter is
+    // full of covers.
+    let paged = |songs: Vec<SubsonicSong>| -> Vec<SubsonicSong> {
+        songs
+            .into_iter()
+            .filter(|song| !cover_only || song.cover_art.is_some())
+            .skip(cursor)
+            .take(page_size)
+            .collect()
+    };
+    let mut songs = match planned.plan {
+        Plan::Random(count) if cover_only => {
+            // `getRandomSongs` takes no seed, so the pages of a seeded random list could not
+            // agree.
+            if request.random_seed.is_some() {
+                return Err(mixes::unsupported_query(MixQueryRequest::wire_name()));
+            }
+            let count = u32::try_from(count)
+                .unwrap_or(u32::MAX)
+                .clamp(1, SUBSONIC_RANDOM_SONGS_MAX);
+            paged(detail_songs(binding, DetailQuery::RandomCovers(count)).await?)
+        }
+        // Only the cover wall draws at random, and it keeps to the tracks that have a cover.
+        Plan::Random(_) => return Err(mixes::unsupported_query(MixQueryRequest::wire_name())),
+        Plan::Collection(MixTarget::Album(id)) => {
+            paged(detail_songs(binding, DetailQuery::Album(id)).await?)
+        }
+        Plan::Collection(MixTarget::Artist(id)) => {
+            paged(detail_songs(binding, DetailQuery::Artist(id)).await?)
+        }
+        Plan::Collection(MixTarget::Playlist(id)) => paged(playlist_songs(binding, id).await?),
+        Plan::All if !cover_only => {
+            song_page(
+                binding,
+                u32::try_from(cursor).unwrap_or(u32::MAX),
+                u32::try_from(page_size).unwrap_or(u32::MAX),
+                MixQueryRequest::wire_name(),
+            )
+            .await?
+        }
+        // The server cannot be asked for songs with a cover, so the song list is read, as far
+        // as a bounded pool of it, and filtered here.
+        Plan::All => song_pool(binding)
+            .await?
+            .iter()
+            .filter(|song| song.cover_art.is_some())
+            .skip(cursor)
+            .take(page_size)
+            .cloned()
+            .collect(),
+        Plan::Items(items) => paged(items_songs(binding, &items).await?),
+    };
     // The cover wall shows only covers and reads them once, so its covers must be on disk
     // before it gets the tracks. Track lists show a cover whenever its background fetch lands.
     if cover_wall {
@@ -2176,34 +2107,7 @@ pub(crate) async fn mix_query_request(
                 .is_some_and(|cover| cached.contains(cover))
         });
     }
-    let translated = {
-        let mut catalog = binding
-            .catalog
-            .lock()
-            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-        songs
-            .into_iter()
-            .map(|song| {
-                let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-                catalog.songs.insert(id, song.clone());
-                let cover_art_id = song
-                    .cover_art
-                    .as_deref()
-                    .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
-                    .transpose()?;
-                let media_file = subsonic_media_file(binding, id, cover_art_id, &song);
-                Ok((media_file, song.cover_art))
-            })
-            .collect::<Result<Vec<_>>>()?
-    };
-    let covers = translated
-        .iter()
-        .filter_map(|(file, cover)| cover.clone().map(|cover| (file.id, cover)))
-        .collect();
-    let mut files = translated
-        .into_iter()
-        .map(|(file, _)| file)
-        .collect::<Vec<_>>();
+    let (mut files, covers) = translate_songs(binding, &songs)?;
     let cover_art_map = if cover_wall {
         // A batch larger than the cache can evict a cover cached above before the map is built.
         // The wall reads its covers once, so a track whose cover is gone is left out, and the
@@ -2221,135 +2125,357 @@ pub(crate) async fn mix_query_request(
     }))
 }
 
-/// A track list a click plays from: the tracks page, an artist's or album's tracks, or a
-/// playlist's entries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TrackListQuery {
-    All,
-    Detail(DetailQuery),
-    Playlist(i32),
-}
-
-fn parse_track_list_query(queries: &[MixQuery]) -> Result<TrackListQuery> {
-    if let [query] = queries {
-        match QueryOperator::parse(&query.operator, &query.parameter) {
-            Ok(QueryOperator::LibAll(true)) => return Ok(TrackListQuery::All),
-            Ok(QueryOperator::LibPlaylist(id)) => return Ok(TrackListQuery::Playlist(id)),
-            _ => {}
-        }
-    }
-    match parse_detail_query(queries, ResolveMixQueryRequest::wire_name())? {
-        // A random list cannot be listed again, so a click in it cannot be resolved.
-        DetailQuery::RandomCovers(_) => {
-            Err(unsupported_detail_query(ResolveMixQueryRequest::wire_name()).into())
-        }
-        detail => Ok(TrackListQuery::Detail(detail)),
-    }
-}
-
 /// Songs asked for per search page while resolving the tracks page.
 const RESOLVE_PAGE_SIZE: u32 = 500;
 
-/// The server's songs in the order the tracks page lists them, as many as a resolve plays.
-/// Only an empty page ends the list: a server may return fewer songs than a page asks for.
-async fn tracks_page_songs(binding: &SubsonicBinding) -> Result<Vec<SubsonicSong>> {
+/// The server's first `limit` songs in the order the tracks page lists them, read for
+/// `request`. Only an empty page ends the list: a server may return fewer songs than a page
+/// asks for.
+async fn tracks_page_songs(
+    binding: &SubsonicBinding,
+    limit: usize,
+    request: &'static str,
+) -> Result<Vec<SubsonicSong>> {
     let mut songs = Vec::new();
-    while songs.len() < RESOLVED_TRACK_LIMIT {
-        let page = binding
-            .client
-            .search_with_song_offset(
-                "",
-                SearchLimits {
-                    songs: RESOLVE_PAGE_SIZE,
-                    ..Default::default()
-                },
-                u32::try_from(songs.len())?,
-            )
-            .await
-            .map_err(|error| {
-                empty_search_error(binding, error, ResolveMixQueryRequest::wire_name())
-            })?
-            .songs;
+    while songs.len() < limit {
+        let page = song_page(
+            binding,
+            u32::try_from(songs.len())?,
+            RESOLVE_PAGE_SIZE,
+            request,
+        )
+        .await?;
         if page.is_empty() {
             break;
         }
         songs.extend(page);
     }
-    songs.truncate(RESOLVED_TRACK_LIMIT);
+    songs.truncate(limit);
     Ok(songs)
+}
+
+/// The songs of single tracks and collections together, as `mixes::union_order` lists them,
+/// each collection's as its own page lists them and each song once. An id the binding never
+/// gave names no song, as for a local library.
+async fn items_songs(binding: &SubsonicBinding, items: &[MixItem]) -> Result<Vec<SubsonicSong>> {
+    let mut songs = Vec::new();
+    for item in mixes::union_order(items) {
+        match item {
+            MixItem::Track(id) => {
+                let known = binding
+                    .catalog
+                    .lock()
+                    .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+                    .ids
+                    .resolve(SubsonicIdKind::Track, id)
+                    .is_ok();
+                if known {
+                    songs.push(song_by_id(binding, id).await?);
+                }
+            }
+            MixItem::Collection(MixTarget::Album(id)) => {
+                songs.extend(detail_songs(binding, DetailQuery::Album(id)).await?)
+            }
+            MixItem::Collection(MixTarget::Artist(id)) => {
+                songs.extend(detail_songs(binding, DetailQuery::Artist(id)).await?)
+            }
+            MixItem::Collection(MixTarget::Playlist(id)) => {
+                songs.extend(playlist_songs(binding, id).await?)
+            }
+        }
+    }
+    Ok(mixes::first_of_each_key(songs, |song| song.id.clone()))
+}
+
+/// Songs in wire form, and the `(media file id, cover id)` pairs of their covers.
+type WireSongs = (Vec<MediaFile>, Vec<(i32, String)>);
+
+/// Numbers songs and their covers and builds their wire form.
+fn translate_songs(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Result<WireSongs> {
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let mut files = Vec::with_capacity(songs.len());
+    let mut covers = Vec::new();
+    for song in songs {
+        let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+        catalog.songs.insert(id, song.clone());
+        let cover_art_id = song
+            .cover_art
+            .as_deref()
+            .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+            .transpose()?;
+        files.push(subsonic_media_file(binding, id, cover_art_id, song));
+        covers.extend(song.cover_art.clone().map(|cover| (id, cover)));
+    }
+    Ok((files, covers))
+}
+
+impl MixSource for SubsonicBinding {
+    fn library_id(&self) -> String {
+        self.library_id.to_string()
+    }
+
+    fn collection_tracks(&self, target: MixTarget) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let songs = match target {
+                MixTarget::Album(id) => detail_songs(self, DetailQuery::Album(id)).await?,
+                MixTarget::Artist(id) => detail_songs(self, DetailQuery::Artist(id)).await?,
+                // Read afresh, so the entries play as the playlist holds them now, repeats
+                // included.
+                MixTarget::Playlist(id) => playlist_songs(self, id).await?,
+            };
+            Ok(songs.into_iter().map(|song| song.id).collect())
+        })
+    }
+
+    fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let kept = self
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+                .all_songs
+                .clone()
+                .filter(|(read, asked, _)| read.elapsed() < LIST_TTL && limit <= *asked)
+                .map(|(_, _, keys)| keys);
+            let keys = match kept {
+                Some(keys) => keys,
+                None => {
+                    // Read one page after another, each from where the last one ended, so the
+                    // list is the one the tracks page shows.
+                    let keys: Vec<String> =
+                        tracks_page_songs(self, limit, ResolveMixQueryRequest::wire_name())
+                            .await?
+                            .into_iter()
+                            .map(|song| song.id)
+                            .collect();
+                    let keys = Arc::new(keys);
+                    self.catalog
+                        .lock()
+                        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+                        .all_songs = Some((Instant::now(), limit, Arc::clone(&keys)));
+                    keys
+                }
+            };
+            Ok(keys.iter().take(limit).cloned().collect())
+        })
+    }
+
+    fn track_key(&self, id: i32) -> Result<Option<String>> {
+        Ok(self
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+            .ids
+            .resolve(SubsonicIdKind::Track, id)
+            .ok()
+            .map(str::to_owned))
+    }
 }
 
 /// Resolves the track list a track was clicked in. As in a local library, this library's
 /// tracks in the caller's queue are left out, and when the clicked track is not in the
-/// result the fallback tracks play instead.
+/// result the fallback tracks play instead. A fallback or clicked track of another library is
+/// refused before the server is asked anything.
 pub(crate) async fn resolve_mix_query_request(
     binding: &SubsonicBinding,
     request: &ResolveMixQueryRequest,
 ) -> Result<Option<ResolveMixQueryResponse>> {
-    let fallback = request
-        .fallback_playing_items
-        .iter()
-        .map(|item| subsonic_track_id(binding, Some(item)))
-        .collect::<Result<Vec<_>>>()?;
-    let initial = if request.instantly_play {
+    for item in request.fallback_playing_items.iter().chain(
         request
             .initial_playback_item
             .as_ref()
-            .map(|item| subsonic_track_id(binding, Some(item)))
-            .transpose()?
-    } else {
-        None
+            .filter(|_| request.instantly_play),
+    ) {
+        subsonic_track_id(binding, Some(item))?;
+    }
+    Ok(Some(mixes::resolve_mix_query(binding, request).await?))
+}
+
+/// The tracks of songs, numbered and kept so their metadata is at hand later.
+fn song_tracks(binding: &SubsonicBinding, songs: Vec<SubsonicSong>) -> Result<Vec<HomeTrack>> {
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    songs
+        .into_iter()
+        .map(|song| {
+            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+            let track = HomeTrack {
+                remote: song.id.clone(),
+                name: song.title.clone(),
+                cover: song.cover_art.clone(),
+            };
+            catalog.songs.insert(id, song);
+            Ok(track)
+        })
+        .collect()
+}
+
+/// The albums, oldest added first. The server lists them newest first, so the whole list is
+/// read, and kept for [`LIST_TTL`]. Only a page that adds no album ends the list, as a server
+/// may return fewer albums than a page asks for, or a page that repeats albums already listed,
+/// as one that ignores the offset does.
+async fn albums_oldest_first(binding: &SubsonicBinding) -> Result<Vec<HomeItem>> {
+    let kept = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+        .albums_by_addition
+        .clone()
+        .filter(|(read, _)| read.elapsed() < LIST_TTL)
+        .map(|(_, ids)| ids);
+    let ids = match kept {
+        Some(ids) => ids,
+        None => {
+            let mut ids = Vec::new();
+            let mut listed = HashSet::new();
+            let mut offset = 0_u32;
+            loop {
+                let albums = binding
+                    .client
+                    .album_list_by("newest", 500, offset)
+                    .await
+                    .map_err(|error| subsonic_request_error(binding, error))?;
+                let count = u32::try_from(albums.len()).unwrap_or(u32::MAX);
+                let mut catalog = binding
+                    .catalog
+                    .lock()
+                    .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+                let before = ids.len();
+                for album in albums {
+                    let id = catalog.ids.intern(SubsonicIdKind::Album, &album.id)?;
+                    catalog.albums.insert(id, album);
+                    if listed.insert(id) {
+                        ids.push(id);
+                    }
+                }
+                if ids.len() == before {
+                    break;
+                }
+                drop(catalog);
+                offset = offset.checked_add(count).ok_or_else(|| {
+                    ExpectedRequestError::invalid_input("Subsonic album list is too large")
+                })?;
+            }
+            ids.reverse();
+            let ids = Arc::new(ids);
+            binding
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+                .albums_by_addition = Some((Instant::now(), Arc::clone(&ids)));
+            ids
+        }
     };
-    let library_id = binding.library_id.to_string();
-    let tracks = if request.queries.is_empty() {
-        fallback.clone()
-    } else {
-        let query = parse_track_list_query(&request.queries)?;
-        let queued = request
-            .excluded
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                PlayingItemRef::LibraryTrack {
-                    library_id: item_library,
-                    track,
-                } if *item_library == library_id => Some(track.as_str()),
-                _ => None,
+    let catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    Ok(ids
+        .iter()
+        .filter_map(|id| {
+            catalog.albums.get(id).map(|album| HomeItem {
+                id: *id,
+                name: album.name.clone(),
+                cover: album.cover_art.clone(),
             })
-            .collect::<HashSet<_>>();
-        let songs = match query {
-            TrackListQuery::All => tracks_page_songs(binding).await?,
-            TrackListQuery::Detail(query) => detail_songs(binding, query).await?,
-            TrackListQuery::Playlist(id) => playlist_songs(binding, id).await?,
-        };
-        songs
+        })
+        .collect())
+}
+
+impl HomeSource for SubsonicBinding {
+    fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>> {
+        Box::pin(async move {
+            match collection_type {
+                CollectionType::Album => albums_oldest_first(self).await,
+                CollectionType::Artist => {
+                    ensure_artists(self).await?;
+                    let catalog = self
+                        .catalog
+                        .lock()
+                        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+                    // Subsonic dates no artist, so they stay in the server's order, which is
+                    // the order their ids were given in.
+                    let mut items: Vec<HomeItem> = catalog
+                        .artists
+                        .iter()
+                        .map(|(id, artist)| HomeItem {
+                            id: *id,
+                            name: artist.name.clone(),
+                            cover: artist.cover_art.clone(),
+                        })
+                        .collect();
+                    items.sort_by_key(|item| item.id);
+                    Ok(items)
+                }
+                CollectionType::Playlist => Ok(interned_playlists(self)
+                    .await?
+                    .into_iter()
+                    .map(|(id, playlist)| HomeItem {
+                        id,
+                        name: playlist.name,
+                        cover: playlist.cover_art,
+                    })
+                    .collect()),
+                _ => Err(mixes::unsupported_query(ComplexQueryRequest::wire_name())),
+            }
+        })
+    }
+
+    fn tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async move {
+            let count = u32::try_from(limit).unwrap_or(u32::MAX);
+            let songs = song_page(self, 0, count, ComplexQueryRequest::wire_name()).await?;
+            song_tracks(self, songs)
+        })
+    }
+
+    fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async move {
+            let songs = self
+                .client
+                .starred_songs()
+                .await
+                .map_err(|error| subsonic_request_error(self, error))?;
+            song_tracks(self, songs)
+        })
+    }
+
+    fn number(&self, tracks: Vec<HomeTrack>) -> Result<Vec<HomeItem>> {
+        let mut catalog = self
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        tracks
             .into_iter()
-            .take(RESOLVED_TRACK_LIMIT)
-            .map(|song| song.id)
-            .filter(|track| !queued.contains(track.as_str()))
+            .map(|track| {
+                Ok(HomeItem {
+                    id: catalog.ids.intern(SubsonicIdKind::Track, &track.remote)?,
+                    name: track.name,
+                    cover: track.cover,
+                })
+            })
             .collect()
-    };
-    let (tracks, start_index) = if request.instantly_play {
-        let (tracks, start_index) =
-            resolved_start(request.hint_position, tracks, initial.as_ref(), fallback);
-        let start_index = u32::try_from(start_index).map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
-        })?;
-        (tracks, Some(start_index))
-    } else {
-        (tracks, None)
-    };
-    Ok(Some(ResolveMixQueryResponse {
-        playing_items: tracks
-            .into_iter()
-            .map(|track| PlayingItemRef::LibraryTrack {
-                library_id: library_id.clone(),
-                track,
-            })
-            .collect(),
-        start_index,
-        call_id: request.call_id,
-    }))
+    }
+
+    fn cover_paths(&self, covers: Vec<(i32, String)>) -> ServiceFuture<'_, HashMap<i32, String>> {
+        Box::pin(subsonic_cover_map(self, covers))
+    }
+
+    fn random_seed(&self) -> u64 {
+        home::rotating_seed(self.home_seed)
+    }
+}
+
+pub(crate) async fn complex_query_request(
+    binding: &SubsonicBinding,
+    request: &ComplexQueryRequest,
+) -> Result<Option<ComplexQueryResponse>> {
+    Ok(Some(home::complex_query(binding, request).await?))
 }
 
 /// The server no longer accepts the sign-in of the library `binding` serves.
@@ -2505,6 +2631,7 @@ subsonic_requests! {
         MixQueryRequest => mix_query_request as translate_mix_query_request,
         ResolveMixQueryRequest => resolve_mix_query_request as translate_resolve_mix_query_request,
         SearchForRequest => search_for_request as translate_search_for_request,
+        ComplexQueryRequest => complex_query_request as translate_complex_query_request,
     }
     routed_native {
         SetLikedRequest,
@@ -2599,14 +2726,15 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        add_item_to_playlist_request, create_playlist_request, fetch_all_playlists_request,
-        fetch_collection_by_ids_request, fetch_collection_group_summary_request,
-        fetch_collection_groups_request, fetch_media_file_by_ids_request,
-        fetch_media_files_request, fetch_parsed_media_file_request,
-        fetch_playlist_occurrences_request, fetch_remote_playlist, get_liked_request,
-        get_lyric_request, get_media_files_count_request, get_playlist_by_id_request,
-        jukebox_error, mix_query_request, remove_item_from_playlist_request,
-        remove_playlist_request, reorder_playlist_item_position_request, resolve_playlist_id,
+        add_item_to_playlist_request, complex_query_request, create_playlist_request,
+        fetch_all_playlists_request, fetch_collection_by_ids_request,
+        fetch_collection_group_summary_request, fetch_collection_groups_request,
+        fetch_media_file_by_ids_request, fetch_media_files_request,
+        fetch_parsed_media_file_request, fetch_playlist_occurrences_request, fetch_remote_playlist,
+        get_liked_request, get_lyric_request, get_media_files_count_request,
+        get_playlist_by_id_request, jukebox_error, mix_query_request,
+        remove_item_from_playlist_request, remove_playlist_request,
+        reorder_playlist_item_position_request, resolve_mix_query_request, resolve_playlist_id,
         search_collection_summary_request, search_for_request, search_media_file_summary_request,
         set_liked_request, subsonic_request_error, update_playlist_request,
     };
@@ -2639,6 +2767,10 @@ mod tests {
         utils::{Broadcaster, RinfRustSignal},
     };
 
+    use crate::messages::{
+        ComplexQuery, ComplexQueryRequest, LibraryHomeListMode, LibraryHomeQuery,
+        ResolveMixQueryResponse,
+    };
     use crate::messages::{RequestErrorKind, SearchField};
 
     #[derive(Clone)]
@@ -2658,6 +2790,8 @@ mod tests {
         no_random_songs: Arc<AtomicUsize>,
         // `error-cover` is answered only while this is not write-locked.
         error_cover_gate: Arc<tokio_sync::RwLock<()>>,
+        /// The song list gives covers to the odd songs when this is not zero.
+        listed_covers: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2732,6 +2866,7 @@ mod tests {
             random_song_sizes: Arc::new(Mutex::new(Vec::new())),
             no_random_songs: Arc::new(AtomicUsize::new(0)),
             error_cover_gate: Arc::default(),
+            listed_covers: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -3071,7 +3206,7 @@ mod tests {
                                 .iter()
                                 .skip(offset)
                                 .take(count)
-                                .map(|id| mock_song(id))
+                                .map(|id| listed_song(&state, id))
                                 .collect::<Vec<_>>()
                         ),
                     );
@@ -3113,6 +3248,21 @@ mod tests {
                     "song":songs
                 }})
             }
+            // The newest albums come a page of one at a time, however many are asked for.
+            "getAlbumList2" if query.get("type").is_some_and(|kind| kind == "newest") => {
+                let offset = query
+                    .get("offset")
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or_default();
+                let albums = [
+                    serde_json::json!({"id":"album-2","name":"Album Two","artist":"Artist"}),
+                    serde_json::json!(
+                        {"id":"album-1","name":"Album One","artist":"Artist","coverArt":"cover-album"}
+                    ),
+                ];
+                let page = albums.iter().skip(offset).take(1).collect::<Vec<_>>();
+                serde_json::json!({"albumList2":{"album":page}})
+            }
             "getArtists" => serde_json::json!({"artists":{"index":{
                 "name":"A","artist":[
                     {"id":"artist-1","name":"Artist One","coverArt":"cover-1"},
@@ -3122,6 +3272,17 @@ mod tests {
             _ => serde_json::json!({}),
         };
         mock_response(inner)
+    }
+
+    /// A song as the song list gives it: the odd ones have a cover when `listed_covers` is set.
+    fn listed_song(state: &MockState, id: &str) -> serde_json::Value {
+        let mut song = mock_song(id);
+        if state.listed_covers.load(Ordering::SeqCst) != 0
+            && (id.ends_with('1') || id.ends_with('3'))
+        {
+            song["coverArt"] = serde_json::json!(format!("cover-{id}"));
+        }
+        song
     }
 
     fn mock_song(id: &str) -> serde_json::Value {
@@ -5016,6 +5177,412 @@ mod tests {
             );
         }
         assert!(server.state.requests.lock().unwrap().is_empty());
+    }
+
+    fn track_ref(binding: &SubsonicBinding, track: &str) -> PlayingItemRef {
+        PlayingItemRef::LibraryTrack {
+            library_id: binding.library_id.to_string(),
+            track: track.into(),
+        }
+    }
+
+    fn resolve(
+        binding: &SubsonicBinding,
+        album: i32,
+        initial: &str,
+        excluded: &[&str],
+    ) -> ResolveMixQueryRequest {
+        resolve_queries(
+            binding,
+            vec![query("lib::album", &album.to_string())],
+            initial,
+            excluded,
+        )
+    }
+
+    fn resolve_queries(
+        binding: &SubsonicBinding,
+        queries: Vec<MixQuery>,
+        initial: &str,
+        excluded: &[&str],
+    ) -> ResolveMixQueryRequest {
+        ResolveMixQueryRequest {
+            queries,
+            hint_position: 0,
+            initial_playback_item: Some(track_ref(binding, initial)),
+            instantly_play: true,
+            fallback_playing_items: vec![track_ref(binding, "fallback")],
+            excluded: ExcludedItems {
+                items: excluded.iter().map(|id| track_ref(binding, id)).collect(),
+            },
+            call_id: None,
+        }
+    }
+
+    fn query(operator: &str, parameter: &str) -> MixQuery {
+        MixQuery {
+            operator: operator.into(),
+            parameter: parameter.into(),
+        }
+    }
+
+    fn keys(items: &[PlayingItemRef]) -> Vec<String> {
+        items
+            .iter()
+            .map(|item| match item {
+                PlayingItemRef::LibraryTrack { track, .. } => track.clone(),
+                PlayingItemRef::IndependentFile { path } => path.clone(),
+            })
+            .collect()
+    }
+
+    fn endpoint_count(server: &MockServer, endpoint: &str) -> usize {
+        server
+            .state
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|asked| asked.as_str() == endpoint)
+            .count()
+    }
+
+    #[tokio::test]
+    async fn subsonic_resolves_a_mix_query_in_order_without_the_queue() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
+        let album = binding
+            .catalog
+            .lock()
+            .unwrap()
+            .ids
+            .intern(SubsonicIdKind::Album, "album-1")
+            .unwrap();
+        let tracks = |response: &ResolveMixQueryResponse| keys(&response.playing_items);
+        let all = resolve_mix_query_request(&binding, &resolve(&binding, album, "song-2", &[]))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(&all), ["song-1", "song-2"]);
+        assert_eq!(all.start_index, Some(1));
+        // The caller's own queue is left out, and the start index follows.
+        let without =
+            resolve_mix_query_request(&binding, &resolve(&binding, album, "song-2", &["song-1"]))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(tracks(&without), ["song-2"]);
+        assert_eq!(without.start_index, Some(0));
+        // A track the query does not hold starts the fallback items at the hint.
+        let mut elsewhere = resolve(&binding, album, "elsewhere", &[]);
+        elsewhere.hint_position = 1;
+        let missing = resolve_mix_query_request(&binding, &elsewhere)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(&missing), ["fallback"]);
+        assert_eq!(missing.start_index, Some(1));
+        // Nothing to play: no index.
+        let mut quiet = resolve(&binding, album, "song-2", &[]);
+        quiet.instantly_play = false;
+        let quiet = resolve_mix_query_request(&binding, &quiet)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (tracks(&quiet), quiet.start_index),
+            (vec!["song-1".into(), "song-2".into()], None)
+        );
+    }
+
+    #[tokio::test]
+    async fn subsonic_home_lists_its_groups_and_leaves_the_rest_empty() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        assert_eq!(
+            ComplexQueryRequest::slot(&RequestSlots::subsonic(&binding.probe)),
+            Slot::Translate
+        );
+        server
+            .state
+            .starred
+            .lock()
+            .unwrap()
+            .insert("song-2".to_owned());
+        let group = |title: &str, query| ComplexQuery {
+            title: title.into(),
+            query,
+        };
+        let mode = LibraryHomeListMode::Forward;
+        let response = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![
+                    group("Artists", LibraryHomeQuery::Artists(mode)),
+                    group("Albums", LibraryHomeQuery::Albums(mode)),
+                    group("Playlists", LibraryHomeQuery::Playlists(mode)),
+                    group("Tracks", LibraryHomeQuery::Tracks(mode)),
+                    group("Liked", LibraryHomeQuery::Liked),
+                    group("Mixes", LibraryHomeQuery::Mixes(mode)),
+                    group("Genres", LibraryHomeQuery::Genres(mode)),
+                    group("Most", LibraryHomeQuery::Most),
+                ],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let names = |index: usize| {
+            response.result[index]
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            response
+                .result
+                .iter()
+                .map(|group| group.title.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Artists",
+                "Albums",
+                "Playlists",
+                "Tracks",
+                "Liked",
+                "Mixes",
+                "Genres",
+                "Most"
+            ]
+        );
+        assert_eq!(names(0), ["Artist One", "Artist Two"]);
+        assert_eq!(names(1), ["Album One", "Album Two"]);
+        assert_eq!(names(2), ["Road"]);
+        assert_eq!(names(3), ["song-1", "song-2", "song-3", "song-4"]);
+        // The newest first is the list reversed.
+        let reversed = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![group(
+                    "Albums",
+                    LibraryHomeQuery::Albums(LibraryHomeListMode::Reverse),
+                )],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            reversed.result[0]
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Album Two", "Album One"]
+        );
+        assert_eq!(names(4), ["song-2"]);
+        for empty in 5..8 {
+            assert!(response.result[empty].entries.is_empty());
+        }
+        // An album opens by the query that lists its tracks, and a playlist by the id the
+        // playlists page gives it.
+        let album = &response.result[1].entries[0];
+        assert_eq!(album.queries[0].operator, "lib::album");
+        assert_eq!(album.queries[0].parameter, album.id.to_string());
+        let playlist = &response.result[2].entries[0];
+        assert_eq!(playlist.queries[0].operator, "lib::playlist");
+        assert_eq!(playlist.id, playlist_ids(&binding).await["Road"]);
+        // A track plays the listed tracks from itself.
+        let track = &response.result[3].entries[1];
+        let ids: Vec<_> = track
+            .queries
+            .iter()
+            .map(|query| query.parameter.clone())
+            .collect();
+        assert_eq!(ids.len(), 4);
+        assert_eq!(ids[0], track.id.to_string());
+    }
+
+    #[tokio::test]
+    async fn subsonic_home_track_entries_resolve_to_their_tracks() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![ComplexQuery {
+                    title: "Tracks".into(),
+                    query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
+                }],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // The newest first: the sample is listed oldest first and reversed.
+        let entries = &home.result[0].entries;
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["song-4", "song-3", "song-2", "song-1"]
+        );
+        let resolved = resolve_mix_query_request(
+            &binding,
+            &resolve_queries(&binding, entries[1].queries.clone(), "song-3", &[]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            keys(&resolved.playing_items),
+            ["song-3", "song-2", "song-1", "song-4"]
+        );
+        assert_eq!(resolved.start_index, Some(0));
+        // Ids no one gave, and repeats, name no track.
+        let odd = resolve_mix_query_request(
+            &binding,
+            &resolve_queries(
+                &binding,
+                vec![
+                    query("lib::track", &entries[0].id.to_string()),
+                    query("lib::track", "9999"),
+                    query("lib::track", &entries[0].id.to_string()),
+                ],
+                "song-4",
+                &[],
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(keys(&odd.playing_items), ["song-4"]);
+    }
+
+    #[tokio::test]
+    async fn subsonic_takes_the_queries_the_tracks_and_album_pages_send() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let album = binding
+            .catalog
+            .lock()
+            .unwrap()
+            .ids
+            .intern(SubsonicIdKind::Album, "album-1")
+            .unwrap();
+        // The tracks page: every song, in the order the server lists them.
+        let all = vec![query("lib::all", "true")];
+        let resolved = resolve_mix_query_request(
+            &binding,
+            &resolve_queries(&binding, all.clone(), "song-3", &[]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            keys(&resolved.playing_items),
+            ["song-1", "song-2", "song-3", "song-4"]
+        );
+        // Asking again reads nothing: the list is kept for a while.
+        let before = endpoint_count(&server, "search3");
+        resolve_mix_query_request(
+            &binding,
+            &resolve_queries(&binding, all.clone(), "song-1", &[]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(endpoint_count(&server, "search3"), before);
+        let mut page = mix_query_request(
+            &binding,
+            &MixQueryRequest {
+                call_id: None,
+                queries: all,
+                cursor: 1,
+                page_size: 2,
+                bake_cover_arts: false,
+                queue: CallerQueue::default(),
+                random_seed: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            page.files
+                .drain(..)
+                .map(|file| file.track)
+                .collect::<Vec<_>>(),
+            ["song-2", "song-3"]
+        );
+        // An album's page: its tracks, with the track-number sort it already has.
+        let detail = vec![
+            query("lib::album", &album.to_string()),
+            query("sort::track_number", "true"),
+        ];
+        let resolved = resolve_mix_query_request(
+            &binding,
+            &resolve_queries(&binding, detail.clone(), "song-2", &[]),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(keys(&resolved.playing_items), ["song-1", "song-2"]);
+        let page = mix_query_request(
+            &binding,
+            &MixQueryRequest {
+                call_id: None,
+                queries: detail,
+                cursor: 0,
+                page_size: 10,
+                bake_cover_arts: false,
+                queue: CallerQueue::default(),
+                random_seed: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(page.files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn subsonic_cover_filter_pages_through_the_songs_that_have_a_cover() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.listed_covers.store(1, Ordering::SeqCst);
+        let covered = |cursor: i32| MixQueryRequest {
+            cursor,
+            page_size: 30,
+            ..mix_request(&[("lib::all", "true"), ("filter::with_cover_art", "true")])
+        };
+        let tracks = |response: crate::messages::MixQueryResponse| {
+            response
+                .files
+                .into_iter()
+                .map(|file| file.track)
+                .collect::<Vec<_>>()
+        };
+        // Songs without a cover are dropped before the page is cut.
+        let first = mix_query_request(&binding, &covered(0))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(first), ["song-1", "song-3"]);
+        // The list read for the first page is kept for the next one.
+        let reads = endpoint_count(&server, "search3");
+        assert!(reads > 0);
+        let second = mix_query_request(&binding, &covered(1))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(second), ["song-3"]);
+        assert_eq!(endpoint_count(&server, "search3"), reads);
+        assert_eq!(endpoint_count(&server, "getRandomSongs"), 0);
     }
 
     fn assert_secret_free(value: &str) {
