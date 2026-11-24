@@ -3,6 +3,7 @@
   stdenv,
   flutter,
   rustPlatform,
+  fetchFromGitHub,
   alsa-lib,
   replaceVars,
   pkg-config,
@@ -42,6 +43,21 @@ let
     macos_secure_bookmarks = "sha256-f6TDL1JfWc8zGE8H3+YLNmRW3/KJSgjQiwhk44bMp5g=";
     scrollable_positioned_list = "sha256-tkRlxnmyG5r5yZwEvj9KDfEf4OuSM0HEwPOYm7T7LnQ=";
     system_tray = "sha256-yx4Tc+HDx9LdVWJZKniQr6H3BsifPlNwVGxHj3jpvlE=";
+  };
+
+  # Match the revisions declared in metadata/native/CMakeLists.txt.
+  utfcppSource = fetchFromGitHub {
+    owner = "Losses";
+    repo = "utfcpp";
+    rev = "161c216be03e671dbc0ee8cace084d3d82b18932";
+    hash = "sha256-CeJ2+d7kgN+H1XKLsoqvwIgr1BYtMxKGAK61bb+eY7s=";
+  };
+
+  taglibSource = fetchFromGitHub {
+    owner = "Losses";
+    repo = "taglib";
+    rev = "7333be146c0a412d345f7e73554e383ebb8d6fc3";
+    hash = "sha256-TEawukG0PrcXjD6sDzTlFJ8rwPiS6sgQqZPrEwSzfzU=";
   };
 
   src = flutter.buildFlutterApplication {
@@ -87,11 +103,16 @@ let
     inherit version src;
     pname = "libhub";
 
-    cargoHash = "sha256-uTllIIKHhXoTbeFG5LEx2O/vKuM3NeCdFrUHnrdj8sE=";
+    cargoHash = "sha256-rL3YvI76InAdMj8RryqCYMtLmFzl5JCfOxe11q/GJ/I=";
+
+    env = {
+      FETCHCONTENT_SOURCE_DIR_UTFCPP = "${utfcppSource}";
+      FETCHCONTENT_SOURCE_DIR_TAGLIB = "${taglibSource}";
+    };
 
     nativeBuildInputs = [
       pkg-config
-      # `opusic-sys` builds the Opus it vendors with CMake.
+      # TagLib and the Opus bundled by `opusic-sys` are built with CMake.
       cmake
     ];
 

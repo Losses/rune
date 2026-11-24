@@ -21,6 +21,15 @@ fn main() {
         .profile("Release")
         .define("CMAKE_INSTALL_LIBDIR", "lib");
 
+    // Package builders can provide pinned sources for an offline CMake build.
+    for variable in [
+        "FETCHCONTENT_SOURCE_DIR_UTFCPP",
+        "FETCHCONTENT_SOURCE_DIR_TAGLIB",
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+        native.define(variable, env::var_os(variable).unwrap_or_default());
+    }
+
     // Use the NDK toolchain for Android even when the host is also compiling desktop artifacts.
     if os == "android" {
         let ndk = ["ANDROID_NDK_ROOT", "ANDROID_NDK_HOME", "ANDROID_NDK_PATH"]
@@ -28,13 +37,15 @@ fn main() {
             .find_map(env::var_os)
             .map(PathBuf::from)
             .expect("set ANDROID_NDK_ROOT to the Android NDK directory");
-        let (abi, sysroot_arch) = match arch.as_str() {
-            "arm" => ("armeabi-v7a", "arm-linux-androideabi"),
-            "aarch64" => ("arm64-v8a", "aarch64-linux-android"),
-            "x86" => ("x86", "i686-linux-android"),
-            "x86_64" => ("x86_64", "x86_64-linux-android"),
+        let abi = match arch.as_str() {
+            "arm" => "armeabi-v7a",
+            "aarch64" => "arm64-v8a",
+            "x86" => "x86",
+            "x86_64" => "x86_64",
             _ => panic!("unsupported Android architecture {arch}"),
         };
+
+        // Use the shared C++ runtime packaged by the app and the NDK's linker defaults.
         native
             .define(
                 "CMAKE_TOOLCHAIN_FILE",
@@ -45,15 +56,7 @@ fn main() {
                 "ANDROID_PLATFORM",
                 env::var("ANDROID_PLATFORM").unwrap_or_else(|_| "android-21".into()),
             )
-            .define("ANDROID_STL", "c++_static");
-        let prebuilt = ndk.join("toolchains/llvm/prebuilt");
-        let runtime = std::fs::read_dir(prebuilt)
-            .expect("read NDK toolchains")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join("sysroot/usr/lib").join(sysroot_arch))
-            .find(|path| path.join("libc++_static.a").is_file())
-            .expect("find the Android C++ runtime for the target");
-        println!("cargo:rustc-link-search=native={}", runtime.display());
+            .define("ANDROID_STL", "c++_shared");
     } else if matches!(os.as_str(), "ios" | "macos") {
         // Specify the Apple SDK independently of the host's active Xcode target.
         let (sdk, deployment, minimum) = match os.as_str() {
@@ -88,10 +91,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=rune_taglib");
     println!("cargo:rustc-link-lib=static=tag");
     match os.as_str() {
-        "android" => {
-            println!("cargo:rustc-link-lib=static=c++_static");
-            println!("cargo:rustc-link-lib=static=c++abi");
-        }
+        "android" => println!("cargo:rustc-link-lib=dylib=c++_shared"),
         "macos" | "ios" => println!("cargo:rustc-link-lib=c++"),
         _ if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") => (),
         _ => println!("cargo:rustc-link-lib=stdc++"),
