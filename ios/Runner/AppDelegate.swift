@@ -125,6 +125,9 @@ class SceneDelegate: FlutterSceneDelegate {
     })
 
     SceneFiles.shared.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    // Rune's volume control moves the system volume while a platform host plays.
+    SystemVolume.shared.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    SystemVolume.shared.registerView(with: engineBridge.applicationRegistrar)
 
     // The Rust hub registers the visualizer's texture with the engine itself. Its symbols live in
     // rinf.framework, which is loaded in-process; resolving at run time avoids a link-time

@@ -364,28 +364,42 @@ List<ControllerEntry> controllerItems = [
               ? Symbols.volume_down
               : Symbols.volume_mute,
         ),
-        text: SizedBox(
-          width: 100,
-          height: 20,
-          child: Stack(
-            alignment: Alignment.centerLeft,
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                top: 0,
-                left: -24.0,
-                right: -28.0,
-                child: Transform.scale(
-                  scale: 0.8,
-                  child: const VolumeController(
-                    width: 120,
-                    height: 20,
+        text: Consumer<VolumeProvider>(
+          builder: (context, volumeProvider, _) =>
+              volumeProvider.showsSystemVolumeView
+              // The system's volume view, as it is: scaling a platform view is not safe.
+              ? const SizedBox(
+                  width: 100,
+                  height: 32,
+                  child: VolumeController(
+                    width: 100,
+                    height: 32,
                     vertical: false,
                   ),
+                )
+              : SizedBox(
+                  width: 100,
+                  height: 20,
+                  child: Stack(
+                    alignment: Alignment.centerLeft,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        top: 0,
+                        left: -24.0,
+                        right: -28.0,
+                        child: Transform.scale(
+                          scale: 0.8,
+                          child: const VolumeController(
+                            width: 120,
+                            height: 20,
+                            vertical: false,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
         ),
         onPressed: () {},
       );
