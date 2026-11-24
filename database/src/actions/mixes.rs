@@ -1080,7 +1080,14 @@ pub async fn query_mix_media_files_with_seed(
     session_queue: &[i32],
     random_seed: Option<u64>,
 ) -> Result<Vec<media_files::Model>> {
-    super::resolved_metadata::ensure_tracks_current(main_db).await?;
+    // Edition clauses need current release identities and logical track assets.
+    if queries.iter().any(|(operator, parameter)| {
+        operator == MixOperator::LibRelease.syntax()
+            || (operator == MixOperator::LibAlbum.syntax()
+                && parameter.parse::<i32>().is_ok_and(|id| id < 0))
+    }) {
+        super::resolved_metadata::ensure_tracks_current(main_db).await?;
+    }
     let mut all: bool = false;
 
     let mut artist_ids: Vec<i32> = vec![];

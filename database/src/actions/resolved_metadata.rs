@@ -31,7 +31,7 @@ use metadata::{
 };
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseTransaction, ExprTrait, FromQueryResult, QueryResult,
-    TransactionSession, TransactionTrait, Value,
+    SqliteTransactionMode, TransactionOptions, TransactionSession, TransactionTrait, Value,
     sea_query::{
         Alias, Asterisk, BinOper, Expr, InsertStatement, IntoTableRef, LikeExpr, OnConflict, Order,
         Query, SelectStatement,
@@ -345,7 +345,13 @@ pub(super) async fn ensure_tracks_current(db: &sea_orm::DatabaseConnection) -> R
         .await?
         .is_some()
     {
-        let tx = db.begin().await?;
+        // Acquire the writer reservation before reading the queues so SQLite can wait for sync.
+        let tx = db
+            .begin_with_options(TransactionOptions {
+                sqlite_transaction_mode: Some(SqliteTransactionMode::Immediate),
+                ..Default::default()
+            })
+            .await?;
         tracks::reconcile(&tx).await?;
         summary::reconcile(&tx).await?;
         tx.commit().await?;
