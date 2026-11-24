@@ -133,6 +133,8 @@ class AddToPlaylistDialogState extends State<AddToPlaylistDialog> {
         setState(() => added++);
       }
 
+      // A dialog already being dismissed is not closed again.
+      if (_dismissed) return;
       widget.$close(null);
     } on RequestFailure catch (error) {
       if (mounted) {

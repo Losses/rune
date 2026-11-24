@@ -295,6 +295,19 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   });
 
+  testWidgets('is not closed again when Cancel came during the last add', (
+    tester,
+  ) async {
+    final library = await pumpDialog(tester, songs: [11]);
+
+    await tester.tap(find.text('Cancel'));
+    await library.next(tester);
+
+    expect(library.added, [11]);
+    expect(library.closed, 1);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
   testWidgets('sends no more once its route is popping', (tester) async {
     final library = await pumpDialog(tester, asRoute: true);
 
