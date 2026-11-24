@@ -12883,14 +12883,14 @@ async fn cancelled_session_dropping_a_show_request_leaves_the_next_session_visib
     };
     node.transition_current_player(CurrentPlayer::Local, away.clone()).await?;
     signals.signals.clear();
-    let returning = tokio::spawn({
-        let node = node.clone();
-        async move { node.transition_current_player(away, CurrentPlayer::Local).await }
-    });
-    wait_until("this device's player to be current again", || async {
-        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
-    })
-    .await?;
+    // The return's first poll switches the player and queues its request to show the session,
+    // with nothing to wait for in between. The held loop keeps the request queued, so the return
+    // is left waiting for the answer.
+    let mut returning = pin!(node.transition_current_player(away, CurrentPlayer::Local));
+    assert!(
+        futures::poll!(&mut returning).is_pending(),
+        "the return finished without waiting for the held event loop"
+    );
 
     // The session is cancelled with the request still queued. The first step of its shutdown
     // cancels it, and the rest waits for the held loop, which then stops without taking the
@@ -12902,7 +12902,7 @@ async fn cancelled_session_dropping_a_show_request_leaves_the_next_session_visib
     );
     release.send(())?;
     shutdown.await?;
-    returning.await??;
+    returning.await?;
     let shown = signals.statuses(&session_id);
     assert!(
         shown.is_empty(),
