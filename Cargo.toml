@@ -1,0 +1,25 @@
+# This file is used for telling Rust-related tools
+# where various Rust crates are.
+# This also unifies `./target` output folder and
+# various Rust configurations.
+
+[workspace]
+members = ["native/hub", "native/requests", "cli", "tag-editor", "discovery", "sync", "sync-orm", "fsio", "fsio-browse", "fsio-media-source", "playback", "http-request", "visualizer", "flutter-texture", "chart-analyzer", "subsonic"]
+resolver = "2"
+exclude = ["stream-download"]
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(tarpaulin)'] }
+
+[workspace.lints.clippy]
+absolute_paths = "warn"
+
+[patch.crates-io]
+stream-download = { path = "./stream-download" }
+core-graphics = { path = "./core-graphics" }
+# Patched fork to fix MSVC ARM64 (aarch64-pc-windows-msvc): FDK_archdef.h does not
+# recognize _M_ARM64 (VS 18), so the preprocessor falls into the #warning branch
+# and MSVC 14.51 promotes #warning to fatal error C1188. Patch adds an _M_ARM64
+# architecture case without defining __arm__/__aarch64__ (which would pull in
+# GCC-only ARM intrinsics headers).
+fdk-aac-sys = { git = "https://github.com/Losses/fdk-aac-rs", branch = "msvc-arm64" }

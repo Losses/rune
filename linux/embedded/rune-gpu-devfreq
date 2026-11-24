@@ -1,0 +1,59 @@
+#!/bin/sh
+# Gives the GPU the governor and minimum frequency the kiosk runs with, and
+# gives it back what it had when the kiosk stops. Run as root.
+#
+#   rune-gpu-devfreq apply     remember the device's governor and minimum
+#                              frequency, then set RUNE_GPU_GOVERNOR and
+#                              RUNE_GPU_MIN_FREQ (Hz)
+#   rune-gpu-devfreq restore   put back what apply remembered
+#
+# RUNE_GPU_DEVFREQ is the device, a directory under /sys/class/devfreq; when it
+# is empty or missing, both do nothing. Settings that /etc/rune-kiosk.conf
+# leaves out come from the chip's profile: see rune-soc-profile. What apply remembers stays in /run until
+# restore puts it back, so a kiosk restarted after a failure does not take its
+# own setting for the machine's.
+set -u
+
+. "$(dirname "$0")/rune-soc-profile"
+
+device="${RUNE_GPU_DEVFREQ:-}"
+saved="/run/rune-kiosk-gpu-devfreq"
+
+if [ -z "$device" ] || [ ! -d "$device" ]; then
+    exit 0
+fi
+
+case "${1:-}" in
+    apply)
+        if [ ! -f "$saved" ]; then
+            {
+                echo "governor=$(cat "$device/governor")"
+                echo "min_freq=$(cat "$device/min_freq")"
+            } > "$saved.new" && mv "$saved.new" "$saved"
+        fi
+        if [ -n "${RUNE_GPU_GOVERNOR:-}" ]; then
+            echo "$RUNE_GPU_GOVERNOR" > "$device/governor"
+        fi
+        if [ -n "${RUNE_GPU_MIN_FREQ:-}" ]; then
+            echo "$RUNE_GPU_MIN_FREQ" > "$device/min_freq"
+        fi
+        ;;
+    restore)
+        if [ ! -f "$saved" ]; then
+            exit 0
+        fi
+        governor="$(sed -n 's/^governor=//p' "$saved")"
+        min_freq="$(sed -n 's/^min_freq=//p' "$saved")"
+        if [ -n "$min_freq" ]; then
+            echo "$min_freq" > "$device/min_freq"
+        fi
+        if [ -n "$governor" ]; then
+            echo "$governor" > "$device/governor"
+        fi
+        rm -f "$saved"
+        ;;
+    *)
+        echo "Usage: $0 apply|restore" >&2
+        exit 2
+        ;;
+esac

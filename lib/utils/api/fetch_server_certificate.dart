@@ -1,0 +1,17 @@
+import 'request_failure.dart';
+import '../../bindings/bindings.dart';
+
+Future<String> fetchServerCertificate(String host) async {
+  final removeTrustRequest = FetchServerCertificateRequest(
+    url: 'https://$host/ping',
+  );
+
+  final rustSignal = await awaitResponse(
+    'FetchServerCertificateRequest',
+    FetchServerCertificateResponse.rustSignalStream,
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) =>
+        removeTrustRequest.copyWith(callId: () => callId).sendSignalToRust(),
+  );
+  return rustSignal.message.fingerprint;
+}

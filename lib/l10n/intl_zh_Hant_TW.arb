@@ -1,0 +1,1539 @@
+{
+  "@@locale": "zh_Hant_TW",
+  "rune": "Rune",
+  "@rune": {},
+  "runePlayer": "Rune 播放器",
+  "@runePlayer": {},
+  "copyright": "版權",
+  "@copyright": {},
+  "copyrightAnnouncement": "著作權 © 2024 Rune Player 開發團隊所有。",
+  "@copyrightAnnouncement": {},
+  "licenseAnnouncement": "本產品依 MPL 授權許可。",
+  "@licenseAnnouncement": {},
+  "factoryReset": "恢復出廠設定",
+  "@factoryReset": {},
+  "factoryResetSubtitle": "從資料庫清單中移除所有項目。",
+  "@factoryResetSubtitle": {},
+  "bsodBody": "您的播放器遇到問題，需要重新啟動。我們尊重您的隱私，不會收集任何資料。",
+  "@bsodBody": {},
+  "artists": "藝術家",
+  "@artists": {},
+  "albums": "專輯",
+  "@albums": {},
+  "playlists": "播放清單",
+  "@playlists": {},
+  "unknownAlbum": "未知專輯",
+  "@unknownAlbum": {},
+  "unknownTrack": "未知曲目",
+  "@unknownTrack": {},
+  "unknownArtist": "未知藝術家",
+  "@unknownArtist": {},
+  "selectDirectory": "選擇目錄",
+  "@selectDirectory": {},
+  "noDataAvailable": "無可用資料",
+  "@noDataAvailable": {},
+  "start": "開始",
+  "@start": {},
+  "search": "搜尋",
+  "@search": {},
+  "tracks": "曲目",
+  "@tracks": {},
+  "system": "系統",
+  "@system": {},
+  "operatingSystem": "作業系統",
+  "@operatingSystem": {},
+  "systemVersion": "系統版本",
+  "@systemVersion": {},
+  "kernelVersion": "核心版本",
+  "@kernelVersion": {},
+  "hostName": "主機名稱",
+  "@hostName": {},
+  "player": "播放器",
+  "@player": {},
+  "buildHash": "建構雜湊",
+  "@buildHash": {},
+  "buildDate": "建構日期",
+  "@buildDate": {},
+  "commitDate": "提交日期",
+  "@commitDate": {},
+  "rustcVersion": "Rustc 版本",
+  "@rustcVersion": {},
+  "activation": "啟用",
+  "@activation": {},
+  "runeIsActivated": "Rune 已啟用",
+  "@runeIsActivated": {},
+  "productId": "產品 ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "您可能是正版軟體的受害者。",
+  "@youMayBeAVictimOfGenuineSoftware": {},
+  "axiomDesign": "Axiom 設計",
+  "@axiomDesign": {},
+  "computingDevice": "計算裝置",
+  "@computingDevice": {},
+  "computingDeviceSubtitle": "選擇 GPU 或 CPU 以獲得更快或更高效的處理。",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "效能等級",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "選擇同時執行的任務數量。",
+  "@performanceLevelSubtitle": {},
+  "performance": "效能",
+  "@performance": {},
+  "balance": "平衡",
+  "@balance": {},
+  "batterySaving": "省電",
+  "@batterySaving": {},
+  "switchTo": "切換",
+  "@switchTo": {},
+  "remove": "移除",
+  "@remove": {},
+  "removeLibrary": "移除",
+  "@removeLibrary": {},
+  "localFolder": "本機資料夾",
+  "localFolderSubtitle": "選擇此裝置上的資料夾。",
+  "runeDevice": "Rune 裝置",
+  "runeDeviceSubtitle": "連線到另一個 Rune 裝置。",
+  "addLibrary": "新增資料庫",
+  "@addLibrary": {},
+  "addLibrarySubtitle": "新增資料庫並掃描現有檔案",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "操作選單",
+  "@actionMenu": {},
+  "addToQueue": "加入佇列",
+  "@addToQueue": {},
+  "addToQueueSubtitle": "新增項目至播放佇列。",
+  "@addToQueueSubtitle": {},
+  "playNext": "下一首播放",
+  "@playNext": {},
+  "addToEnd": "加入末尾",
+  "@addToEnd": {},
+  "middleClickAction": "中鍵點擊操作",
+  "@middleClickAction": {},
+  "middleClickActionSubtitle": "中鍵點擊曲目或集合時執行的操作。",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "開始播放",
+  "@startPlaying": {},
+  "startRoaming": "開始漫遊",
+  "@startRoaming": {},
+  "playbackMode": "播放模式",
+  "@playbackMode": {},
+  "playbackModeSubtitle": "偏好的音樂播放模式",
+  "@playbackModeSubtitle": {},
+  "colorMode": "顏色模式",
+  "@colorMode": {},
+  "colorModeSubtitle": "更改 Rune 中顯示的顏色模式。",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "系統",
+  "@systemColorMode": {},
+  "dark": "深色",
+  "@dark": {},
+  "light": "淺色",
+  "@light": {},
+  "themeColor": "主題顏色",
+  "@themeColor": {},
+  "themeColorSubtitle": "選擇顏色以更新 Rune 的外觀。",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "跟隨系統主題",
+  "@followSystemTheme": {},
+  "dynamicColors": "動態顏色",
+  "@dynamicColors": {},
+  "dynamicColorsSubtitle": "根據播放曲目的封面藝術調整 Rune 的主題顏色。",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "品牌動畫",
+  "@brandingAnimation": {},
+  "brandingAnimationSubtitle": "Rune 啟動時播放品牌動畫。",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "這可能需要幾分鐘。",
+  "@thisMightTakeAFewMinutes": {},
+  "tracksFound": " 找到的曲目",
+  "@tracksFound": {},
+  "albumCoversCollected": " 收集的專輯封面",
+  "@albumCoversCollected": {},
+  "editPlaylist": "編輯播放清單",
+  "@editPlaylist": {},
+  "editMix": "編輯 Mix",
+  "@editMix": {},
+  "edit": "編輯",
+  "@edit": {},
+  "removePlaylist": "移除播放清單",
+  "@removePlaylist": {},
+  "removeMix": "移除 Mix",
+  "@removeMix": {},
+  "addToMix": "加入 Mix",
+  "@addToMix": {},
+  "newMix": "新 Mix",
+  "@newMix": {},
+  "selectAGroup": "選擇群組",
+  "@selectAGroup": {},
+  "likedOnly": "僅顯示喜愛",
+  "@likedOnly": {},
+  "allTracks": "所有曲目",
+  "@allTracks": {},
+  "defaultMode": "預設",
+  "@defaultMode": {},
+  "sequential": "順序",
+  "@sequential": {},
+  "repeatAll": "全部重複",
+  "@repeatAll": {},
+  "repeatOne": "單曲重複",
+  "@repeatOne": {},
+  "shuffle": "隨機播放",
+  "@shuffle": {},
+  "title": "標題",
+  "@title": {},
+  "group": "群組",
+  "@group": {},
+  "save": "儲存",
+  "@save": {},
+  "create": "建立",
+  "@create": {},
+  "cancel": "取消",
+  "@cancel": {},
+  "noRecommendation": "無推薦",
+  "@noRecommendation": {},
+  "basedOnAll": "基於全部",
+  "@basedOnAll": {},
+  "group1": "群組 1",
+  "@group1": {},
+  "group2": "群組 2",
+  "@group2": {},
+  "group3": "群組 3",
+  "@group3": {},
+  "group4": "群組 4",
+  "@group4": {},
+  "group5": "群組 5",
+  "@group5": {},
+  "group6": "群組 6",
+  "@group6": {},
+  "group7": "群組 7",
+  "@group7": {},
+  "group8": "群組 8",
+  "@group8": {},
+  "group9": "群組 9",
+  "@group9": {},
+  "ascending": "升序",
+  "@ascending": {},
+  "descending": "降序",
+  "@descending": {},
+  "lastModified": "最後修改",
+  "@lastModified": {},
+  "duration": "持續時間",
+  "@duration": {},
+  "timesPlayedThrough": "播放次數",
+  "@timesPlayedThrough": {},
+  "timesSkipped": "跳過次數",
+  "@timesSkipped": {},
+  "pickDirectory": "選擇目錄",
+  "@pickDirectory": {},
+  "confirm": "確認",
+  "@confirm": {},
+  "directories": "目錄",
+  "@directories": {},
+  "allDirectories": "所有目錄",
+  "@allDirectories": {},
+  "randomTracks": "隨機曲目",
+  "@randomTracks": {},
+  "amount": "數量",
+  "@amount": {},
+  "mode": "模式",
+  "@mode": {},
+  "recommendation": "推薦",
+  "@recommendation": {},
+  "sortBy": "排序依據",
+  "@sortBy": {},
+  "sortOrder": "排序順序",
+  "@sortOrder": {},
+  "liked": "喜愛",
+  "@liked": {},
+  "noRoamingCollection": "無法開始漫遊。集合中的曲目尚未分析。",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "無法開始漫遊。此曲目尚未分析。",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} 資料庫正在掃描中，無法執行分析。",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} 資料庫正在分析中，請等待過程完成。",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} 請分析您的資料庫以獲得最佳體驗。",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "尚未準備好",
+  "@notReady": {},
+  "createPlaylist": "建立播放清單",
+  "@createPlaylist": {},
+  "scanLibrary": "掃描資料庫",
+  "@scanLibrary": {},
+  "analyzeTracks": "分析曲目",
+  "@analyzeTracks": {},
+  "scan": "掃描",
+  "@scan": {},
+  "scanning": "掃描中",
+  "@scanning": {},
+  "analyze": "分析",
+  "@analyze": {},
+  "analyzing": "分析中",
+  "@analyzing": {},
+  "tryCreatingYourOwnCollection": "嘗試建立自己的收藏",
+  "@tryCreatingYourOwnCollection": {},
+  "theseActionsMayHelp": "這些操作可能會有所幫助",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "嘗試掃描新檔案",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "未找到收藏",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "播放清單中無項目",
+  "@noItemsInPlaylist": {},
+  "previous": "上一首",
+  "@previous": {},
+  "previousSubtitle": "跳至上一首曲目",
+  "@previousSubtitle": {},
+  "playPause": "播放/暫停",
+  "@playPause": {},
+  "playPauseSubtitle": "在播放和暫停之間切換",
+  "@playPauseSubtitle": {},
+  "next": "下一首",
+  "@next": {},
+  "nextSubtitle": "跳至下一首曲目",
+  "@nextSubtitle": {},
+  "volume": "音量",
+  "@volume": {},
+  "volumeSubtitle": "調整音量",
+  "@volumeSubtitle": {},
+  "playlist": "播放清單",
+  "@playlist": {},
+  "playlistSubtitle": "查看播放佇列",
+  "@playlistSubtitle": {},
+  "hidden": "隱藏",
+  "@hidden": {},
+  "hiddenSubtitle": "以下內容將在其他清單中隱藏",
+  "@hiddenSubtitle": {},
+  "coverWall": "封面牆",
+  "@coverWall": {},
+  "coverWallSubtitle": "顯示封面藝術以營造獨特氛圍",
+  "@coverWallSubtitle": {},
+  "fullscreen": "全螢幕",
+  "@fullscreen": {},
+  "fullscreenSubtitle": "進入或退出全螢幕模式",
+  "@fullscreenSubtitle": {},
+  "pause": "暫停",
+  "@pause": {},
+  "play": "播放",
+  "@play": {},
+  "enable": "啟用",
+  "@enable": {},
+  "disable": "停用",
+  "@disable": {},
+  "noTracksFound": "未找到曲目",
+  "@noTracksFound": {},
+  "library": "資料庫",
+  "@library": {},
+  "artistQuery": "藝術家查詢",
+  "@artistQuery": {},
+  "playlistQuery": "播放清單查詢",
+  "@playlistQuery": {},
+  "mixes": "Mix",
+  "@mixes": {},
+  "mixQuery": "Mix 查詢",
+  "@mixQuery": {},
+  "settings": "設定",
+  "@settings": {},
+  "analysis": "分析",
+  "@analysis": {},
+  "playback": "播放",
+  "@playback": {},
+  "theme": "主題",
+  "@theme": {},
+  "controller": "控制器",
+  "@controller": {},
+  "about": "關於",
+  "@about": {},
+  "selectLibraryDirectorySubtitle": "選擇您的音訊資料庫目錄，我們將掃描並分析其中的所有曲目。",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "重設資料庫",
+  "@resetLibrary": {},
+  "resetLibraryQuestion": "重設資料庫",
+  "@resetLibraryQuestion": {},
+  "resetLibrarySubtitle": "重設資料庫將清除您的檔案開啟歷史記錄。現有的媒體資料庫將保持不變。您要繼續嗎？",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "不可用",
+  "@unavailable": {},
+  "goToArtist": "前往藝術家",
+  "@goToArtist": {},
+  "goToAlbum": "前往專輯",
+  "@goToAlbum": {},
+  "addToPlaylist": "加入播放清單",
+  "@addToPlaylist": {},
+  "newPlaylist": "新播放清單",
+  "@newPlaylist": {},
+  "unableToOpenLibrary": "無法開啟資料庫",
+  "@unableToOpenLibrary": {},
+  "unableToOpenLibrarySubtitle": "由於以下錯誤，無法開啟資料庫：",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "未知錯誤",
+  "@unknownError": {},
+  "close": "關閉",
+  "@close": {},
+  "queue": "佇列",
+  "@queue": {},
+  "createMix": "建立 Mix",
+  "@createMix": {},
+  "removeMixTitle": "移除 Mix",
+  "@removeMixTitle": {},
+  "removeMixSubtitle": "如果您刪除此 Mix，將無法恢復。您要刪除嗎？",
+  "@removeMixSubtitle": {},
+  "delete": "刪除",
+  "@delete": {},
+  "oneDirectory": "1 個目錄",
+  "@oneDirectory": {},
+  "manyDirectories": "{count} 個目錄",
+  "@manyDirectories": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "removePlaylistTitle": "移除播放清單",
+  "@removePlaylistTitle": {},
+  "removePlaylistSubtitle": "如果您刪除此播放清單，將無法恢復。您要刪除嗎？",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "取消任務",
+  "@cancelTaskTitle": {},
+  "cancelTaskSubtitle": "如果您取消此任務，它將停止在當前完成狀態。您要取消嗎？",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "取消任務",
+  "@cancelTask": {},
+  "continueTask": "繼續",
+  "@continueTask": {},
+  "refresh": "重新整理",
+  "@refresh": {},
+  "explore": "探索",
+  "@explore": {},
+  "language": "語言",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "系統語言",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "依照系統語言，無需特殊設定。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "視窗大小",
+  "@windowSize": {
+    "description": "主題頁面中設定視窗大小的提示文字。"
+  },
+  "windowSizeSubtitle": "選擇應用程式的偏好視窗大小。",
+  "@windowSizeSubtitle": {
+    "description": "解釋視窗大小選項的副標題。"
+  },
+  "normalWindowSize": "標準",
+  "@normalWindowSize": {
+    "description": "標準視窗大小的選項。"
+  },
+  "slimWindowSize": "窄",
+  "@slimWindowSize": {
+    "description": "較窄視窗大小的選項。"
+  },
+  "stockyWindowSize": "寬",
+  "@stockyWindowSize": {
+    "description": "較寬視窗大小的選項。"
+  },
+  "log": "紀錄",
+  "@log": {
+    "description": "設定部分中的紀錄頁面的標題，此頁面包含程式執行時發生的錯誤和警告。"
+  },
+  "viewLogDetail": "檢視紀錄詳情",
+  "@viewLogDetail": {
+    "description": "上下文選單中的一個項目。按下此項目將顯示紀錄詳情視窗。"
+  },
+  "removeLogTitle": "刪除紀錄",
+  "@removeLogTitle": {
+    "description": "告知使用者他們即將刪除一筆記錄的視窗標題。"
+  },
+  "removeLogSubtitle": "如果刪除此紀錄，您將無法復原。您確定要刪除嗎？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "移除所有紀錄",
+  "@clearLogTitle": {
+    "description": "告知使用者他們即將刪除所有紀錄的視窗標題。"
+  },
+  "clearLogSubtitle": "如果刪除所有紀錄，您將無法復原。您確定要刪除嗎？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部刪除",
+  "@deleteAll": {
+    "description": "上下文選單中的一個項目。按下此項目將刪除所有可用項目。"
+  },
+  "noLogsAvailable": "無可用紀錄",
+  "@noLogsAvailable": {
+    "description": "紀錄設定頁面的空狀態圖示的標題。"
+  },
+  "home": "首頁",
+  "@home": {
+    "description": "首頁設定頁面的標題。"
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "oldest": "最舊",
+  "@oldest": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "random": "隨機",
+  "@random": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "mostPlayed": "最常播放",
+  "@mostPlayed": {
+    "description": "媒體庫首頁中的標題。"
+  },
+  "personalize": "個人化",
+  "@personalize": {
+    "description": "媒體庫首頁的上下文選單中的項目。"
+  },
+  "artistsLibraryHomeSubtitle": "探索與發現您最喜愛的藝術家的世界",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中藝術家部分的描述。"
+  },
+  "albumsLibraryHomeSubtitle": "沉浸在才華洋溢的藝術家創作的專輯中",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中專輯部分的描述。"
+  },
+  "playlistsLibraryHomeSubtitle": "策劃您專屬的個人聆聽之旅",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中播放清單部分的描述。"
+  },
+  "tracksLibraryHomeSubtitle": "深入研究您熟悉且喜愛的音軌",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中音軌部分的描述。"
+  },
+  "likedLibraryHomeSubtitle": "重溫您最珍視的音軌",
+  "@likedLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中收藏部分的描述。"
+  },
+  "mostLibraryHomeSubtitle": "再次聆聽那些反覆吸引您的旋律",
+  "@mostLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中最多播放部分的描述。"
+  },
+  "showRune": "顯示 Rune",
+  "@showRune": {
+    "description": "系統列選單中的項目。"
+  },
+  "exit": "結束",
+  "@exit": {
+    "description": "系統列選單中的項目。"
+  },
+  "back": "返回",
+  "@back": {
+    "description": "Windows 標題列左上角圖示的工具提示。"
+  },
+  "exportTracks": "匯出為",
+  "@exportTracks": {
+    "description": "上下文選單中允許使用者匯出集合的項目"
+  },
+  "exportM3u8": "播放清單檔案",
+  "@exportM3u8": {
+    "description": "上下文選單中的一個項目，允許使用者以 M3U8 格式匯出集合"
+  },
+  "exportCoverWall": "封面牆",
+  "@exportCoverWall": {
+    "description": "上下文選單中的一個項目，允許使用者匯出封面牆"
+  },
+  "noCoverArtToExport": "沒有可匯出的封面。",
+  "ratio": "比例",
+  "@ratio": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "frame": "邊框",
+  "@frame": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "evaluationMode": "評估模式",
+  "@evaluationMode": {
+    "description": "評估模式視窗的標題"
+  },
+  "evaluationModeContent1": "Rune 不是免費軟體。我們鼓勵您從應用程式商店購買正版授權。",
+  "@evaluationModeContent1": {
+    "description": "評估模式視窗的內容"
+  },
+  "evaluationModeContent2": "授權使用者可享有應用程式商店提供的自動更新，並有權直接向開發人員提出新功能。",
+  "@evaluationModeContent2": {
+    "description": "評估模式視窗的內容"
+  },
+  "evaluationModeContent3": "您可以選擇在 180 天內關閉此提醒，我們稍後會再次提醒您。",
+  "@evaluationModeContent3": {
+    "description": "評估模式視窗的內容"
+  },
+  "remindMeLater": "稍後提醒",
+  "@remindMeLater": {
+    "description": "評估模式視窗的動作按鈕"
+  },
+  "mysteriousButton": "神秘按鈕",
+  "@mysteriousButton": {
+    "description": "上下文選單中的項目"
+  },
+  "mysteriousModalTitle": "嘎吱",
+  "@mysteriousModalTitle": {
+    "description": "視窗的標題"
+  },
+  "mysteriousModalContent": "你觸發了一個神秘的機關。空間的結構好像發生了變化，露出了新的探索區域。",
+  "@mysteriousModalContent": {
+    "description": "視窗的內容"
+  },
+  "laboratory": "實驗室",
+  "@laboratory": {
+    "description": "連結標題的標題"
+  },
+  "libraryMode": "資料庫設定",
+  "@libraryMode": {
+    "description": "視窗的標題，用於指導使用者選擇儲存資料庫的位置"
+  },
+  "libraryModeSubtitle": "我們需要更多了解您的資料庫。您的媒體檔案儲存在哪裡？",
+  "@libraryModeSubtitle": {
+    "description": "視窗的副標題，引導使用者選擇資料庫的儲存位置"
+  },
+  "portableMode": "本機硬碟",
+  "@portableMode": {
+    "description": "使用者的一個候選庫模式"
+  },
+  "portableModeSubtitle": "我們會將您的媒體索引一併儲存在資料庫所在的資料夾中。",
+  "@portableModeSubtitle": {
+    "description": "使用者的候選庫模式的副標題"
+  },
+  "localMode": "雲端",
+  "@localMode": {
+    "description": "使用者的一個候選庫模式"
+  },
+  "localModeSubtitle": "我們會將您的媒體索引儲存在 Rune 的設定目錄中。",
+  "@localModeSubtitle": {
+    "description": "使用者的候選庫模式的副標題"
+  },
+  "rememberWindowSize": "記憶視窗大小",
+  "@rememberWindowSize": {
+    "description": "主題頁面中設定選項的標題"
+  },
+  "rememberWindowSizeSubtitle": "在調整視窗大小時儲存，下次啟動程式時尺寸不變。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "主題頁面中設定選項的副標題"
+  },
+  "closeNotification": "Rune 仍在執行",
+  "@closeNotification": {
+    "description": "當使用者關閉視窗時，彈出的通知"
+  },
+  "closeNotificationSubtitle": "Rune 正在背景執行。您可以在系統列中輕鬆找到。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "註冊",
+  "@register": {
+    "description": "設定頁面中註冊磚的標題。"
+  },
+  "evaluationModeContent4": "您可以從下方的商店購買音樂檔案作為註冊碼。點擊「註冊」以驗證您的正版狀態。",
+  "@evaluationModeContent4": {
+    "description": "評估模式視窗的內容。"
+  },
+  "registerAction": "註冊",
+  "@registerAction": {
+    "description": "視窗中註冊按鈕的標籤。"
+  },
+  "registerFailed": "註冊失敗",
+  "@registerFailed": {
+    "description": "註冊失敗視窗的標題。"
+  },
+  "registerFailedSubtitle": "驗證過程中發生錯誤。",
+  "@registerFailedSubtitle": {
+    "description": "註冊失敗視窗的內容。"
+  },
+  "registerSuccess": "註冊成功",
+  "@registerSuccess": {
+    "description": "註冊成功視窗的標題。"
+  },
+  "registerSuccessSubtitle": "恭喜！您的軟體已成功註冊，感謝您選擇 Rune。",
+  "@registerSuccessSubtitle": {
+    "description": "註冊成功視窗的內容。"
+  },
+  "registerInvalid": "金鑰無效",
+  "@registerInvalid": {
+    "description": "無效註冊金鑰視窗的標題。"
+  },
+  "registerInvalidSubtitle": "您提供的金鑰檔案無效。請檢查檔案並重試。",
+  "@registerInvalidSubtitle": {
+    "description": "無效註冊金鑰視窗的內容。"
+  },
+  "importM3u8AmbiguousSubtitle": "您的音軌已匯入，但有些項目符合多個檔案。Rune 已為每個項目匯入一個符合的音軌。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "符合多個檔案",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "找不到",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "匯入成功",
+  "@importM3u8Success": {
+    "description": "部分匯入成功視窗的標題。"
+  },
+  "importM3u8SuccessSubtitle": "您的音軌已匯入，但有些音軌並未在資料庫中檢索到。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分匯入成功視窗的內容。"
+  },
+  "importM3u8Failed": "匯入失敗",
+  "@importM3u8Failed": {
+    "description": "匯入失敗視窗的標題。"
+  },
+  "importM3u8FailedSubtitle": "匯入過程中發生錯誤。",
+  "@importM3u8FailedSubtitle": {
+    "description": "匯入失敗視窗的內容。"
+  },
+  "importM3u8": "匯入播放清單",
+  "@importM3u8": {
+    "description": "上下文選單項目，指導使用者匯入新播放清單。"
+  },
+  "adaptiveSwitching": "自適應切換",
+  "@adaptiveSwitching": {
+    "description": "播放設定頁面中某項設定的標題"
+  },
+  "adaptiveSwitchingSubtitle": "若當前曲目已播放超過三秒，切換回前一曲時將從頭開始播放。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "請考慮購買正版授權。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "歌詞",
+  "@lyrics": {
+    "description": "用來切換到歌詞頁面的按鈕提示文字。"
+  },
+  "lyricsSubtitle": "顯示歌曲的完整歌詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "線上服務",
+  "@onlineServices": {
+    "description": "播放設定頁面中的章節標題。"
+  },
+  "login": "登入",
+  "@login": {
+    "description": "登入模態框的動作按鈕。"
+  },
+  "loginFailed": "登入失敗",
+  "@loginFailed": {
+    "description": "登入模態框中登入失敗按鈕的標題。"
+  },
+  "loginFailedSubtitle": "登入時發生錯誤",
+  "@loginFailedSubtitle": {
+    "description": "登入模態框中登入失敗按鈕的副標題。"
+  },
+  "scrobbleCredentialsRejected": "此服務拒絕了這些憑證。請檢查您的使用者名稱與密碼或權杖。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "無法連線至此服務。請檢查網路連線後再試一次。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "缺少 Last.fm 的{field}。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API Key"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm 拒絕了 API 金鑰或密鑰。請檢查 API 憑證後再試一次。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "透過此音樂追蹤服務提供詳細的聆聽分析。",
+  "@lastFmSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "libreFmSubtitle": "一個免費且開放的平台，分享你的音樂品味。",
+  "@libreFmSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "listenBrainzSubtitle": "在追蹤你的習慣同時貢獻於開源資料庫。",
+  "@listenBrainzSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "fix": "修正",
+  "@fix": {
+    "description": "服務登入失敗設定項的動作按鈕。"
+  },
+  "confirmLogoutTitle": "確認登出",
+  "@confirmLogoutTitle": {
+    "description": "登出確認對話框的標題。"
+  },
+  "confirmLogoutSubtitle": "您確定要登出嗎？所有本地儲存的登入憑證將被刪除。",
+  "@confirmLogoutSubtitle": {
+    "description": "登出確認對話框的副標題。"
+  },
+  "retryLogin": "重試登入",
+  "@retryLogin": {
+    "description": "錯誤選項菜單中重試登入的選項。"
+  },
+  "logout": "登出",
+  "@logout": {
+    "description": "錯誤選項菜單中登出的選項。"
+  },
+  "copy": "拷貝",
+  "@copy": {
+    "description": "內容上下文選單中的項目。"
+  },
+  "username": "使用者名稱",
+  "@username": {
+    "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "password": "密碼",
+  "@password": {
+    "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "scrobble 登入表單的輸入欄位標題。"
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "URL 的主機名部分。"
+  },
+  "port": "埠",
+  "@port": {
+    "description": "URL 的埠部分。"
+  },
+  "addConnection": "新增連線",
+  "@addConnection": {
+    "description": "對話框中的操作按鈕。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用於幫助用戶互相連接的設置頁面。"
+  },
+  "searchNeighbors": "搜尋附近裝置",
+  "@searchNeighbors": {
+    "description": "相鄰設置頁面中的項目，用於發現本地網路中的設備。"
+  },
+  "searchNeighborsSubtitle": "在本地網路中尋找並連線 Rune 裝置。",
+  "@searchNeighborsSubtitle": {
+    "description": "搜索鄰居設置項的副標題。"
+  },
+  "editDeviceInformation": "編輯裝置資訊",
+  "@editDeviceInformation": {
+    "description": "出現在設備設定中。指的是在掃描過程中向其他用戶展示的設備資訊。"
+  },
+  "editDeviceInformationSubtitle": "自訂在掃描過程中展示給其他裝置的詳細資訊。",
+  "@editDeviceInformationSubtitle": {
+    "description": "強調更改將影響在他人掃描列表中的可見性。避免使用技術術語，突出“掃描”這一交互場景。"
+  },
+  "enableBroadcast": "啟用廣播",
+  "@enableBroadcast": {
+    "description": "“廣播”意味著主動發送設備資訊。如目標語言中沒有直接對應詞彙，可優先使用“使可見”或“共享可用性”。"
+  },
+  "enableBroadcastSubtitle": "展示您的裝置資訊，供他人發現。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免歧義：此處“公開”僅指對本地網路中的用戶，而非整個網路。"
+  },
+  "addNeighborManually": "手動新增附近裝置",
+  "@addNeighborManually": {
+    "description": "“附近設備”指的是在同一區域網路內的設備。如空間允許，也可使用“手動添加鄰居”。應優先簡潔表達。"
+  },
+  "addNeighborManuallySubtitle": "手動輸入裝置的區域網路資訊以建立連線。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明確“區域網路”不等於公共網路（例如區域網路中的 IP/埠）。“連接”意味著建立直接連結，而非僅僅顯示可見。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用於終止當前活動的操作按鈕。"
+  },
+  "deviceFingerprint": "裝置指紋",
+  "@deviceFingerprint": {
+    "description": "用於安全識別與連接的設備唯一標識符。"
+  },
+  "deviceName": "裝置名稱",
+  "@deviceName": {
+    "description": "用戶自訂的設備名稱，在掃描和連接過程中展示給其他用戶。"
+  },
+  "noDevicesFound": "未發現裝置",
+  "@noDevicesFound": {
+    "description": "掃描過程中未發現任何設備時顯示的資訊。"
+  },
+  "error": "錯誤：{error}",
+  "@error": {
+    "description": "設備發現失敗時顯示的錯誤資訊。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "權限被拒絕"
+      }
+    }
+  },
+  "model": "型號",
+  "@model": {
+    "description": "設備型號資訊的標籤。"
+  },
+  "type": "類型",
+  "@type": {
+    "description": "設備類型資訊的標籤。"
+  },
+  "fingerprint": "指紋",
+  "@fingerprint": {
+    "description": "設備指紋資訊的標籤。"
+  },
+  "lastSeen": "上次發現",
+  "@lastSeen": {
+    "description": "設備上次被檢測到的時間標籤。"
+  },
+  "ipAddresses": "IP 地址",
+  "@ipAddresses": {
+    "description": "設備 IP 地址的標籤。"
+  },
+  "pair": "配對",
+  "@pair": {
+    "description": "用於發起設備配對的按鈕文本。"
+  },
+  "pairingWith": "正在與 {deviceName} 配對…",
+  "@pairingWith": {
+    "description": "開始配對流程時顯示的資訊。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客廳電視"
+      }
+    }
+  },
+  "server": "伺服器",
+  "@server": {
+    "description": "用於控制媒體播放器共享行為的設置頁面標題，包括管理授權用戶和廣播設備狀態。"
+  },
+  "serverControl": "伺服器控制",
+  "@serverControl": {
+    "description": "用於控制本地網路伺服器的部分標題。“伺服器”指的是用於設備發現的後台服務。"
+  },
+  "serverControlSubtitle": "啟動伺服器以便其他裝置在本地網路中發現此裝置。",
+  "@serverControlSubtitle": {
+    "description": "明確伺服器僅在本地網路中運行。強調啟動伺服器會使設備對他人可見。"
+  },
+  "selectInterface": "網路介面",
+  "@selectInterface": {
+    "description": "用於選擇伺服器綁定的網路界面的標籤。保持技術性但應清晰。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示該設備已被完全授權。若更自然，可使用“已驗證”或“已確認”。"
+  },
+  "pendingStatus": "待審批",
+  "@pendingStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示正等待批准。優先使用表示“待處理”的術語而非技術詞彙如“排隊中”。"
+  },
+  "blockedStatus": "已阻止",
+  "@blockedStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示明確拒絕訪問。可視文化適用使用“已封禁”或“被拒絕”等強烈用詞，但應避免負面含義過重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "作為用戶/用戶端狀態徽章顯示，表示狀態無法識別或未定義。建議使用“未識別”或“未定義”，保持中性語氣，不暗示錯誤。UI 中常配灰色。"
+  },
+  "review": "審查",
+  "@review": {
+    "description": "用於審查待處理設備連接請求的按鈕。會彈出一個允許或阻止設備的對話框。"
+  },
+  "reviewRequestTitle": "連線請求",
+  "@reviewRequestTitle": {
+    "description": "審查設備連接時對話框顯示的標題。保持簡潔，突出所需操作。"
+  },
+  "blockDevice": "阻止裝置",
+  "@blockDevice": {
+    "description": "永久拒絕訪問的操作。根據文化習慣也可用“封禁”，但避免負面情緒過重。"
+  },
+  "connectionVerificationMessage": "若要允許裝置 {alias}（{model}）連線，請分享以下通訊金鑰指紋以驗證您的身份。",
+  "@connectionVerificationMessage": {
+    "description": "用於建立信任的操作說明文本。強調透過分享指紋來進行身份驗證。可使用“驗證”或“認證”類術語。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "用戶自訂的設備暱稱"
+      },
+      "model": {
+        "type": "String",
+        "description": "廠商定義的設備型號標識"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "阻止未來的連線。您可隨時取消對該裝置的阻止。",
+  "@blockDeviceSubtitle": {
+    "description": "說明阻止行為的後果及可撤銷性。如 UI 不同，可用“設備管理中解除”類描述。"
+  },
+  "removeTrust": "移除權限",
+  "@removeTrust": {
+    "description": "用於刪除設備權限記錄的對話框標題。強調永久移除所有已批准/已阻止狀態，並需要重新註冊。"
+  },
+  "removeTrustSubtitle": "此操作將永久刪除權限記錄。裝置將失去所有存取狀態（批准/阻止），並需重新傳送註冊請求，以再次出現在列表中。",
+  "@removeTrustSubtitle": {
+    "description": "說明刪除行為會移除所有歷史狀態，並需要重新註冊。如更自然可使用“清除記錄”等表達，但應與“移除權限”保持一致。"
+  },
+  "pairingTitle": "裝置配對",
+  "@pairingTitle": {
+    "description": "用於安全配對對話框的標題。應突出雙向認證過程。"
+  },
+  "pairingLoading": "正在取得裝置指紋…",
+  "@pairingLoading": {
+    "description": "指紋驗證過程中顯示的狀態文本。表示正在進行安全檢查。"
+  },
+  "pairingInstructions": "為進行安全驗證，請選擇與您的夥伴裝置上顯示的指紋相匹配的字元，以確認連線到的是正確裝置。",
+  "@pairingInstructions": {
+    "description": "說明部分指紋驗證流程。使用“安全驗證”而非技術術語如 MITM。"
+  },
+  "pairingFailureTitle": "配對失敗",
+  "@pairingFailureTitle": {
+    "description": "指紋不匹配時的標題。表達失敗結果但不引起過度擔憂。"
+  },
+  "pairingFailureMessage": "指紋不匹配。請確認您正在連線到正確的裝置，並重新進行驗證。",
+  "@pairingFailureMessage": {
+    "description": "引導用戶重試，而不是建議檢查網路。重點放在設備驗證上。"
+  },
+  "closingWindowBehaviorTitle": "關閉窗口行為",
+  "@closingWindowBehaviorTitle": {
+    "description": "窗口關閉行為設置部分的標題文本。強調用戶可控制應用關閉時的行為。"
+  },
+  "closingWindowBehaviorSubtitle": "選擇點擊關閉按鈕時應用的行為。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解釋用戶可以自訂關閉按鈕的行為。可使用“自訂”或“配置”等詞替代。"
+  },
+  "minimizeToTray": "最小化到系統匣",
+  "@minimizeToTray": {
+    "description": "選項文本，表示關閉窗口後程序仍在後台運行。也可使用“隱藏到托盤”或“保持運行”表達方式。"
+  },
+  "exitProgram": "完全退出",
+  "@exitProgram": {
+    "description": "選項文本，表示關閉窗口時程序將徹底退出。也可使用“關閉應用”或“終止程式”等替代表述。"
+  },
+  "systemTabTitle": "系統",
+  "@systemTabTitle": {
+    "description": "系統設置部分的導航標籤標題，表示包含系統級配置選項的集合。"
+  },
+  "removeFromPlaylist": "從播放列表中移除",
+  "@removeFromPlaylist": {
+    "description": "用於將曲目從當前播放列表中移除的操作。在右鍵點擊歌曲時作為菜單選項出現。可根據語言習慣使用“刪除”或“移除”。"
+  },
+  "waitForApprove": "正在等待伺服器批准此請求…",
+  "@waitForApprove": {
+    "description": "在伺服器連接驗證過程中顯示的載入資訊。"
+  },
+  "clientBlockedTitle": "連線被阻止",
+  "@clientBlockedTitle": {
+    "description": "錯誤標題，表示遠程設備已阻止該用戶端的連接嘗試。"
+  },
+  "clientBlockedMessage": "遠端裝置已阻止您的用戶端連線。您需要獲得該裝置所有者的許可才能建立連線。",
+  "@clientBlockedMessage": {
+    "description": "說明用戶的連接請求被遠程設備拒絕。建議用戶聯繫設備所有者以解決問題。"
+  },
+  "genres": "音樂類型",
+  "@genres": {
+    "description": "用於音樂類別/風格列表的標題或分區名。可能用於音樂庫分類、篩選選項或偏好設置。可根據語言習慣選擇“音樂分類”、“音樂風格”或“音樂種類”等表述。"
+  },
+  "genreQuery": "類型查詢",
+  "@genreQuery": {},
+  "deduplicate": "去重",
+  "@deduplicate": {
+    "description": "按鈕標籤，用於從音樂庫或播放列表中移除重複曲目。表示識別並刪除重複歌曲的功能。可根據語言習慣使用“刪除重複”或“清理重複”等說法。"
+  },
+  "deduplicateThresholdTitle": "去重閾值",
+  "@deduplicateThresholdTitle": {
+    "description": "音訊相似度閾值設置的標題。表示用戶可以在此調整檢測重複曲目時的比較嚴格程度。"
+  },
+  "deduplicateThresholdSubtitle": "調整檢測相似音訊曲目的靈敏度級別。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "簡要說明音訊相似度閾值控制的內容。幫助用戶理解該配置項的用途。"
+  },
+  "nearlyIdentical": "幾乎一致",
+  "@nearlyIdentical": {
+    "description": "最高級別的音訊相似度閾值，表示曲目幾乎完全一致。用於配置重複檢測設置。可根據語言習慣使用“完全一致”或“完美匹配”。"
+  },
+  "highlySimiar": "高度相似",
+  "@highlySimiar": {
+    "description": "第二高的音訊相似度閾值，表示曲目之間差異極少。用於配置重複檢測設置。可使用“非常相似”或“近乎一致”等表述。"
+  },
+  "moderatelySimilar": "部分相似",
+  "@moderatelySimilar": {
+    "description": "中等程度的音訊相似度閾值，表示曲目之間存在明顯但不嚴重的差異。可使用“部分相似”或“有些一致”。"
+  },
+  "slightlySimilar": "略微相似",
+  "@slightlySimilar": {
+    "description": "最低級別的音訊相似度閾值，表示曲目之間僅有少量相似特徵。可使用“基本上不一致”或“略有相似”。"
+  },
+  "deduplicating": "正在去重",
+  "@deduplicating": {
+    "description": "表示當前正在執行去重過程的標籤。向用戶展示系統正在移除音樂庫或播放列表中的重複曲目。也可使用“正在移除重複項”或“去重進行中”等表達。"
+  },
+  "interfaceScale": "介面縮放",
+  "interfaceScaleSubtitle": "調整 Rune 中文字與內容的大小。",
+  "interfaceScaleSaveError": "無法儲存介面縮放",
+  "linuxCustomWindowControls": "自訂視窗控制項",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "啟用自訂視窗控制項，使用類似 Windows 模式的無邊框視窗。",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "離線可用性",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "保持離線可用",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "停止保持離線可用",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "已儲存離線選擇",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "已停止自動下載",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "無法儲存離線選擇",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "配對裝置可用時將下載曲目。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "現有本機檔案會保留。",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "音訊無法使用",
+  "allowPairedSync": "允許同步",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "關閉後，其他裝置將無法連線至此裝置。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "刪除不需要的下載",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "選擇是否刪除不再需要離線儲存的下載。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "同時刪除不再需要的下載檔案",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "離線選擇已更新。",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "remoteOpenUntrusted": "此裝置尚未信任該伺服器，請先配對。",
+  "remoteOpenNotAuthorized": "另一部裝置尚未允許此裝置連線。",
+  "remoteOpenUnreachable": "無法連線到裝置，請檢查它的網路連線。",
+  "remoteOpenProtocol": "無法連線。請在兩部裝置上更新 Rune。",
+  "remoteLossRevoked": "此裝置的存取權限已移除。",
+  "remoteLossDetached": "播放裝置已中斷此控制器的連線。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "另一部裝置已停止分享。",
+  "remoteLossNetworkLost": "連線已中斷。",
+  "syncToThisDevice": "同步至此裝置",
+  "libraryNotShared": "未共享",
+  "controlPermissionRequired": "無法控制播放",
+  "deviceLibraries": "資料庫",
+  "addSharedLibrary": "新增",
+  "sharedLibraryAdded": "已新增",
+  "openSharedLibrary": "開啟",
+  "noSharedLibraries": "此裝置沒有共享的資料庫。",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "在背景同步",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "此項目已不存在",
+  "requestInvalid": "請求無效",
+  "requestCertificateMismatch": "此裝置的憑證不相符",
+  "requestUnavailable": "目前無法使用",
+  "requestStorageBusy": "儲存空間忙碌中，請再試一次。",
+  "mixNoLongerExists": "此混音已不存在",
+  "devices": "裝置",
+  "playOn": "播放至",
+  "playOnSubtitle": "選擇音訊的播放位置。",
+  "playOnFixedToRemote": "固定至此遠端裝置",
+  "playOnPlayingOn": "正在 {alias} 上播放",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "離線",
+  "playOnNotApproved": "此裝置尚未核准您",
+  "playOnNoControl": "無法控制此裝置",
+  "playOnCantPlay": "無法播放 {library}",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "重試",
+  "castTrackMode": "投放曲目時",
+  "castTrackReplace": "取代佇列",
+  "castTrackPlayNext": "接著播放",
+  "castControlRenderer": "投放後",
+  "castKeepControlling": "繼續控制此裝置",
+  "castControlCastDevice": "控制投放的裝置",
+  "castTrackModeSubtitle": "選擇投放曲目時如何變更佇列。",
+  "castControlRendererSubtitle": "選擇投放後要控制的裝置。",
+  "castNotPossible": "{alias} 無法播放 {library}",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, other{{alias}尚未保存的{count}首曲目未加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "此裝置",
+  "devicesThatCanConnect": "可連線的裝置",
+  "otherDevices": "其他裝置",
+  "myDevice": "我的裝置",
+  "controllingNow": "正在控制此裝置",
+  "waitingForApproval": "等待核准",
+  "guest": "訪客",
+  "myDeviceAccessDescription": "可以播放、瀏覽和同步您的資料庫",
+  "guestAccessDescription": "可以控制播放並在控制時瀏覽",
+  "customDeviceAccess": "自訂",
+  "customizeDevice": "自訂",
+  "disconnect": "中斷連線",
+  "controlPlayback": "控制播放",
+  "controlPlaybackDescription": "可以在此裝置上播放、暫停、加入佇列並投放",
+  "deviceAccessLibraries": "資料庫",
+  "deviceAccessNotShared": "未共享",
+  "deviceAccessReadWrite": "讀寫",
+  "requestConflict": "播放佇列已變更，請再試一次",
+  "requestPermissionDenied": "此裝置不允許執行此操作",
+  "readOnly": "唯讀",
+  "queueUnavailableAccessRevoked": "存取權已撤銷",
+  "queueUnavailableLibraryUnavailable": "資料庫無法使用",
+  "queueUnavailableSourceUnreachable": "無法連線至來源",
+  "queueUnavailableUnreadable": "無法讀取音訊",
+  "rendererLinkLost": "與 {alias} 的連線已中斷",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "裝置金鑰與指紋不相符",
+  "requestRegistrationConflict": "此指紋的裝置已註冊",
+  "remoteLibraryReconnecting": "正在重新連線至 {alias}…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "此裝置不支援此操作",
+  "capabilityOwnerOnly": "只有擁有者裝置才能執行此操作",
+  "requestOtherDeviceName": "另一部裝置",
+  "requestPeerNeedsUpdatePeer": "{alias} 需要更新 Rune 才能連線。",
+  "requestPeerNeedsUpdateThisDevice": "請更新此裝置上的 Rune 以連線至 {alias}。",
+  "remoteLossProtocolIncompatible": "請在兩部裝置上更新 Rune 以重新連線。",
+  "capabilityPeerTooOld": "請在另一部裝置上更新 Rune 以使用此功能。",
+  "requestPeerNeedsUpdateFallback": "請在兩部裝置上更新 Rune 以連線。",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "您在此伺服器上的帳號無權執行此操作。",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "無法讀取此資料庫的設定。",
+  "@invalidLibrarySettingsSubtitle": {},
+  "libraryRecordNotFound": "此資料庫已不存在。",
+  "libraryRecordIsOpen": "請先關閉資料庫，再將其移除。",
+  "libraryMediaFolderMissing": "找不到資料庫資料夾。",
+  "libraryUntrusted": "此裝置未受信任。",
+  "libraryInvalidSource": "此資料夾無法用作資料庫。",
+  "libraryStorageFailure": "無法儲存資料庫。",
+  "libraryNewerVersion": "此資料庫由較新版本的 Rune 建立。請更新此裝置上的 Rune 以開啟。",
+  "libraryShareStoreUnavailable": "共享儲存空間無法使用。同步會自動重試。",
+  "libraryRemoteNotAuthorized": "裝置未授權此連線。",
+  "libraryRemoteUnreachable": "無法連線到裝置。",
+  "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",
+  "libraryProtocolIncompatible": "此裝置使用不相容的協定版本。",
+  "libraryNotSupportedYet": "目前尚不支援此資料庫類型。",
+  "onMyIPhone": "我的 iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "我的 iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "工具列图标顏色",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "選擇图标顏色。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自动",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "同時播放其他音訊",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Rune 播放時，其他音訊仍會繼續播放。",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "場景",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "查看封面牆選單提供的場景。拖曳以重新排序。",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "已匯入 {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "無法匯入 {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "刪除場景",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "刪除 {name}？重新匯入即可恢復。",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "視覺化",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "隨音樂律動的視覺效果。",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "視覺化實驗室",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "在視覺化效果上顯示實驗室。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "跟隨文字大小",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "turnOnBackgroundSync": "開啟背景同步",
+  "turnOffBackgroundSync": "關閉背景同步",
+  "shareLibraryModeSubtitle": "Rune 會將您的媒體索引儲存在哪裡？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共享資料夾",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "我們會將您的媒體索引儲存在共享資料夾中，讓其他裝置可以同步。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "存放在此裝置",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "連線至 WebDAV 伺服器上的資料夾。",
+  "s3": "S3",
+  "s3Subtitle": "連線至 S3 儲存桶中的資料夾。",
+  "folder": "資料夾",
+  "bucket": "儲存桶",
+  "region": "區域",
+  "accessKeyId": "存取金鑰 ID",
+  "secretAccessKey": "秘密存取金鑰",
+  "libraryOpenDalAuthenticationRejected": "請檢查使用者名稱和密碼。",
+  "libraryOpenDalUnreachable": "請檢查伺服器位址和網路連線。",
+  "libraryOpenDalNotFolder": "請確認所選資料夾存在且可供存取。",
+  "libraryOpenDalReadOnly": "請選擇可寫入的資料夾，才能將媒體索引儲存在共享資料夾中。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "連線至 Subsonic 音樂伺服器。",
+  "playOnThisDevice": "在此裝置播放",
+  "controlServerPlayer": "控制伺服器播放器",
+  "howDoYouWantToUseIt": "您想如何使用？",
+  "fileDialogOpenTitle": "開啟",
+  "fileDialogSaveTitle": "另存新檔",
+  "fileDialogFolderTitle": "選擇資料夾",
+  "fileDialogOpen": "開啟",
+  "fileDialogSelectFolder": "選擇資料夾",
+  "fileDialogFileName": "檔案名稱",
+  "fileDialogSaveAsType": "存檔類型",
+  "fileDialogFileTypes": "檔案類型",
+  "fileDialogAllFiles": "所有檔案",
+  "fileDialogForward": "向前",
+  "fileDialogRecentLocations": "最近的位置",
+  "fileDialogUp": "向上",
+  "fileDialogAddress": "位址",
+  "fileDialogSearchIn": "搜尋 {folder}",
+  "fileDialogNewFolder": "新增資料夾",
+  "fileDialogView": "檢視",
+  "fileDialogExtraLargeIcons": "超大圖示",
+  "fileDialogLargeIcons": "大圖示",
+  "fileDialogMediumIcons": "中圖示",
+  "fileDialogSmallIcons": "小圖示",
+  "fileDialogList": "清單",
+  "fileDialogDetails": "詳細資料",
+  "fileDialogTiles": "並排",
+  "fileDialogContent": "內容",
+  "fileDialogHiddenItems": "隱藏的項目",
+  "fileDialogName": "名稱",
+  "fileDialogDateModified": "修改日期",
+  "fileDialogSize": "大小",
+  "fileDialogAscending": "遞增",
+  "fileDialogDescending": "遞減",
+  "fileDialogFileFolder": "檔案資料夾",
+  "fileDialogFileOfType": "{extension} 檔案",
+  "fileDialogFile": "檔案",
+  "fileDialogQuickAccess": "快速存取",
+  "fileDialogThisDevice": "本裝置",
+  "fileDialogDesktop": "桌面",
+  "fileDialogDocuments": "文件",
+  "fileDialogDownloads": "下載",
+  "fileDialogMusic": "音樂",
+  "fileDialogPictures": "圖片",
+  "fileDialogVideos": "影片",
+  "fileDialogLocalDisk": "本機磁碟",
+  "fileDialogRemovableDisk": "卸除式磁碟",
+  "fileDialogOpticalDrive": "光碟機",
+  "fileDialogNetworkDrive": "網路磁碟機",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{total} 中的 {free} 可用",
+  "fileDialogCopyAsPath": "複製為路徑",
+  "fileDialogRename": "重新命名",
+  "fileDialogEmptyFolder": "這個資料夾是空的。",
+  "fileDialogNoMatches": "沒有符合搜尋條件的項目。",
+  "fileDialogNotFound": "找不到 {location}。請檢查拼字，然後再試一次。",
+  "fileDialogFileNotFound": "找不到檔案 {name}。請檢查檔案名稱，然後再試一次。",
+  "fileDialogPathNotFound": "路徑 {name} 不存在。請檢查路徑，然後再試一次。",
+  "fileDialogFolderNotFound": "資料夾 {name} 不存在。請檢查資料夾名稱，然後再試一次。",
+  "fileDialogSizeColumnToFit": "將此欄調整為適當大小",
+  "fileDialogSizeAllColumnsToFit": "將所有欄調整為適當大小",
+  "fileDialogChangeView": "變更檢視",
+  "fileDialogMoreOptions": "更多選項",
+  "fileDialogPermissionDenied": "您沒有存取 {location} 的權限。",
+  "fileDialogUnavailable": "{location} 無法使用。請確認磁碟機已連線，然後再試一次。",
+  "fileDialogNotAFolder": "{location} 是檔案，無法當作資料夾開啟。",
+  "fileDialogAlreadyExists": "此位置已經有名為 {name} 的項目。",
+  "fileDialogInvalidName": "{name} 無法在此當作名稱。",
+  "fileDialogConfirmSaveAs": "確認另存新檔",
+  "fileDialogReplacePrompt": "{name} 已經存在。要取代它嗎？",
+  "fileDialogReplace": "取代",
+  "fileDialogItemCount": "{count, plural, other{{count} 個項目}}",
+  "fileDialogNavigationPane": "瀏覽窗格",
+  "fileDialogItems": "項目"
+}

@@ -1,0 +1,73 @@
+[package]
+name = "database"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "database"
+path = "src/lib.rs"
+
+[features]
+sync-crash-probe = []
+test-fixtures = ["dep:reqwest"]
+
+[dependencies]
+sync-orm = { path = "../sync-orm" }
+log = { version = "0.4.22" }
+sea-orm = { version = "2.0.4", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-native-tls",
+    "macros",
+    "debug-print",
+] }
+sea-orm-migration = "2.0.4"
+serde = "1.0.219"
+serde_json = "1.0.140"
+migration = { path = "../migration" }
+metadata = { path = "../metadata" }
+analysis = { path = "../analysis" }
+playback = { path = "../playback" }
+tag-editor = { path = "../tag-editor" }
+sync = { path = "../sync" }
+futures = "0.3.30"
+tokio = { version = "1.40.0", features = ["fs", "rt", "rt-multi-thread", "macros"] }
+async-channel = "2.3.1"
+deunicode = "1.6.0"
+paste = "1.0.15"
+chrono = "0.4.38"
+tokio-util = "0.7.11"
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+rayon = "1.10.0"
+seq-macro = "0.3.5"
+once_cell = "1.19.0"
+rust_decimal = "1.36.0"
+rust_decimal_macros = "1.36.0"
+windows = { version = "0.58.0", features = [
+    "Win32_Storage",
+    "Win32_Storage_FileSystem",
+] }
+async-trait = "0.1.83"
+thiserror = "2.0.3"
+uuid = { version = "1.11.0", features = ["v5", "v4", "serde"] }
+regex = "1.11.1"
+blake3 = "1.7.0"
+fsio = { version = "0.1.0", path = "../fsio" }
+http-request = { version = "0.1.0", path = "../http-request" }
+ring = "0.17.13"
+zeroize = "1.8.1"
+discovery = { version = "0.1.0", path = "../discovery" }
+tempfile = "3.20.0"
+reqwest = { version = "0.12.18", features = ["json", "rustls-tls"], optional = true }
+
+[dev-dependencies]
+hyper = "1.6.0"
+portpicker = "0.1.1"
+env_logger = "0.11.8"
+rand = "0.8.5"
+database = { path = ".", features = ["test-fixtures"] }
+fsio = { path = "../fsio", features = ["test-fixtures"] }
+migration = { path = "../migration", features = ["test-fixtures"] }
+
+[lints]
+workspace = true

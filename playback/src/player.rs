@@ -1,0 +1,1332 @@
+use anyhow::Result;
+use futures::future::BoxFuture;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::RwLock;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
+use std::{fmt, thread};
+use tokio::runtime::Runtime;
+use uuid::Uuid;
+
+use fsio::FsIo;
+use log::{debug, error};
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
+
+use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::pcm_tap::PcmTap;
+use crate::strategies::AddMode;
+use anyhow::Error;
+use std::error as std_error;
+use std::future;
+use std::result;
+
+/// Why a queued item could not be played.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnavailableReason {
+    /// The host no longer grants access to this audio.
+    AccessRevoked,
+    /// The library could not be acquired on this node.
+    LibraryUnavailable,
+    /// The audio source could not be reached or ended before completion.
+    SourceUnreachable,
+    /// The reachable source could not be probed or decoded as audio.
+    Unreadable,
+    /// The remote service rejected the stored credentials during playback.
+    CredentialsRejected,
+    /// The remote catalog no longer has this track.
+    TrackGone,
+}
+
+/// Underlying cause kept on [`RemoteAudioError::Unreachable`] for diagnostics.
+pub type RemoteAudioCause = Box<dyn std_error::Error + Send + Sync>;
+
+/// Typed failures reported by remote audio requests and stream readers.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoteAudioError {
+    #[error("audio access revoked")]
+    AccessRevoked,
+    #[error("audio source unreachable")]
+    Unreachable(#[source] RemoteAudioCause),
+    #[error("audio stream ended before completion")]
+    Incomplete,
+    #[error("library unavailable")]
+    LibraryUnavailable,
+    #[error("remote credentials were rejected")]
+    CredentialsRejected,
+    #[error("remote track is no longer available")]
+    TrackGone,
+}
+
+impl RemoteAudioError {
+    /// The source could not be reached; `cause` says why.
+    pub fn unreachable(cause: impl Into<RemoteAudioCause>) -> Self {
+        Self::Unreachable(cause.into())
+    }
+}
+
+impl UnavailableReason {
+    pub fn classify(error: &anyhow::Error) -> Self {
+        for cause in error.chain() {
+            if let Some(remote) = cause.downcast_ref::<RemoteAudioError>() {
+                return match remote {
+                    RemoteAudioError::AccessRevoked => Self::AccessRevoked,
+                    RemoteAudioError::Unreachable(_) | RemoteAudioError::Incomplete => {
+                        Self::SourceUnreachable
+                    }
+                    RemoteAudioError::LibraryUnavailable => Self::LibraryUnavailable,
+                    RemoteAudioError::CredentialsRejected => Self::CredentialsRejected,
+                    RemoteAudioError::TrackGone => Self::TrackGone,
+                };
+            }
+        }
+        Self::Unreadable
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PlayerStatus {
+    pub item: Option<PlayingItem>,
+    pub index: Option<usize>,
+    pub path: Option<PathBuf>,
+    pub position: Duration,
+    pub state: PlaybackState,
+    pub playlist: Vec<QueueEntry>,
+    pub unavailable: Vec<PlayingItem>,
+    pub unavailable_reasons: HashMap<PlayingItem, UnavailableReason>,
+    pub playback_mode: PlaybackMode,
+    pub ready: bool,
+    pub volume: f32,
+}
+
+/// A track that reached its end, with the time it actually played.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayedThrough {
+    /// The track that reached its end.
+    pub item: PlayingItem,
+    /// Time actually spent playing the track, excluding pauses and seeks.
+    pub listened: Duration,
+    /// When the track began playing, in wall-clock time; `None` if it ended without ever playing.
+    pub started_at: Option<SystemTime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PlayerCommandError {
+    #[error("player thread is no longer available")]
+    ThreadUnavailable,
+    #[error("player command was superseded by a newer command")]
+    Superseded,
+    #[error("audio output could not be opened")]
+    OutputUnavailable,
+    #[error("audio source could not be loaded")]
+    SourceUnavailable,
+    #[error("player command cannot be applied in the current state")]
+    CannotApply,
+    #[error("player command timed out")]
+    TimedOut,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HandoffBlockId(pub Uuid);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueEntry {
+    pub item: PlayingItem,
+    pub block: Option<HandoffBlockId>,
+}
+
+impl QueueEntry {
+    pub fn untagged(item: PlayingItem) -> Self {
+        Self { item, block: None }
+    }
+}
+
+impl PartialEq<PlayingItem> for QueueEntry {
+    fn eq(&self, other: &PlayingItem) -> bool {
+        self.item == *other
+    }
+}
+
+impl PartialEq<QueueEntry> for PlayingItem {
+    fn eq(&self, other: &QueueEntry) -> bool {
+        *self == other.item
+    }
+}
+
+impl From<PlayingItem> for QueueEntry {
+    fn from(item: PlayingItem) -> Self {
+        Self::untagged(item)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterruptedItem {
+    Nothing,
+    Item {
+        index_hint: usize,
+        item: PlayingItem,
+        position: Duration,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct HandoffLoadResult {
+    pub interrupted: InterruptedItem,
+    pub items: Vec<QueueEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TakeBackBlockResult {
+    pub items: Vec<QueueEntry>,
+    pub remaining: Vec<QueueEntry>,
+    pub index: Option<usize>,
+    pub position: Duration,
+    pub playback_mode: PlaybackMode,
+    pub playing: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClearHandoffBlocksResult {
+    pub changed: bool,
+    pub items: Vec<QueueEntry>,
+}
+
+/// What a pause stopped: playback that was playing or about to start, as a track loading to
+/// play is, or nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PausedPlayback {
+    Playing,
+    NotPlaying,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OnlineInLibraryFile {
+    pub host: String,
+    pub fingerprint: String,
+    pub id: i32,
+}
+
+/// A track addressed independently of its replica-local database row id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LibraryItem {
+    /// Stable identity of the library containing the track.
+    pub library_id: Uuid,
+    /// Stable identity of the track within the library.
+    pub file_uuid: Uuid,
+}
+
+/// A track in a Subsonic catalog, addressed without carrying authorization data.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SubsonicItem {
+    pub library_id: Uuid,
+    pub track_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibraryTrackKey {
+    Rune(Uuid),
+    Subsonic(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PlayingItem {
+    LibraryTrack {
+        library_id: Uuid,
+        track: String,
+    },
+    /// This is the raw content, on native platform it
+    /// is the path, on Android, it is the Content URI
+    IndependentFile(String),
+    // The second parameter is the media_file id in the
+    // library, if the file comes from the library,
+    // the cover art resolving module need a different
+    // code path
+    Online(String, Option<OnlineInLibraryFile>),
+    Unknown,
+}
+
+impl From<LibraryItem> for PlayingItem {
+    fn from(item: LibraryItem) -> Self {
+        Self::LibraryTrack {
+            library_id: item.library_id,
+            track: item.file_uuid.to_string(),
+        }
+    }
+}
+
+impl From<SubsonicItem> for PlayingItem {
+    fn from(item: SubsonicItem) -> Self {
+        Self::LibraryTrack {
+            library_id: item.library_id,
+            track: item.track_id,
+        }
+    }
+}
+
+impl fmt::Display for PlayingItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PlayingItem::LibraryTrack { track, .. } => {
+                write!(f, "PlayingItem::LibraryTrack({track})")
+            }
+            PlayingItem::IndependentFile(path) => {
+                write!(f, "PlayingItem::IndependentFile({path})")
+            }
+            PlayingItem::Online(url, remote_file) => {
+                write!(f, "PlayingItem::Online({url}::{remote_file:?})")
+            }
+            PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
+        }
+    }
+}
+
+impl From<PlayingItem> for String {
+    fn from(item: PlayingItem) -> Self {
+        item.to_string()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum PlaybackSource {
+    Local(PathBuf),
+    LibraryStream,
+}
+
+impl From<&PlayingItem> for PlaybackSource {
+    fn from(item: &PlayingItem) -> Self {
+        match item {
+            PlayingItem::IndependentFile(path) => Self::Local(PathBuf::from(path)),
+            _ => Self::LibraryStream,
+        }
+    }
+}
+
+impl PlaybackSource {
+    /// Recheck a queued source before opening it, since its track may have changed.
+    pub async fn requires_stream_at_load(
+        &self,
+        id: i32,
+        resolver: &dyn PlaybackSourceResolver,
+    ) -> Result<bool> {
+        resolver.requires_stream(id).await
+    }
+}
+
+/// Caller-owned capability for a fixed remote resource. Each request may renew
+/// authorization; byte-range ends are inclusive.
+pub trait AudioRequest: Send + Sync {
+    fn prepare(&self) -> BoxFuture<'static, Result<AudioSourceMode>> {
+        Box::pin(async { Ok(AudioSourceMode::Ranged) })
+    }
+
+    fn get(
+        &self,
+        range: Option<(u64, Option<u64>)>,
+    ) -> BoxFuture<'static, Result<reqwest::Response>>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioPlaybackNote {
+    RangeUnsupportedBuffered,
+}
+
+pub enum AudioSourceMode {
+    Ranged,
+    Buffered {
+        bytes: Vec<u8>,
+        note: AudioPlaybackNote,
+    },
+}
+
+pub struct RemoteAudioSource {
+    pub request: Arc<dyn AudioRequest>,
+    pub url: String,
+    pub extension: String,
+    pub size: u64,
+    pub cancellation: CancellationToken,
+    pub failure_reason: Arc<Mutex<Option<UnavailableReason>>>,
+}
+pub struct LibraryPlaybackSource {
+    pub fsio: Arc<FsIo>,
+    pub resolver: Arc<dyn PlaybackSourceResolver>,
+}
+
+pub trait PlaybackSourceResolver: Send + Sync {
+    fn resolve_track(
+        &self,
+        _library_id: String,
+        track: String,
+    ) -> BoxFuture<'static, Result<LibraryTrackKey>> {
+        Box::pin(async move {
+            Uuid::parse_str(&track)
+                .map(LibraryTrackKey::Rune)
+                .map_err(Error::from)
+        })
+    }
+    fn for_library(
+        &self,
+        _library_id: String,
+    ) -> BoxFuture<'static, Result<Option<LibraryPlaybackSource>>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn resolve_id(&self, file_uuid: Uuid) -> BoxFuture<'static, Result<Option<i32>>> {
+        Box::pin(async move {
+            let _ = file_uuid;
+            Ok(None)
+        })
+    }
+    fn local_path(&self, _id: i32) -> BoxFuture<'static, Result<Option<PathBuf>>> {
+        Box::pin(async { Ok(None) })
+    }
+    fn requires_stream(&self, _id: i32) -> BoxFuture<'static, Result<bool>> {
+        Box::pin(async { Ok(false) })
+    }
+    fn resolve(&self, id: i32) -> BoxFuture<'static, Result<RemoteAudioSource>>;
+
+    fn resolve_subsonic(
+        &self,
+        _item: SubsonicItem,
+    ) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+        Box::pin(async { anyhow::bail!("Subsonic playback resolver unavailable") })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PlaylistStatus {
+    pub items: Vec<QueueEntry>,
+    pub unavailable: HashMap<PlayingItem, UnavailableReason>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+impl fmt::Display for PlaybackState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state_str = match self {
+            PlaybackState::Playing => "Playing",
+            PlaybackState::Paused => "Paused",
+            PlaybackState::Stopped => "Stopped",
+        };
+        write!(f, "{state_str}")
+    }
+}
+
+pub trait Playable: Send {
+    fn command_with_completion(
+        &mut self,
+        command: PlayerCommand,
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>>;
+    /// Wait until commands already sent to the player have updated its public status.
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>>;
+    fn load(&self, index: usize);
+    fn load_at_position(&self, index: usize, position: Duration, play: bool) {
+        self.load(index);
+        self.seek(position.as_secs_f64());
+        if play {
+            self.play();
+        } else {
+            self.pause();
+        }
+    }
+    fn play(&self);
+    fn pause(&self);
+    fn stop(&self);
+    fn next(&self);
+    fn previous(&self);
+    fn switch(&self, index: usize);
+    fn seek(&self, position_seconds: f64);
+    fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode);
+    fn add_to_playlist_with_sources(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        mode: AddMode,
+    ) {
+        self.add_to_playlist(
+            tracks
+                .into_iter()
+                .filter_map(|(item, source)| match source {
+                    PlaybackSource::Local(path) => Some((item, path)),
+                    PlaybackSource::LibraryStream => None,
+                })
+                .collect(),
+            mode,
+        );
+    }
+    fn edit_playlist(&mut self, edit: PlaylistEdit) {
+        let added_count = edit.tracks.len();
+        let add_mode = match edit.placement {
+            PlaylistPlacement::Replace | PlaylistPlacement::AppendToEnd => AddMode::AppendToEnd,
+            PlaylistPlacement::PlayNext => AddMode::PlayNext,
+        };
+        if edit.placement == PlaylistPlacement::Replace {
+            self.clear_playlist();
+        }
+        self.add_to_playlist_with_sources(edit.tracks, add_mode);
+        if let Some(mode) = edit.playback_mode {
+            self.set_playback_mode(mode);
+        }
+        if let Some(load) = edit.load {
+            let insertion = match edit.placement {
+                PlaylistPlacement::Replace => 0,
+                PlaylistPlacement::AppendToEnd => self.get_playlist().len() - added_count,
+                PlaylistPlacement::PlayNext => self
+                    .get_status()
+                    .index
+                    .map_or(self.get_playlist().len() - added_count, |index| index + 1),
+            };
+            self.load_at_position(insertion + load.start_index, load.position, load.play);
+        }
+    }
+    fn handoff_load(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult>;
+    fn take_back_block(
+        &self,
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>>;
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult>;
+    /// Pauses, and answers what the pause stopped.
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback>;
+    fn restore(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    ) {
+        self.add_to_playlist_with_sources(tracks, AddMode::AppendToEnd);
+        if let Some(index) = index {
+            self.load(index);
+            self.seek(position.as_secs_f64());
+        }
+        let _ = mode;
+    }
+    fn restore_tagged(
+        &self,
+        entries: Vec<QueueEntry>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    );
+    fn set_source_resolver(&self, _resolver: Arc<dyn PlaybackSourceResolver>) {}
+    fn remove_from_playlist(&self, index: usize);
+    fn clear_playlist(&self);
+    fn move_playlist_item(&self, old_index: usize, new_index: usize);
+    fn set_playback_mode(&mut self, mode: PlaybackMode);
+    fn set_volume(&mut self, volume: f32);
+    fn set_realtime_fft_enabled(&mut self, enabled: bool);
+    /// The raw PCM tap (disabled by default); see [`PcmTap`].
+    fn pcm_tap(&self) -> Arc<PcmTap>;
+    fn set_adaptive_switching_enabled(&mut self, enabled: bool);
+    /// iOS: lets other apps keep playing while this one does. Other platforms ignore it.
+    fn set_mix_with_others(&mut self, enabled: bool);
+    fn terminate(&self);
+    fn get_status(&self) -> PlayerStatus;
+    /// Return status after the player has applied commands already in its queue.
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus>;
+    fn get_playlist(&self) -> Vec<PlayingItem>;
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus>;
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough>;
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus>;
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>>;
+    fn subscribe_crash(&self) -> SimpleReceiver<String>;
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog>;
+}
+
+#[derive(Debug)]
+pub struct PlaylistEdit {
+    pub tracks: Vec<(PlayingItem, PlaybackSource)>,
+    pub placement: PlaylistPlacement,
+    pub playback_mode: Option<PlaybackMode>,
+    pub load: Option<PlaylistLoad>,
+    pub block: Option<HandoffBlockId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistPlacement {
+    Replace,
+    AppendToEnd,
+    PlayNext,
+}
+
+#[derive(Debug)]
+pub struct PlaylistLoad {
+    pub start_index: usize,
+    pub position: Duration,
+    pub play: bool,
+}
+
+// Define the Player struct, which includes a channel sender for sending commands
+pub struct Player {
+    commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
+    source_resolver: Arc<RwLock<Option<Arc<dyn PlaybackSourceResolver>>>>,
+    pub current_status: Arc<Mutex<PlayerStatus>>,
+    status_sender: SimpleSender<PlayerStatus>,
+    playlist_sender: SimpleSender<PlaylistStatus>,
+    played_through_sender: SimpleSender<PlayedThrough>,
+    log_sender: SimpleSender<InternalLog>,
+    realtime_fft_sender: SimpleSender<Vec<f32>>,
+    pcm_tap: Arc<PcmTap>,
+    crash_sender: SimpleSender<String>,
+    cancellation_token: CancellationToken,
+    /// Tells the player about calls and headphones while it lives.
+    #[cfg(target_os = "ios")]
+    _audio_session: crate::ios_session::Observers,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self::new(Arc::new(FsIo::new_noop()), None)
+    }
+}
+
+impl Player {
+    // Create a new Player instance and return the Player and the event receiver
+    pub fn new(fsio: Arc<FsIo>, cancellation_token: Option<CancellationToken>) -> Self {
+        // Create an unbounded channel for sending commands
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        // Create an unbounded channel for receiving events
+        let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
+        // Create a broadcast channel for status updates
+        let (status_sender, _) = SimpleChannel::channel(16);
+        // Keep every completed track until the session handles it
+        let (played_through_sender, _) = SimpleChannel::unbounded();
+        // Create a broadcast channel for playlist updates
+        let (playlist_sender, _) = SimpleChannel::channel(16);
+        // Create a broadcast channel for realtime FFT updates
+        let (realtime_fft_sender, _) = SimpleChannel::channel(32);
+        // Create a broadcast channel player crash report
+        let (crash_sender, _) = SimpleChannel::channel(16);
+        let (log_sender, _) = SimpleChannel::channel(16);
+
+        // Create a cancellation token
+        let cancellation_token = cancellation_token.unwrap_or_default();
+
+        // Create internal status for the whole player
+        let current_status = Arc::new(Mutex::new(PlayerStatus {
+            item: None,
+            index: None,
+            path: None,
+            position: Duration::new(0, 0),
+            state: PlaybackState::Stopped,
+            playback_mode: PlaybackMode::Sequential,
+            playlist: Vec::new(),
+            unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
+            ready: false,
+            volume: 1.0,
+        }));
+
+        let pcm_tap = PcmTap::new();
+
+        let commands = Arc::new(Mutex::new(cmd_tx.clone()));
+        // The player owns the audio session on iOS. Its category is set now, so that any audio
+        // the app plays has it from the start.
+        #[cfg(target_os = "ios")]
+        crate::ios_session::configure(false);
+        // Create the Player instance and wrap the command sender in Arc<Mutex>
+        let source_resolver = Arc::new(RwLock::new(None));
+        let player = Player {
+            source_resolver: source_resolver.clone(),
+            commands: commands.clone(),
+            current_status: current_status.clone(),
+            status_sender: status_sender.clone(),
+            playlist_sender: playlist_sender.clone(),
+            played_through_sender: played_through_sender.clone(),
+            realtime_fft_sender: realtime_fft_sender.clone(),
+            pcm_tap: pcm_tap.clone(),
+            crash_sender: crash_sender.clone(),
+            log_sender: log_sender.clone(),
+            cancellation_token: cancellation_token.clone(),
+            #[cfg(target_os = "ios")]
+            _audio_session: crate::ios_session::observe(cmd_tx.clone()),
+        };
+
+        // Start a new thread to run the PlayerInternal logic
+        let internal_cancellation_token = cancellation_token.clone();
+        thread::spawn(move || {
+            // Create a PlayerInternal instance, passing in the command receiver and event sender
+            let mut internal = PlayerInternal::new(
+                cmd_rx,
+                event_sender,
+                internal_cancellation_token.clone(),
+                cmd_tx.clone(),
+                fsio,
+                pcm_tap,
+                source_resolver,
+                Arc::new(crate::output_stream::DeviceOutputs),
+            );
+            // Create a new Tokio runtime for asynchronous tasks
+            let runtime = Runtime::new().expect("Failed to create Tokio runtime");
+            // Run the main loop of PlayerInternal within the Tokio runtime
+            if let Err(e) = runtime.block_on(internal.run()) {
+                error!("PlayerInternal runtime error: {e:?}");
+
+                crash_sender.send(format!("{e:#?}"));
+            }
+        });
+
+        // Start a new thread to handle events and update the status
+        let status_clone = current_status.clone();
+        let status_sender_clone = status_sender.clone();
+        let playlist_sender_clone = playlist_sender.clone();
+        let realtime_fft_sender_clone = realtime_fft_sender.clone();
+        thread::spawn(move || {
+            while let Some(event) = event_receiver.blocking_recv() {
+                let mut status = status_clone.lock().unwrap();
+                match event {
+                    PlayerEvent::Loaded {
+                        item,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                    } => {
+                        status.item = Some(item);
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.playback_mode = playback_mode;
+                        status.position = position;
+                        status.ready = true;
+                        status.state = PlaybackState::Paused;
+                    }
+                    PlayerEvent::Playing {
+                        item,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                    } => {
+                        status.item = Some(item);
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.playback_mode = playback_mode;
+                        status.position = position;
+                        status.state = PlaybackState::Playing;
+                    }
+                    PlayerEvent::Paused {
+                        item,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                    } => {
+                        status.item = Some(item);
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.playback_mode = playback_mode;
+                        status.position = position;
+                        status.state = PlaybackState::Paused;
+                    }
+                    PlayerEvent::Stopped => {
+                        status.item = None;
+                        status.index = None;
+                        status.path = None;
+                        status.position = Duration::new(0, 0);
+                        status.state = PlaybackState::Stopped;
+                    }
+                    PlayerEvent::Progress {
+                        item,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                        ready,
+                    } => {
+                        status.item = item;
+                        status.index = index;
+                        status.path = path;
+                        status.playback_mode = playback_mode;
+                        status.position = position;
+                        status.ready = ready;
+                    }
+                    PlayerEvent::EndOfPlaylist => {
+                        status.item = None;
+                        status.index = None;
+                        status.path = None;
+                        status.position = Duration::new(0, 0);
+                        status.state = PlaybackState::Stopped;
+                    }
+                    PlayerEvent::EndOfTrack {
+                        item,
+                        index,
+                        path,
+                        playback_mode,
+                        listened,
+                        started_at,
+                    } => {
+                        status.item = Some(item.clone());
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.playback_mode = playback_mode;
+                        played_through_sender.send(PlayedThrough {
+                            item,
+                            listened,
+                            started_at,
+                        });
+                    }
+                    PlayerEvent::Error {
+                        item,
+                        index,
+                        path,
+                        error,
+                    } => {
+                        error!("Error at index {index}({item:?}): {path:?} - {error}");
+                    }
+                    PlayerEvent::Unavailable(item, reason) => {
+                        if !status.unavailable.contains(&item) {
+                            status.unavailable.push(item.clone());
+                        }
+                        status.unavailable_reasons.insert(item, reason);
+                        playlist_sender_clone.send(PlaylistStatus {
+                            items: status.playlist.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
+                        });
+                    }
+                    PlayerEvent::UnavailableCleared(item) => {
+                        if let Some(item) = item {
+                            status
+                                .unavailable
+                                .retain(|unavailable| unavailable != &item);
+                            status.unavailable_reasons.remove(&item);
+                        } else {
+                            status.unavailable.clear();
+                            status.unavailable_reasons.clear();
+                        }
+                        playlist_sender_clone.send(PlaylistStatus {
+                            items: status.playlist.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
+                        });
+                    }
+                    PlayerEvent::PlaylistUpdated(playlist) => {
+                        let items: Vec<PlayingItem> =
+                            playlist.iter().map(|entry| entry.item.clone()).collect();
+                        status.unavailable.retain(|item| items.contains(item));
+                        status
+                            .unavailable_reasons
+                            .retain(|item, _| items.contains(item));
+                        status.playlist = playlist
+                            .iter()
+                            .map(|entry| QueueEntry {
+                                item: entry.item.clone(),
+                                block: entry.block,
+                            })
+                            .collect();
+                        debug!("Sending playlist status");
+                        playlist_sender_clone.send(PlaylistStatus {
+                            items: status.playlist.clone(),
+                            unavailable: status.unavailable_reasons.clone(),
+                        });
+                    }
+                    PlayerEvent::RealtimeFFT(data) => {
+                        realtime_fft_sender_clone.send(data);
+                    }
+                    PlayerEvent::VolumeUpdate(value) => {
+                        status.volume = value;
+                    }
+                    PlayerEvent::StatusAfterPending(response) => {
+                        let _ = response.send(status.clone());
+                    }
+                    PlayerEvent::Log(log) => {
+                        log_sender.send(log);
+                    }
+                }
+                status_sender_clone.send(status.clone());
+            }
+        });
+
+        player
+    }
+
+    // Send a command to the internal player
+    pub fn command(&self, cmd: PlayerCommand) {
+        // Acquire the lock and send the command
+        if let Ok(commands) = self.commands.lock() {
+            if let Err(e) = commands.send(cmd) {
+                error!("Failed to send command: {e:?}");
+            }
+        } else {
+            error!("Failed to lock commands for sending");
+        }
+    }
+
+    fn command_with_discarded_completion(&self, command: PlayerCommand) {
+        let (response, _completion) = oneshot::channel();
+        self.command(PlayerCommand::WithCompletion {
+            command: Box::new(command),
+            response,
+        });
+    }
+}
+
+impl Playable for Player {
+    fn command_with_completion(
+        &mut self,
+        command: PlayerCommand,
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
+        let (response, result) = oneshot::channel();
+        let sent = self
+            .commands
+            .lock()
+            .map(|commands| {
+                commands
+                    .send(PlayerCommand::WithCompletion {
+                        command: Box::new(command),
+                        response,
+                    })
+                    .is_ok()
+            })
+            .unwrap_or(false);
+        Box::pin(async move {
+            if !sent {
+                return Err(PlayerCommandError::ThreadUnavailable);
+            }
+            result
+                .await
+                .map_err(|_| PlayerCommandError::ThreadUnavailable)?
+        })
+    }
+
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>> {
+        let (response, result) = oneshot::channel();
+        let sent = self
+            .commands
+            .lock()
+            .map(|commands| {
+                commands
+                    .send(PlayerCommand::StatusAfterPending(response))
+                    .is_ok()
+            })
+            .unwrap_or(false);
+        Box::pin(async move {
+            if !sent {
+                return Err(PlayerCommandError::ThreadUnavailable);
+            }
+            result
+                .await
+                .map_err(|_| PlayerCommandError::ThreadUnavailable)
+        })
+    }
+
+    fn load(&self, index: usize) {
+        self.command(PlayerCommand::Load { index });
+    }
+
+    fn load_at_position(&self, index: usize, position: Duration, play: bool) {
+        self.command(PlayerCommand::LoadAtPosition {
+            index,
+            position,
+            play,
+        });
+    }
+
+    fn play(&self) {
+        self.command(PlayerCommand::Play);
+    }
+
+    fn pause(&self) {
+        self.command(PlayerCommand::Pause);
+    }
+
+    fn stop(&self) {
+        self.command(PlayerCommand::Stop);
+    }
+
+    fn next(&self) {
+        self.command(PlayerCommand::Next);
+    }
+
+    fn previous(&self) {
+        self.command(PlayerCommand::Previous);
+    }
+
+    fn switch(&self, index: usize) {
+        self.command(PlayerCommand::Switch(index));
+    }
+
+    fn seek(&self, position_seconds: f64) {
+        self.command(PlayerCommand::Seek(position_seconds));
+    }
+
+    fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
+        self.add_to_playlist_with_sources(
+            tracks
+                .into_iter()
+                .map(|(item, path)| (item, PlaybackSource::Local(path)))
+                .collect(),
+            mode,
+        );
+    }
+
+    fn add_to_playlist_with_sources(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        mode: AddMode,
+    ) {
+        self.command(PlayerCommand::AddToPlaylist { tracks, mode });
+    }
+    fn edit_playlist(&mut self, edit: PlaylistEdit) {
+        self.command(PlayerCommand::EditPlaylist(edit));
+    }
+    fn handoff_load(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::HandoffLoad {
+            tracks,
+            block,
+            start_index,
+            position,
+            play,
+            playback_mode,
+            response,
+        });
+        receiver
+    }
+    fn take_back_block(
+        &self,
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::TakeBackBlock {
+            block,
+            interrupted,
+            response,
+        });
+        receiver
+    }
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::ClearHandoffBlocks { response });
+        receiver
+    }
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
+        let (response, receiver) = oneshot::channel();
+        self.command(PlayerCommand::PauseReporting { response });
+        receiver
+    }
+    fn restore(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    ) {
+        self.command_with_discarded_completion(PlayerCommand::Restore {
+            tracks,
+            index,
+            position,
+            mode,
+        });
+    }
+    fn restore_tagged(
+        &self,
+        entries: Vec<QueueEntry>,
+        index: Option<usize>,
+        position: Duration,
+        mode: PlaybackMode,
+    ) {
+        self.command_with_discarded_completion(PlayerCommand::RestoreTagged {
+            entries,
+            index,
+            position,
+            mode,
+        });
+    }
+    fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
+        let mut slot = self
+            .source_resolver
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = Some(resolver);
+    }
+
+    fn remove_from_playlist(&self, index: usize) {
+        self.command(PlayerCommand::RemoveFromPlaylist { index });
+    }
+
+    fn clear_playlist(&self) {
+        self.command(PlayerCommand::ClearPlaylist);
+    }
+
+    fn move_playlist_item(&self, old_index: usize, new_index: usize) {
+        self.command(PlayerCommand::MovePlayListItem {
+            old_index,
+            new_index,
+        });
+    }
+
+    fn set_playback_mode(&mut self, mode: PlaybackMode) {
+        self.command(PlayerCommand::SetPlaybackMode(mode));
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        self.command(PlayerCommand::SetVolume(volume));
+    }
+
+    fn set_realtime_fft_enabled(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetRealtimeFFTEnabled(enabled));
+    }
+
+    fn pcm_tap(&self) -> Arc<PcmTap> {
+        Arc::clone(&self.pcm_tap)
+    }
+
+    fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled));
+    }
+
+    fn set_mix_with_others(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetMixWithOthers(enabled));
+    }
+
+    fn terminate(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    fn get_status(&self) -> PlayerStatus {
+        self.current_status.lock().unwrap().clone()
+    }
+
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+        let (response, result) = oneshot::channel();
+        let fallback = Arc::clone(&self.current_status);
+        let sent = self
+            .commands
+            .lock()
+            .map(|commands| {
+                commands
+                    .send(PlayerCommand::StatusAfterPending(response))
+                    .is_ok()
+            })
+            .unwrap_or(false);
+        if !sent {
+            let status = fallback
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            return Box::pin(future::ready(status));
+        }
+        Box::pin(async move {
+            result.await.unwrap_or_else(|_| {
+                fallback
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .clone()
+            })
+        })
+    }
+
+    fn get_playlist(&self) -> Vec<PlayingItem> {
+        self.current_status
+            .lock()
+            .unwrap()
+            .playlist
+            .iter()
+            .map(|entry| entry.item.clone())
+            .collect()
+    }
+
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+        self.status_sender.subscribe()
+    }
+
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
+        self.played_through_sender.subscribe()
+    }
+
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+        self.playlist_sender.subscribe()
+    }
+
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+        self.realtime_fft_sender.subscribe()
+    }
+
+    fn subscribe_crash(&self) -> SimpleReceiver<String> {
+        self.crash_sender.subscribe()
+    }
+
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        self.log_sender.subscribe()
+    }
+}
+
+pub struct MockPlayer;
+
+impl Playable for MockPlayer {
+    fn command_with_completion(
+        &mut self,
+        _command: PlayerCommand,
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
+        Box::pin(future::ready(Ok(())))
+    }
+
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, Result<PlayerStatus, PlayerCommandError>> {
+        Box::pin(future::ready(Ok(self.get_status())))
+    }
+    fn load(&self, _index: usize) {}
+    fn play(&self) {}
+    fn pause(&self) {}
+    fn stop(&self) {}
+    fn next(&self) {}
+    fn previous(&self) {}
+    fn switch(&self, _index: usize) {}
+    fn seek(&self, _position_seconds: f64) {}
+    fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
+    fn handoff_load(
+        &self,
+        _tracks: Vec<(PlayingItem, PlaybackSource)>,
+        _block: HandoffBlockId,
+        _start_index: Option<usize>,
+        _position: Duration,
+        _play: bool,
+        _playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(HandoffLoadResult {
+            interrupted: InterruptedItem::Nothing,
+            items: Vec::new(),
+        });
+        receiver
+    }
+    fn take_back_block(
+        &self,
+        _block: HandoffBlockId,
+        _interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(Some(TakeBackBlockResult {
+            items: Vec::new(),
+            remaining: Vec::new(),
+            index: None,
+            position: Duration::ZERO,
+            playback_mode: PlaybackMode::Sequential,
+            playing: false,
+        }));
+        receiver
+    }
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(ClearHandoffBlocksResult {
+            changed: false,
+            items: Vec::new(),
+        });
+        receiver
+    }
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
+        let (sender, receiver) = oneshot::channel();
+        let _ = sender.send(PausedPlayback::NotPlaying);
+        receiver
+    }
+    fn remove_from_playlist(&self, _index: usize) {}
+    fn restore_tagged(
+        &self,
+        _entries: Vec<QueueEntry>,
+        _index: Option<usize>,
+        _position: Duration,
+        _mode: PlaybackMode,
+    ) {
+    }
+    fn clear_playlist(&self) {}
+    fn move_playlist_item(&self, _old_index: usize, _new_index: usize) {}
+    fn set_playback_mode(&mut self, _mode: PlaybackMode) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn set_realtime_fft_enabled(&mut self, _enabled: bool) {}
+    fn pcm_tap(&self) -> Arc<PcmTap> {
+        PcmTap::with_capacity(1)
+    }
+    fn set_adaptive_switching_enabled(&mut self, _enabled: bool) {}
+    fn set_mix_with_others(&mut self, _enabled: bool) {}
+    fn terminate(&self) {}
+    fn get_status(&self) -> PlayerStatus {
+        PlayerStatus {
+            item: None,
+            index: None,
+            path: None,
+            position: Duration::new(0, 0),
+            state: PlaybackState::Stopped,
+            playlist: Vec::new(),
+            unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
+            playback_mode: PlaybackMode::Sequential,
+            ready: false,
+            volume: 1.0,
+        }
+    }
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+        Box::pin(future::ready(self.get_status()))
+    }
+    fn get_playlist(&self) -> Vec<PlayingItem> {
+        Vec::new()
+    }
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_crash(&self) -> SimpleReceiver<String> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        SimpleChannel::channel(1).1
+    }
+}
+
+#[cfg(test)]
+mod unavailable_reason_tests {
+    use super::{RemoteAudioError, UnavailableReason};
+    use anyhow::Error;
+
+    #[test]
+    fn string_only_revocation_is_not_classified_as_access_revoked() {
+        let error = anyhow::anyhow!("audio access revoked");
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::Unreadable
+        );
+    }
+
+    #[test]
+    fn typed_remote_failures_map_to_queue_reasons() {
+        let error = Error::new(RemoteAudioError::AccessRevoked);
+        assert_eq!(
+            UnavailableReason::classify(&error),
+            UnavailableReason::AccessRevoked
+        );
+    }
+}

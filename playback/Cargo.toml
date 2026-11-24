@@ -1,0 +1,94 @@
+[package]
+name = "playback"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "playback"
+path = "src/lib.rs"
+
+[features]
+# Consume real decoded PCM on a clock without requiring an audio device in lifecycle tests.
+test-output = []
+
+[dependencies]
+fsio = { path = "../fsio" }
+log = { version = "0.4.22" }
+futures = "0.3.30"
+tokio = { version = "1.40.0", features = [
+    "sync",
+    "time",
+    "macros",
+    "rt-multi-thread",
+    "rt",
+] }
+rodio = { version = "0.20.1", default-features = false, features = [
+    "vorbis",
+    "symphonia-wav",
+    "symphonia-mp3",
+    "symphonia-aac",
+    "symphonia-aiff",
+    "symphonia-alac",
+    "symphonia-flac",
+    "symphonia-isomp4",
+] }
+rustfft = "6.2.0"
+rtrb = "0.3.2"
+tokio-util = "0.7.11"
+rand = "0.8.5"
+anyhow = "1.0.98"
+thiserror = "2"
+raw-window-handle = "0.5.2"
+windows = { version = "0.44.0", features = [
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+] }
+once_cell = "1.20.2"
+simple_channel = { path = "../simple-channel" }
+url = "2.5.7"
+reqwest = "0.12.18"
+stream-download = "0.24.5"
+symphonia = { version = "0.5.4", features = ["all-codecs", "all-formats"] }
+symphonia-adapter-fdk-aac = "0.1.3"
+symphonia-adapter-libopus = "0.2.9"
+fsio_media_source = { path = "../fsio-media-source" }
+uuid = { version = "1.18.0", features = ["v4"] }
+
+[dev-dependencies]
+fsio = { path = "../fsio", features = ["test-fixtures"] }
+tokio = { version = "1.40.0", features = ["test-util"] }
+
+[target.'cfg(not(any(target_os = "android")))'.dependencies]
+souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a2774306718a0c561609083f1acc617", default-features = false, features = [
+    "use_zbus",
+] }
+
+# The audio session on iOS, whose notifications tell the player about calls and headphones and
+# which is made active before an output opens, and the lock screen's Now Playing info and remote
+# commands: MediaPlayer, called on the main thread through the main dispatch queue, and UIKit for
+# the artwork's image. The objc2 crates are the versions the visualizer and flutter-texture use.
+[target.'cfg(target_os = "ios")'.dependencies]
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
+objc2 = "0.6"
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVAudioSession", "AVAudioSessionTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "objc2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSData", "NSDictionary", "NSNotification", "NSObject", "NSOperation", "NSString", "NSValue"] }
+objc2-media-player = { version = "0.3", default-features = false, features = ["std", "block2", "MPMediaItem", "MPNowPlayingInfoCenter", "MPRemoteCommand", "MPRemoteCommandCenter", "MPRemoteCommandEvent"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "UIImage"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "0.1.1"
+jni = "0.21.1"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.20", features = ["fmt"] }
+tracing-logcat = "0.1.0"
+ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.11" }
+
+[lints]
+workspace = true
