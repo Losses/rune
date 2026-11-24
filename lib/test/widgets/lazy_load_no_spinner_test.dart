@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -267,6 +268,66 @@ void main() {
       expect(find.byType(ProgressRing), findsOneWidget);
 
       first.complete(_tracks(0, 100));
+      await _settle(tester);
+      expect(find.byType(ProgressRing), findsNothing);
+      expect(find.text('track-0'), findsOneWidget);
+    });
+    testWidgets('leaves the ring once an empty first page has come after a '
+        'failed count', (tester) async {
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.error(StateError('offline')),
+          loadPage: (cursor, size) => Future.value(<InternalMediaFile>[]),
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      expect(find.byType(ProgressRing), findsNothing);
+
+      // Lets the animation timers of the pages that came end.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('shows the ring again after a restart until the new first '
+        'page settles', (tester) async {
+      var round = 0;
+      final count = Completer<int>();
+      final second = Completer<List<InternalMediaFile>>();
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () {
+            round++;
+            return round == 1 ? Future.value(5) : count.future;
+          },
+          loadPage: (cursor, size) {
+            if (round == 1) return Future.value(<InternalMediaFile>[]);
+            return second.future;
+          },
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+
+      // The content change arrives the way Rust sends it.
+      assignRustSignal['LibraryContentChanged']!(
+        const LibraryContentChanged(path: '').bincodeSerialize(),
+        Uint8List(0),
+      );
+      await tester.pump();
+      await tester.pump();
+      // The count of the restart has not come, and nothing is on screen.
+      expect(find.byType(ProgressRing), findsOneWidget);
+
+      count.complete(1000);
+      await _settle(tester);
+      expect(find.byType(ProgressRing), findsOneWidget);
+
+      second.complete(_tracks(0, 100));
       await _settle(tester);
       expect(find.byType(ProgressRing), findsNothing);
       expect(find.text('track-0'), findsOneWidget);

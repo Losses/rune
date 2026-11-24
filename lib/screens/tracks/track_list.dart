@@ -51,6 +51,8 @@ class TrackListViewState extends State<TrackListView> {
   // change or a restart clears them.
   final Set<int> _failedPages = {};
   bool _isInitialized = false;
+  // Whether the first page has come, empty or not, or has failed.
+  bool _firstPageSettled = false;
   int _generation = 0;
   StreamSubscription? _contentSubscription;
 
@@ -69,6 +71,7 @@ class TrackListViewState extends State<TrackListView> {
     _loadedItems.clear();
     _loadingIndices.clear();
     _failedPages.clear();
+    _firstPageSettled = false;
     _initializeData();
   }
 
@@ -124,6 +127,7 @@ class TrackListViewState extends State<TrackListView> {
             _loadedItems[cursor + i] = newItems[i];
           }
           _loadingIndices.remove(cursor);
+          if (cursor == 0) _firstPageSettled = true;
         });
       });
       // Nothing moves on the page while it waits, so the frame that applies
@@ -142,6 +146,7 @@ class TrackListViewState extends State<TrackListView> {
         setState(() {
           _loadingIndices.remove(cursor);
           _failedPages.add(cursor);
+          if (cursor == 0) _firstPageSettled = true;
         });
       });
       SchedulerBinding.instance.ensureVisualUpdate();
@@ -173,10 +178,7 @@ class TrackListViewState extends State<TrackListView> {
     // The ring stays until the first page has come or failed, so the list is
     // never a screen of blank places. A reload keeps the stale tracks instead.
     final waitingForFirstPage =
-        _totalCount > 0 &&
-        _loadedItems.isEmpty &&
-        _staleItems.isEmpty &&
-        !_failedPages.contains(0);
+        _totalCount > 0 && !_firstPageSettled && _staleItems.isEmpty;
     if (!_isInitialized || waitingForFirstPage) {
       return const Center(child: ProgressRing());
     }
