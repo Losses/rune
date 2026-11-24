@@ -364,11 +364,12 @@ impl AppleLibrary {
         if term.is_empty() {
             return Ok(SearchResults::default());
         }
-        let (library, catalog) = match scope {
-            SearchScope::Library => (self.library_search(term).await?, Arc::default()),
+        let (library, catalog, library_answered) = match scope {
+            SearchScope::Library => (self.library_search(term).await?, Arc::default(), true),
             SearchScope::Catalog => (
                 LibraryFound::default(),
                 self.kept_catalog_search(term, refresh).await?,
+                false,
             ),
             SearchScope::All => self.search_both(term, refresh, deadline).await?,
         };
@@ -403,7 +404,9 @@ impl AppleLibrary {
                 .take(SEARCH_LIMIT)
                 .collect();
         }
-        let dropping = scope == SearchScope::All;
+        // A catalog match is left out for its copy in the library, so only when the library
+        // search answered with it.
+        let dropping = scope == SearchScope::All && library_answered;
         results.songs.extend(
             catalog
                 .songs
@@ -447,12 +450,13 @@ impl AppleLibrary {
     /// have answered or `deadline` has passed. A part that fails or has not answered by then
     /// finds nothing, and is logged with the time the search took. A failure of the library
     /// that is about the sign-in fails the search, and so does a search neither part answered.
+    /// The last of the result says whether the library answered.
     async fn search_both(
         &self,
         term: &str,
         refresh: bool,
         deadline: time::Instant,
-    ) -> Outcome<(LibraryFound, Arc<CatalogFound>)> {
+    ) -> Outcome<(LibraryFound, Arc<CatalogFound>, bool)> {
         let started = time::Instant::now();
         let (library, catalog) = join(
             time::timeout_at(deadline, self.library_search(term)),
@@ -465,13 +469,13 @@ impl AppleLibrary {
             None => format!("it did not answer within {:?}", self.search_wait),
         };
         match (Part::of(library), Part::of(catalog)) {
-            (Part::Found(library), Part::Found(catalog)) => Ok((library, catalog)),
+            (Part::Found(library), Part::Found(catalog)) => Ok((library, catalog, true)),
             (Part::Found(library), catalog) => {
                 log::warn!(
                     "An Apple Music search lists the library's matches only, after {elapsed:?}: the catalog search was left out, as {}",
                     why(catalog.failure())
                 );
-                Ok((library, Arc::default()))
+                Ok((library, Arc::default(), true))
             }
             (Part::Failed(failure), _) if about_the_sign_in(&failure) => Err(failure),
             (library, Part::Found(catalog)) => {
@@ -479,7 +483,7 @@ impl AppleLibrary {
                     "An Apple Music search lists the catalog's matches only, after {elapsed:?}: the library search was left out, as {}",
                     why(library.failure())
                 );
-                Ok((LibraryFound::default(), catalog))
+                Ok((LibraryFound::default(), catalog, false))
             }
             (Part::Failed(failure), _) => Err(failure),
             (Part::Late, _) => Err(LibraryError::TimedOut.into()),

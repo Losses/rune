@@ -10,8 +10,11 @@ use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
 
 use apple_music::library::{AppleLibrary, LibraryError, SearchScope, Tokens};
-use common::{DEVELOPER_TOKEN, FixtureServer, ManualClock, USER_TOKEN, fast_retry, fixture, keys};
+use common::{
+    DEVELOPER_TOKEN, FixtureServer, ManualClock, Reply, USER_TOKEN, fast_retry, fixture, keys,
+};
 use log::{Level, LevelFilter, Log, Metadata, Record};
+use serde_json::json;
 
 static WARNINGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static LOGGER: Once = Once::new();
@@ -162,6 +165,42 @@ async fn a_part_that_answers_too_late_is_left_out_and_logged() {
         .await
         .unwrap_err();
     assert!(matches!(error, LibraryError::TimedOut), "{error:?}");
+}
+
+#[tokio::test]
+async fn a_catalog_match_stays_when_the_library_search_is_left_out_and_the_song_is_kept() {
+    let _serial = SERIAL.lock().await;
+    search_warnings();
+    let fixtures = FixtureServer::start().await;
+    serve_search(&fixtures);
+    let kept: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string("tests/fixtures/library_search_dawn.json").unwrap(),
+    )
+    .unwrap();
+    let song = kept["results"]["library-songs"]["data"][0].clone();
+    fixtures
+        .on(
+            "GET",
+            "/v1/me/library/songs",
+            Reply::json(json!({"data": [song]})),
+        )
+        .on(
+            "GET",
+            "/v1/me/library/playlists",
+            Reply::json(json!({"data": []})),
+        );
+    let (library, _) = signed_in(&fixtures, Some(Duration::from_millis(1500)));
+    assert_eq!(library.songs().await.unwrap().len(), 1);
+    fixtures.delay("GET", "/v1/me/library/search", Duration::from_secs(4));
+
+    let found = library
+        .search_fresh("dawn", SearchScope::All, false)
+        .await
+        .unwrap();
+
+    // The library's copy is not among the results, so the catalog's is not left out for it.
+    assert_eq!(keys(&found.songs), ["catalog:1001", "catalog:6001"]);
+    assert!(found.songs[0].in_library);
 }
 
 #[tokio::test]
