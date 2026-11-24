@@ -2863,14 +2863,21 @@ async fn a_long_hosted_queue_goes_to_the_host_a_whole_run_ahead() -> Result<()> 
 async fn the_run_follows_the_shuffled_order() -> Result<()> {
     let (internal, f) = run_engine();
     with_engine(internal, f, async |f| {
-        start_run(f, &["1440", "1441", "1442", "1443", "1444", "1445"]).await?;
+        let keys = ["1440", "1441", "1442", "1443", "1444", "1445"];
+        start_run(f, &keys).await?;
         f.send(PlayerCommand::SetPlaybackMode(PlaybackMode::Shuffle))?;
-        for _ in 0..10 {
-            f.settle().await?;
+        f.settle().await?;
+        // The host loses at once what no longer follows, and gets the rest of the shuffled run
+        // as each lookup answers, until it holds every other track after the current one.
+        while f.host.queue().0.len() < keys.len() {
+            f.host.take(1).await?;
         }
         let _ = f.host.take(0).await?;
         let (held, current) = f.host.queue();
         assert_eq!(current.as_deref(), Some("1440"));
+        let mut others = held[1..].to_vec();
+        others.sort();
+        assert_eq!(others, keys[1..]);
 
         // Next goes through what the host holds, in its order, by skips alone.
         for (index, key) in (1..).zip(&held[1..]) {
