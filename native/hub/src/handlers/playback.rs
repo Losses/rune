@@ -179,23 +179,23 @@ fn item_library_failure(error: Error, library_id: Uuid) -> Error {
 /// What the handlers that route by item take: the open local library, the node and the pool.
 pub(crate) type ItemRoutingParams = (Option<LibraryHandle>, Arc<NodeContext>, Arc<LibraryPool>);
 
-/// The library a local item is read from: the open one, or, while a streaming library is
-/// open and so none is, the library the item names.
+/// The library a local item is read from: the library the item names, which is the open one
+/// when the item is its own. A file played by its path is read through the open library.
 pub(crate) async fn local_item_library(
     open_library: Option<LibraryHandle>,
     pool: &Arc<LibraryPool>,
     item: &PlayingItemRef,
 ) -> Result<LibraryHandle> {
-    if let Some(library) = open_library {
-        return Ok(library);
-    }
     let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
-        return require_library(None);
+        return require_library(open_library);
     };
     let library_id = Uuid::parse_str(library_id).map_err(|error| {
         ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
     })?;
-    pool.acquire_for_request(library_id).await
+    match open_library {
+        Some(library) if library.library_id == library_id => Ok(library),
+        _ => pool.acquire_for_request(library_id).await,
+    }
 }
 
 /// Convert many requests against one library with a single id lookup.

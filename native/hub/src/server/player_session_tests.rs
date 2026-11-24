@@ -2238,6 +2238,83 @@ async fn liked_requests_address_a_library_other_than_the_ui_library() -> Result<
 }
 
 #[tokio::test]
+async fn the_lyrics_of_a_track_of_another_local_library_are_read_from_that_library() -> Result<()> {
+    use crate::messages::RegisterLocalLibraryRequest;
+
+    let node_dir = tempfile::tempdir()?;
+    let second_library_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: second_library_dir.path().to_string_lossy().into_owned(),
+            alias: "Second lyrics library".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &fixture.global_params.node,
+    )
+    .await?;
+    let record = registered.record.context("second library record")?;
+    let library_id = LibraryRegistry::load(node_dir.path())?
+        .catalogs()
+        .find(|library| library.alias == record.alias)
+        .and_then(|library| library.library_id)
+        .context("second library catalog id")?;
+    let library = fixture
+        .global_params
+        .library_pool
+        .acquire(library_id)
+        .await?;
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+    let target = Path::new(&library.media_root).join("lyrics-in-second-library.ogg");
+    fs::copy(source, &target)?;
+    fs::write(
+        target.with_extension("lrc"),
+        "[00:01.00]From the second library\n",
+    )?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        Path::new(&library.media_root),
+        &target,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .filter(Column::FileName.eq("lyrics-in-second-library.ogg"))
+        .one(&*library.main_db)
+        .await?
+        .context("second library track")?;
+    let track = file_uuids_by_id(&library.main_db, &[file.id])
+        .await?
+        .get(&file.id)
+        .copied()
+        .context("second library track UUID")?;
+
+    // The first library is open, and the track is the second one's.
+    let lyrics = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLyricByTrackIdRequest {
+            call_id: None,
+            item: Some(PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: track.to_string(),
+            }),
+        },
+    )
+    .await?
+    .context("lyrics response")?;
+    let contents = lyrics
+        .lines
+        .iter()
+        .flat_map(|line| line.sections.iter().map(|section| section.content.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(contents, ["From the second library"]);
+    Ok(())
+}
+
+#[tokio::test]
 async fn setting_liked_on_a_read_only_replica_returns_a_typed_error() -> Result<()> {
     use crate::messages::SetLikedRequest;
     use database::library_registry::{
