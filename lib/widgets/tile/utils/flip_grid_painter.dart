@@ -77,7 +77,9 @@ class FlipGridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant FlipGridPainter oldDelegate) {
-    if (oldDelegate.gridCount != gridCount) return false;
+    // A grid given other covers can change its cell count, and the old
+    // picture must not stay on screen.
+    if (oldDelegate.gridCount != gridCount) return true;
 
     if (oldDelegate.images.length != images.length) return true;
 
