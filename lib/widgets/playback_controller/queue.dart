@@ -182,6 +182,8 @@ class _QueueState extends State<Queue> {
   late final StreamSubscription<RequestFailure> _failureSubscription;
   static const _revealAttempts = 8;
   bool _revealScheduled = false;
+  // Held by the playing row only, so the reveal reaches it without searching.
+  final _currentRowKey = GlobalKey();
 
   @override
   void initState() {
@@ -233,7 +235,7 @@ class _QueueState extends State<Queue> {
       );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        final rowContext = _findCurrentRow(context);
+        final rowContext = _currentRowKey.currentContext;
         if (rowContext == null) {
           if (attemptsLeft > 1) {
             _jumpTowardsCurrent(index, count, attemptsLeft - 1);
@@ -243,22 +245,6 @@ class _QueueState extends State<Queue> {
         Scrollable.ensureVisible(rowContext, alignment: 0.2);
       });
     });
-  }
-
-  BuildContext? _findCurrentRow(BuildContext root) {
-    BuildContext? found;
-    void visit(Element element) {
-      if (found != null) return;
-      final widget = element.widget;
-      if (widget is PlaylistQueueItem && widget.isCurrent) {
-        found = element;
-        return;
-      }
-      element.visitChildren(visit);
-    }
-
-    (root as Element).visitChildren(visit);
-    return found;
   }
 
   @override
@@ -313,12 +299,15 @@ class _QueueState extends State<Queue> {
                             final isCurrent =
                                 playbackStatusProvider.$1 == x.index &&
                                 playbackStatusProvider.$2 == x.item;
-                            return PlaylistQueueItem(
+                            final row = PlaylistQueueItem(
                               key: ValueKey(x.entry.item),
                               entry: x,
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
+                            return isCurrent
+                                ? KeyedSubtree(key: _currentRowKey, child: row)
+                                : row;
                           }, childCount: playlistProvider.items.length),
                         )
                       else
@@ -329,12 +318,15 @@ class _QueueState extends State<Queue> {
                             final isCurrent =
                                 playbackStatusProvider.$1 == x.index &&
                                 playbackStatusProvider.$2 == x.item;
-                            return PlaylistQueueItem(
+                            final row = PlaylistQueueItem(
                               key: ValueKey(x.entry.item),
                               entry: x,
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
+                            return isCurrent
+                                ? KeyedSubtree(key: _currentRowKey, child: row)
+                                : row;
                           },
                         ),
                     ],
