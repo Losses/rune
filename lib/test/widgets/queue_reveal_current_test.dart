@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rinf/rinf.dart';
@@ -20,6 +21,7 @@ void main() {
     int? laterCurrent,
     int count = 100,
     bool Function(int index)? unavailable,
+    List<MovePlaylistItemRequest>? moves,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(400, 400);
@@ -33,6 +35,7 @@ void main() {
     final playlist = PlaylistProvider(
       playlistUpdates: updates.stream,
       requestFailures: failures.stream,
+      sendMoveRequest: moves?.add,
     );
     final status = PlaybackStatusProvider(statusStream: statuses.stream);
     addTearDown(() async {
@@ -167,4 +170,40 @@ void main() {
     expect(rect.top, greaterThanOrEqualTo(viewport.top));
     expect(rect.bottom, lessThanOrEqualTo(viewport.bottom));
   });
+
+  testWidgets('the playing row can be dragged once it is revealed', (
+    tester,
+  ) async {
+    final moves = <MovePlaylistItemRequest>[];
+    await pumpQueue(tester, current: 1, count: 10, moves: moves);
+
+    // The drag feedback of reorderables is a card no taller than the row, so
+    // the row overflows inside it. That overflow is not what this test checks.
+    final errors = <String>[];
+    final onError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      final error = details.exceptionAsString();
+      if (!error.contains('RenderFlex overflowed')) errors.add(error);
+    };
+    try {
+      // A mouse on desktop, because on a touch platform a long press opens the
+      // row's context menu instead of dragging it.
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Track 1')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, 60));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 60));
+      await tester.pump(const Duration(milliseconds: 300));
+      await gesture.up();
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = onError;
+    }
+
+    expect(errors, isEmpty);
+    expect(moves.map((move) => move.oldIndex), [1]);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

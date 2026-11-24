@@ -183,7 +183,13 @@ class _QueueState extends State<Queue> {
   static const _revealAttempts = 8;
   bool _revealScheduled = false;
   // Held by the playing row only, so the reveal reaches it without searching.
+  // The reorderable list builds a dragged row's feedback, the placeholder it
+  // leaves and the gap it would drop into from the same widget, so a key that
+  // stayed on the row would be mounted three times once the row is dragged.
+  // The row therefore holds the key only while the reveal runs, a few frames
+  // after the flyout opens, and dragging is off until then.
   final _currentRowKey = GlobalKey();
+  bool _revealing = false;
 
   @override
   void initState() {
@@ -219,6 +225,7 @@ class _QueueState extends State<Queue> {
     if (_revealScheduled || index < 0) return;
     _revealScheduled = true;
     if (index == 0) return;
+    _revealing = true;
     _jumpTowardsCurrent(index, count, _revealAttempts);
   }
 
@@ -234,7 +241,11 @@ class _QueueState extends State<Queue> {
   // raise or lower the average, so a few jumps reach a row the first one missed.
   void _jumpTowardsCurrent(int index, int count, int attemptsLeft) {
     _afterFrame(() {
-      if (!mounted || !_scrollController.hasClients) return;
+      if (!mounted) return;
+      if (!_scrollController.hasClients) {
+        setState(() => _revealing = false);
+        return;
+      }
       final position = _scrollController.position;
       final rowExtent =
           (position.maxScrollExtent + position.viewportDimension) / count;
@@ -244,13 +255,14 @@ class _QueueState extends State<Queue> {
       _afterFrame(() {
         if (!mounted) return;
         final rowContext = _currentRowKey.currentContext;
-        if (rowContext == null) {
-          if (attemptsLeft > 1) {
-            _jumpTowardsCurrent(index, count, attemptsLeft - 1);
-          }
+        if (rowContext == null && attemptsLeft > 1) {
+          _jumpTowardsCurrent(index, count, attemptsLeft - 1);
           return;
         }
-        Scrollable.ensureVisible(rowContext, alignment: 0.2);
+        if (rowContext != null) {
+          Scrollable.ensureVisible(rowContext, alignment: 0.2);
+        }
+        setState(() => _revealing = false);
       });
     });
   }
@@ -299,6 +311,7 @@ class _QueueState extends State<Queue> {
                       if (canMove)
                         ReorderableSliverList(
                           onReorder: onReorder,
+                          enabled: !_revealing,
                           delegate: ReorderableSliverChildBuilderDelegate((
                             BuildContext context,
                             int index,
@@ -313,7 +326,7 @@ class _QueueState extends State<Queue> {
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
-                            return isCurrent
+                            return isCurrent && _revealing
                                 ? KeyedSubtree(key: _currentRowKey, child: row)
                                 : row;
                           }, childCount: playlistProvider.items.length),
@@ -332,7 +345,7 @@ class _QueueState extends State<Queue> {
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
-                            return isCurrent
+                            return isCurrent && _revealing
                                 ? KeyedSubtree(key: _currentRowKey, child: row)
                                 : row;
                           },
