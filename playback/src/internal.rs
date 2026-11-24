@@ -59,8 +59,9 @@ const HOST_SILENCE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long finding out whether a host plays the next track may take. A track that takes longer
 /// is not given to the host in advance, and is handed over as usual once it is current.
 const HOST_NEXT_TIMEOUT: Duration = Duration::from_secs(5);
-/// How often the player reports where the current track stands. A report that comes
-/// [`FROZEN_GAP`] later than the one before means that the process did not run meanwhile.
+/// How often the player reports where the current track stands. Its loop runs at least that
+/// often while the process runs, so more than [`FROZEN_GAP`] since the loop last ran means that
+/// the process did not run meanwhile.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 async fn bound_source_start<T>(
@@ -1075,7 +1076,7 @@ impl PlayerInternal {
         // After a time that the process did not run, one report comes rather than every one that
         // was missed.
         progress_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        let mut last_tick = Instant::now();
+        let mut last_run = Instant::now();
 
         let fft_receiver = match self.realtime_fft.lock() {
             Ok(fft) => fft.subscribe(),
@@ -1093,6 +1094,9 @@ impl PlayerInternal {
                         break;
                     }
 
+                    // After a time that the process did not run, a command can come before the
+                    // tick, and must not read the hosted track's place across that time.
+                    self.note_run(&mut last_run);
                     debug!("Received command: {cmd:?}");
                     let (cmd, completion) = match cmd {
                         PlayerCommand::WithCompletion { command, response } => {
@@ -1444,12 +1448,7 @@ impl PlayerInternal {
                     }
                 },
                 _ = progress_interval.tick() => {
-                    let now = Instant::now();
-                    let gap = now.saturating_duration_since(last_tick);
-                    last_tick = now;
-                    if gap > FROZEN_GAP {
-                        self.resume_after_freeze(gap.saturating_sub(PROGRESS_INTERVAL));
-                    }
+                    self.note_run(&mut last_run);
                     // Only the tick judges a host's deadline, once it left out a time the process
                     // did not run: a command taken before it may report progress too.
                     if self.state != InternalPlaybackState::Stopped && !self.fail_overdue_host()? {
@@ -3676,6 +3675,18 @@ impl PlayerInternal {
         self.command_host(vec![skip, HostAction::Start]);
         info!("Skipped to the track that the host holds next");
         Ok(true)
+    }
+
+    // Notes that the loop runs now, after it last ran at `last_run`. A time that the process did
+    // not run meanwhile is left out of the hosted track's place and its host's deadlines, by
+    // whichever of a command and the tick comes first after it.
+    fn note_run(&mut self, last_run: &mut Instant) {
+        let now = Instant::now();
+        let gap = now.saturating_duration_since(*last_run);
+        *last_run = now;
+        if gap > FROZEN_GAP {
+            self.resume_after_freeze(gap.saturating_sub(PROGRESS_INTERVAL));
+        }
     }
 
     // The process did not run for `gap`, as in an app that the system suspended, and no report

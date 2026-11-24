@@ -3102,6 +3102,36 @@ async fn a_command_after_a_time_the_player_did_not_run_leaves_the_host_its_time(
     f.host.check()
 }
 
+// A host that comes up again after a time the player did not run, and whose report the player
+// takes before its next tick, gets its track back where the track stood when the player stopped.
+#[tokio::test(start_paused = true)]
+async fn a_host_that_comes_up_after_a_time_the_player_did_not_run_gets_the_track_where_it_stood()
+-> Result<()> {
+    let (internal, f) = hosted_engine(2, &[]);
+    with_engine(internal, f, async |f| {
+        let hosted = f.hosted("1440");
+        start_first(f, std::slice::from_ref(&hosted), None).await?;
+        f.report(status(1, true, 10_000))?;
+        f.settle().await?;
+
+        // The host's report waits as a minute passes in one step, as for an app that the system
+        // suspended, and the player takes it before the tick that fell due meanwhile.
+        f.report(f.host.restart())?;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        let batches = f.host.take(1).await?;
+        let Some(HostAction::Skip { offset_ms, .. }) = batches[0].actions.get(1) else {
+            bail!("{batches:?}");
+        };
+        assert!(*offset_ms < 11_000, "the place ran on to {offset_ms} ms");
+        assert_eq!(
+            batches,
+            vec![hand_over(HOST, &["1440"], 2, *offset_ms, 1.0, true)]
+        );
+        Ok(())
+    })
+    .await
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_host_that_comes_up_again_gets_its_whole_run_again() -> Result<()> {
     let (internal, f) = run_engine();
