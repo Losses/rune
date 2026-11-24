@@ -14,7 +14,7 @@ on:
           - linux
           - embedded-linux
           - macos
-          - steam-sniper
+          - steam-rt4
           - mac-app-store
           - ios-app-store
           - ios-unsigned
@@ -541,36 +541,55 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
           makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
 
-  build-steam-sniper:
-    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'steam-sniper'
-    runs-on: ubuntu-latest
-    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:beta
+  build-steam-rt4:
+    name: Build Steam Runtime 4 (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'steam-rt4'
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            container: registry.gitlab.steamos.cloud/steamrt/steamrt4/sdk:latest
+            flutter_arch: x64
+            release_suffix: amd64
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
+          dpkg-query -W -f='${binary:Package}\n' | sort -u > "$RUNNER_TEMP/steamrt4-base-packages.txt"
           sudo apt-get update
-          sudo apt-get install -y jq librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+          sudo apt-get install -y --no-install-recommends \
+            jq libasound2-dev clang cmake ninja-build pkgconf \
+            libgtk-3-dev dpkg-dev libayatana-appindicator3-dev \
+            libnotify-dev zip unzip
 
       - name: Patch Environment
         run: |
           # https://github.com/actions/runner/issues/2033
-          chown -R $(id -u):$(id -g) $PWD
+          chown -R "$(id -u):$(id -g)" "$PWD"
           git config --global --add safe.directory '*'
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
+          "$HOME/flutter/bin/flutter" --version
+          "$HOME/flutter/bin/flutter" precache --linux
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: steam-rt4-${{ matrix.arch }}
 
       - name: Install the Rust dependencies
         run: cargo install rinf_cli --version 8.11.0 --locked
@@ -584,14 +603,12 @@ jobs:
       - name: Build linux
         run: flutter build linux --release --verbose
 
-      - name: Copy required libraries
+      - name: Bundle SteamRT4 dependencies and launch scripts
         run: |
-          mkdir -p build/linux/x64/release/bundle/lib/
-          cp /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1 build/linux/x64/release/bundle/lib/
-          cp /usr/lib/x86_64-linux-gnu/libayatana-indicator3.so.7 build/linux/x64/release/bundle/lib/
-          cp /usr/lib/x86_64-linux-gnu/libayatana-ido3-0.4.so.0 build/linux/x64/release/bundle/lib/
-          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-glib.so.4 build/linux/x64/release/bundle/lib/
-          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-gtk3.so.4 build/linux/x64/release/bundle/lib/
+          bash scripts/steam_bundle.sh \
+            --bundle-dir "build/linux/${{ matrix.flutter_arch }}/release/bundle" \
+            --base-packages "$RUNNER_TEMP/steamrt4-base-packages.txt" \
+            --expected-arch "${{ matrix.arch }}"
 
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
@@ -609,30 +626,25 @@ jobs:
         env:
           SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
 
-      - name: Copy Steam Launch Scripts
-        run: |
-          chmod +x scripts/steam/*
-          cp -r scripts/steam/* build/linux/x64/release/bundle/
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          path: build/linux/x64/release/bundle/
-          name: ${{ steps.artifact.outputs.prefix }}-steam-sniper
+          path: build/linux/${{ matrix.flutter_arch }}/release/bundle/
+          name: ${{ steps.artifact.outputs.prefix }}-steam-rt4-${{ matrix.release_suffix }}
 
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-steam-sniper-amd64.zip
-          directory: build/linux/x64/release/bundle/
+          filename: Rune-${{ github.ref_name }}-steam-rt4-${{ matrix.release_suffix }}.zip
+          directory: build/linux/${{ matrix.flutter_arch }}/release/bundle/
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-steam-sniper-amd64.zip"
+          artifacts: "build/linux/${{ matrix.flutter_arch }}/release/bundle/Rune-${{ github.ref_name }}-steam-rt4-${{ matrix.release_suffix }}.zip"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
