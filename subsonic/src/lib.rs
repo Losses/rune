@@ -321,8 +321,9 @@ impl SubsonicClient {
         self.album_list_by("alphabeticalByName", size, offset).await
     }
 
-    /// List albums in the order of a Subsonic list type, such as `newest`, using the Subsonic
-    /// paging parameters.
+    /// List albums in the order of a Subsonic list type that takes no other parameter, such as
+    /// `newest` or `alphabeticalByName`, using the Subsonic paging parameters. `byYear` and
+    /// `byGenre` need parameters this does not send.
     pub async fn album_list_by(
         &self,
         list_type: &str,
