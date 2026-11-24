@@ -1,25 +1,26 @@
 use crate::{
     macros::RequestSlots,
     messages::{
-        LibraryContentChanged, PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef,
-        PlaylistItem, PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
-        SetRealtimeFFTEnabledRequest,
+        PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
+        RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
     },
     node::ReconnectConfig,
-    service::{ServiceBinding, ServiceFuture, ServicePlayer},
+    service::{
+        ServiceBinding, ServiceFuture, ServicePlayer,
+        covers::{CoverSource, ServiceCoverCache, cover_cache_root},
+        ids::RemoteIdMap,
+    },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
 #[cfg(test)]
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::{Duration, SystemTime};
-use tokio::sync::{Semaphore, watch};
+use std::time::Duration;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use visualizer::{Visualizer, VisualizerInputs};
@@ -39,30 +40,15 @@ use subsonic::{
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
-use crate::request_error::ExpectedRequestError;
 use crate::subsonic_translate::jukebox_error_for_refresh;
 use anyhow::Error;
 use reqwest::header;
-use std::error;
-use std::fmt;
-use std::io;
 use std::iter;
-use std::result;
 use std::sync as std_sync;
 use subsonic::StreamError;
 use subsonic::SubsonicError;
 use subsonic::SubsonicServerError;
-use tokio::fs as tokio_fs;
-use tokio::task;
 use tokio::time as tokio_time;
-
-/// Opaque catalog IDs are scoped to the lifetime of the open Subsonic binding.
-#[derive(Default)]
-pub(crate) struct SubsonicIdMap {
-    forward: HashMap<SubsonicIdKind, HashMap<String, i32>>,
-    reverse: HashMap<SubsonicIdKind, HashMap<i32, String>>,
-    next: HashMap<SubsonicIdKind, i32>,
-}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum SubsonicIdKind {
@@ -71,38 +57,6 @@ pub(crate) enum SubsonicIdKind {
     Track,
     Playlist,
     CoverArt,
-}
-
-impl SubsonicIdMap {
-    pub(crate) fn intern(&mut self, kind: SubsonicIdKind, remote_id: &str) -> Result<i32> {
-        if let Some(id) = self.forward.get(&kind).and_then(|ids| ids.get(remote_id)) {
-            return Ok(*id);
-        }
-        let next = self.next.entry(kind).or_default();
-        *next = next
-            .checked_add(1)
-            .ok_or_else(|| ExpectedRequestError::invalid_input("Subsonic ID map is full"))?;
-        let id = *next;
-        self.forward
-            .entry(kind)
-            .or_default()
-            .insert(remote_id.to_owned(), id);
-        self.reverse
-            .entry(kind)
-            .or_default()
-            .insert(id, remote_id.to_owned());
-        Ok(id)
-    }
-
-    pub(crate) fn resolve(&self, kind: SubsonicIdKind, id: i32) -> Result<&str> {
-        self.reverse
-            .get(&kind)
-            .and_then(|ids| ids.get(&id))
-            .map(String::as_str)
-            .ok_or_else(|| {
-                ExpectedRequestError::invalid_input("Unknown Subsonic catalog ID").into()
-            })
-    }
 }
 
 /// How many fetched songs a binding keeps at most.
@@ -114,7 +68,7 @@ pub(crate) struct SubsonicBinding {
     pub(crate) client: Arc<SubsonicClient>,
     pub(crate) probe: subsonic::SubsonicProbe,
     pub(crate) catalog: Mutex<SubsonicCatalog>,
-    pub(crate) covers: Arc<SubsonicCoverCache>,
+    pub(crate) covers: Arc<ServiceCoverCache>,
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
@@ -423,210 +377,10 @@ async fn run_feed_session(
     }
 }
 
-pub(crate) struct SubsonicCoverCache {
-    pub(crate) root: PathBuf,
-    pending: Mutex<HashMap<String, watch::Receiver<Option<CoverFetchResult>>>>,
-    pub(crate) concurrency: Arc<Semaphore>,
-    pub(crate) cancellation: CancellationToken,
-    pub(crate) broadcaster: Arc<dyn Broadcaster>,
-}
-
-#[derive(Clone)]
-struct CoverFetchResult(result::Result<Option<String>, Arc<anyhow::Error>>);
-
-struct SharedCoverFetchError(Arc<anyhow::Error>);
-
-impl fmt::Display for SharedCoverFetchError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "shared Subsonic cover fetch failed: {}", self.0)
-    }
-}
-
-impl fmt::Debug for SharedCoverFetchError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_tuple("SharedCoverFetchError")
-            .field(&self.0)
-            .finish()
-    }
-}
-
-impl error::Error for SharedCoverFetchError {}
-
-pub(crate) async fn delete_subsonic_cover_cache(
-    config_dir: &Path,
-    library_id: Uuid,
-) -> io::Result<()> {
-    let path = config_dir
-        .join("subsonic-covers")
-        .join(library_id.to_string());
-    match tokio_fs::remove_dir_all(path).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-impl SubsonicCoverCache {
-    pub(crate) fn path_for(&self, cover_id: &str) -> PathBuf {
-        let key = blake3::hash(cover_id.as_bytes()).to_hex();
-        self.root.join(format!("{key}.img"))
-    }
-
-    pub(crate) async fn cached_path(&self, cover_id: &str) -> Result<Option<String>> {
-        let path = self.path_for(cover_id);
-        task::spawn_blocking(move || -> Result<Option<String>> {
-            let Ok(metadata) = fs::metadata(&path) else {
-                return Ok(None);
-            };
-            if !metadata.is_file() || metadata.len() == 0 {
-                return Ok(None);
-            }
-            if let Ok(file) = fs::OpenOptions::new().write(true).open(&path) {
-                let _ = file.set_times(fs::FileTimes::new().set_modified(SystemTime::now()));
-            }
-            Ok(path.to_str().map(str::to_owned))
-        })
-        .await?
-    }
-
-    pub(crate) fn schedule(self: &Arc<Self>, client: Arc<SubsonicClient>, cover_id: String) {
-        let cache = Arc::clone(self);
-        tokio::spawn(async move {
-            let _ = cache.ensure_cached(client, &cover_id).await;
-        });
-    }
-
-    pub(crate) async fn ensure_cached(
-        self: &Arc<Self>,
-        client: Arc<SubsonicClient>,
-        cover_id: &str,
-    ) -> Result<Option<String>> {
-        if let Some(path) = self.cached_path(cover_id).await? {
-            return Ok(Some(path));
-        }
-        let mut receiver = {
-            let mut pending = self
-                .pending
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Subsonic cover cache lock poisoned"))?;
-            if let Some(receiver) = pending.get(cover_id) {
-                receiver.clone()
-            } else {
-                let (sender, receiver) = watch::channel(None);
-                pending.insert(cover_id.to_owned(), receiver.clone());
-                let cache = Arc::clone(self);
-                let fetch_client = Arc::clone(&client);
-                let id = cover_id.to_owned();
-                tokio::spawn(async move {
-                    let result = cache.fetch_uncached(fetch_client, &id).await;
-                    if let Ok(mut pending) = cache.pending.lock() {
-                        pending.remove(&id);
-                    }
-                    let _ = sender.send(Some(CoverFetchResult(result.map_err(Arc::new))));
-                });
-                receiver
-            }
-        };
-        loop {
-            if let Some(CoverFetchResult(result)) = receiver.borrow().clone() {
-                return result.map_err(|error| Error::new(SharedCoverFetchError(error)));
-            }
-            receiver
-                .changed()
-                .await
-                .map_err(|_| anyhow::anyhow!("Subsonic cover fetch task ended without a result"))?;
-        }
-    }
-
-    async fn fetch_uncached(
-        &self,
-        client: Arc<SubsonicClient>,
-        cover_id: &str,
-    ) -> Result<Option<String>> {
-        // A request that missed the cache just before an earlier fetch for this cover stored
-        // its file, and found no fetch in flight just after that fetch finished, starts this
-        // one: the file is there now, so it must not be fetched twice.
-        if let Some(path) = self.cached_path(cover_id).await? {
-            return Ok(Some(path));
-        }
-        let permit = tokio::select! {
-            _ = self.cancellation.cancelled() => return Ok(None),
-            permit = self.concurrency.acquire() => permit?,
-        };
-        let bytes = tokio::select! {
-            _ = self.cancellation.cancelled() => return Ok(None),
-            result = client.cover_art(cover_id, None) => result?,
-        };
-        if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 {
-            return Ok(None);
-        }
-        let path = self.path_for(cover_id);
-        tokio_fs::create_dir_all(&self.root).await?;
-        let temporary = path.with_extension("tmp");
-        tokio_fs::write(&temporary, bytes).await?;
-        tokio_fs::rename(&temporary, &path).await?;
-        let root = self.root.clone();
-        let newest = path.clone();
-        task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
-            .await??;
-        self.broadcaster.broadcast(&LibraryContentChanged {
-            path: String::new(),
-        });
-        drop(permit);
-        self.cached_path(cover_id).await
-    }
-}
-
-/// Bounds of one Subsonic library's cover cache. A cover wall or album list shows
-/// hundreds of covers, so the cache must hold several pages of them.
-#[derive(Clone, Copy)]
-struct CoverCacheLimits {
-    max_files: usize,
-    max_bytes: u64,
-}
-
-const COVER_CACHE_LIMITS: CoverCacheLimits = CoverCacheLimits {
-    max_files: 4096,
-    max_bytes: 256 * 1024 * 1024,
-};
-
-fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> io::Result<()> {
-    let mut entries = fs::read_dir(root)?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            (metadata.is_file() && entry.path().extension().is_some_and(|ext| ext == "img")).then(
-                || {
-                    (
-                        entry.path(),
-                        metadata.len(),
-                        metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    )
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let mut bytes = entries.iter().map(|(_, size, _)| *size).sum::<u64>();
-    while entries.len() > limits.max_files || bytes > limits.max_bytes {
-        let Some((oldest_index, _)) = entries
-            .iter()
-            .enumerate()
-            .filter(|(_, (path, _, _))| path != newest)
-            .min_by_key(|(_, (_, _, modified))| *modified)
-        else {
-            break;
-        };
-        let (path, size, _) = entries.swap_remove(oldest_index);
-        fs::remove_file(path)?;
-        bytes = bytes.saturating_sub(size);
-    }
-    Ok(())
-}
-
 #[derive(Default)]
 pub(crate) struct SubsonicCatalog {
-    pub(crate) ids: SubsonicIdMap,
+    /// Opaque catalog IDs are scoped to the lifetime of the open Subsonic binding.
+    pub(crate) ids: RemoteIdMap<SubsonicIdKind>,
     pub(crate) artists: HashMap<i32, SubsonicArtist>,
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
@@ -650,15 +404,10 @@ impl SubsonicBinding {
             client: Arc::new(client),
             probe,
             catalog: Mutex::new(SubsonicCatalog::default()),
-            covers: Arc::new(SubsonicCoverCache {
-                root: config_dir
-                    .join("subsonic-covers")
-                    .join(library_id.to_string()),
-                pending: Mutex::new(HashMap::new()),
-                concurrency: Arc::new(Semaphore::new(4)),
-                cancellation: CancellationToken::new(),
+            covers: Arc::new(ServiceCoverCache::new(
+                cover_cache_root(&config_dir, library_id),
                 broadcaster,
-            }),
+            )),
             jukebox_poll: Mutex::new(None),
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
@@ -1165,6 +914,12 @@ impl ServicePlayer for SubsonicBinding {
     }
 }
 
+impl CoverSource for SubsonicClient {
+    fn cover_bytes<'a>(&'a self, cover_id: &'a str) -> BoxFuture<'a, Result<Vec<u8>>> {
+        Box::pin(async move { Ok(self.cover_art(cover_id, None).await?) })
+    }
+}
+
 struct SubsonicAudioRequest {
     client: Arc<SubsonicClient>,
     track_id: String,
@@ -1267,89 +1022,6 @@ impl Drop for SubsonicBinding {
     fn drop(&mut self) {
         self.stop_jukebox_polling();
         self.covers.cancellation.cancel();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        fs::{self, OpenOptions},
-        time::{Duration, SystemTime},
-    };
-
-    use tempfile::TempDir;
-    use uuid::Uuid;
-
-    use super::{
-        CoverCacheLimits, SubsonicIdKind, SubsonicIdMap, delete_subsonic_cover_cache,
-        evict_cover_cache,
-    };
-    use crate::request_error::ExpectedRequestError;
-
-    #[test]
-    fn ids_are_stable_per_kind_and_unknown_ids_are_typed() {
-        let mut ids = SubsonicIdMap::default();
-        let artist = ids.intern(SubsonicIdKind::Artist, "artist-opaque").unwrap();
-        assert_eq!(artist, 1);
-        assert_eq!(
-            ids.intern(SubsonicIdKind::Artist, "artist-opaque").unwrap(),
-            artist
-        );
-        assert_eq!(
-            ids.intern(SubsonicIdKind::Album, "album-opaque").unwrap(),
-            1
-        );
-        assert_eq!(
-            ids.resolve(SubsonicIdKind::Artist, artist).unwrap(),
-            "artist-opaque"
-        );
-        let error = ids.resolve(SubsonicIdKind::Track, 999).unwrap_err();
-        assert!(error.downcast_ref::<ExpectedRequestError>().is_some());
-    }
-
-    #[test]
-    fn cover_cache_evicts_oldest_files_to_its_entry_limit() {
-        let root = TempDir::new().unwrap();
-        let newest = root.path().join("cover-128.img");
-        for index in 0..129 {
-            let path = root.path().join(format!("cover-{index}.img"));
-            fs::write(&path, [index as u8]).unwrap();
-            let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(index + 1);
-            OpenOptions::new()
-                .write(true)
-                .open(&path)
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(modified))
-                .unwrap();
-        }
-        evict_cover_cache(
-            root.path(),
-            &newest,
-            CoverCacheLimits {
-                max_files: 128,
-                max_bytes: u64::MAX,
-            },
-        )
-        .unwrap();
-        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 128);
-        assert!(!root.path().join("cover-0.img").exists());
-        assert!(newest.exists());
-    }
-
-    #[tokio::test]
-    async fn removing_subsonic_record_deletes_its_cover_cache_directory() {
-        let root = TempDir::new().unwrap();
-        let library_id = Uuid::new_v4();
-        let cache = root
-            .path()
-            .join("subsonic-covers")
-            .join(library_id.to_string());
-        fs::create_dir_all(&cache).unwrap();
-        fs::write(cache.join("cover.img"), b"cover").unwrap();
-        delete_subsonic_cover_cache(root.path(), library_id)
-            .await
-            .unwrap();
-        assert!(!cache.exists());
     }
 }
 

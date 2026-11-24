@@ -3,7 +3,6 @@ use database::actions::collection::CollectionQueryType;
 use database::actions::playlists::OCCURRENCE_PAGE_SIZES;
 use database::actions::utils::generate_group_name;
 use database::error::ExpectedError;
-use futures::{StreamExt, stream};
 use lyric::lrc::parse_lrc;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -50,7 +49,6 @@ use crate::subsonic_binding::{SubsonicBinding, SubsonicIdKind};
 use crate::utils::{RESOLVED_TRACK_LIMIT, resolved_start};
 use database::actions::mixes::QueryOperator;
 use reqwest::StatusCode as ReqwestStatusCode;
-use std::future;
 use std::result;
 use uuid::Uuid;
 
@@ -2126,36 +2124,17 @@ async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<V
     Ok(songs)
 }
 
-/// Waits until every cover of `songs` is in the local cover cache, fetching at most four at a
-/// time, and returns the IDs of the covers that are now cached. A cover that cannot be fetched
-/// is left out rather than failing the others.
+/// Waits until every cover of `songs` is in the local cover cache, and returns the IDs of the
+/// covers that are now cached. A cover that cannot be fetched is left out rather than failing
+/// the others.
 async fn cache_covers(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> HashSet<String> {
     let cover_ids = songs
         .iter()
         .filter_map(|song| song.cover_art.clone())
-        .collect::<HashSet<_>>();
-    stream::iter(cover_ids)
-        .map(|cover_id| async move {
-            match binding
-                .covers
-                .ensure_cached(Arc::clone(&binding.client), &cover_id)
-                .await
-            {
-                Ok(Some(_)) => Some(cover_id),
-                Ok(None) => {
-                    log::debug!("Subsonic cover {cover_id} is not available");
-                    None
-                }
-                Err(error) => {
-                    log::debug!("Subsonic cover {cover_id} could not be cached: {error:#}");
-                    None
-                }
-            }
-        })
-        // The cover cache downloads four covers at a time, so waiting on more only queues them.
-        .buffer_unordered(4)
-        .filter_map(future::ready)
-        .collect()
+        .collect();
+    binding
+        .covers
+        .cache_covers(&binding.client, cover_ids)
         .await
 }
 

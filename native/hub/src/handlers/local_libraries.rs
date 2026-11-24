@@ -19,7 +19,7 @@ use crate::{
         SetLibraryBackgroundSyncResponse,
     },
     node::NodeContext,
-    subsonic_binding::delete_subsonic_cover_cache,
+    service::covers::delete_service_cover_cache,
     utils::{GlobalParams, ParamsExtractor},
 };
 
@@ -223,7 +223,7 @@ impl Signal for RemoveLibraryRecordRequest {
             node.library_pool.release_background(library_id).await;
         }
         if let Some(library_id) = subsonic_library_id {
-            delete_subsonic_cover_cache(config, library_id).await?;
+            delete_service_cover_cache(config, library_id).await?;
         }
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse { call_id: None }))

@@ -1,5 +1,8 @@
 //! What the hub needs from a streaming service's library, whichever service it is.
 
+pub(crate) mod covers;
+pub(crate) mod ids;
+
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
