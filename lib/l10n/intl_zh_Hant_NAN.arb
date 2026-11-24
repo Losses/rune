@@ -1732,7 +1732,7 @@
   "libraryOpenDalUnreachable": "請檢查伺服器位址和網路連線。",
   "libraryOpenDalNotFolder": "請確認所揀資料夾存在而且可以存取。",
   "libraryOpenDalReadOnly": "請揀會當寫入的資料夾，才會當共媒體索引囥佇共享資料夾內底。",
-  "libraryShareIdentityChanged": "此所在的共享媒體庫已經變喇。同步無法度繼續使用舊的辨識。",
+  "libraryShareIdentityChanged": "此所在的共享媒體庫已經變喇。同步無法度繼續沿用先前的身分。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "連線佮 Subsonic 音樂伺服器。",
   "playOnThisDevice": "佇此裝置播放",
