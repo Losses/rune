@@ -235,6 +235,34 @@ async fn the_log_of_a_failed_catalog_search_omits_what_apple_says_of_the_term() 
 }
 
 #[tokio::test]
+async fn the_log_of_a_catalog_search_with_an_unreadable_answer_omits_the_answer() {
+    let _serial = SERIAL.lock().await;
+    search_warnings();
+    let fixtures = FixtureServer::start().await;
+    fixtures.on(
+        "GET",
+        "/v1/me/library/search",
+        fixture("library_search_dawn.json"),
+    );
+    fixtures.on(
+        "GET",
+        "/v1/catalog/us/search",
+        Reply::json(json!({"results": {"songs": {"data": "dawn-private"}}})),
+    );
+    let (library, _) = signed_in(&fixtures, None);
+
+    library
+        .search_fresh("dawn-private", SearchScope::All, false)
+        .await
+        .unwrap();
+
+    let warnings = search_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("unreadable"), "{}", warnings[0]);
+    assert!(!warnings[0].contains("private"), "{}", warnings[0]);
+}
+
+#[tokio::test]
 async fn a_repeated_search_takes_what_the_catalog_found_for_two_minutes_of_a_sign_in() {
     let _serial = SERIAL.lock().await;
     let fixtures = FixtureServer::start().await;

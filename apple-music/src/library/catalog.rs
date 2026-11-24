@@ -241,13 +241,16 @@ fn about_the_sign_in(failure: &Failure) -> bool {
 }
 
 /// What a failure of a search part is logged as. Apple may repeat the search term in the
-/// detail of an error, so only its status is given.
+/// detail of an error, so only its status is given, and nothing of a response that could
+/// not be read.
 fn failure_summary(failure: &Failure) -> String {
     match failure.root() {
         Failure::Apple(Error::Api { status, .. } | Error::Server { status, .. }) => {
             format!("with status {status}")
         }
         Failure::Apple(Error::NotFound(_)) => "as not found".to_owned(),
+        // The text of a decode error quotes what Apple sent.
+        Failure::Apple(Error::Decode(_)) => "as an unreadable response".to_owned(),
         failure => format!("as: {failure}"),
     }
 }
