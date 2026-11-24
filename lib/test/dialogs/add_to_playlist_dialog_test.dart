@@ -16,7 +16,10 @@ const playlistId = 3;
 /// A library whose album 1 has the songs 11, 12 and 13, and the playlist
 /// [playlistId] that they are added to, one at a time as the test lets them.
 class Library {
-  Library({List<int> inPlaylist = const [], this.failsAt, this.timesOutAt});
+  Library({this.songs = const [11, 12, 13], this.failsAt, this.timesOutAt});
+
+  /// The songs of album 1, in its order.
+  final List<int> songs;
 
   final List<int> playlist = [];
   late final _initial = playlist.length;
@@ -34,7 +37,7 @@ class Library {
     reads++;
     return type == CollectionType.playlist
         ? List.of(playlist)
-        : const [11, 12, 13];
+        : List.of(songs);
   }
 
   Future<void> add(int playlistId, int fileId) async {
@@ -72,14 +75,24 @@ Future<Library> pumpDialog(
   List<int> inPlaylist = const [],
   int? failsAt,
   int? timesOutAt,
+  List<int> songs = const [11, 12, 13],
+  bool asRoute = false,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(1920, 1080);
   addTearDown(tester.view.reset);
   final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
-  final library = Library(failsAt: failsAt, timesOutAt: timesOutAt)..playlist.addAll(inPlaylist);
+  final library = Library(songs: songs, failsAt: failsAt, timesOutAt: timesOutAt)..playlist.addAll(inPlaylist);
   // Reads the count the playlist starts with.
   library.added;
+  Widget dialog() => AddToPlaylistDialog(
+    type: CollectionType.album,
+    id: 1,
+    playlistId: playlistId,
+    loadFileIds: library.fileIds,
+    addFileToPlaylist: library.add,
+    $close: (_) => library.closed++,
+  );
   await tester.pumpWidget(
     MultiProvider(
       providers: [
@@ -100,17 +113,27 @@ Future<Library> pumpDialog(
           ).copyWith(textScaler: const TextScaler.linear(0.5)),
           child: child!,
         ),
-        home: AddToPlaylistDialog(
-          type: CollectionType.album,
-          id: 1,
-          playlistId: playlistId,
-          loadFileIds: library.fileIds,
-          addFileToPlaylist: library.add,
-          $close: (_) => library.closed++,
-        ),
+        home: asRoute
+            ? Builder(
+                builder: (context) => Button(
+                  onPressed: () => Navigator.of(context).push(
+                    PageRouteBuilder<void>(
+                      opaque: false,
+                      transitionDuration: const Duration(milliseconds: 200),
+                      pageBuilder: (_, _, _) => dialog(),
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              )
+            : dialog(),
       ),
     ),
   );
+  if (asRoute) {
+    await tester.tap(find.text('open'));
+    await tester.pump();
+  }
   await tester.pump();
   await tester.pump();
   return library;
@@ -243,6 +266,47 @@ void main() {
 
     expect(library.added, [11, 12]);
     expect(library._pending, isEmpty);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('adds a song the collection lists twice once', (tester) async {
+    final library = await pumpDialog(tester, songs: [11, 11, 12]);
+
+    expect(find.text('0 of 2'), findsOneWidget);
+    await library.next(tester);
+    await library.next(tester);
+
+    expect(library.added, [11, 12]);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('sends no more once Cancel is pressed, while it is still shown', (
+    tester,
+  ) async {
+    final library = await pumpDialog(tester);
+
+    await tester.tap(find.text('Cancel'));
+    // The add that was sent finishes inside the dialog's exit animation.
+    await library.next(tester);
+
+    expect(library.closed, 1);
+    expect(library.added, [11]);
+    expect(library._pending, isEmpty);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('sends no more once its route is popping', (tester) async {
+    final library = await pumpDialog(tester, asRoute: true);
+
+    await tester.pump(const Duration(milliseconds: 300));
+    Navigator.of(tester.element(find.byType(AddToPlaylistDialog))).pop();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(AddToPlaylistDialog), findsOneWidget);
+    await library.next(tester);
+
+    expect(library.added, [11]);
+    expect(library._pending, isEmpty);
+    await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 1));
   });
 }

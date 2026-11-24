@@ -42,6 +42,12 @@ class AddToPlaylistDialogState extends State<AddToPlaylistDialog> {
   // read.
   int? total;
   RequestFailure? failure;
+  bool _cancelled = false;
+
+  /// Whether the dialog is being dismissed, by Cancel, Escape or a tap outside.
+  /// It stays mounted until its exit animation ends, and sends no more adds
+  /// meanwhile; an add already sent may still finish.
+  bool get _dismissed => _cancelled || ModalRoute.of(context)?.isActive == false;
 
   @override
   void initState() {
@@ -82,7 +88,10 @@ class AddToPlaylistDialogState extends State<AddToPlaylistDialog> {
                       child: Text(S.of(context).continueTask),
                     ),
               Button(
-                onPressed: () => widget.$close(null),
+                onPressed: () {
+                  _cancelled = true;
+                  widget.$close(null);
+                },
                 child: Text(S.of(context).cancel),
               ),
             ),
@@ -109,11 +118,15 @@ class AddToPlaylistDialogState extends State<AddToPlaylistDialog> {
         CollectionType.playlist,
         widget.playlistId,
       )).toSet();
-      final missing = songs.where((x) => !present.contains(x)).toList();
+      // A song the collection lists twice is added once, at its first place.
+      final seen = {...present};
+      final missing = songs.where(seen.add).toList();
       if (!mounted) return;
       setState(() => total = missing.length);
 
       for (final fileId in missing) {
+        // A dialog that is going away sends no more.
+        if (_dismissed) return;
         await widget.addFileToPlaylist(widget.playlistId, fileId);
         // A closed dialog adds no more.
         if (!mounted) return;
