@@ -102,4 +102,23 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a grid that loses its covers shows its placeholder again', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _grid(const ['/covers/a.png', '/covers/b.png', '/covers/c.png']),
+    );
+    // Three covers flip in one tile, so a flip timer runs.
+    expect(find.byType(FlipCard), findsOneWidget);
+
+    await tester.pumpWidget(_grid(const []));
+    expect(tester.takeException(), isNull);
+    expect(find.byType(BoringAvatar), findsOneWidget);
+    expect(find.byType(CoverArt), findsNothing);
+
+    // The test framework fails a test that ends with a timer still pending.
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
 }

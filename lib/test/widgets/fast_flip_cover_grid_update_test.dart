@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,6 +22,18 @@ class _ImageProxy extends ImageProxy {
   void dispose() {}
 }
 
+class _ServingProxy extends ImageProxy {
+  _ServingProxy(this.images) : super(manager: ImageMemoryManager());
+  final Map<String, ui.Image> images;
+  @override
+  ui.Image? getCachedImage(String path, int size) => null;
+  @override
+  Future<ui.Image> requestImage(String path, int size) =>
+      Future.value(images[path]);
+  @override
+  void dispose() {}
+}
+
 Future<ui.Image> _image() async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
@@ -29,6 +42,24 @@ Future<ui.Image> _image() async {
 }
 
 void main() {
+  group('the cover a cell turns to', () {
+    test('is none while every cover is shown', () {
+      const covers = ['a', 'b', 'c', 'd'];
+      for (final r in [0.0, 0.3, 0.99]) {
+        expect(freeCover(covers, covers.toSet(), r), isNull);
+      }
+    });
+
+    test('is never one that is shown or about to be', () {
+      const covers = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const inUse = {'a', 'c', 'e', 'g', 'h'};
+      final picked = {
+        for (var i = 0; i < 100; i += 1) freeCover(covers, inUse, i / 100),
+      };
+      expect(picked, {'b', 'd', 'f'});
+    });
+  });
+
   testWidgets(
     'a card that a reload gives another collection shows its covers',
     (tester) async {
@@ -95,4 +126,81 @@ void main() {
     );
     expect(painter(3).shouldRepaint(painter(2)), isTrue);
   });
+
+  testWidgets(
+    'no two cells show the same cover over several rounds of flipping',
+    (tester) async {
+      // Four cells and six covers, so two covers are free to turn to.
+      final paths = ['a', 'b', 'c', 'd', 'e', 'f'];
+      final images = (await tester.runAsync(
+        () async => {for (final path in paths) path: await _image()},
+      ))!;
+      final pathOf = {
+        for (final entry in images.entries) entry.value: entry.key,
+      };
+      // The grid seeds its picks with the time, and the test clock starts at the
+      // wall clock, so the test starts its own clock at a fixed time.
+      final testClock = clock;
+      final origin = testClock.now();
+      final fixed = Clock(
+        () =>
+            DateTime.utc(2026, 11, 24).add(testClock.now().difference(origin)),
+      );
+      await withClock(fixed, () async {
+        await tester.pumpWidget(
+          FluentApp(
+            home: Center(
+              child: SizedBox(
+                width: 100,
+                height: 100,
+                child: FastFlipCoverGrid(
+                  paths: paths,
+                  size: 100,
+                  name: 'card',
+                  colors: [Colors.red],
+                  speed: 50,
+                  imageProxy: _ServingProxy(images),
+                ),
+              ),
+            ),
+          ),
+        );
+        final painter =
+            tester
+                    .widget<CustomPaint>(
+                      find.descendant(
+                        of: find.byType(FastFlipCoverGrid),
+                        matching: find.byType(CustomPaint),
+                      ),
+                    )
+                    .painter!
+                as FlipGridPainter;
+        expect(painter.gridCount, 2);
+
+        // The timer and the flip run on the test clock, so a round is a pump.
+        void check(String when) {
+          final shown = [for (final image in painter.images) pathOf[image]];
+          expect(shown, everyElement(isNotNull));
+          expect(
+            shown.toSet().length,
+            shown.length,
+            reason: '$when the cells show $shown',
+          );
+        }
+
+        for (var round = 0; round < 20; round += 1) {
+          await tester.pump(const Duration(seconds: flipInterval + 1));
+          check('after the timer of round $round');
+          for (var frame = 0; frame < 10; frame += 1) {
+            await tester.pump(const Duration(milliseconds: 20));
+            check('in frame $frame of round $round');
+          }
+        }
+        await tester.pumpWidget(const SizedBox());
+      });
+      for (final image in images.values) {
+        image.dispose();
+      }
+    },
+  );
 }
