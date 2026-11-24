@@ -583,11 +583,13 @@ impl AppleLibrary {
             return;
         }
         let library = self.clone();
+        // Made before the task, which a runtime shutting down may drop before it is polled.
+        let end = EndRefresh {
+            caches: library.caches.clone(),
+            slot: spec.slot,
+        };
         tokio::spawn(async move {
-            let _end = EndRefresh {
-                caches: library.caches.clone(),
-                slot: spec.slot,
-            };
+            let _end = end;
             let slot = (spec.slot)(&library.caches);
             let epoch = slot.epoch();
             let served = slot.peek();
@@ -1284,5 +1286,27 @@ impl TokenSource for SessionTokens {
 
     async fn user_token(&self, _refresh: bool) -> crate::Result<Option<String>> {
         Ok(self.read(|tokens| tokens.user.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::runtime::Builder;
+
+    #[test]
+    fn a_refresh_dropped_before_it_is_polled_releases_its_claim() {
+        let library = AppleLibrary::new();
+        library.sign_in(Tokens::new("developer", "user").unwrap());
+        let slot = &library.caches.albums;
+        slot.put(slot.epoch(), Instant::now(), Vec::new());
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        {
+            let _entered = runtime.enter();
+            library.refresh_in_background(&ALBUMS);
+        }
+        // The runtime goes away without ever running the task.
+        drop(runtime);
+        assert!(slot.claim_refresh());
     }
 }
