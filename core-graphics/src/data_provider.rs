@@ -50,10 +50,26 @@ impl CGDataProvider {
     ///
     /// The `CGDataProvider` object takes ownership of the reference. Once the data provider
     /// is destroyed, the reference count of the buffer is automatically decremented.
-    pub fn from_buffer<T: AsRef<[u8]> + Sync + Send>(buffer: Arc<T>) -> Self {
+    ///
+    /// The buffer must be `'static` so it cannot contain references to shorter-lived storage.
+    ///
+    /// ```compile_fail
+    /// use core_graphics::data_provider::CGDataProvider;
+    /// use std::sync::Arc;
+    ///
+    /// let provider;
+    /// {
+    ///     let data = vec![1, 2, 3];
+    ///     provider = CGDataProvider::from_buffer(Arc::new(data.as_slice()));
+    /// }
+    /// drop(provider);
+    /// ```
+    pub fn from_buffer<T: AsRef<[u8]> + Sync + Send + 'static>(buffer: Arc<T>) -> Self {
         unsafe {
-            let ptr = (*buffer).as_ref().as_ptr() as *const c_void;
-            let len = (*buffer).as_ref().len() as size_t;
+            let (ptr, len) = {
+                let data = (*buffer).as_ref();
+                (data.as_ptr() as *const c_void, data.len() as size_t)
+            };
             let info = Arc::into_raw(buffer) as *mut c_void;
             let result = CGDataProviderCreateWithData(info, ptr, len, Some(release::<T>));
             return CGDataProvider::from_ptr(result);
@@ -137,10 +153,45 @@ fn test_data_provider() {
     let l = Arc::new(VecWrapper {inner: vec![5], dropped: dropped.clone() });
     let m = l.clone();
     let dp = CGDataProvider::from_buffer(l);
+    let dp_clone = dp.clone();
     drop(m);
     assert!(!dropped.load(SeqCst));
     drop(dp);
+    assert!(!dropped.load(SeqCst));
+    assert_eq!(dp_clone.copy_data().bytes(), &[5]);
+    drop(dp_clone);
     assert!(dropped.load(SeqCst))
+}
+
+#[test]
+fn test_data_provider_uses_one_buffer_view() {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+
+    struct ChangingBuffer {
+        first: [u8; 5],
+        second: [u8; 1],
+        calls: AtomicUsize,
+    }
+
+    impl AsRef<[u8]> for ChangingBuffer {
+        fn as_ref(&self) -> &[u8] {
+            if self.calls.fetch_add(1, SeqCst) == 0 {
+                &self.first
+            } else {
+                &self.second
+            }
+        }
+    }
+
+    let buffer = Arc::new(ChangingBuffer {
+        first: *b"first",
+        second: *b"x",
+        calls: AtomicUsize::new(0),
+    });
+    let provider = CGDataProvider::from_buffer(buffer.clone());
+
+    assert_eq!(provider.copy_data().bytes(), &b"first"[..]);
+    assert_eq!(buffer.calls.load(SeqCst), 1);
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]

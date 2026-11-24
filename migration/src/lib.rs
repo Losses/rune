@@ -52,6 +52,10 @@ mod m20261111_000035_drop_playback_queue;
 mod m20261111_000036_add_media_file_change_token;
 mod m20261112_000037_rename_source_uuid;
 mod m20261122_000038_add_analysis_source_identity;
+mod m20261123_000039_settle_pre_release_tables;
+mod retired;
+#[cfg(feature = "test-fixtures")]
+pub mod test_fixtures;
 
 tokio::task_local! {
     static MIGRATION_ACTOR: Option<String>;
@@ -76,6 +80,41 @@ fn migration_actor() -> Option<String> {
     MIGRATION_ACTOR.try_with(Clone::clone).ok().flatten()
 }
 
+/// How the migrations a database records compare with this version's.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MigrationHistory {
+    /// Every migration it records is one of this version's.
+    Known,
+    /// It records migrations newer than this version's: a newer Rune wrote it.
+    Newer(Vec<String>),
+    /// It records migrations this version does not know, none newer than its
+    /// own. The migrator reports them.
+    Unknown(Vec<String>),
+}
+
+impl MigrationHistory {
+    /// The history of a database that records the migrations [`recorded`].
+    pub fn of(recorded: &[String]) -> Self {
+        let known: Vec<String> = Migrator::migrations()
+            .iter()
+            .map(|migration| migration.name().to_owned())
+            .collect();
+        let newest = known.iter().max();
+        let unknown: Vec<String> = recorded
+            .iter()
+            .filter(|version| !known.contains(version))
+            .cloned()
+            .collect();
+        if unknown.is_empty() {
+            MigrationHistory::Known
+        } else if unknown.iter().any(|version| Some(version) > newest) {
+            MigrationHistory::Newer(unknown)
+        } else {
+            MigrationHistory::Unknown(unknown)
+        }
+    }
+}
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -85,13 +124,20 @@ impl MigratorTrait for Migrator {
             Box::new(m20230701_000001_create_media_files_table::Migration),
             Box::new(m20230701_000002_create_media_metadata_table::Migration),
             Box::new(m20230701_000003_create_media_analysis_table::Migration),
+            Box::new(retired::user_logs::Migration),
             Box::new(m20230701_000005_create_playlists_table::Migration),
+            Box::new(retired::playlist_items::Migration),
             Box::new(m20230701_000006_create_media_file_playlists::Migration),
+            Box::new(retired::smart_playlists::Migration),
+            Box::new(retired::media_cover_arts::Migration),
             Box::new(m20230728_000008_create_media_cover_art_table::Migration),
             Box::new(m20230806_000009_create_artists_table::Migration),
             Box::new(m20230806_000010_create_media_file_artists_table::Migration),
             Box::new(m20230806_000011_create_albums_table::Migration),
             Box::new(m20230806_000012_create_media_file_albums_table::Migration),
+            // Here rather than last: a database made before the first
+            // release needs it before the migrations after 12.
+            Box::new(m20261123_000039_settle_pre_release_tables::Migration),
             Box::new(m20230912_000013_create_mixes_table::Migration),
             Box::new(m20230912_000014_create_mix_queries_table::Migration),
             Box::new(m20230912_000015_create_media_file_stats_table::Migration),
@@ -118,5 +164,58 @@ impl MigratorTrait for Migrator {
             Box::new(m20261112_000037_rename_source_uuid::Migration),
             Box::new(m20261122_000038_add_analysis_source_identity::Migration),
         ]
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    fn names(versions: &[&str]) -> Vec<String> {
+        versions
+            .iter()
+            .map(|version| (*version).to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_history_of_this_versions_migrations_is_known() {
+        let all: Vec<String> = Migrator::migrations()
+            .iter()
+            .map(|migration| migration.name().to_owned())
+            .collect();
+        assert_eq!(MigrationHistory::of(&[]), MigrationHistory::Known);
+        assert_eq!(MigrationHistory::of(&all[..3]), MigrationHistory::Known);
+        assert_eq!(MigrationHistory::of(&all), MigrationHistory::Known);
+    }
+
+    #[test]
+    fn the_migrations_of_builds_before_the_first_release_are_known() {
+        // What a library made in August 2024 records.
+        let recorded = names(&[
+            "m20230701_000001_create_media_files_table",
+            "m20230701_000004_create_user_logs_table",
+            "m20230701_000006_create_playlist_items_table",
+            "m20230701_000007_create_smart_playlists_table",
+            "m20230728_000008_create_media_cover_arts_table",
+            "m20230806_000012_create_media_file_albums_table",
+        ]);
+        assert_eq!(MigrationHistory::of(&recorded), MigrationHistory::Known);
+        assert_eq!(
+            MigrationHistory::of(&names(&["m20230701_000099_never_written"])),
+            MigrationHistory::Unknown(names(&["m20230701_000099_never_written"]))
+        );
+    }
+
+    #[test]
+    fn a_migration_after_this_versions_newest_is_a_newer_history() {
+        let recorded = names(&[
+            "m20230701_000001_create_media_files_table",
+            "m29991231_000999_from_a_later_version",
+        ]);
+        assert_eq!(
+            MigrationHistory::of(&recorded),
+            MigrationHistory::Newer(names(&["m29991231_000999_from_a_later_version"]))
+        );
     }
 }

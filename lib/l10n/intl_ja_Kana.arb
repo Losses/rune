@@ -1535,6 +1535,7 @@
   "libraryUntrusted": "コノデバイスハシンライサレテイマセン。",
   "libraryInvalidSource": "コノフォルダーハライブラリートシテシヨウデキマセン。",
   "libraryStorageFailure": "ライブラリーヲホゾンデキマセンデシタ。",
+  "libraryNewerVersion": "コノライブラリーハアタラシイバージョンノルーンデサクセイサレマシタ。ヒラクニハ、コノデバイスデルーンヲコウシンシテクダサイ。",
   "libraryShareStoreUnavailable": "キョウユウストレージニセツゾクデキマセン。ドウキハジドウテキニサイシコウサレマス。",
   "libraryRemoteNotAuthorized": "デバイスガセツゾクヲキョカシマセンデシタ。",
   "libraryRemoteUnreachable": "デバイスニセツゾクデキマセン。",

@@ -163,11 +163,14 @@ class FFTVisualizeState extends State<FFTVisualize>
   }
 
   Future<void> _loadGlow() async {
-    final program = await ui.FragmentProgram.fromAsset(
-      'lib/shaders/spectrum.frag',
-    );
+    final [bars, glow] = await Future.wait([
+      ui.FragmentProgram.fromAsset('lib/shaders/spectrum_bars.frag'),
+      ui.FragmentProgram.fromAsset('lib/shaders/spectrum_glow.frag'),
+    ]);
     if (!mounted) return;
-    setState(() => _glow = SpectrumGlow(program.fragmentShader()));
+    setState(
+      () => _glow = SpectrumGlow(bars.fragmentShader(), glow.fragmentShader()),
+    );
   }
 
   @override
@@ -232,38 +235,78 @@ class _WindowVisibilityObserver extends WidgetsBindingObserver {
 }
 
 /// The spectrum's glow: the bars, Gaussian blurred by [blurSigma] and faded
-/// to [glowOpacity], which lib/shaders/spectrum.frag works out for each pixel.
+/// to [glowOpacity], which two shaders work out in two passes.
 ///
 /// The glow used to be the bars drawn into a layer that a blur filter and an
-/// opacity layer went over every frame. The shader gives the same pixels in
-/// one pass, drawn only over the bars' bounds grown by three deviations, the
-/// area the blur filter drew into: a frame repaints no more of the screen than
-/// the glow reaches, so a quiet spectrum repaints a low strip.
+/// opacity layer went over every frame. The shaders give the same pixels,
+/// drawn only over the bars' bounds grown by three deviations, the area the
+/// blur filter drew into: a frame repaints no more of the screen than the glow
+/// reaches, so a quiet spectrum repaints a low strip.
 ///
-/// The shader draws into an image of the area, which is then drawn over it
-/// scaled up. A blur of 12 leaves no detail finer than a few pixels, so the
-/// image has [resolution] pixels for each logical pixel, 4 for each deviation:
-/// a third, on every screen. The shader then works out a ninth of the pixels,
-/// and no pixel moves by more than 2 levels of 255 from the glow at the full
-/// resolution (lib/test/widgets/spectrum_glow_test.dart). On a Radxa ZERO 3 at
-/// its 400 MHz GPU floor, the glow at the full resolution made the GPU miss
-/// about one frame a second while music played, and at a third none.
+/// lib/shaders/spectrum_bars.frag blurs the bars up and down, exactly, at the
+/// middle of each column of an image, sharing each bar between the columns
+/// nearest it. lib/shaders/spectrum_glow.frag then blurs those columns across.
+/// Worked out in one pass, each pixel summed every bar within three
+/// deviations: 59 of the player's 512 bars on a screen 640 pixels wide. In
+/// two, a pixel takes the few bars of its column, and then 25 columns. With
+/// nothing else on the screen of a Radxa ZERO 3, its GPU at 400 MHz, the glow
+/// in two passes loads the GPU 20%, in one 69%, and as the old blur filter
+/// drew it 32%.
+///
+/// The image covers the area's upper half. It is drawn scaled up over that
+/// half, and flipped over the lower half, which mirrors it. A blur of 12
+/// leaves no detail finer than a few pixels, so the image has [resolution]
+/// pixels for each logical pixel, 4 for each deviation: a third, on every
+/// screen. The two passes stay within 1.5 levels of 255 of the blur worked
+/// out exactly, at the full resolution and at a third
+/// (lib/test/widgets/spectrum_glow_test.dart).
 class SpectrumGlow {
-  SpectrumGlow(this._shader, {this.resolution = 4 / blurSigma});
+  SpectrumGlow(
+    this._barsShader,
+    this._glowShader, {
+    this.resolution = 4 / blurSigma,
+  });
 
   static const double blurSigma = 12.0;
-  static const double glowOpacity = 0.87;
 
-  /// The bars the shader takes. The spectrum has 64 bands
-  /// (playback/src/realtime_fft.rs); further bars are not drawn.
-  static const int maxBars = 64;
+  /// The glow's opacity, which keeps it as bright as the glow before the
+  /// shaders on the kiosk of a Radxa ZERO 3: a screen 640 pixels wide at a
+  /// pixel ratio of 1.
+  ///
+  /// That glow drew the bars as lines, one after another, at an opacity of
+  /// 0.87. Under Skia, two lines that share a pixel each cover part of it,
+  /// and blending the second over the first leaves seams: how much they take
+  /// off moves with a bar's width in pixels and with where the window sits
+  /// on the pixel grid. The shaders draw the bars whole. On the kiosk, the
+  /// one place where the old glow had a single look, it was 0.891 of theirs
+  /// at 0.87 (on the board, the same spectrum drawn both ways), so the glow
+  /// takes 0.87 * 0.891. On desktops under Skia the old glow lost 4 to 6% at
+  /// a pixel ratio of 1 and up to 4% at 2, and under Impeller nothing, so
+  /// there the glow is up to 11% fainter than it was.
+  static const double glowOpacity = 0.775;
 
-  final ui.FragmentShader _shader;
+  /// The bars the shaders take: the player sends 512 bands, the magnitudes of
+  /// a 512 point FFT (playback/src/internal.rs). lib/shaders/spectrum_bars.frag
+  /// holds no more, so a longer spectrum fails an assertion here, as missing
+  /// bands would leave the glow without them.
+  static const int maxBars = 512;
+
+  /// The columns on each side that lib/shaders/spectrum_glow.frag can take
+  /// in.
+  static const int maxReach = 72;
+
+  /// lib/shaders/spectrum_bars.frag, the first pass.
+  final ui.FragmentShader _barsShader;
+
+  /// lib/shaders/spectrum_glow.frag, the second pass.
+  final ui.FragmentShader _glowShader;
 
   /// The pixels of the glow's image for each logical pixel.
   final double resolution;
 
-  /// The image the last frame drew, kept until the next one replaces it.
+  /// The images the last frame drew, kept until the next one replaces them:
+  /// the columns of the first pass and the glow of the second.
+  ui.Image? _lastColumns;
   ui.Image? _lastImage;
 
   /// The size in pixels of the image the last frame drew.
@@ -275,69 +318,117 @@ class SpectrumGlow {
   /// Draws the glow of [values] over [size].
   void paint(Canvas canvas, Size size, List<double> values, Color color) {
     if (values.isEmpty) return;
+    assert(
+      values.length <= maxBars,
+      'The glow draws $maxBars bands at most, but the spectrum has '
+      '${values.length}.',
+    );
 
     final barWidth = size.width / values.length;
     final middle = size.height / 2;
     final count = min(values.length, maxBars);
     final alpha = color.a * glowOpacity;
 
-    _shader
-      ..setFloat(0, barWidth)
-      ..setFloat(1, middle)
-      ..setFloat(2, count.toDouble())
-      ..setFloat(3, blurSigma)
-      ..setFloat(4, color.r * alpha)
-      ..setFloat(5, color.g * alpha)
-      ..setFloat(6, color.b * alpha)
-      ..setFloat(7, alpha);
     var tallest = 0.0;
     for (int i = 0; i < maxBars; i++) {
       final halfHeight = i < count ? (values[i] * size.height / 2).abs() : 0.0;
-      _shader.setFloat(8 + i, halfHeight);
+      _barsShader.setFloat(i, halfHeight);
       tallest = max(tallest, halfHeight);
     }
     if (tallest == 0) return;
+    _barsShader
+      ..setFloat(maxBars, barWidth)
+      ..setFloat(maxBars + 1, middle)
+      ..setFloat(maxBars + 2, count.toDouble())
+      ..setFloat(maxBars + 3, blurSigma)
+      ..setFloat(maxBars + 4, 1 / resolution);
 
-    // The image covers the area the blur filter drew into, grown to whole
-    // pixels of the image, so that at a resolution of 1 on a screen of 1 pixel
-    // for each logical pixel, its pixels are the screen's.
+    // The glow below the middle line is the glow above it upside down. The
+    // image covers the upper half of the area the blur filter drew into, and
+    // is drawn a second time flipped over the lower half, so the shaders work
+    // out half the pixels. The half is grown to whole pixels of the image,
+    // counted up from the middle line, where the two halves meet.
     final reach = 3 * blurSigma;
     final left = ((-barWidth / 2 - reach) * resolution).floor();
-    final top = ((middle - tallest - reach) * resolution).floor();
     final right = (((count - 0.5) * barWidth + reach) * resolution).ceil();
-    final bottom = ((middle + tallest + reach) * resolution).ceil();
     final width = right - left;
-    final height = bottom - top;
-    final area = Rect.fromLTRB(
+    final height = ((tallest + reach) * resolution).ceil();
+    final upper = Rect.fromLTRB(
       left / resolution,
-      top / resolution,
+      middle - height / resolution,
       right / resolution,
-      bottom / resolution,
+      middle,
     );
+    final source = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
 
-    // The shader reads the coordinates before the scaling, so each pixel of
-    // the image is the glow at the middle of the block it stands for.
-    final recorder = ui.PictureRecorder();
-    Canvas(recorder)
+    // The first pass reads the coordinates before the scaling, so each pixel
+    // of its image is the bars at the middle of the block it stands for.
+    final barsRecorder = ui.PictureRecorder();
+    Canvas(barsRecorder)
       ..scale(resolution)
-      ..translate(-area.left, -area.top)
-      ..drawRect(area, Paint()..shader = _shader);
-    final picture = recorder.endRecording();
-    final image = picture.toImageSync(width, height);
-    picture.dispose();
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-      area,
-      Paint()..filterQuality = FilterQuality.low,
+      ..translate(-upper.left, -upper.top)
+      ..drawRect(upper, Paint()..shader = _barsShader);
+    final barsPicture = barsRecorder.endRecording();
+    final columns = barsPicture.toImageSync(width, height);
+    barsPicture.dispose();
+
+    // The first pass's tent spreads each bar as a Gaussian of 1 / sqrt(6)
+    // columns does; the blur across leaves that out, so that the two spread
+    // it by the glow's deviation.
+    final columnSigma = sqrt(pow(blurSigma * resolution, 2) - 1 / 6);
+    final columnReach = (3 * columnSigma).ceil();
+    assert(
+      columnReach <= maxReach,
+      'The glow blurs $maxReach columns across at most, but a resolution of '
+      '$resolution needs $columnReach.',
     );
+    var weights = 0.0;
+    for (int offset = -columnReach; offset <= columnReach; offset++) {
+      weights += exp(-0.5 * pow(offset / columnSigma, 2));
+    }
+    _glowShader
+      ..setFloat(0, color.r * alpha)
+      ..setFloat(1, color.g * alpha)
+      ..setFloat(2, color.b * alpha)
+      ..setFloat(3, alpha)
+      ..setFloat(4, width.toDouble())
+      ..setFloat(5, height.toDouble())
+      ..setFloat(6, columnSigma)
+      ..setFloat(7, columnReach.toDouble())
+      ..setFloat(8, 1 / weights)
+      ..setImageSampler(0, columns);
+    final glowRecorder = ui.PictureRecorder();
+    Canvas(glowRecorder).drawRect(source, Paint()..shader = _glowShader);
+    final glowPicture = glowRecorder.endRecording();
+    final image = glowPicture.toImageSync(width, height);
+    glowPicture.dispose();
+
+    // Antialiased, the two halves would each cover part of a row of pixels
+    // that the middle line crosses, and blending one over the other would
+    // leave that row darker. Without, each pixel is in one half. The image's
+    // other edges are 3 deviations from the bars, where the glow is under
+    // half a level.
+    final paint = Paint()
+      ..filterQuality = FilterQuality.low
+      ..isAntiAlias = false;
+    canvas
+      ..drawImageRect(image, source, upper, paint)
+      ..save()
+      ..translate(0, 2 * middle)
+      ..scale(1, -1)
+      ..drawImageRect(image, source, upper, paint)
+      ..restore();
+    _lastColumns?.dispose();
+    _lastColumns = columns;
     _lastImage?.dispose();
     _lastImage = image;
   }
 
   void dispose() {
+    _lastColumns?.dispose();
     _lastImage?.dispose();
-    _shader.dispose();
+    _barsShader.dispose();
+    _glowShader.dispose();
   }
 }
 
@@ -347,7 +438,7 @@ class FFTPainter extends CustomPainter {
   final FFTBars bars;
   final Color color;
 
-  /// The glow, or null while its shader loads.
+  /// The glow, or null while its shaders load.
   final SpectrumGlow? glow;
 
   @override

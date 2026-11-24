@@ -913,7 +913,8 @@ class _Accelerator extends StatelessWidget {
 }
 
 /// The view button, as in Windows' file dialogs: pressing it steps to the
-/// next view, its arrow opens the view slider.
+/// next view, its arrow opens the view slider. Both halves have the fill
+/// of the New Folder button beside it.
 class _ViewButton extends StatelessWidget {
   const _ViewButton({required this.controller});
 
@@ -922,7 +923,6 @@ class _ViewButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final theme = FluentTheme.of(context);
     return SplitButton(
       onInvoked: () => controller.setView(controller.view.next),
       flyout: FileDialogViewMenu(controller: controller),
@@ -937,7 +937,6 @@ class _ViewButton extends StatelessWidget {
               color: ButtonThemeData.buttonColor(
                 context,
                 flyoutController.isOpen ? {WidgetState.pressed} : states,
-                transparentWhenNone: true,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 8),
               alignment: Alignment.center,
@@ -952,13 +951,30 @@ class _ViewButton extends StatelessWidget {
           label: s.fileDialogChangeView,
           button: true,
           excludeSemantics: true,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Icon(
-              fileDialogViewIcon(controller.view),
-              size: 16,
-              color: theme.resources.textFillColorPrimary,
-            ),
+          // The split button paints this half only while it is hovered or
+          // pressed; at rest it is clear, so the button's own fill is
+          // painted here.
+          child: Builder(
+            builder: (context) {
+              final states =
+                  HoverButton.maybeOf(context)?.states ?? const <WidgetState>{};
+              final resting =
+                  !states.isHovered && !states.isPressed && !states.isDisabled;
+              return Container(
+                color: resting
+                    ? ButtonThemeData.buttonColor(context, states)
+                    : null,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                child: Icon(
+                  fileDialogViewIcon(controller.view),
+                  size: 16,
+                  color: ButtonThemeData.buttonForegroundColor(context, states),
+                ),
+              );
+            },
           ),
         ),
       ),

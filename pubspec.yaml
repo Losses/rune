@@ -138,7 +138,8 @@ flutter:
     - lib/shaders/gradient.frag
     - lib/shaders/gradient_field.frag
     - lib/shaders/lens_flare.frag
-    - lib/shaders/spectrum.frag
+    - lib/shaders/spectrum_bars.frag
+    - lib/shaders/spectrum_glow.frag
 
   # To add assets to your application, add an assets section, like this:
   assets:

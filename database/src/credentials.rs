@@ -177,7 +177,7 @@ impl CredentialStore {
     pub async fn replace(
         &self,
         reference: CredentialRef,
-        mut credential: Credential,
+        credential: &Credential,
     ) -> Result<(), CredentialStoreError> {
         let _writer = registry_write_guard().await;
         let mut key = Zeroizing::new(self.load_key_for_reference(reference)?);
@@ -188,8 +188,8 @@ impl CredentialStore {
         entries.0.insert(
             reference,
             Entry {
-                username: credential.username,
-                secret: credential.secret.take_bytes(),
+                username: credential.username.clone(),
+                secret: credential.secret.as_bytes().to_vec(),
             },
         );
         self.write_entries(key.as_mut_slice(), &entries)
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(found.username, "alice");
         assert_eq!(found.secret.as_bytes(), b"secret-one");
         store
-            .replace(reference, credential("bob", "secret-two"))
+            .replace(reference, &credential("bob", "secret-two"))
             .await
             .unwrap();
         let found = store.get(reference).await.unwrap();

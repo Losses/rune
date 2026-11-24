@@ -29,6 +29,7 @@ use ::fsio::FsIo;
 
 use crate::actions::mixes::initialize_mix_queries_before_replication;
 use crate::actions::recommendation::load_recommendation_vectors;
+use crate::error::NewerLibraryDatabase;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StorageMode {
@@ -294,6 +295,43 @@ async fn configure_journal_mode(
     }
 }
 
+/// The migrations the SQLite database at [path] records; none for a new,
+/// empty file.
+async fn recorded_migrations(path: &Path) -> Result<Vec<String>> {
+    let mut connection = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .connect()
+        .await?;
+    let table: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seaql_migrations'",
+    )
+    .fetch_optional(&mut connection)
+    .await?;
+    let versions = match table {
+        Some(_) => {
+            sqlx::query_scalar("SELECT version FROM seaql_migrations")
+                .fetch_all(&mut connection)
+                .await?
+        }
+        None => Vec::new(),
+    };
+    connection.close().await?;
+    Ok(versions)
+}
+
+/// A library database written by a newer Rune records migrations this
+/// version does not have. It is left as it is and not opened
+/// ([`NewerLibraryDatabase`]); every other one goes to the migrator.
+async fn refuse_newer_history(sqlite_path: &Path) -> Result<()> {
+    match migration::MigrationHistory::of(&recorded_migrations(sqlite_path).await?) {
+        migration::MigrationHistory::Newer(migrations) => {
+            Err(NewerLibraryDatabase { migrations }.into())
+        }
+        migration::MigrationHistory::Known | migration::MigrationHistory::Unknown(_) => Ok(()),
+    }
+}
+
 pub async fn connect_main_db(
     fsio: &FsIo,
     lib_path: &str,
@@ -351,6 +389,7 @@ async fn connect_main_db_from_storage_info(
         }
         db_file
     };
+    refuse_newer_history(&db_path).await?;
 
     // The path goes in as it is, not through a URL: a Windows path such as `\\?\UNC\...`
     // would otherwise be cut at its `?`.
@@ -456,6 +495,94 @@ mod journal_mode_tests {
             .try_get("", "value")?;
         assert_eq!(value, 73);
         db.close().await?;
+        Ok(())
+    }
+
+    /// A library folder whose database records [versions], with a table the
+    /// way an old version made it.
+    async fn library_recording(root: &Path, versions: &[&str]) -> Result<Vec<u8>> {
+        let rune_dir = root.join(".rune");
+        tokio::fs::create_dir_all(&rune_dir).await?;
+        let mut old = SqliteConnectOptions::new()
+            .filename(rune_dir.join(".0.db"))
+            .create_if_missing(true)
+            .connect()
+            .await?;
+        sqlx::query("CREATE TABLE seaql_migrations (version TEXT PRIMARY KEY, applied_at INTEGER)")
+            .execute(&mut old)
+            .await?;
+        for version in versions {
+            sqlx::query("INSERT INTO seaql_migrations VALUES (?, 0)")
+                .bind(*version)
+                .execute(&mut old)
+                .await?;
+        }
+        sqlx::query("CREATE TABLE media_analysis (id INTEGER PRIMARY KEY)")
+            .execute(&mut old)
+            .await?;
+        old.close().await?;
+        Ok(tokio::fs::read(rune_dir.join(".0.db")).await?)
+    }
+
+    #[tokio::test]
+    async fn a_library_from_before_the_first_release_opens_in_place() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Chaos");
+        let rune_dir = root.join(".rune");
+        tokio::fs::create_dir_all(&rune_dir).await?;
+        let old = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(rune_dir.join(".0.db"))
+                .create_if_missing(true),
+        )
+        .await?;
+        migration::test_fixtures::write_pre_release_library(
+            &SqlxSqliteConnector::from_sqlx_sqlite_pool(old.clone()),
+            migration::test_fixtures::PreReleaseLibrary::August26,
+        )
+        .await?;
+        old.close().await;
+
+        let fsio = FsIo::new();
+        let db =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
+        let files: Vec<String> =
+            sqlx::query_scalar("SELECT file_name FROM media_files ORDER BY id")
+                .fetch_all(db.get_sqlite_connection_pool())
+                .await?;
+        assert_eq!(files, ["Intro.flac", "Outro.flac"]);
+        db.close().await?;
+        // Migrated where it is: nothing beside it.
+        let mut entries = tokio::fs::read_dir(&rune_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            assert!(name.starts_with(".0.db"), "{name}");
+            assert!(!name.contains("replaced"), "{name}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_version_is_left_alone() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Later");
+        let recorded = library_recording(
+            &root,
+            &[
+                "m20230701_000001_create_media_files_table",
+                "m29991231_000999_from_a_later_version",
+            ],
+        )
+        .await?;
+        let fsio = FsIo::new();
+        let opened =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await;
+        let refused = opened.err().context("a newer library opened")?;
+        let newer = refused
+            .downcast_ref::<NewerLibraryDatabase>()
+            .context("refused for another reason")?;
+        assert_eq!(newer.migrations, ["m29991231_000999_from_a_later_version"]);
+        assert_eq!(tokio::fs::read(root.join(".rune/.0.db")).await?, recorded);
         Ok(())
     }
 

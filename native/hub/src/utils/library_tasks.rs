@@ -189,6 +189,12 @@ impl LibraryTaskOwner {
         Some(entry.state.clone())
     }
 
+    /// Cancels the task and waits for its worker to stop.
+    ///
+    /// The state is captured before the wait because the worker may take a
+    /// while to stop. A new run can start once it has, before this call
+    /// resumes, so the captured state is only returned while it still belongs
+    /// to the run the owner tracks.
     pub async fn cancel(
         owner: &Mutex<Self>,
         record_id: &str,
@@ -206,7 +212,9 @@ impl LibraryTaskOwner {
         if let Some(worker_done) = &mut worker_done {
             wait_for_worker(worker_done).await;
         }
-        Some(state)
+        let owner = owner.lock().unwrap_or_else(PoisonError::into_inner);
+        let current = owner.tasks.get(&(record_id.to_owned(), task))?;
+        (current.state.run_id() == state.run_id()).then_some(state)
     }
 
     pub fn current(&self, record_id: &str, task: LibraryTaskKind) -> LibraryTaskState {

@@ -1535,6 +1535,7 @@
   "libraryUntrusted": "此器未受信任。",
   "libraryInvalidSource": "此目錄不可用作樂庫。",
   "libraryStorageFailure": "不可儲存樂庫。",
+  "libraryNewerVersion": "此樂庫乃新版 符石聆音 所作。請於此器更 符石聆音 以啟之。",
   "libraryShareStoreUnavailable": "共享儲存不通。同步將自再試。",
   "libraryRemoteNotAuthorized": "器未授權此連。",
   "libraryRemoteUnreachable": "不可連到器。",

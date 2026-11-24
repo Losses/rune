@@ -1602,6 +1602,7 @@
   "libraryUntrusted": "Cet appareil n’est pas approuvé.",
   "libraryInvalidSource": "Ce dossier ne peut pas servir de bibliothèque.",
   "libraryStorageFailure": "Impossible d’enregistrer la bibliothèque.",
+  "libraryNewerVersion": "Cette bibliothèque a été créée par une version plus récente de Rune. Mettez Rune à jour sur cet appareil pour l’ouvrir.",
   "libraryShareStoreUnavailable": "Le stockage partagé est indisponible. La synchronisation réessaiera automatiquement.",
   "libraryRemoteNotAuthorized": "L’appareil n’a pas autorisé cette connexion.",
   "libraryRemoteUnreachable": "L’appareil est injoignable.",

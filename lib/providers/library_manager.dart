@@ -103,6 +103,7 @@ class LibraryManagerProvider with ChangeNotifier {
   final Map<String, Completer<TaskStatus>> _scanCompleters = {};
   final Map<String, Completer<void>> _analyzeCompleters = {};
   final Map<String, Completer<void>> _deduplicateCompleters = {};
+  final Map<(String, LibraryTaskKind), String> _taskRunIds = {};
   final Map<String, bool> _analysisInitializeIntent = {};
   final Map<String, bool> _scanInitializeUsesLibraryNavigator = {};
   final Map<int, _PendingLibraryTaskCall> _pendingTaskCalls = {};
@@ -197,6 +198,19 @@ class LibraryManagerProvider with ChangeNotifier {
     );
   }
 
+  /// Records the run that a record's task is currently following.
+  void _followRun(String recordId, LibraryTaskKind task, String runId) {
+    _taskRunIds[(recordId, task)] = runId;
+  }
+
+  /// Whether a state from [runId] still describes the run the task follows.
+  /// A state from an older run can arrive after a newer run has started, and
+  /// it must not replace the newer run's progress or settle its waiter.
+  bool _isCurrentRun(String recordId, LibraryTaskKind task, String runId) {
+    final currentRunId = _taskRunIds[(recordId, task)];
+    return currentRunId == null || currentRunId == runId;
+  }
+
   Stream<RequestFailure> get failureFeedback => _failureFeedback.stream;
 
   void _applyLibraryTaskState(LibraryTaskState state) {
@@ -205,10 +219,12 @@ class LibraryManagerProvider with ChangeNotifier {
         return;
       case LibraryTaskStateScanRunning(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
         :final phase,
       ):
+        _followRun(recordId, LibraryTaskKind.scan, runId);
         _updateScanProgress(
           recordId,
           progress,
@@ -220,11 +236,13 @@ class LibraryManagerProvider with ChangeNotifier {
         CollectionCache().clearAll();
       case LibraryTaskStateScanEnded(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
         :final phase,
         :final outcome,
       ):
+        if (!_isCurrentRun(recordId, LibraryTaskKind.scan, runId)) return;
         _forgetTaskCalls(recordId, LibraryTaskKind.scan);
         final status = switch (outcome) {
           ScanOutcomeFinished() => TaskStatus.finished,
@@ -261,9 +279,11 @@ class LibraryManagerProvider with ChangeNotifier {
         CollectionCache().clearAll();
       case LibraryTaskStateAnalysisRunning(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
       ):
+        _followRun(recordId, LibraryTaskKind.analyze, runId);
         _updateAnalyzeProgress(
           recordId,
           progress,
@@ -275,10 +295,12 @@ class LibraryManagerProvider with ChangeNotifier {
         );
       case LibraryTaskStateAnalysisEnded(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
         :final outcome,
       ):
+        if (!_isCurrentRun(recordId, LibraryTaskKind.analyze, runId)) return;
         _forgetTaskCalls(recordId, LibraryTaskKind.analyze);
         final status = switch (outcome) {
           AnalysisOutcomeFinished() => TaskStatus.finished,
@@ -297,9 +319,11 @@ class LibraryManagerProvider with ChangeNotifier {
         _analyzeCompleters.remove(recordId)?.complete();
       case LibraryTaskStateDeduplicationRunning(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
       ):
+        _followRun(recordId, LibraryTaskKind.deduplicate, runId);
         _updateDeduplicateProgress(
           recordId,
           progress,
@@ -308,10 +332,14 @@ class LibraryManagerProvider with ChangeNotifier {
         );
       case LibraryTaskStateDeduplicationEnded(
         :final recordId,
+        :final runId,
         :final progress,
         :final total,
         :final outcome,
       ):
+        if (!_isCurrentRun(recordId, LibraryTaskKind.deduplicate, runId)) {
+          return;
+        }
         _forgetTaskCalls(recordId, LibraryTaskKind.deduplicate);
         final status = switch (outcome) {
           DeduplicationOutcomeFinished() => TaskStatus.finished,
@@ -401,6 +429,7 @@ class LibraryManagerProvider with ChangeNotifier {
 
   void clearAll(String recordId) {
     _pendingTaskCalls.removeWhere((_, pending) => pending.recordId == recordId);
+    _taskRunIds.removeWhere((key, _) => key.$1 == recordId);
     _settleScanWaiters();
     _scanTasks.clear();
     _scanInitializeUsesLibraryNavigator.clear();

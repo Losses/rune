@@ -170,9 +170,11 @@ fn open_failure_kind(kind: OpenLibraryFailureKind) -> RequestErrorKind {
         Kind::RecordNotFound | Kind::MediaFolderMissing => RequestErrorKind::NotFound,
         Kind::RemoteUntrusted | Kind::RemoteNotAuthorized => RequestErrorKind::PermissionDenied,
         Kind::ProtocolIncompatible => RequestErrorKind::PeerNeedsUpdate,
-        Kind::RemoteUnreachable | Kind::RemoteProtocol | Kind::NotSupportedYet | Kind::Storage => {
-            RequestErrorKind::Unavailable
-        }
+        Kind::RemoteUnreachable
+        | Kind::RemoteProtocol
+        | Kind::NotSupportedYet
+        | Kind::NewerVersion
+        | Kind::Storage => RequestErrorKind::Unavailable,
     }
 }
 
