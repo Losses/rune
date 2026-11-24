@@ -85,48 +85,6 @@ pub enum Error {
     Decode(#[from] serde_json::Error),
 }
 
-impl Error {
-    /// Another error that says the same, for callers that share one failure. A transport or
-    /// decode error cannot be copied, so it is kept as its text.
-    pub(crate) fn echo(&self) -> Self {
-        let as_text = |message: String| {
-            vec![ApiError {
-                title: Some(message),
-                ..ApiError::default()
-            }]
-        };
-        match self {
-            Self::Unauthorized => Self::Unauthorized,
-            Self::Forbidden => Self::Forbidden,
-            Self::ClientNotRegistered => Self::ClientNotRegistered,
-            Self::NotFound(message) => Self::NotFound(message.clone()),
-            Self::RateLimited { retry_after } => Self::RateLimited {
-                retry_after: *retry_after,
-            },
-            Self::Server { status, errors } => Self::Server {
-                status: *status,
-                errors: errors.clone(),
-            },
-            Self::Api { status, errors } => Self::Api {
-                status: *status,
-                errors: errors.clone(),
-            },
-            Self::MissingUserToken => Self::MissingUserToken,
-            Self::InsecureBaseUrl => Self::InsecureBaseUrl,
-            Self::Token(message) => Self::Token(message.clone()),
-            // Mapped like the transport error it stands for.
-            Self::Http(e) => Self::Server {
-                status: 0,
-                errors: as_text(e.to_string()),
-            },
-            Self::Decode(e) => Self::Api {
-                status: 0,
-                errors: as_text(e.to_string()),
-            },
-        }
-    }
-}
-
 fn summarize(errors: &[ApiError]) -> String {
     errors
         .iter()

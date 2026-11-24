@@ -3,11 +3,10 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, VecDeque};
-use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::Router;
@@ -19,7 +18,6 @@ use axum::response::{IntoResponse, Response};
 use tokio::net;
 use tokio::time;
 
-use apple_music::library::{Clock, LibraryError, Track, TrackKey};
 use apple_music::{AppleMusicClient, RetryPolicy, TokenSource};
 
 /// A scripted answer.
@@ -308,69 +306,4 @@ pub fn client(server: &FixtureServer, tokens: Arc<TestTokens>) -> AppleMusicClie
         .storefront("us")
         .retry_policy(fast_retry())
         .build()
-}
-
-// The library layer -------------------------------------------------------
-
-pub const USER_TOKEN: &str = "music-user-token";
-pub const DEVELOPER_TOKEN: &str = "developer-token";
-// These mirror the library's own lifetimes in `src/library/cache.rs`.
-/// How long the song list, the album list, ratings, artists and recommendations are kept.
-pub const TTL: Duration = Duration::from_secs(10 * 60);
-/// How long a catalog album, artist or playlist is kept.
-pub const DETAIL_TTL: Duration = Duration::from_secs(30);
-
-/// A clock that moves only when told to.
-pub struct ManualClock {
-    start: Instant,
-    elapsed: Mutex<Duration>,
-}
-
-impl ManualClock {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            start: Instant::now(),
-            elapsed: Mutex::default(),
-        })
-    }
-
-    pub fn advance(&self, by: Duration) {
-        *self.elapsed.lock().unwrap() += by;
-    }
-}
-
-impl Clock for ManualClock {
-    fn now(&self) -> Instant {
-        self.start + *self.elapsed.lock().unwrap()
-    }
-}
-
-/// Waits until `condition` holds.
-pub async fn until(condition: impl Fn() -> bool) {
-    for _ in 0..500 {
-        if condition() {
-            return;
-        }
-        time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("timed out");
-}
-
-pub fn fixture(name: &str) -> Reply {
-    Reply::fixture(name)
-}
-
-pub fn key(text: &str) -> TrackKey {
-    text.parse().unwrap()
-}
-
-pub fn keys(tracks: &[Track]) -> Vec<String> {
-    tracks.iter().map(|track| track.key.to_string()).collect()
-}
-
-pub fn assert_not_found<T: fmt::Debug>(result: Result<T, LibraryError>) {
-    assert!(
-        matches!(result, Err(LibraryError::NotFound(_))),
-        "{result:?}"
-    );
 }

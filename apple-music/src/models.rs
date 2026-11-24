@@ -285,6 +285,47 @@ impl LibrarySong {
                 .as_deref()
         })
     }
+
+    /// Whether this is a music video, which has no song to play or rate.
+    pub fn is_music_video(&self) -> bool {
+        self.kind.contains("music-video")
+    }
+
+    /// The id of the first library album the song is on, when the relationship was included.
+    pub fn album_id(&self) -> Option<&str> {
+        first_id(self.relationships.as_ref()?.albums.as_ref())
+    }
+
+    /// The id of the first library artist of the song, when the relationship was included.
+    pub fn artist_id(&self) -> Option<&str> {
+        first_id(self.relationships.as_ref()?.artists.as_ref())
+    }
+}
+
+impl Song {
+    /// The id of the first catalog album the song is on, when the relationship was included.
+    pub fn album_id(&self) -> Option<&str> {
+        self.related_id("albums")
+    }
+
+    /// The id of the first catalog artist of the song, when the relationship was included.
+    pub fn artist_id(&self) -> Option<&str> {
+        self.related_id("artists")
+    }
+
+    fn related_id(&self, relationship: &str) -> Option<&str> {
+        self.relationships
+            .as_ref()?
+            .pointer(&format!("/{relationship}/data/0/id"))?
+            .as_str()
+    }
+}
+
+fn first_id<A>(relationship: Option<&Relationship<A>>) -> Option<&str> {
+    relationship?
+        .data
+        .first()
+        .map(|resource| resource.id.as_str())
 }
 
 /// Attributes of a library album.
@@ -332,6 +373,14 @@ impl LibraryAlbum {
                     .as_str()
             })
     }
+
+    /// The id of the first library artist of the album, when the relationship was included.
+    pub fn artist_id(&self) -> Option<&str> {
+        self.relationships
+            .as_ref()?
+            .pointer("/artists/data/0/id")?
+            .as_str()
+    }
 }
 
 /// Attributes of a library artist.
@@ -343,6 +392,21 @@ pub struct LibraryArtistAttributes {
 
 /// An artist in the user's library; its id starts with `r.`.
 pub type LibraryArtist = Resource<LibraryArtistAttributes>;
+
+impl LibraryArtist {
+    /// The catalog artists behind this library artist, when the `catalog` relationship was
+    /// included. Each is read on its own, so one Apple sent oddly does not cost the others.
+    pub fn catalog_artists(&self) -> Vec<Artist> {
+        self.relationships
+            .as_ref()
+            .and_then(|relationships| relationships.pointer("/catalog/data"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| serde_json::from_value(value.clone()).ok())
+            .collect()
+    }
+}
 
 /// Attributes of a library playlist.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -377,6 +441,27 @@ pub struct LibraryPlaylistRelationships {
 
 /// A playlist in the user's library.
 pub type LibraryPlaylist = Resource<LibraryPlaylistAttributes, LibraryPlaylistRelationships>;
+
+impl LibraryPlaylist {
+    /// Whether songs can be appended to the playlist. Apple's API can only append, and
+    /// Favorites and subscribed playlists not even that.
+    pub fn can_append(&self) -> bool {
+        self.attributes
+            .as_ref()
+            .is_some_and(|attributes| attributes.can_edit == Some(true))
+    }
+
+    /// Whether the playlist's songs belong to the user's own music: playlists the user made
+    /// (editable, or without a catalog counterpart, as Favorites) do; subscribed catalog
+    /// playlists do not.
+    pub fn holds_own_songs(&self) -> bool {
+        let has_catalog = self
+            .attributes
+            .as_ref()
+            .and_then(|attributes| attributes.has_catalog);
+        self.can_append() || has_catalog != Some(true)
+    }
+}
 
 /// Attributes of a storefront.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -569,6 +654,33 @@ pub struct AlbumRelationships {
 /// A catalog album.
 pub type Album = Resource<AlbumAttributes, AlbumRelationships>;
 
+impl Album {
+    /// The id of the first artist of the album, when the relationship was included.
+    pub fn artist_id(&self) -> Option<&str> {
+        first_id(self.relationships.as_ref()?.artists.as_ref())
+    }
+
+    /// Whether the album is an EP rather than a single. Apple names an EP "<title> - EP" and
+    /// a single "<title> - Single", so a trailing "EP" or "Single" after a dash decides; a
+    /// name that says neither is told by `isSingle`, which is false for an EP. Only meant
+    /// for releases of an artist's `singles` view.
+    pub fn is_ep(&self) -> bool {
+        let attributes = self.attributes.as_ref();
+        let name = attributes
+            .and_then(|attributes| attributes.name.as_deref())
+            .unwrap_or_default()
+            .trim();
+        let tail = name
+            .rsplit_once(['-', '\u{2013}', '\u{2014}'])
+            .map(|(_, tail)| tail.trim());
+        match tail {
+            Some(tail) if tail.eq_ignore_ascii_case("ep") => true,
+            Some(tail) if tail.eq_ignore_ascii_case("single") => false,
+            _ => attributes.and_then(|attributes| attributes.is_single) == Some(false),
+        }
+    }
+}
+
 /// Relationships of a catalog album read with its artists and its songs.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AlbumWithTracksRelationships {
@@ -721,4 +833,121 @@ pub struct CatalogSearchResults {
     pub albums: Page<Album>,
     /// Matching artists.
     pub artists: Page<Artist>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn read<T: de::DeserializeOwned>(value: Value) -> T {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn library_song_reads_its_related_ids() {
+        let song: LibrarySong = read(json!({
+            "id": "i.1", "type": "library-songs",
+            "relationships": {
+                "albums": {"data": [{"id": "l.1", "type": "library-albums"}]},
+                "artists": {"data": [{"id": "r.1", "type": "library-artists"}]}
+            }
+        }));
+        assert_eq!(song.album_id(), Some("l.1"));
+        assert_eq!(song.artist_id(), Some("r.1"));
+        assert!(!song.is_music_video());
+
+        let bare: LibrarySong = read(json!({"id": "i.2", "type": "library-music-videos"}));
+        assert_eq!(bare.album_id(), None);
+        assert_eq!(bare.artist_id(), None);
+        assert!(bare.is_music_video());
+    }
+
+    #[test]
+    fn catalog_song_reads_its_related_ids() {
+        let song: Song = read(json!({
+            "id": "100", "type": "songs",
+            "relationships": {
+                "albums": {"data": [{"id": "200", "type": "albums"}]},
+                "artists": {"data": []}
+            }
+        }));
+        assert_eq!(song.album_id(), Some("200"));
+        assert_eq!(song.artist_id(), None);
+        let bare: Song = read(json!({"id": "101", "type": "songs"}));
+        assert_eq!(bare.album_id(), None);
+    }
+
+    #[test]
+    fn albums_read_their_artist_ids() {
+        let library: LibraryAlbum = read(json!({
+            "id": "l.1", "type": "library-albums",
+            "relationships": {"artists": {"data": [{"id": "r.9", "type": "library-artists"}]}}
+        }));
+        assert_eq!(library.artist_id(), Some("r.9"));
+        let catalog: Album = read(json!({
+            "id": "200", "type": "albums",
+            "relationships": {"artists": {"data": [{"id": "300", "type": "artists"}]}}
+        }));
+        assert_eq!(catalog.artist_id(), Some("300"));
+        let bare: Album = read(json!({"id": "201", "type": "albums"}));
+        assert_eq!(bare.artist_id(), None);
+    }
+
+    #[test]
+    fn library_artist_lists_its_catalog_artists_and_skips_malformed_ones() {
+        let artist: LibraryArtist = read(json!({
+            "id": "r.1", "type": "library-artists",
+            "relationships": {"catalog": {"data": [
+                {"id": "300", "type": "artists", "attributes": {"name": "Nine"}},
+                {"type": "artists"}
+            ]}}
+        }));
+        let catalog = artist.catalog_artists();
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(catalog[0].id, "300");
+        let bare: LibraryArtist = read(json!({"id": "r.2", "type": "library-artists"}));
+        assert!(bare.catalog_artists().is_empty());
+    }
+
+    fn playlist(can_edit: Option<bool>, has_catalog: Option<bool>) -> LibraryPlaylist {
+        read(json!({
+            "id": "p.1", "type": "library-playlists",
+            "attributes": {"canEdit": can_edit, "hasCatalog": has_catalog}
+        }))
+    }
+
+    #[test]
+    fn playlist_append_and_ownership() {
+        let mine = playlist(Some(true), Some(true));
+        assert!(mine.can_append());
+        assert!(mine.holds_own_songs());
+        let favorites = playlist(Some(false), Some(false));
+        assert!(!favorites.can_append());
+        assert!(favorites.holds_own_songs());
+        let subscribed = playlist(Some(false), Some(true));
+        assert!(!subscribed.can_append());
+        assert!(!subscribed.holds_own_songs());
+        let unknown: LibraryPlaylist = read(json!({"id": "p.2", "type": "library-playlists"}));
+        assert!(!unknown.can_append());
+        assert!(unknown.holds_own_songs());
+    }
+
+    fn album(name: &str, is_single: Option<bool>) -> Album {
+        read(json!({
+            "id": "1", "type": "albums",
+            "attributes": {"name": name, "isSingle": is_single}
+        }))
+    }
+
+    #[test]
+    fn ep_is_told_from_single_by_name_then_by_flag() {
+        assert!(album("Dawn - EP", None).is_ep());
+        assert!(album("Dawn \u{2013} ep", Some(true)).is_ep());
+        assert!(!album("Dawn - Single", Some(false)).is_ep());
+        assert!(album("Dawn", Some(false)).is_ep());
+        assert!(!album("Dawn", Some(true)).is_ep());
+        assert!(!album("Dawn", None).is_ep());
+    }
 }
