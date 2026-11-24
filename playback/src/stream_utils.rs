@@ -193,9 +193,12 @@ impl io::Seek for ManagedStream {
 }
 impl Drop for ManagedStream {
     fn drop(&mut self) {
+        // The reader is done with the stream, which is no revocation, so the task that records one
+        // is stopped before the token is cancelled. Stopped after, it could run in between and
+        // mark a track that played to its end as unavailable.
+        self.cancellation_bridge.abort();
         self.cancel.cancel();
         self.inner.cancellation_token().cancel();
-        self.cancellation_bridge.abort();
     }
 }
 
@@ -212,11 +215,13 @@ mod tests {
     use std::io::Read;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Wake, Waker};
     use std::time::Duration;
 
     const TEST_DEADLINE: Duration = Duration::from_secs(60);
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::runtime::{Builder, Runtime};
     use tokio::sync::oneshot;
     use tokio_util::sync::CancellationToken;
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -391,6 +396,58 @@ mod tests {
             Some(UnavailableReason::SourceUnreachable)
         );
         server.await?;
+        Ok(())
+    }
+
+    /// Runs the waiting tasks of a runtime on the thread that wakes it.
+    struct RunTasksOnWake(Arc<Runtime>);
+
+    impl Wake for RunTasksOnWake {
+        fn wake(self: Arc<Self>) {
+            self.0.block_on(task::yield_now());
+        }
+    }
+
+    /// The player drops a stream once its track has played to the end, which cancels the stream's
+    /// token. That is no revocation, and a stream that records one makes the player report the
+    /// track as unavailable instead of played through. A second waiter on the token, woken after
+    /// the task that records revocations, runs that task inside the drop, as a busy machine now
+    /// and then does.
+    #[test]
+    fn dropping_the_stream_records_no_revocation() -> Result<()> {
+        let runtime = Arc::new(Builder::new_current_thread().enable_all().build()?);
+        let token = CancellationToken::new();
+        let reason = Arc::new(Mutex::new(None));
+        let (managed, mut waiter) = runtime.block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 4096]).await.unwrap();
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nrune",
+                    )
+                    .await
+                    .unwrap();
+            });
+            let client = Client::builder().no_proxy().build()?;
+            let stream =
+                create_stream_with_client(client, &format!("http://{address}/audio")).await?;
+            let managed = ManagedStream::new_with_failure(stream, token.clone(), reason.clone());
+            // The task waits on the token before the waiter below does, so it is woken first.
+            task::yield_now().await;
+            Ok::<_, anyhow::Error>((managed, Box::pin(token.clone().cancelled_owned())))
+        })?;
+        let waker = Waker::from(Arc::new(RunTasksOnWake(Arc::clone(&runtime))));
+        assert!(
+            waiter
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
+        drop(managed);
+        assert_eq!(*reason.lock().unwrap(), None);
         Ok(())
     }
 }
