@@ -12852,6 +12852,91 @@ async fn local_player_current_again_hides_statuses_its_player_reports_late() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_session_dropping_a_show_request_leaves_the_next_session_visible() -> Result<()> {
+    use crate::messages::PlayRequest;
+    use crate::session::PlayerSession;
+    use std::pin::pin;
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(HeldStatusSignals::default());
+    let f = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let track = session_audio(&f, "dropped-show-request.ogg").await?;
+    queue_session(&f, &[track]).await?;
+    dispatch_gui_request(&f.global_params, &PlayRequest { call_id: None }).await?;
+    wait_player(&f, |status| status.state == PlayerPlaybackState::Playing).await?;
+    let node = f.global_params.node.clone();
+    let session = node.session()?;
+    let session_id = session.session_id().await;
+
+    // This device's session falls behind its player, so its event loop cannot take a request to
+    // show it again. Another player takes over, and this device's player is current again.
+    let (_, release) = signals.hold_next_status(&session_id).await?;
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away.clone()).await?;
+    signals.signals.clear();
+    let returning = tokio::spawn({
+        let node = node.clone();
+        async move { node.transition_current_player(away, CurrentPlayer::Local).await }
+    });
+    wait_until("this device's player to be current again", || async {
+        Ok(matches!(node.current_player_snapshot()?, CurrentPlayer::Local).then_some(()))
+    })
+    .await?;
+
+    // The session is cancelled with the request still queued. The first step of its shutdown
+    // cancels it, and the rest waits for the held loop, which then stops without taking the
+    // request.
+    let mut shutdown = pin!(session.shutdown());
+    assert!(
+        futures::poll!(&mut shutdown).is_pending(),
+        "the session shut down without waiting for its held event loop"
+    );
+    release.send(())?;
+    shutdown.await?;
+    returning.await??;
+    let shown = signals.statuses(&session_id);
+    assert!(
+        shown.is_empty(),
+        "inconclusive: the session took the request before it was cancelled: {shown:?}"
+    );
+
+    // The next session the node opens plays, and its statuses reach the UI.
+    let next = PlayerSession::new(&node, "next", false, PlayerSession::real_player()).await?;
+    let next_id = next.session_id().await;
+    let item = library_track_for_id(&f, track).await?;
+    {
+        let player = next.player.lock().await;
+        player.add_to_playlist_with_sources(
+            vec![(PlayingItem::from(item), PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+        player.load(0);
+        player.play();
+    }
+    wait_until("the next session's statuses to reach the UI", || async {
+        Ok(signals
+            .statuses(&next_id)
+            .iter()
+            .any(|(state, _)| *state == PlaybackState::Playing)
+            .then_some(()))
+    })
+    .await?;
+
+    next.shutdown().await?;
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
