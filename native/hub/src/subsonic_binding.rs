@@ -464,11 +464,12 @@ impl SubsonicBinding {
                                 else {
                                     continue;
                                 };
-                                if change == JukeboxChange::Queue
-                                    && cover.is_none()
-                                    && let Some(id) = cover_id
-                                {
-                                    covers.schedule_playing(Arc::clone(&client), id.to_owned());
+                                if change == JukeboxChange::Queue {
+                                    let uncached = cover_id.filter(|_| cover.is_none());
+                                    covers.schedule_playing(
+                                        Arc::clone(&client),
+                                        uncached.map(str::to_owned),
+                                    );
                                 }
                                 broadcast_jukebox(
                                     &*broadcaster,
@@ -656,12 +657,10 @@ impl SubsonicBinding {
         let (revision, change) = record_jukebox(&self.jukebox_state, &jukebox, cover.clone())
             .ok_or_else(|| anyhow::anyhow!("Subsonic jukebox state lock poisoned"))?;
         if let Some(change) = change {
-            if change == JukeboxChange::Queue
-                && cover.is_none()
-                && let Some(id) = cover_id
-            {
+            if change == JukeboxChange::Queue {
+                let uncached = cover_id.filter(|_| cover.is_none());
                 self.covers
-                    .schedule_playing(Arc::clone(&self.client), id.to_owned());
+                    .schedule_playing(Arc::clone(&self.client), uncached.map(str::to_owned));
             }
             broadcast_jukebox(
                 &*self.covers.broadcaster,
