@@ -1,0 +1,48 @@
+{
+  "next": "/v1/me/library/songs?offset=2",
+  "data": [
+    {
+      "id": "i.PkdJNdAIrQozOW",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.PkdJNdAIrQozOW",
+      "attributes": {
+        "albumName": "Un Verano Sin Ti",
+        "discNumber": 1,
+        "genreNames": ["Latin"],
+        "trackNumber": 10,
+        "hasLyrics": true,
+        "durationInMillis": 213061,
+        "releaseDate": "2022-05-06",
+        "name": "Efecto",
+        "artistName": "Bad Bunny",
+        "artwork": {
+          "width": 1200,
+          "height": 1200,
+          "url": "https://is5-ssl.mzstatic.com/image/thumb/Music112/v4/3e/04/eb/3e04ebf6-370f-f59d-ec84-2c2643db92f1/196626945068.jpg/{w}x{h}bb.jpg"
+        },
+        "playParams": {
+          "id": "i.PkdJNdAIrQozOW",
+          "kind": "song",
+          "isLibrary": true,
+          "reporting": true,
+          "catalogId": "1622045954",
+          "reportingId": "1622045954"
+        }
+      }
+    },
+    {
+      "id": "i.LVk4NkKT2bV0qR",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.LVk4NkKT2bV0qR",
+      "attributes": {
+        "name": "A Song Without Catalog Match",
+        "artistName": "Some Artist",
+        "albumName": "Some Album",
+        "durationInMillis": 180000,
+        "genreNames": [],
+        "futureAttribute": {"nested": true},
+        "playParams": {"id": "i.LVk4NkKT2bV0qR", "kind": "song", "isLibrary": true}
+      }
+    }
+  ]
+}

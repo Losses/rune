@@ -1,0 +1,64 @@
+{
+  "data": [
+    {
+      "id": "a.7003",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.7003",
+      "attributes": {
+        "name": "Matched Later",
+        "albumName": "Kept Album",
+        "artistName": "Artist Six",
+        "durationInMillis": 150000,
+        "genreNames": [
+          "Folk"
+        ],
+        "playParams": {
+          "id": "a.7003",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "7003"
+        }
+      }
+    },
+    {
+      "id": "a.7005",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.7005",
+      "attributes": {
+        "name": "Bought Once",
+        "albumName": "Kept Album",
+        "artistName": "Artist Six",
+        "durationInMillis": 150000,
+        "genreNames": [
+          "Folk"
+        ],
+        "playParams": {
+          "id": "a.7005",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "7005"
+        }
+      }
+    },
+    {
+      "id": "a.7006",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.7006",
+      "attributes": {
+        "name": "Only Loved",
+        "albumName": "Kept Album",
+        "artistName": "Artist Six",
+        "durationInMillis": 150000,
+        "genreNames": [
+          "Folk"
+        ],
+        "playParams": {
+          "id": "a.7006",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "7006"
+        }
+      }
+    }
+  ]
+}

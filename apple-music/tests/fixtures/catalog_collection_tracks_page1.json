@@ -1,0 +1,7 @@
+{
+  "data": [
+    {"id": "t1", "type": "songs", "attributes": {"name": "First", "artistName": "Artist", "durationInMillis": 1000}},
+    {"id": "v1", "type": "music-videos", "attributes": {"name": "A Video"}}
+  ],
+  "next": "/v1/catalog/us/playlists/pl.pm-mix1/tracks?offset=2"
+}

@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "id": "8002",
+      "type": "artists",
+      "href": "/v1/catalog/us/artists/8002",
+      "attributes": {
+        "name": "Artist Nine",
+        "genreNames": ["Pop"],
+        "artwork": {"width": 2400, "height": 2400, "url": "http://artwork.invalid/nine/{w}x{h}bb.jpg"},
+        "url": "https://music.apple.com/us/artist/artist-nine/8002"
+      }
+    }
+  ]
+}

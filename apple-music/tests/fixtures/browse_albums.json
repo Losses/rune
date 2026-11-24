@@ -1,0 +1,137 @@
+{
+  "data": [
+    {
+      "id": "l.alb1",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb1",
+      "attributes": {
+        "name": "Dawn Album",
+        "artistName": "Artist One",
+        "trackCount": 3,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2020-03-04",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb1",
+          "kind": "album",
+          "isLibrary": true
+        }
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/me/library/albums/l.alb1/artists",
+          "data": [
+            {
+              "id": "r.art1",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art1",
+              "attributes": {
+                "name": "Artist One"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "l.alb2",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb2",
+      "attributes": {
+        "name": "Night Album",
+        "artistName": "Artist Two",
+        "trackCount": 1,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/night/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Rock"
+        ],
+        "releaseDate": "2018-10-11",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb2",
+          "kind": "album",
+          "isLibrary": true
+        }
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/me/library/albums/l.alb2/artists",
+          "data": [
+            {
+              "id": "r.art2",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art2",
+              "attributes": {
+                "name": "Artist Two"
+              }
+            }
+          ]
+        },
+        "catalog": {
+          "href": "/v1/me/library/albums/l.alb2/catalog",
+          "data": [
+            {
+              "id": "1440002",
+              "type": "albums",
+              "href": "/v1/catalog/us/albums/1440002"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "l.alb3",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb3",
+      "attributes": {
+        "name": "Dusk Album",
+        "artistName": "Artist One",
+        "trackCount": 2,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dusk/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2021-01-01",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb3",
+          "kind": "album",
+          "isLibrary": true
+        }
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/me/library/albums/l.alb3/artists",
+          "data": [
+            {
+              "id": "r.art1",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art1",
+              "attributes": {
+                "name": "Artist One"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 3
+  }
+}

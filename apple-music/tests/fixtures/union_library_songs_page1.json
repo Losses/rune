@@ -1,0 +1,150 @@
+{
+  "next": "/v1/me/library/songs?offset=2",
+  "data": [
+    {
+      "id": "i.lib1",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.lib1",
+      "attributes": {
+        "name": "First Light",
+        "albumName": "Dawn Album",
+        "artistName": "Artist One",
+        "trackNumber": 1,
+        "discNumber": 1,
+        "durationInMillis": 245600,
+        "genreNames": [
+          "Ambient",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.lib1",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "1001",
+          "reporting": true,
+          "reportingId": "1001"
+        },
+        "releaseDate": "2020-03-04",
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        }
+      },
+      "relationships": {
+        "albums": {
+          "href": "/v1/me/library/songs/i.lib1/albums",
+          "data": [
+            {
+              "id": "l.alb1",
+              "type": "library-albums",
+              "href": "/v1/me/library/albums/l.alb1",
+              "attributes": {
+                "name": "Dawn Album",
+                "artistName": "Artist One",
+                "artwork": {
+                  "width": 1400,
+                  "height": 1400,
+                  "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+                },
+                "playParams": {
+                  "id": "l.alb1",
+                  "kind": "album",
+                  "isLibrary": true
+                }
+              }
+            }
+          ]
+        },
+        "artists": {
+          "href": "/v1/me/library/songs/i.lib1/artists",
+          "data": [
+            {
+              "id": "r.art1",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art1",
+              "attributes": {
+                "name": "Artist One"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "i.lib2",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.lib2",
+      "attributes": {
+        "name": "Second Wind",
+        "albumName": "Dawn Album",
+        "artistName": "Artist One",
+        "trackNumber": 2,
+        "discNumber": 1,
+        "durationInMillis": 180400,
+        "genreNames": [
+          "Ambient",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.lib2",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "1002",
+          "reporting": true,
+          "reportingId": "1002"
+        },
+        "releaseDate": "2020-03-04",
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        }
+      },
+      "relationships": {
+        "albums": {
+          "href": "/v1/me/library/songs/i.lib2/albums",
+          "data": [
+            {
+              "id": "l.alb1",
+              "type": "library-albums",
+              "href": "/v1/me/library/albums/l.alb1",
+              "attributes": {
+                "name": "Dawn Album",
+                "artistName": "Artist One",
+                "artwork": {
+                  "width": 1400,
+                  "height": 1400,
+                  "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+                },
+                "playParams": {
+                  "id": "l.alb1",
+                  "kind": "album",
+                  "isLibrary": true
+                }
+              }
+            }
+          ]
+        },
+        "artists": {
+          "href": "/v1/me/library/songs/i.lib2/artists",
+          "data": [
+            {
+              "id": "r.art1",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art1",
+              "attributes": {
+                "name": "Artist One"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 3
+  }
+}

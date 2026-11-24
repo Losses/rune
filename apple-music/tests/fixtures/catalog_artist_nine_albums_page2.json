@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "7003",
+      "type": "albums",
+      "href": "/v1/catalog/us/albums/7003",
+      "attributes": {
+        "name": "Dusk Album",
+        "artistName": "Artist Nine",
+        "trackCount": 9,
+        "releaseDate": "2019-01-02",
+        "genreNames": ["Pop"]
+      }
+    }
+  ]
+}

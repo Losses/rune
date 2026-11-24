@@ -1,0 +1,23 @@
+{
+  "results": {
+    "library-albums": {
+      "data": [
+        {
+          "id": "l.alb9",
+          "type": "library-albums",
+          "attributes": {
+            "name": "Dawn Album",
+            "artistName": "Artist One",
+            "trackCount": 3,
+            "playParams": {
+              "id": "l.alb9",
+              "kind": "album",
+              "isLibrary": true,
+              "catalogId": "7010"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

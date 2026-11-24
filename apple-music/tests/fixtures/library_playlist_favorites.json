@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": "p.favorites",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.favorites",
+      "attributes": {
+        "name": "Favorite Songs",
+        "canEdit": false,
+        "hasCatalog": false,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.favorites",
+          "kind": "playlist",
+          "isLibrary": true
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    }
+  ]
+}

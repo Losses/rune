@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "results": {
+      "order": [
+        "songs"
+      ],
+      "rawOrder": [
+        "songs"
+      ]
+    }
+  },
+  "results": {
+    "songs": {
+      "data": [
+        {
+          "attributes": {
+            "albumName": "Random Access Memories",
+            "artistName": "Daft Punk, Pharrell Williams & Nile Rodgers",
+            "artwork": {
+              "bgColor": "090d0e",
+              "height": 1500,
+              "textColor1": "cde0f2",
+              "textColor2": "acc1e1",
+              "textColor3": "a5b5c4",
+              "textColor4": "8b9db7",
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/e8/43/5f/e8435ffa-b6b9-b171-40ab-4ff3959ab661/886443919266.jpg/{w}x{h}bb.jpg",
+              "width": 1500
+            },
+            "composerName": "Pharrell Williams, Nile Rodgers, Thomas Bangalter & Guy-Manuel de Homem-Christo",
+            "discNumber": 1,
+            "durationInMillis": 369629,
+            "genreNames": [
+              "Pop",
+              "Musica",
+              "Elettronica"
+            ],
+            "hasLyrics": true,
+            "isAppleDigitalMaster": true,
+            "isrc": "USQX91300108",
+            "name": "Get Lucky",
+            "playParams": {
+              "id": "617154366",
+              "kind": "song"
+            },
+            "previews": [
+              {
+                "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/57/a5/85/57a585aa-f1bc-7619-881b-f8a04a5541d5/mzaf_6906185026678279401.plus.aac.p.m4a"
+              }
+            ],
+            "releaseDate": "2013-04-19",
+            "trackNumber": 8,
+            "url": "https://music.apple.com/us/album/get-lucky/617154241?i=617154366"
+          },
+          "href": "/v1/catalog/us/songs/617154366",
+          "id": "617154366",
+          "type": "songs"
+        },
+        {
+          "attributes": {
+            "albumName": "Get Lucky (feat. Pharrell Williams) [Radio Edit] - Single",
+            "artistName": "Daft Punk",
+            "artwork": {
+              "bgColor": "391615",
+              "height": 1500,
+              "textColor1": "f27b33",
+              "textColor2": "fa6c3a",
+              "textColor3": "cd672d",
+              "textColor4": "d35b33",
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/1c/da/5a/1cda5a7d-90ad-8643-efb2-7641afb13418/886443973442.jpg/{w}x{h}bb.jpg",
+              "width": 1500
+            },
+            "composerName": "Pharrell Williams, Nile Rodgers, Thomas Bangalter & Guy-Manuel de Homem-Christo",
+            "discNumber": 1,
+            "durationInMillis": 247633,
+            "genreNames": [
+              "Pop",
+              "Musica"
+            ],
+            "hasLyrics": true,
+            "isAppleDigitalMaster": false,
+            "isrc": "USQX91300809",
+            "name": "Get Lucky (feat. Pharrell Williams) [Radio Edit]",
+            "playParams": {
+              "id": "636968288",
+              "kind": "song"
+            },
+            "previews": [
+              {
+                "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/33/9c/29/339c2970-e296-b109-c11a-878534d40067/mzaf_12572643936196072909.plus.aac.p.m4a"
+              }
+            ],
+            "releaseDate": "2013-04-19",
+            "trackNumber": 1,
+            "url": "https://music.apple.com/us/album/get-lucky-feat-pharrell-williams-radio-edit/636967993?i=636968288"
+          },
+          "href": "/v1/catalog/us/songs/636968288",
+          "id": "636968288",
+          "type": "songs"
+        },
+        {
+          "attributes": {
+            "albumName": "Get Lucky (feat. Pharrell Williams & Nile Rodgers) [Daft Punk Remix]",
+            "artistName": "Daft Punk",
+            "artwork": {
+              "bgColor": "321915",
+              "height": 1500,
+              "textColor1": "f28247",
+              "textColor2": "ef7a4f",
+              "textColor3": "cb6d3d",
+              "textColor4": "c96743",
+              "url": "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/ba/58/0c/ba580cb1-a7e2-4771-e1a9-244f32ba15a4/886444079006.jpg/{w}x{h}bb.jpg",
+              "width": 1500
+            },
+            "composerName": "Pharrell Williams, Nile Rodgers, Thomas Bangalter & Guy-Manuel de Homem-Christo",
+            "discNumber": 1,
+            "durationInMillis": 632694,
+            "genreNames": [
+              "Pop",
+              "Musica"
+            ],
+            "hasLyrics": true,
+            "isAppleDigitalMaster": false,
+            "isrc": "USQX91301322",
+            "name": "Get Lucky (feat. Pharrell Williams & Nile Rodgers) [Daft Punk Remix]",
+            "playParams": {
+              "id": "664332744",
+              "kind": "song"
+            },
+            "previews": [
+              {
+                "url": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/ab/f2/3e/abf23e05-e537-bd1f-a07f-0ffb470698d2/mzaf_6053148736670191628.plus.aac.p.m4a"
+              }
+            ],
+            "releaseDate": "2013-07-03",
+            "trackNumber": 1,
+            "url": "https://music.apple.com/us/album/get-lucky-feat-pharrell-williams-nile-rodgers-daft/664332737?i=664332744"
+          },
+          "href": "/v1/catalog/us/songs/664332744",
+          "id": "664332744",
+          "type": "songs"
+        }
+      ],
+      "href": "/v1/catalog/us/search?limit=3&term=daft+punk+get+lucky&types=songs",
+      "next": "/v1/catalog/us/search?offset=3&term=daft+punk+get+lucky&types=songs"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "next": "/v1/me/library/recently-added?offset=2",
+  "data": [
+    {"id": "l.NWqWi1m", "type": "library-albums", "href": "/v1/me/library/albums/l.NWqWi1m", "attributes": {"artistName": "Elephante", "name": "Dopamine - Single", "trackCount": 1, "playParams": {"id": "l.NWqWi1m", "kind": "album", "isLibrary": true}}},
+    {"id": "p.RB1AAkGsv74Zkl", "type": "library-playlists", "href": "/v1/me/library/playlists/p.RB1AAkGsv74Zkl", "attributes": {"name": "New Playlist", "canEdit": true, "hasCatalog": false}}
+  ]
+}

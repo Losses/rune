@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "id": "7002",
+      "type": "albums",
+      "href": "/v1/catalog/us/albums/7002",
+      "attributes": {
+        "name": "Sunrise EP",
+        "artistName": "Artist Nine",
+        "trackCount": 2,
+        "releaseDate": "2021-06-07",
+        "genreNames": ["Pop", "Music"],
+        "isSingle": false,
+        "isCompilation": false,
+        "recordLabel": "Label",
+        "playParams": {"id": "7002", "kind": "album"},
+        "artwork": {"width": 3000, "height": 3000, "url": "http://artwork.invalid/sunrise/{w}x{h}bb.jpg"},
+        "url": "https://music.apple.com/us/album/sunrise-ep/7002"
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/catalog/us/albums/7002/artists",
+          "data": [
+            {"id": "8002", "type": "artists", "href": "/v1/catalog/us/artists/8002", "attributes": {"name": "Artist Nine"}}
+          ]
+        }
+      }
+    }
+  ]
+}

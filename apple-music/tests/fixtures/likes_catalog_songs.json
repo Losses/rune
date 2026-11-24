@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "id": "3001",
+      "type": "ratings",
+      "href": "/v1/me/ratings/songs/3001",
+      "attributes": {
+        "value": 1
+      }
+    }
+  ]
+}

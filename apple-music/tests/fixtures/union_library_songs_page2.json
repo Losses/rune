@@ -1,0 +1,74 @@
+{
+  "data": [
+    {
+      "id": "i.lib3",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.lib3",
+      "attributes": {
+        "name": "Third Road",
+        "albumName": "Night Album",
+        "artistName": "Artist Two",
+        "trackNumber": 5,
+        "discNumber": 1,
+        "durationInMillis": 199900,
+        "genreNames": [
+          "Rock"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.lib3",
+          "kind": "song",
+          "isLibrary": true
+        },
+        "releaseDate": "2018",
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/night/{w}x{h}bb.jpg"
+        }
+      },
+      "relationships": {
+        "albums": {
+          "href": "/v1/me/library/songs/i.lib3/albums",
+          "data": [
+            {
+              "id": "l.alb2",
+              "type": "library-albums",
+              "href": "/v1/me/library/albums/l.alb2",
+              "attributes": {
+                "name": "Night Album",
+                "artistName": "Artist Two",
+                "artwork": {
+                  "width": 1400,
+                  "height": 1400,
+                  "url": "http://artwork.invalid/night/{w}x{h}bb.jpg"
+                },
+                "playParams": {
+                  "id": "l.alb2",
+                  "kind": "album",
+                  "isLibrary": true
+                }
+              }
+            }
+          ]
+        },
+        "artists": {
+          "href": "/v1/me/library/songs/i.lib3/artists",
+          "data": [
+            {
+              "id": "r.art2",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art2",
+              "attributes": {
+                "name": "Artist Two"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 3
+  }
+}

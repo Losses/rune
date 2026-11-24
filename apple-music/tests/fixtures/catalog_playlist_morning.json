@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "id": "pl.morning",
+      "type": "playlists",
+      "href": "/v1/catalog/us/playlists/pl.morning",
+      "attributes": {
+        "name": "Morning Mix",
+        "curatorName": "Apple Music",
+        "playlistType": "editorial",
+        "lastModifiedDate": "2026-11-01T00:00:00Z",
+        "description": {"standard": "Songs for the morning.", "short": "Morning."},
+        "playParams": {"id": "pl.morning", "kind": "playlist"},
+        "artwork": {"width": 1080, "height": 1080, "url": "http://artwork.invalid/morning/{w}x{h}bb.jpg"},
+        "url": "https://music.apple.com/us/playlist/morning-mix/pl.morning"
+      }
+    }
+  ]
+}

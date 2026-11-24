@@ -1,0 +1,34 @@
+{
+  "results": {
+    "albums": {
+      "data": [
+        {
+          "id": "7010",
+          "type": "albums",
+          "attributes": {
+            "name": "Dawn Album",
+            "artistName": "Artist One",
+            "trackCount": 3,
+            "playParams": {
+              "id": "7010",
+              "kind": "album"
+            }
+          }
+        },
+        {
+          "id": "7011",
+          "type": "albums",
+          "attributes": {
+            "name": "Dawn Album",
+            "artistName": "Artist One",
+            "trackCount": 3,
+            "playParams": {
+              "id": "7011",
+              "kind": "album"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
