@@ -145,6 +145,8 @@ class VolumeProvider with ChangeNotifier {
     final inWindow =
         lastSet != null && _clock().difference(lastSet) < systemEchoWindow;
     if (!inWindow) {
+      // A report held back in the window is older than this one.
+      _dropDeferred();
       _applySystem(state);
       return;
     }

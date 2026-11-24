@@ -251,6 +251,31 @@ void main() {
     expect(rig.provider.volume, 0.6);
   });
 
+  test('a report after the window outweighs one held back in it', () async {
+    final rig = _Rig();
+    addTearDown(rig.dispose);
+    await rig.host('host');
+
+    rig.provider.updateVolume(0.5);
+    rig.system.controller.add(
+      const SystemVolumeState(volume: 0.2, settable: true),
+    );
+    await rig.pump();
+    expect(rig.provider.volume, 0.5);
+
+    // The window closes, and a newer report lands before the held one is applied.
+    rig.now = rig.now.add(VolumeProvider.systemEchoWindow);
+    rig.system.controller.add(
+      const SystemVolumeState(volume: 0.7, settable: true),
+    );
+    await rig.pump();
+    expect(rig.provider.volume, 0.7);
+    await Future<void>.delayed(
+      VolumeProvider.systemEchoWindow + const Duration(milliseconds: 50),
+    );
+    expect(rig.provider.volume, 0.7);
+  });
+
   test(
     'the volume is unknown, and the control disabled, until the system answers',
     () async {
