@@ -372,7 +372,7 @@ impl AppleLibrary {
     /// restarts. A new library reads them from it, and answers from them at once, even before
     /// its first sign-in; they count as old, so they are refreshed in the background as soon
     /// as they are served signed in. Signing out, or in with other tokens, deletes what the
-    /// store holds.
+    /// store holds. Call it before cloning the library: a clone made earlier has no store.
     #[must_use]
     pub fn with_store(mut self, store: ListStore) -> Self {
         self.store = Some(store);
@@ -405,9 +405,10 @@ impl AppleLibrary {
                 // The storefront first: a read that starts after the new session began must
                 // not find the old account's.
                 self.client.forget_storefront();
-                self.caches.start_session();
-                // After the session, so a list read for the old one is no longer saved.
+                // Before the session: a restore that reads the old account's files has taken
+                // its epochs before the session began, and is dropped by it.
                 self.clear_store();
+                self.caches.start_session();
                 SignInChange::Changed
             }
         }
@@ -425,9 +426,10 @@ impl AppleLibrary {
         if self.tokens.replace(None) != Replaced::Same {
             self.client.forget_storefront();
         }
-        // Lists restored before any sign-in go too.
-        self.caches.start_session();
+        // Lists restored before any sign-in go too. The store first, so that a restore under
+        // way is retired by the session after it read.
         self.clear_store();
+        self.caches.start_session();
     }
 
     fn clear_store(&self) {
