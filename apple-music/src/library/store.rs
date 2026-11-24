@@ -217,11 +217,6 @@ impl Inner {
                 }
                 mem::take(&mut state.pending)
             };
-            // A store nobody holds any more belongs to a library that is gone.
-            if Arc::strong_count(&self) == 1 {
-                lock(&self.state).writing = false;
-                return;
-            }
             for (name, pending) in pending {
                 self.write(&name, pending);
             }
@@ -255,14 +250,14 @@ impl Inner {
 /// list or the new one, never a part of either. Writes are made one at a time, so the file
 /// beside it can have a fixed name.
 fn write_atomically(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    fs::create_dir_all(dir)?;
+    create_private_dir(dir)?;
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let temporary = dir.join(format!(".{name}.tmp"));
     let written = (|| {
-        let mut file = fs::File::create(&temporary)?;
+        let mut file = create_private_file(&temporary)?;
         file.write_all(bytes)?;
         fs::rename(&temporary, path)
     })();
@@ -270,6 +265,30 @@ fn write_atomically(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&temporary);
     }
     written
+}
+
+/// Makes the folder, readable by its owner only: the lists are the user's library.
+fn create_private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+/// Makes a file readable by its owner only.
+fn create_private_file(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
 }
 
 #[cfg(test)]
@@ -313,6 +332,43 @@ mod tests {
         store.save(store.generation(), "names", Arc::new(vec!["f".to_owned()]));
         store.flush();
         assert!(!dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folder_and_its_files_are_private_to_the_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = env::temp_dir().join(format!("apple-music-lists-{}", rand::random::<u64>()));
+        let store = ListStore::new(&dir);
+        store.save(store.generation(), "names", Arc::new(vec!["a".to_owned()]));
+        store.flush();
+
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&dir.join("names.json")), 0o600);
+        store.clear();
+    }
+
+    #[test]
+    fn saves_are_written_after_the_last_handle_is_dropped() {
+        let dir = env::temp_dir().join(format!("apple-music-lists-{}", rand::random::<u64>()));
+        let store = ListStore::new(&dir);
+        store.save(store.generation(), "names", Arc::new(vec!["a".to_owned()]));
+        drop(store);
+
+        let read = ListStore::new(&dir);
+        for _ in 0..50 {
+            if read.load::<Vec<String>>("names").is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(
+            read.load::<Vec<String>>("names"),
+            Some(vec!["a".to_owned()])
+        );
+        read.clear();
     }
 
     #[test]
