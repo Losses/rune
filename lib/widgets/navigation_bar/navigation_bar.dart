@@ -6,6 +6,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/kept_clear.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/router/history.dart';
+import '../../utils/navigation/header_parent.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
@@ -35,6 +37,9 @@ class NavigationBar extends StatefulWidget {
 }
 
 class NavigationBarState extends State<NavigationBar> {
+  // The parent the header showed in the last build.
+  String? _shownParentPath;
+
   @override
   void didUpdateWidget(covariant NavigationBar oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -50,16 +55,14 @@ class NavigationBarState extends State<NavigationBar> {
       final currentItem = navigationQuery.getItem(currentPath, false);
 
       if (previousItem != null && currentItem != null) {
-        if (navigationQuery.getParent(currentPath, false)?.path ==
-            previousPath) {
+        if (headerParent(currentPath, $history, false)?.path == previousPath) {
           // parent to child
           playFlipAnimation(
             context,
             'child:$previousPath',
             'title:$previousPath',
           );
-        } else if (navigationQuery.getParent(previousPath, false)?.path ==
-            currentPath) {
+        } else if (_shownParentPath == currentPath) {
           // child to parent
           playFlipAnimation(
             context,
@@ -86,11 +89,18 @@ class NavigationBarState extends State<NavigationBar> {
       return;
     }
 
-    setState(() {
-      if (item != null) {
-        $replace(item.path);
-      }
-    });
+    if (item == null) return;
+
+    // Up to the page this one was opened from is back to that page as it was
+    // left, scrolled where it was. Another parent opens afresh.
+    switch (headerTapAction(item.path, $router.path, $history)) {
+      case HeaderTapAction.none:
+        return;
+      case HeaderTapAction.pop:
+        $pop();
+      case HeaderTapAction.replace:
+        setState(() => $replace(item.path));
+    }
   }
 
   playFlipAnimation(BuildContext context, String from, String to) async {
@@ -106,7 +116,8 @@ class NavigationBarState extends State<NavigationBar> {
         final path = Provider.of<RouterPathProvider>(context).path;
 
         final item = navigationQuery.getItem(path, isZune);
-        final parent = navigationQuery.getParent(path, isZune);
+        final parent = headerParent(path, $history, isZune);
+        _shownParentPath = parent?.path;
         final slibings = navigationQuery
             .getSiblings(path, isZune)
             ?.where((x) => !x.hidden)
