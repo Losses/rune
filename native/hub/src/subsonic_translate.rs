@@ -2331,9 +2331,7 @@ fn song_tracks(binding: &SubsonicBinding, songs: Vec<SubsonicSong>) -> Result<Ve
 }
 
 /// The albums, oldest added first. The server lists them newest first, so the whole list is
-/// read, and kept for [`LIST_TTL`]. Only a page that adds no album ends the list, as a server
-/// may return fewer albums than a page asks for, or a page that repeats albums already listed,
-/// as one that ignores the offset does.
+/// read, and kept for [`LIST_TTL`].
 async fn albums_oldest_first(binding: &SubsonicBinding) -> Result<Vec<HomeItem>> {
     let kept = binding
         .catalog
@@ -2346,36 +2344,7 @@ async fn albums_oldest_first(binding: &SubsonicBinding) -> Result<Vec<HomeItem>>
     let ids = match kept {
         Some(ids) => ids,
         None => {
-            let mut ids = Vec::new();
-            let mut listed = HashSet::new();
-            let mut offset = 0_u32;
-            loop {
-                let albums = binding
-                    .client
-                    .album_list_by("newest", 500, offset)
-                    .await
-                    .map_err(|error| subsonic_request_error(binding, error))?;
-                let count = u32::try_from(albums.len()).unwrap_or(u32::MAX);
-                let mut catalog = binding
-                    .catalog
-                    .lock()
-                    .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-                let before = ids.len();
-                for album in albums {
-                    let id = catalog.ids.intern(SubsonicIdKind::Album, &album.id)?;
-                    catalog.albums.insert(id, album);
-                    if listed.insert(id) {
-                        ids.push(id);
-                    }
-                }
-                if ids.len() == before {
-                    break;
-                }
-                drop(catalog);
-                offset = offset.checked_add(count).ok_or_else(|| {
-                    ExpectedRequestError::invalid_input("Subsonic album list is too large")
-                })?;
-            }
+            let mut ids = newest_album_ids(binding, usize::MAX).await?;
             ids.reverse();
             let ids = Arc::new(ids);
             binding
@@ -2386,6 +2355,68 @@ async fn albums_oldest_first(binding: &SubsonicBinding) -> Result<Vec<HomeItem>>
             ids
         }
     };
+    album_items(binding, &ids)
+}
+
+/// The `limit` newest albums, newest first: from the whole list while it is kept, and else from
+/// as many of the server's pages as they take.
+async fn newest_albums(binding: &SubsonicBinding, limit: usize) -> Result<Vec<HomeItem>> {
+    let kept = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
+        .albums_by_addition
+        .clone()
+        .filter(|(read, _)| read.elapsed() < LIST_TTL)
+        .map(|(_, ids)| ids);
+    let ids = match kept {
+        Some(ids) => ids.iter().rev().take(limit).copied().collect(),
+        None => newest_album_ids(binding, limit).await?,
+    };
+    album_items(binding, &ids)
+}
+
+/// The ids of the albums, newest added first, at most `limit` of them, read page after page.
+/// Only a page that adds no album ends the list, as a server may return fewer albums than a page
+/// asks for, or a page that repeats albums already listed, as one that ignores the offset does.
+async fn newest_album_ids(binding: &SubsonicBinding, limit: usize) -> Result<Vec<i32>> {
+    let mut ids = Vec::new();
+    let mut listed = HashSet::new();
+    let mut offset = 0_u32;
+    while ids.len() < limit {
+        let size = u32::try_from(limit - ids.len()).map_or(500, |left| left.min(500));
+        let albums = binding
+            .client
+            .album_list_by("newest", size, offset)
+            .await
+            .map_err(|error| subsonic_request_error(binding, error))?;
+        let count = u32::try_from(albums.len()).unwrap_or(u32::MAX);
+        let mut catalog = binding
+            .catalog
+            .lock()
+            .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+        let before = ids.len();
+        for album in albums {
+            let id = catalog.ids.intern(SubsonicIdKind::Album, &album.id)?;
+            catalog.albums.insert(id, album);
+            if listed.insert(id) {
+                ids.push(id);
+            }
+        }
+        if ids.len() == before {
+            break;
+        }
+        drop(catalog);
+        offset = offset.checked_add(count).ok_or_else(|| {
+            ExpectedRequestError::invalid_input("Subsonic album list is too large")
+        })?;
+    }
+    ids.truncate(limit);
+    Ok(ids)
+}
+
+/// The albums of `ids` the catalog holds, in that order.
+fn album_items(binding: &SubsonicBinding, ids: &[i32]) -> Result<Vec<HomeItem>> {
     let catalog = binding
         .catalog
         .lock()
@@ -2437,6 +2468,20 @@ impl HomeSource for SubsonicBinding {
                     })
                     .collect()),
                 _ => Err(mixes::unsupported_query(ComplexQueryRequest::wire_name())),
+            }
+        })
+    }
+
+    fn newest(
+        &self,
+        collection_type: CollectionType,
+        limit: usize,
+    ) -> ServiceFuture<'_, Option<Vec<HomeItem>>> {
+        Box::pin(async move {
+            match collection_type {
+                CollectionType::Album => newest_albums(self, limit).await.map(Some),
+                // Subsonic dates no artist, and lists its playlists all at once.
+                _ => Ok(None),
             }
         })
     }
@@ -2806,6 +2851,8 @@ mod tests {
         error_cover_gate: Arc<tokio_sync::RwLock<()>>,
         /// The song list gives covers to the odd songs when this is not zero.
         listed_covers: Arc<AtomicUsize>,
+        /// How many albums the server added after the two it always lists.
+        newer_albums: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2881,6 +2928,7 @@ mod tests {
             no_random_songs: Arc::new(AtomicUsize::new(0)),
             error_cover_gate: Arc::default(),
             listed_covers: Arc::new(AtomicUsize::new(0)),
+            newer_albums: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -3268,12 +3316,17 @@ mod tests {
                     .get("offset")
                     .and_then(|value| value.parse::<usize>().ok())
                     .unwrap_or_default();
-                let albums = [
-                    serde_json::json!({"id":"album-2","name":"Album Two","artist":"Artist"}),
-                    serde_json::json!(
-                        {"id":"album-1","name":"Album One","artist":"Artist","coverArt":"cover-album"}
-                    ),
-                ];
+                let newer = (1..=state.newer_albums.load(Ordering::SeqCst))
+                    .rev()
+                    .map(|n| serde_json::json!({"id":format!("album-new-{n}"),"name":format!("New {n}"),"artist":"Artist"}));
+                let albums = newer
+                    .chain([
+                        serde_json::json!({"id":"album-2","name":"Album Two","artist":"Artist"}),
+                        serde_json::json!(
+                            {"id":"album-1","name":"Album One","artist":"Artist","coverArt":"cover-album"}
+                        ),
+                    ])
+                    .collect::<Vec<_>>();
                 let page = albums.iter().skip(offset).take(1).collect::<Vec<_>>();
                 serde_json::json!({"albumList2":{"album":page}})
             }
@@ -5815,6 +5868,35 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["song-2", "song-3", "song-4"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_newest_albums_on_the_home_read_only_the_pages_they_need() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.newer_albums.store(30, Ordering::SeqCst);
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![ComplexQuery {
+                    title: "Albums".into(),
+                    query: LibraryHomeQuery::Albums(LibraryHomeListMode::Reverse),
+                }],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let names: Vec<_> = home.result[0]
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        let newest: Vec<_> = (6..=30).rev().map(|n| format!("New {n}")).collect();
+        assert_eq!(names, newest);
+        // The server gives one album a page, so the 25 newest take 25 pages, not all 33.
+        assert_eq!(endpoint_count(&server, "getAlbumList2"), 25);
     }
 
     fn assert_secret_free(value: &str) {

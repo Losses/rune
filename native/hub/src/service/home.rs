@@ -66,6 +66,17 @@ pub(crate) trait HomeSource: Send + Sync {
     /// Every album, artist or playlist.
     fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>>;
 
+    /// The `limit` newest albums, artists or playlists, newest first, when the service can list
+    /// them so without reading every one. None leaves the home to read every one and reverse
+    /// the list.
+    fn newest(
+        &self,
+        _collection_type: CollectionType,
+        _limit: usize,
+    ) -> ServiceFuture<'_, Option<Vec<HomeItem>>> {
+        Box::pin(async { Ok(None) })
+    }
+
     /// Tracks to pick the home's tracks from, at least `limit` of them if the library has so
     /// many. A service that cannot list its whole library cheaply gives a sample of `limit`
     /// tracks, and the group is that sample.
@@ -116,12 +127,22 @@ async fn collection_entries(
     operator: &str,
     mode: LibraryHomeListMode,
 ) -> Result<Vec<ComplexQueryEntry>> {
-    let items = pick(
-        source.collections(collection_type).await?,
-        mode,
-        source.random_seed(),
-        |item| &item.name,
-    );
+    let newest = match mode {
+        LibraryHomeListMode::Reverse => source.newest(collection_type, GROUP_LIMIT).await?,
+        _ => None,
+    };
+    let items = match newest {
+        Some(mut items) => {
+            items.truncate(GROUP_LIMIT);
+            items
+        }
+        None => pick(
+            source.collections(collection_type).await?,
+            mode,
+            source.random_seed(),
+            |item| &item.name,
+        ),
+    };
     let covers = source.cover_paths(cover_pairs(&items)).await?;
     Ok(items
         .into_iter()
