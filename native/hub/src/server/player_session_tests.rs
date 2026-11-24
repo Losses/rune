@@ -13879,6 +13879,64 @@ async fn the_ui_hears_what_a_service_track_supports_before_the_status_that_names
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_ui_hears_that_a_service_track_answers_nothing_once_its_record_is_removed()
+-> Result<()> {
+    use crate::messages::{PlayingItemCapabilities, RemoveLibraryRecordRequest, RequestCapability};
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let local_id = Uuid::new_v4();
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        local_id,
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = open_subsonic_library_here(&node, endpoint).await?;
+    let session_id = node.session()?.session_id().await.to_string();
+    let item = play_subsonic_track_here(&fixture, record_id, "song-opaque").await?;
+    let likes = || {
+        signals
+            .decoded::<PlayingItemCapabilities>("PlayingItemCapabilities")
+            .into_iter()
+            .rfind(|capabilities| capabilities.item.as_ref() == Some(&item))
+            .map(|capabilities| capabilities.set_liked_request)
+    };
+    wait_until("the track's likes answered", || async {
+        Ok((likes() == Some(RequestCapability::Available)).then_some(()))
+    })
+    .await?;
+
+    // The local library opens again, and the service's record goes while its track plays: the UI
+    // hears that nothing about the track can be answered.
+    let told = statuses_for(&signals, &session_id, &item).len();
+    let local = fixture_open_replica(&fixture, local_id).await?;
+    // The session takes in the opened library between two of the track's statuses.
+    wait_until("two more statuses", || async {
+        Ok((statuses_for(&signals, &session_id, &item).len() >= told + 2).then_some(()))
+    })
+    .await?;
+    dispatch_gui_request(
+        &local.global_params,
+        &RemoveLibraryRecordRequest {
+            record_id: record_id.to_string(),
+            call_id: None,
+        },
+    )
+    .await?;
+    wait_until("the track's likes gone", || async {
+        Ok((likes() == Some(RequestCapability::Hidden)).then_some(()))
+    })
+    .await?;
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_registration_uses_single_role_and_rejects_no_roles() -> Result<()> {
     use crate::messages::RegisterLibraryFailureKind;
 

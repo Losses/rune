@@ -78,9 +78,9 @@ fn send_with(
     }
 }
 
-/// What the item supports may have changed without a status: the UI opened or closed a library.
-/// The item's library is looked up again when its record is gone, and the UI hears what the item
-/// supports now.
+/// What the item supports may have changed without a status: the UI opened or closed a library,
+/// or a library record went away. The item's library is looked up again when its record is gone,
+/// and the UI hears what the item supports now.
 pub(super) async fn changed(
     node: &NodeContext,
     item_state: &mut ItemEventState,

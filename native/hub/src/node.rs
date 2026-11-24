@@ -625,7 +625,8 @@ impl NodeContext {
     }
 
     /// What the item this device plays supports may have changed without a status from the
-    /// player: the UI opened or closed a library. The UI hears it again.
+    /// player: the UI opened or closed a library, or a library record went away. The UI hears it
+    /// again.
     pub(crate) fn item_capabilities_changed(&self) {
         if let Ok(session) = self.session() {
             session.item_capabilities_changed();
