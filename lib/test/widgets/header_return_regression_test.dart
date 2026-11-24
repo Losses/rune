@@ -231,4 +231,23 @@ void main() {
       expect(searchState.controller.offset, 1400);
     },
   );
+
+  testWidgets(
+    'the parent title of a page not opened from its parent opens the parent '
+    'in its place',
+    (tester) async {
+      await _pumpApp(tester, '/artists/detail');
+      expect($history.history.map((e) => e.name), [
+        '/library',
+        '/artists/detail',
+      ]);
+
+      tester.widget<ParentLink>(find.byType(ParentLink)).onPressed();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect($router.path, '/artists');
+      expect($history.history.map((e) => e.name), ['/library', '/artists']);
+    },
+  );
 }
