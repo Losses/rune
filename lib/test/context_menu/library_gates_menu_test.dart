@@ -374,6 +374,36 @@ void main() {
       );
     });
 
+    testWidgets('of another record leaves the open library its own answers', (
+      tester,
+    ) async {
+      // The open library's snapshot came first, then the one of the library of
+      // files on the renderer this device plays on.
+      RequestCapabilitiesProvider renderer() => RequestCapabilitiesProvider(
+        changes: Stream.value(
+          _files.copyWith(recordId: () => 'renderer-record'),
+        ),
+        initial: _subsonic.copyWith(recordId: () => subsonicRecord.recordId),
+      );
+      final entries = await _menuEntries(
+        tester,
+        record: subsonicRecord,
+        capabilities: renderer(),
+        target: const _MenuTarget.collection(),
+      );
+      expect(entries, contains(_playOn));
+      expect(entries, isNot(contains(_roaming)));
+      if (!_desktop) return;
+      expect(
+        await _exportEntries(
+          tester,
+          record: subsonicRecord,
+          capabilities: renderer(),
+        ),
+        isNot(contains(_playlistFile)),
+      );
+    });
+
     testWidgets('of the controlled library counts while remote controlling', (
       tester,
     ) async {

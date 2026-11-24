@@ -12,6 +12,7 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
     Stream<RequestCapabilities>? changes,
     RequestCapabilities? initial,
   }) : _snapshot = initial ?? RequestCapabilities.latestRustSignal?.message {
+    _remember(_snapshot);
     _subscription =
         (changes ??
                 RequestCapabilities.rustSignalStream.map(
@@ -23,7 +24,16 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
   RequestCapabilities? _snapshot;
   late final StreamSubscription<RequestCapabilities> _subscription;
 
+  /// The latest snapshot of each record, so the answers of the library open
+  /// here stay known while a renderer's snapshot of another record is the
+  /// latest.
+  final _snapshotsByRecord = <String, RequestCapabilities>{};
+
   RequestCapabilities? get snapshot => _snapshot;
+
+  /// The latest snapshot that named [recordId], if one has.
+  RequestCapabilities? snapshotOf(String recordId) =>
+      _snapshotsByRecord[recordId];
 
   RequestCapability get volumeRequest =>
       _snapshot?.volumeRequest ?? const RequestCapabilityAvailable();
@@ -72,7 +82,15 @@ class RequestCapabilitiesProvider extends ChangeNotifier {
 
   void _update(RequestCapabilities snapshot) {
     _snapshot = snapshot;
+    _remember(snapshot);
     notifyListeners();
+  }
+
+  void _remember(RequestCapabilities? snapshot) {
+    final recordId = snapshot?.recordId;
+    if (snapshot != null && recordId != null) {
+      _snapshotsByRecord[recordId] = snapshot;
+    }
   }
 
   @override
@@ -119,26 +137,24 @@ bool requestAvailable(
         is RequestCapabilityAvailable;
 
 /// Whether the open library answers a request that belongs to the library, not
-/// to the device. A snapshot of another record, as a renderer sends while this
-/// device plays on it, says nothing about the library open here, so the request
-/// then counts as answered. While this device remote-controls a library, the
-/// snapshot is the one of that library.
+/// to the device. The answer comes from the latest snapshot of the record open
+/// here, as a renderer this device plays on sends snapshots of another record.
+/// Until the open record has sent one, the request counts as answered. While
+/// this device remote-controls a library, the snapshot is the one of that
+/// library.
 bool _libraryAnswers(
   BuildContext context,
-  RequestCapability Function(RequestCapabilitiesProvider provider) select, {
+  RequestCapability Function(RequestCapabilities snapshot) select, {
   bool listen = false,
 }) {
   final capabilities = requestCapabilitiesOf(context, listen: listen);
   if (capabilities == null) return true;
   final state = Provider.of<LibraryOpenStateProvider?>(context, listen: listen);
   final open = state?.openRecord;
-  if (state != null &&
-      !state.isRemoteControl &&
-      open != null &&
-      capabilities.snapshot?.recordId != open.recordId) {
-    return true;
-  }
-  return select(capabilities) is RequestCapabilityAvailable;
+  final snapshot = state != null && !state.isRemoteControl && open != null
+      ? capabilities.snapshotOf(open.recordId)
+      : capabilities.snapshot;
+  return snapshot == null || select(snapshot) is RequestCapabilityAvailable;
 }
 
 /// Whether the open library has analysis data to roam by, which the library of
