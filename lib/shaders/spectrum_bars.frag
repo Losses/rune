@@ -16,15 +16,6 @@ precision highp float;
 // The glow used to be worked out in one pass, which summed every bar within 3
 // deviations of a pixel: 59 of the player's 512 bars on a screen 640 pixels
 // wide. A column takes the few bars under its tent.
-//
-// Before the shaders, the bars were lines drawn one after another under a
-// blur filter. Under Skia, two lines that share a pixel each cover part of it,
-// and blending the second over the first leaves it short by the product of
-// the two parts: a seam. This pass takes those seams out again, so that the
-// glow is as bright as it was. Where a seam falls in its pixel moves with the
-// screen's width, its pixel ratio and the window's place; on average over
-// those it takes a sixth of a pixel across, for as far up and down as both
-// bars reach.
 
 out vec4 fragColor;
 
@@ -43,9 +34,6 @@ uniform float u_count;
 uniform float u_sigma;
 // The width of a column, in pixels.
 uniform float u_column;
-// The width of the seam between two bars, in pixels: a sixth of a pixel of
-// the screen under Skia, and none under Impeller, which drew the lines whole.
-uniform float u_seam;
 
 // erf(x), Abramowitz and Stegun 7.1.26, error below 1.5e-7.
 float erf_approx(float x) {
@@ -69,18 +57,6 @@ float tentBelow(float s) {
                  : 1.0 - 0.5 * (1.0 - c) * (1.0 - c);
 }
 
-// The share of a bar reaching halfHeight up and down from the middle line,
-// blurred up and down by u_sigma, at fromMiddle from that line.
-float along(float halfHeight, float fromMiddle) {
-  return below((halfHeight - fromMiddle) / u_sigma)
-      - below((-halfHeight - fromMiddle) / u_sigma);
-}
-
-// The share of the tent of the column at x that lies between from and to.
-float under(float from, float to, float x) {
-  return tentBelow((to - x) / u_column) - tentBelow((from - x) / u_column);
-}
-
 void main() {
   vec2 p = FlutterFragCoord().xy;
   // Further than 3 deviations from the middle line beyond a bar's end, the
@@ -88,12 +64,7 @@ void main() {
   float reach = 3.0 * u_sigma;
   // The bars reach as far down from the middle line as up.
   float fromMiddle = abs(p.y - u_middle);
-  // The bars under the tent, and those whose seams can reach under it.
-  float from = p.x - u_column - u_seam;
-  float to = p.x + u_column + u_seam;
   float sum = 0.0;
-  // The half height of the bar before, while there is one.
-  float previous = -1.0;
 
   // The bars are in 16 runs of 32, 8 entries each: a run off the tent is
   // passed over whole, so a column looks at no more than a few entries.
@@ -103,20 +74,20 @@ void main() {
       break;
     }
     float runLeft = (runFirst - 0.5) * u_bar_width;
-    if (runLeft >= to) {
+    if (runLeft >= p.x + u_column) {
       break;
     }
-    if (runLeft + 32.0 * u_bar_width <= from) {
+    if (runLeft + 32.0 * u_bar_width <= p.x - u_column) {
       continue;
     }
 
     for (int entry = 0; entry < 8; entry++) {
       float first = runFirst + 4.0 * float(entry);
       float groupLeft = (first - 0.5) * u_bar_width;
-      if (first >= u_count || groupLeft >= to) {
+      if (first >= u_count || groupLeft >= p.x + u_column) {
         break;
       }
-      if (groupLeft + 4.0 * u_bar_width <= from) {
+      if (groupLeft + 4.0 * u_bar_width <= p.x - u_column) {
         continue;
       }
       vec4 halfHeights = u_half_heights[run * 8 + entry];
@@ -124,31 +95,23 @@ void main() {
       for (int k = 0; k < 4; k++) {
         float i = first + float(k);
         float left = (i - 0.5) * u_bar_width;
-        float right = left + u_bar_width;
-        if (i >= u_count || left >= to) {
+        if (i >= u_count || left >= p.x + u_column) {
           break;
         }
-        if (right <= from) {
+        float h = halfHeights[k];
+        if (fromMiddle >= h + reach) {
           continue;
         }
-        float h = halfHeights[k];
-        if (fromMiddle < h + reach) {
-          sum += under(left, right, p.x) * along(h, fromMiddle);
-          // The seam with the bar before reaches as far as the shorter of
-          // the two. The first bar looked at has none under the tent: the
-          // bar before it, if there is one, ends a seam's width outside.
-          float seam = min(previous, h);
-          if (u_seam > 0.0 && previous >= 0.0 && fromMiddle < seam + reach) {
-            sum -= under(left - 0.5 * u_seam, left + 0.5 * u_seam, p.x)
-                * along(seam, fromMiddle);
-          }
-        }
-        previous = h;
+        float share = tentBelow((left + u_bar_width - p.x) / u_column)
+            - tentBelow((left - p.x) / u_column);
+        float along = below((h - fromMiddle) / u_sigma)
+            - below((-h - fromMiddle) / u_sigma);
+        sum += share * along;
       }
     }
   }
 
   // The bars cover no more than the whole column, so the sum is at most 1,
   // and the second pass reads it from any channel.
-  fragColor = vec4(max(sum, 0.0));
+  fragColor = vec4(sum);
 }
