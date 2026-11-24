@@ -2139,7 +2139,7 @@ const RESOLVE_PAGE_SIZE: u32 = 500;
 
 /// The server's first `limit` songs in the order the tracks page lists them, read for
 /// `request`. Only an empty page ends the list: a server may return fewer songs than a page
-/// asks for.
+/// asks for. No page asks for more songs than are still wanted.
 async fn tracks_page_songs(
     binding: &SubsonicBinding,
     limit: usize,
@@ -2150,7 +2150,8 @@ async fn tracks_page_songs(
         let page = song_page(
             binding,
             u32::try_from(songs.len())?,
-            RESOLVE_PAGE_SIZE,
+            u32::try_from(limit - songs.len())
+                .map_or(RESOLVE_PAGE_SIZE, |left| left.min(RESOLVE_PAGE_SIZE)),
             request,
         )
         .await?;
@@ -2437,8 +2438,7 @@ impl HomeSource for SubsonicBinding {
 
     fn tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
         Box::pin(async move {
-            let count = u32::try_from(limit).unwrap_or(u32::MAX);
-            let songs = song_page(self, 0, count, ComplexQueryRequest::wire_name()).await?;
+            let songs = tracks_page_songs(self, limit, ComplexQueryRequest::wire_name()).await?;
             song_tracks(self, songs)
         })
     }
@@ -5719,6 +5719,34 @@ mod tests {
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),
             ["Artist One", "Artist Two"]
+        );
+    }
+
+    #[tokio::test]
+    async fn home_tracks_read_on_past_a_short_server_page() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.song_page_cap.store(3, Ordering::SeqCst);
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![ComplexQuery {
+                    title: "Tracks".into(),
+                    query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
+                }],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            home.result[0]
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["song-1", "song-2", "song-3", "song-4"]
         );
     }
 
