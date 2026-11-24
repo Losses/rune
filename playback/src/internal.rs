@@ -778,6 +778,16 @@ enum RunTail {
 }
 
 impl HostRun {
+    // How many of the tracks at the start of the run the host held as of `revision`: an event the
+    // host sent then cannot be about a track given to it in a later batch, as one that replaced
+    // a track it had played on into.
+    fn held_at(&self, revision: u64) -> usize {
+        self.queued
+            .iter()
+            .take_while(|queued| queued.revision <= revision)
+            .count()
+    }
+
     // Takes the tracks from `offset` on out of the run, and returns the batch that takes them out
     // of the host's queue, where the current track stands at `current`. The host only ever loses
     // its last entry, so they go from the tail. What follows the run is no longer known.
@@ -3593,11 +3603,11 @@ impl PlayerInternal {
     // longest stretch from the start of the run that still follows on, count as played through,
     // as the host played them, and the track after them loads and is handed over anew, which
     // replaces the host's queue. None that the host played plays again.
-    fn host_moved_past_run(&mut self, steps: usize, playing: bool) -> Result<()> {
+    fn host_moved_past_run(&mut self, steps: usize, playing: bool, revision: u64) -> Result<()> {
         let held = self
             .hosted
             .as_ref()
-            .map_or(0, |hosted| hosted.run.queued.len());
+            .map_or(0, |hosted| hosted.run.held_at(revision));
         for passed in (1..steps.min(held + 1)).rev() {
             if self.move_along_run(passed, playing, Duration::ZERO)? {
                 if !self.end_current_track()? {
@@ -3624,15 +3634,17 @@ impl PlayerInternal {
         id: Option<&str>,
         playing: bool,
         position: Duration,
+        revision: u64,
     ) -> Result<()> {
         if !self.end_current_track()? {
             return Ok(());
         }
         let queued = self.hosted.as_ref().is_some_and(|hosted| {
-            steps
-                .checked_sub(1)
-                .and_then(|last| hosted.run.queued.get(last))
-                .is_some_and(|queued| Some(queued.track.key.as_str()) == id)
+            steps <= hosted.run.held_at(revision)
+                && steps
+                    .checked_sub(1)
+                    .and_then(|last| hosted.run.queued.get(last))
+                    .is_some_and(|queued| Some(queued.track.key.as_str()) == id)
         });
         if queued && self.move_along_run(steps, playing, position)? {
             if let Some(hosted) = &mut self.hosted {
@@ -3641,7 +3653,7 @@ impl PlayerInternal {
             return Ok(());
         }
         warn!("The host moved on to a track that does not come next: {id:?}");
-        self.host_moved_past_run(steps, playing)
+        self.host_moved_past_run(steps, playing, revision)
     }
 
     // Next while the host holds the track that Next goes to: the host skips to it, as it would
@@ -3880,7 +3892,13 @@ impl PlayerInternal {
                             return Ok(());
                         }
                         let steps = usize::try_from(index - hosted.index).unwrap_or(usize::MAX);
-                        return self.host_moved_on(steps, current_id.as_deref(), playing, position);
+                        return self.host_moved_on(
+                            steps,
+                            current_id.as_deref(),
+                            playing,
+                            position,
+                            revision,
+                        );
                     }
                     Some(index) => {
                         debug!("Ignoring a status of host {host} about entry {index}");
@@ -3952,13 +3970,14 @@ impl PlayerInternal {
                 if let Some(steps) = ahead
                     && !loading
                 {
+                    let held = hosted.run.held_at(revision);
                     if !self.end_current_track()? {
                         return Ok(());
                     }
                     let steps = usize::try_from(steps).unwrap_or(usize::MAX);
-                    if !self.move_along_run(steps, play, Duration::ZERO)? {
+                    if steps > held || !self.move_along_run(steps, play, Duration::ZERO)? {
                         warn!("Host {host} ended an entry that the player does not hold there");
-                        return self.host_moved_past_run(steps, play);
+                        return self.host_moved_past_run(steps, play, revision);
                     }
                 }
                 let Some(hosted) = &mut self.hosted else {

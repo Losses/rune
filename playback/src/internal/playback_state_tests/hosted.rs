@@ -2614,6 +2614,77 @@ async fn an_end_at_an_entry_the_player_does_not_hold_counts_what_it_holds() -> R
     .await
 }
 
+#[tokio::test]
+async fn an_end_of_an_entry_replaced_after_the_report_leaves_its_replacement_to_play() -> Result<()>
+{
+    let (internal, f) = run_engine();
+    with_engine(internal, f, async |f| {
+        let queue = ["1440", "1441", "1442"].map(|key| f.hosted(key));
+        f.queue(&queue)?;
+        f.send(PlayerCommand::Switch(0))?;
+        expect_playing(&mut f.events, &queue[0]).await?;
+        f.host.take(3).await?;
+
+        // The second track leaves the queue, and the host gets the third in its place.
+        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        assert_eq!(
+            f.host.take(2).await?,
+            vec![trimmed(4, &[2, 1]), added(5, "1442")]
+        );
+
+        // The host had played on through the second track before it saw that, and ended it.
+        f.report(HostEvent::JukeboxEnded {
+            host: HOST.to_owned(),
+            revision: 3,
+            index: Some(1),
+        })?;
+        let seen = until(
+            &mut f.events,
+            |event| matches!(event, PlayerEvent::Playing { item, .. } if *item == queue[2]),
+        )
+        .await?;
+        assert_eq!(ends(&seen, &queue[0]), 1, "{seen:?}");
+        assert_eq!(ends(&seen, &queue[2]), 0, "{seen:?}");
+        assert_eq!(f.host.take(1).await?, vec![handed_over("1442", 6)]);
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn a_move_on_past_an_entry_replaced_after_the_report_plays_the_replacement_anew() -> Result<()>
+{
+    let (internal, f) = run_engine();
+    with_engine(internal, f, async |f| {
+        let queue = ["1440", "1441", "1442", "1443"].map(|key| f.hosted(key));
+        f.queue(&queue)?;
+        f.send(PlayerCommand::Switch(0))?;
+        expect_playing(&mut f.events, &queue[0]).await?;
+        f.host.take(4).await?;
+
+        // The second track leaves the queue, and the host gets the rest of the run again.
+        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        assert_eq!(
+            f.host.take(3).await?,
+            vec![trimmed(5, &[3, 2, 1]), added(6, "1442"), added(7, "1443")]
+        );
+
+        // The host had played on through the second track into the third before it saw that.
+        f.report(status_at(4, 2, "1442", true))?;
+        let seen = until(
+            &mut f.events,
+            |event| matches!(event, PlayerEvent::Playing { item, .. } if *item == queue[2]),
+        )
+        .await?;
+        assert_eq!(ends(&seen, &queue[0]), 1, "{seen:?}");
+        assert_eq!(f.host.take(1).await?, vec![handed_over("1442", 8)]);
+        let seen = f.settle().await?;
+        assert_eq!(ends(&seen, &queue[2]), 0, "{seen:?}");
+        Ok(())
+    })
+    .await
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_place_of_a_hosted_track_stays_while_the_player_did_not_run() -> Result<()> {
     let (internal, f) = hosted_engine(2, &[]);
