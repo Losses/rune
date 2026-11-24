@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 import '../../providers/library_open_state.dart';
 import '../../providers/request_capabilities.dart';
+import '../../providers/playing_item_capabilities.dart';
 import '../capability_gate.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -34,6 +35,8 @@ class _LikeButtonState extends State<LikeButton> {
   late PlayingItem? item;
   int _requestGeneration = 0;
   final Map<PlayingItem, int> _pendingWrites = {};
+  // Whether the item's library answers about its likes, as it last declared.
+  bool? _answers;
 
   PlayingItem? get _likeableItem {
     final current = item;
@@ -48,19 +51,53 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final answers = _answersAboutLikes(listen: true);
+    // A library that starts answering, as once its service signs in, is asked
+    // anew.
+    if (_answers == false && answers) _fetchLikedStatus();
+    _answers = answers;
+  }
+
+  @override
   void didUpdateWidget(covariant LikeButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item != widget.item) {
       item = widget.item;
       liked = false;
+      _answers = _answersAboutLikes(listen: false);
       _fetchLikedStatus();
     }
   }
+
+  /// What the item's library declares about [select] for the item.
+  RequestCapability _itemCapability(
+    RequestCapability Function(PlayingItemCapabilities capabilities) select, {
+    required bool listen,
+  }) =>
+      Provider.of<PlayingItemCapabilitiesProvider?>(
+        context,
+        listen: listen,
+      )?.capabilityFor(item, select) ??
+      const RequestCapabilityAvailable();
+
+  bool _answersAboutLikes({required bool listen}) =>
+      _itemCapability(
+            (capabilities) => capabilities.getLikedRequest,
+            listen: listen,
+          )
+          is RequestCapabilityAvailable;
 
   Future<void> _fetchLikedStatus() async {
     final generation = ++_requestGeneration;
     final requestItem = _likeableItem;
     if (requestItem == null) return;
+    // Until the library answers there is no like to show.
+    if (!_answersAboutLikes(listen: false)) {
+      if (liked) setState(() => liked = false);
+      return;
+    }
 
     try {
       final isLiked =
@@ -72,6 +109,14 @@ class _LikeButtonState extends State<LikeButton> {
         });
       }
     } on RequestFailure catch (error) {
+      // A library whose service needs a sign-in cannot say yet: the like is
+      // not known, which is no failure to show.
+      if (error.needsServiceSignIn) {
+        if (mounted && generation == _requestGeneration && liked) {
+          setState(() => liked = false);
+        }
+        return;
+      }
       if (error.kind != RequestErrorKind.notFound &&
           error.kind != RequestErrorKind.unavailable) {
         rethrow;
@@ -117,11 +162,19 @@ class _LikeButtonState extends State<LikeButton> {
         context.watch<LibraryOpenStateProvider>().isReadOnlyReplica) {
       return const SizedBox.shrink();
     }
+    // The item's own library decides first: it may not answer for the item
+    // whichever library is open, as until its service signs in.
+    final itemCapability = _itemCapability(
+      (capabilities) => capabilities.setLikedRequest,
+      listen: true,
+    );
     return CapabilityGate(
-      capability: capabilityForRequest(
-        context,
-        (capabilities) => capabilities.setLikedRequest,
-      ),
+      capability: itemCapability is RequestCapabilityAvailable
+          ? capabilityForRequest(
+              context,
+              (capabilities) => capabilities.setLikedRequest,
+            )
+          : itemCapability,
       child: RuneClickable(
         onPressed: _toggleLikedStatus,
         iconSize: 13,

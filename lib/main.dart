@@ -94,6 +94,7 @@ import 'providers/playback_controller.dart';
 import 'providers/controllers.dart';
 import 'providers/renderer_attachment.dart';
 import 'providers/request_capabilities.dart';
+import 'providers/playing_item_capabilities.dart';
 import 'providers/renderer_link_loss.dart';
 import 'providers/library_share_sync.dart';
 import 'providers/remote_library_reconnect.dart';
@@ -408,6 +409,10 @@ void mainLoop(
         ),
         ChangeNotifierProvider(
           lazy: false,
+          create: (_) => PlayingItemCapabilitiesProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
           create: (_) => ControllersProvider(),
         ),
         ChangeNotifierProvider(
@@ -417,7 +422,17 @@ void mainLoop(
         ),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => PlaybackStatusProvider(),
+          // The theme follows the cover only of an item whose library gives
+          // its color.
+          create: (context) {
+            final capabilities = context.read<PlayingItemCapabilitiesProvider>();
+            return PlaybackStatusProvider(
+              colorCapability: (item) => capabilities.capabilityFor(
+                item,
+                (c) => c.getPrimaryColorByTrackIdRequest,
+              ),
+            );
+          },
         ),
         ChangeNotifierProvider.value(value: libraryRegistry),
         Provider(create: (_) => LocalFolderPickerProvider()),

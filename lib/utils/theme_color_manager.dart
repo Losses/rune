@@ -19,6 +19,15 @@ class ThemeColorManager {
   Color? _userSelectedColor;
   PlayingItem? _currentPlayingItem;
 
+  // What the library of the current item declared about its color when the
+  // item started, kept to apply the color again for the same item.
+  RequestCapability _currentColorCapability =
+      const RequestCapabilityAvailable();
+
+  // Counts the calls that pick the color for an item. A color that arrives
+  // after a later call, as for the next item, is not applied.
+  int _colorRequest = 0;
+
   Future<void> initialize() async {
     final settingsManager = SettingsManager();
 
@@ -42,7 +51,10 @@ class ThemeColorManager {
     if (enabled) {
       // If dynamic colors are enabled and a song is currently playing, apply the cover color immediately
       if (_currentPlayingItem != null) {
-        await handleCoverArtColorChange(_currentPlayingItem!);
+        await handleCoverArtColorChange(
+          _currentPlayingItem!,
+          _currentColorCapability,
+        );
       } else {
         appTheme.updateThemeColor(_userSelectedColor);
       }
@@ -61,7 +73,10 @@ class ThemeColorManager {
       appTheme.updateThemeColor(color);
     } else {
       if (_currentPlayingItem != null) {
-        handleCoverArtColorChange(_currentPlayingItem!);
+        handleCoverArtColorChange(
+          _currentPlayingItem!,
+          _currentColorCapability,
+        );
       } else {
         appTheme.updateThemeColor(color);
       }
@@ -69,16 +84,25 @@ class ThemeColorManager {
   }
 
   // Handle cover art color change
-  Future<void> handleCoverArtColorChange(PlayingItem item) async {
+  // [colorCapability] is what the library of [item] declares about its color.
+  Future<void> handleCoverArtColorChange(
+    PlayingItem item,
+    RequestCapability colorCapability,
+  ) async {
+    final request = ++_colorRequest;
     _currentPlayingItem = item;
+    _currentColorCapability = colorCapability;
 
     if (!_isDynamicColorEnabled) return;
 
     int? primaryColor;
-    try {
-      primaryColor = await getPrimaryColor(item);
-    } on RequestFailure catch (error) {
-      if (error.kind != RequestErrorKind.notFound) rethrow;
+    if (asksForColor(colorCapability)) {
+      try {
+        primaryColor = await getPrimaryColor(item);
+      } on RequestFailure catch (error) {
+        if (!noColorFailure(error)) rethrow;
+      }
+      if (request != _colorRequest || !_isDynamicColorEnabled) return;
     }
     if (primaryColor != null) {
       appTheme.updateThemeColor(Color(primaryColor));
@@ -90,9 +114,24 @@ class ThemeColorManager {
   // Get the current color that should be used
   Future<void> refreshCurrentColor() async {
     if (_isDynamicColorEnabled && _currentPlayingItem != null) {
-      await handleCoverArtColorChange(_currentPlayingItem!);
+      await handleCoverArtColorChange(
+        _currentPlayingItem!,
+        _currentColorCapability,
+      );
     } else {
       appTheme.updateThemeColor(_userSelectedColor);
     }
   }
 }
+
+/// Whether the color of an item's cover is asked for, given what its library
+/// declares: an item whose library gives no color for it, as a file without a
+/// local library to read it through, is not asked, as asking would only fail.
+bool asksForColor(RequestCapability capability) =>
+    capability is RequestCapabilityAvailable;
+
+/// Whether a failed color request only means there is no color to give: the
+/// item is missing, or its library's service needs a sign-in first. Any other
+/// failure is shown.
+bool noColorFailure(RequestFailure failure) =>
+    failure.kind == RequestErrorKind.notFound || failure.needsServiceSignIn;
