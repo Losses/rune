@@ -4743,6 +4743,168 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// A replica needs pull access. A guest that may browse a library but not
+    /// sync it must not be left with a record whose database can never open.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn guest_replica_registration_requires_pull_access() -> Result<()> {
+        use crate::access_policy::{ConnectionLevel, SyncLevel};
+
+        let first = tempfile::tempdir()?;
+        let second = tempfile::tempdir()?;
+        let library_id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), library_id).await?;
+        let b = fixture(second.path()).await?;
+        let owner_fingerprint = info(&a).await?.fingerprint;
+        let guest_fingerprint = info(&b).await?.fingerprint;
+        let addr = paired_full(&a, &b).await?;
+        a.stop_worker().await?;
+
+        // The guest may browse the library through the connection, but has no
+        // sync grant, so it cannot pull the owner's metadata.
+        let mut grants = a
+            .global_params
+            .node
+            .access_policy
+            .grants(&guest_fingerprint)?;
+        grants
+            .connection
+            .libraries
+            .insert(library_id, ConnectionLevel::View);
+        grants.sync.libraries.insert(library_id, SyncLevel::None);
+        a.global_params
+            .node
+            .access_policy
+            .set(&guest_fingerprint, grants)?;
+
+        let listed = request_peer_libraries(&b, &owner_fingerprint).await?;
+        let guest_view = listed
+            .libraries
+            .into_iter()
+            .next()
+            .context("peer library")?;
+        assert!(matches!(guest_view.connection, DeviceConnectionLevel::View));
+        assert!(matches!(guest_view.sync, DeviceSyncLevel::None));
+
+        let (_, client) = authenticated_client(
+            &b.global_params.node,
+            &guest_fingerprint,
+            &b.private_key,
+            &owner_fingerprint,
+            "127.0.0.1",
+            addr.port(),
+        )
+        .await?;
+        let pull = client
+            .post(format!(
+                "https://127.0.0.1:{}/libraries/{library_id}/sync/metadata",
+                addr.port()
+            ))
+            .json(&serde_json::json!({"operation": "identity"}))
+            .send()
+            .await?;
+        assert_eq!(pull.status(), StatusCode::FORBIDDEN);
+
+        // Registration must be refused before it leaves any replica state.
+        let replica_root = second.path().join("replicas").join(library_id.to_string());
+        let replica_descriptor = replica_root.join(".rune").join("library.json");
+        let replica_db = replica_root.join(".rune").join(".0.db");
+        let registration = request_add_library(&b, &owner_fingerprint, &guest_view).await;
+        let registry = LibraryRegistry::load(second.path())?;
+        match registration {
+            Ok(record_id) => anyhow::bail!(
+                "Sync None registration succeeded with record {record_id}: \
+                 registry record {}, replica descriptor {}, replica database {}",
+                registry.catalog(library_id).is_ok(),
+                replica_descriptor.is_file(),
+                replica_db.is_file()
+            ),
+            Err(error) => {
+                assert_eq!(
+                    classify(&error),
+                    RequestErrorKind::PermissionDenied,
+                    "{error:#}"
+                );
+                assert_eq!(
+                    request_failure_cause(&error),
+                    Some(RequestFailureCause::LibraryRegistrationFailed {
+                        kind: RegisterLibraryFailureKind::SyncNotShared,
+                    })
+                );
+            }
+        }
+        assert!(
+            registry.catalog(library_id).is_err(),
+            "a refused registration must not leave a replica record"
+        );
+        assert!(
+            !replica_root.exists(),
+            "a refused registration must not leave a replica folder"
+        );
+
+        // Pull access makes the same library a real, initialized replica.
+        let mut grants = a
+            .global_params
+            .node
+            .access_policy
+            .grants(&guest_fingerprint)?;
+        grants.sync.libraries.insert(library_id, SyncLevel::Pull);
+        a.global_params
+            .node
+            .access_policy
+            .set(&guest_fingerprint, grants)?;
+        let listed = request_peer_libraries(&b, &owner_fingerprint).await?;
+        let library = listed
+            .libraries
+            .into_iter()
+            .next()
+            .context("peer library")?;
+        assert!(matches!(library.sync, DeviceSyncLevel::Pull));
+        request_add_library(&b, &owner_fingerprint, &library).await?;
+
+        let replica = fixture_open_replica(&b, library_id).await?;
+        assert!(
+            replica_db.is_file(),
+            "opening an authorized replica must create its database"
+        );
+        let original = scan_held_track(&a, library_id, "replica.ogg").await?;
+        let endpoint = PeerEndpoint {
+            fingerprint: owner_fingerprint.clone(),
+            trusted_host: format!("127.0.0.1:{}", addr.port()),
+            host: "127.0.0.1".into(),
+            port: addr.port(),
+        };
+        let session = TestPeerSession::default();
+        wait_until("the authorized replica to pull its first track", || {
+            let params = replica.global_params.clone();
+            let private_key = replica.private_key.clone();
+            let endpoint = endpoint.clone();
+            let session = &session;
+            let original = &original;
+            async move {
+                if session
+                    .pass(params.clone(), &private_key, endpoint, true)
+                    .await?
+                    == PeerPass::LibraryNotServed
+                {
+                    anyhow::bail!("the owner stopped serving the replica's library");
+                }
+                Ok(media_files::Entity::find()
+                    .filter(Column::SourceUuid.eq(&original.source_uuid))
+                    .one(&*params.test_library().main_db)
+                    .await?
+                    .map(|_| ()))
+            }
+        })
+        .await?;
+
+        a.stop().await?;
+        for manager in [&a, &b] {
+            manager.stop_worker().await?;
+            manager.global_params.node.token.cancel();
+        }
+        Ok(())
+    }
+
     async fn held_owned_library(manager: &Fixture, root: &Path) -> Result<Uuid> {
         let mut registry = LibraryRegistry::load(Path::new(&*manager.global_params.config_path))?;
         let descriptor = resolve_library(

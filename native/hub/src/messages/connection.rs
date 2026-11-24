@@ -398,6 +398,7 @@ pub enum RegisterLibraryFailureKind {
     OpenDalReadOnly,
     OpenDalShareInvalid,
     OpenDalShareChanged,
+    SyncNotShared,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]

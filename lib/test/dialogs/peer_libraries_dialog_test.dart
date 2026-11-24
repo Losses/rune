@@ -13,26 +13,24 @@ void main() {
   testWidgets(
     'selected peer library exposes Add and reports errors in a dialog',
     (tester) async {
-      final registry = _Libraries();
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider<LibraryRegistryProvider>.value(
-              value: registry,
-            ),
-            ChangeNotifierProvider(
-              create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
-            ),
-          ],
-          child: FluentApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: const _Harness(),
+      await _pumpDialog(
+        tester,
+        _Harness(
+          library: const PeerLibrary(
+            libraryId: 'shared-library',
+            alias: 'Shared Music',
+            added: false,
+            connection: DeviceConnectionLevel.view,
+            sync: DeviceSyncLevel.pull,
+          ),
+          addLibrary: (_, _) async => throw const RequestFailure(
+            'AddRemoteLibraryRequest',
+            RequestErrorKind.invalidInput,
+            'Invalid library id',
           ),
         ),
       );
 
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Shared Music'));
       await tester.pumpAndSettle();
       expect(find.text('Add'), findsOneWidget);
@@ -44,10 +42,71 @@ void main() {
       expect(find.byType(InfoBar), findsNothing);
     },
   );
+
+  testWidgets(
+    'a peer library without sync access is not shared and cannot be added',
+    (tester) async {
+      var addCalls = 0;
+      await _pumpDialog(
+        tester,
+        _Harness(
+          library: const PeerLibrary(
+            libraryId: 'unshared-library',
+            alias: 'Unshared Music',
+            added: false,
+            connection: DeviceConnectionLevel.view,
+            sync: DeviceSyncLevel.none,
+          ),
+          addLibrary: (_, _) async {
+            addCalls++;
+            throw const RequestFailure(
+              'AddRemoteLibraryRequest',
+              RequestErrorKind.permissionDenied,
+              'Not shared',
+            );
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Unshared Music'));
+      await tester.pumpAndSettle();
+      expect(find.text('Not Shared'), findsOneWidget);
+
+      final addButton = find.widgetWithText(Button, 'Add');
+      expect(tester.widget<Button>(addButton).onPressed, isNull);
+      await tester.tap(addButton, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(addCalls, 0);
+    },
+  );
+}
+
+Future<void> _pumpDialog(WidgetTester tester, Widget harness) async {
+  await tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<LibraryRegistryProvider>.value(
+          value: _Libraries(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ScreenSizeProvider.withWriter(null, (_) async {}),
+        ),
+      ],
+      child: FluentApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: harness,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 class _Harness extends StatelessWidget {
-  const _Harness();
+  const _Harness({required this.library, required this.addLibrary});
+
+  final PeerLibrary library;
+  final PeerLibraryAdder addLibrary;
 
   @override
   Widget build(BuildContext context) => PeerLibrariesDialog(
@@ -58,22 +117,8 @@ class _Harness extends StatelessWidget {
       status: ClientStatus.approved,
     ),
     close: () {},
-    loadLibraries: (_) async => const ListPeerLibrariesResponse(
-      libraries: [
-        PeerLibrary(
-          libraryId: 'shared-library',
-          alias: 'Shared Music',
-          added: false,
-          connection: DeviceConnectionLevel.view,
-          sync: DeviceSyncLevel.pull,
-        ),
-      ],
-    ),
-    addLibrary: (_, _) async => throw const RequestFailure(
-      'AddRemoteLibraryRequest',
-      RequestErrorKind.invalidInput,
-      'Invalid library id',
-    ),
+    loadLibraries: (_) async => ListPeerLibrariesResponse(libraries: [library]),
+    addLibrary: addLibrary,
   );
 }
 
