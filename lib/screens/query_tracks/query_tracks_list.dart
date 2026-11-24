@@ -3,6 +3,7 @@ import '../../utils/l10n.dart';
 import '../../utils/logger.dart';
 import '../../utils/dialogs/information/error.dart';
 import 'dart:async';
+import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -70,6 +71,10 @@ class QueryTrackListView extends StatefulWidget {
 
 class QueryTrackListViewState extends State<QueryTrackListView> {
   static const _pageSize = 20;
+
+  // How many tracks beyond one the list builds are loaded ahead of it, so a
+  // track has arrived before its place scrolls into view.
+  static const _loadAhead = 3 * _pageSize;
 
   int _totalCount = 0;
   final Map<int, InternalMediaFile> _loadedItems = {};
@@ -368,6 +373,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           }
         });
       });
+      // Nothing moves on the page while it waits, so the frame that applies
+      // what arrived is asked for.
+      SchedulerBinding.instance.ensureVisualUpdate();
 
       Timer(
         Duration(milliseconds: gridAnimationDelay),
@@ -387,6 +395,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           if (!mounted || generation != _generation) return;
           _restartListing();
         });
+        SchedulerBinding.instance.ensureVisualUpdate();
         return;
       }
 
@@ -403,6 +412,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         }
         _loadFailed(error);
       });
+      SchedulerBinding.instance.ensureVisualUpdate();
     }
   }
 
@@ -428,6 +438,10 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   InternalMediaFile? _getItem(int index) {
     _checkAndLoadItem(index);
+    // Pages load one after another, so the one asked for ahead is at most the
+    // first that has not loaded, the last the count reaches.
+    final ahead = min(index + _loadAhead, _totalCount - 1);
+    if (ahead > index) _checkAndLoadItem(ahead);
     return _loadedItems[index];
   }
 

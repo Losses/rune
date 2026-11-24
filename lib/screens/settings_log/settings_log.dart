@@ -13,6 +13,7 @@ import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/remove_dialog_on_band.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/no_items.dart';
+import '../../widgets/infinite_list_loading.dart';
 import '../../widgets/responsive_dialog_actions.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -258,8 +259,11 @@ class SettingsLogPageState extends State<SettingsLogPage> {
                         ),
                       );
                     },
-                    loadingBuilder: (context) =>
-                        const Center(child: ProgressRing()),
+                    // Nothing is drawn at the end while the next page loads.
+                    loadingBuilder: (context) => _logs.isEmpty
+                        ? const Center(child: ProgressRing())
+                        : const SizedBox.shrink(),
+                    cacheExtent: lazyLoadCacheExtent(context, Axis.vertical),
                     emptyBuilder: (context) => Container(),
                   ),
           ),

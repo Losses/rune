@@ -89,13 +89,8 @@ class BandScreenTrackList extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = getItem(index);
 
-        if (item == null) {
-          return const SizedBox(
-            width: 64,
-            height: 64,
-            child: Center(child: ProgressRing()),
-          );
-        }
+        // A track that has not loaded leaves its place blank.
+        if (item == null) return const SizedBox(width: 64, height: 64);
 
         return BandViewTrackItem(
           index: index,

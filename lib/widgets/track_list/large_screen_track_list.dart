@@ -90,9 +90,8 @@ class LargeScreenTrackList extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final item = getItem(index);
 
-                    if (item == null) {
-                      return const Center(child: ProgressRing());
-                    }
+                    // A track that has not loaded leaves its tile blank.
+                    if (item == null) return const SizedBox.shrink();
 
                     final int row = index % rows;
                     final int column = index ~/ rows;

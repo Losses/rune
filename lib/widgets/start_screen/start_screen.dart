@@ -258,7 +258,11 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     itemCount: data.items.length,
                     scrollDirection: Axis.horizontal,
                     scrollController: smoothScrollController,
-                    loadingBuilder: (context) => const InfiniteListLoading(),
+                    // Nothing is drawn at the end while the next page loads.
+                    loadingBuilder: (context) => data.items.isEmpty
+                        ? const InfiniteListLoading()
+                        : const SizedBox.shrink(),
+                    cacheExtent: lazyLoadCacheExtent(context, Axis.horizontal),
                     centerLoading: true,
                     centerEmpty: true,
                     isLoading: data.isLoading,
