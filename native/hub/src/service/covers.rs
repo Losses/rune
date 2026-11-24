@@ -531,9 +531,17 @@ impl ServiceCoverCache {
         }
         let path = self.path_for(cover_id);
         tokio_fs::create_dir_all(&self.root).await?;
-        let temporary = path.with_extension("tmp");
-        tokio_fs::write(&temporary, bytes).await?;
-        tokio_fs::rename(&temporary, &path).await?;
+        // Each download writes a file of its own, as another cache of the same library may
+        // fetch the same cover at once.
+        let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4().simple()));
+        let written = async {
+            tokio_fs::write(&temporary, bytes).await?;
+            tokio_fs::rename(&temporary, &path).await
+        };
+        if let Err(error) = written.await {
+            let _ = tokio_fs::remove_file(&temporary).await;
+            return Err(error.into());
+        }
         let root = self.root.clone();
         let newest = path.clone();
         task::spawn_blocking(move || evict_cover_cache(&root, &newest, COVER_CACHE_LIMITS))
@@ -883,6 +891,34 @@ mod tests {
         cache.announce_change();
         tokio_time::sleep(Duration::from_secs(1)).await;
         assert_eq!(count(), 2);
+    }
+
+    /// A source that gives every cover at once.
+    struct Ready;
+
+    impl CoverSource for Ready {
+        fn cover_bytes<'a>(&'a self, _: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<u8>>> {
+            Box::pin(async { Ok(vec![1; 4096]) })
+        }
+    }
+
+    /// A library without a binding held for it gets a binding, and so a cache, for each use, and
+    /// those caches share its folder.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn two_caches_of_one_library_fetch_the_same_cover_at_once() {
+        let root = TempDir::new().unwrap();
+        let (first, second) = (cache_in(&root), cache_in(&root));
+        let source = Arc::new(Ready);
+        for index in 0..64 {
+            let cover_id = format!("cover-{index}");
+            let (from_first, from_second) = tokio::join!(
+                first.ensure_cached(Arc::clone(&source), &cover_id),
+                second.ensure_cached(Arc::clone(&source), &cover_id),
+            );
+            for path in [from_first.unwrap(), from_second.unwrap()] {
+                assert_eq!(fs::read(path.unwrap()).unwrap(), vec![1; 4096]);
+            }
+        }
     }
 
     #[test]
