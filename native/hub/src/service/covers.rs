@@ -108,11 +108,19 @@ struct QueueState {
 
 impl QueueState {
     /// Takes the waiting download that is to start next: one that is awaited before one that is
-    /// not, and the newest of those first, as it is what the user looks at.
+    /// not. The awaited ones start in the order they were asked for, so that newer ones never
+    /// keep an older one waiting, and of the others the newest starts first, as it is what the
+    /// user looks at.
     fn take_next(&mut self) -> Option<Waiting> {
         let index = (0..self.waiting.len()).max_by_key(|&index| {
             let waiting = &self.waiting[index];
-            (waiting.awaited.load(Ordering::SeqCst), waiting.order)
+            let awaited = waiting.awaited.load(Ordering::SeqCst);
+            let rank = if awaited {
+                u64::MAX - waiting.order
+            } else {
+                waiting.order
+            };
+            (awaited, rank)
         })?;
         Some(self.waiting.swap_remove(index))
     }
@@ -199,20 +207,19 @@ impl DownloadQueue {
         Turn::Waiting(turn)
     }
 
-    /// A request for a cover that waits in line again: it is the newest, and it is awaited when
-    /// the request is.
-    fn bump(&self, cover_id: &str, awaited: bool) {
+    /// A request for a cover that waits in line again. A cover nobody awaits becomes the newest,
+    /// and so does one that this request is the first to await, which joins the end of the line
+    /// of awaited covers. One that was awaited already keeps its place in that line.
+    fn bump(&self, cover_id: &str, first_awaited: bool) {
         let mut state = self.lock();
         let order = state.next_order;
         if let Some(waiting) = state
             .waiting
             .iter_mut()
             .find(|waiting| waiting.cover_id == cover_id)
+            && (first_awaited || !waiting.awaited.load(Ordering::SeqCst))
         {
             waiting.order = order;
-            if awaited {
-                waiting.awaited.store(true, Ordering::SeqCst);
-            }
             state.next_order += 1;
         }
     }
@@ -427,16 +434,16 @@ impl ServiceCoverCache {
             if let Some(path) = self.cached_path(cover_id).await? {
                 return Ok(Some(path));
             }
+            // Some when this request joined a download asked for before, saying whether it is the
+            // first request to await it.
             let (mut receiver, joined) = {
                 let mut pending = self
                     .pending
                     .lock()
                     .map_err(|_| anyhow::anyhow!("Service cover cache lock poisoned"))?;
                 if let Some(joined) = pending.get(cover_id) {
-                    if awaited {
-                        joined.awaited.store(true, Ordering::SeqCst);
-                    }
-                    (joined.receiver.clone(), true)
+                    let first_awaited = awaited && !joined.awaited.swap(true, Ordering::SeqCst);
+                    (joined.receiver.clone(), Some(first_awaited))
                 } else {
                     let (sender, receiver) = watch::channel(None);
                     let flag = Arc::new(AtomicBool::new(awaited));
@@ -465,11 +472,11 @@ impl ServiceCoverCache {
                             Err(error) => Fetched::Done(Err(Arc::new(error))),
                         }));
                     });
-                    (receiver, false)
+                    (receiver, None)
                 }
             };
-            if joined {
-                self.downloads.bump(cover_id, awaited);
+            if let Some(first_awaited) = joined {
+                self.downloads.bump(cover_id, first_awaited);
             }
             let fetched = loop {
                 if let Some(fetched) = receiver.borrow().clone() {
@@ -749,6 +756,38 @@ mod tests {
             until(expected, || source.started().len() == 5 + done).await;
             assert_eq!(source.started().last().map(String::as_str), Some(expected));
         }
+    }
+
+    #[tokio::test]
+    async fn covers_that_requests_wait_for_start_in_the_order_they_were_asked_for() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        let ask = |cover_id: &'static str| {
+            let (cache, source) = (cache.clone(), source.clone());
+            tokio::spawn(async move { cache.ensure_cached(source, cover_id).await })
+        };
+        // The playing cover waits first, and requests for other covers keep coming after it, as
+        // from a busy cover wall: none of them may keep it waiting.
+        cache.schedule_playing(Arc::clone(&source), "playing".to_owned());
+        until("playing", || in_line(&cache, "playing") == Some(true)).await;
+        schedule_in_line(&cache, &source, "scheduled").await;
+        let asked = ask("asked");
+        until("asked", || in_line(&cache, "asked") == Some(true)).await;
+        let later = ask("later");
+        until("later", || in_line(&cache, "later") == Some(true)).await;
+        for (done, expected) in ["playing", "asked", "later", "scheduled"]
+            .into_iter()
+            .enumerate()
+        {
+            source.finish(1);
+            until(expected, || source.started().len() == 5 + done).await;
+            assert_eq!(source.started().last().map(String::as_str), Some(expected));
+        }
+        source.finish(100);
+        assert!(asked.await.unwrap().unwrap().is_some());
+        assert!(later.await.unwrap().unwrap().is_some());
     }
 
     #[tokio::test]
