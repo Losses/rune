@@ -2245,36 +2245,17 @@ impl MixSource for SubsonicBinding {
         })
     }
 
-    fn all_tracks(&self, limit: usize, fresh: bool) -> ServiceFuture<'_, Vec<String>> {
+    fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
         Box::pin(async move {
-            let kept = self
-                .catalog
-                .lock()
-                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
-                .all_songs
-                .clone()
-                .filter(|(read, asked, _)| !fresh && read.elapsed() < LIST_TTL && limit <= *asked)
-                .map(|(_, _, keys)| keys);
-            let keys = match kept {
-                Some(keys) => keys,
-                None => {
-                    // Read one page after another, each from where the last one ended, so the
-                    // list is the one the tracks page shows.
-                    let keys: Vec<String> =
-                        tracks_page_songs(self, limit, ResolveMixQueryRequest::wire_name())
-                            .await?
-                            .into_iter()
-                            .map(|song| song.id)
-                            .collect();
-                    let keys = Arc::new(keys);
-                    self.catalog
-                        .lock()
-                        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
-                        .all_songs = Some((Instant::now(), limit, Arc::clone(&keys)));
-                    keys
-                }
-            };
-            Ok(keys.iter().take(limit).cloned().collect())
+            // Read one page after another, each from where the last one ended, so the list is
+            // the one the tracks page shows.
+            Ok(
+                tracks_page_songs(self, limit, ResolveMixQueryRequest::wire_name())
+                    .await?
+                    .into_iter()
+                    .map(|song| song.id)
+                    .collect(),
+            )
         })
     }
 
@@ -2882,6 +2863,8 @@ mod tests {
         listed_covers: Arc<AtomicUsize>,
         /// How many albums the server added after the two it always lists.
         newer_albums: Arc<AtomicUsize>,
+        /// How many of its four songs the song list holds.
+        listed_songs: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2958,6 +2941,7 @@ mod tests {
             error_cover_gate: Arc::default(),
             listed_covers: Arc::new(AtomicUsize::new(0)),
             newer_albums: Arc::new(AtomicUsize::new(0)),
+            listed_songs: Arc::new(AtomicUsize::new(4)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -3274,6 +3258,7 @@ mod tests {
                     }}));
                 }
                 let songs = ["song-1", "song-2", "song-3", "song-4"];
+                let songs = &songs[..state.listed_songs.load(Ordering::SeqCst)];
                 let offset = query
                     .get("songOffset")
                     .and_then(|value| value.parse::<usize>().ok())
@@ -5634,12 +5619,12 @@ mod tests {
             keys(&resolved.playing_items),
             ["song-1", "song-2", "song-3", "song-4"]
         );
-        // Asking again without a click reads nothing: the list is kept for a while.
+        // Asking again without a click reads the list again, as the server has it now.
         let before = endpoint_count(&server, "search3");
         let mut again = resolve_queries(&binding, all.clone(), "song-1", &[]);
         again.instantly_play = false;
         resolve_mix_query_request(&binding, &again).await.unwrap();
-        assert_eq!(endpoint_count(&server, "search3"), before);
+        assert!(endpoint_count(&server, "search3") > before);
         let mut page = mix_query_request(
             &binding,
             &MixQueryRequest {
@@ -5795,30 +5780,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_click_on_a_track_the_kept_song_list_lacks_reads_the_list_afresh() {
+    async fn every_resolve_reads_the_current_song_list() {
         let root = TempDir::new().unwrap();
-        let (binding, _server) =
+        let (binding, server) =
             mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
         let library = binding.library_id;
+        let listed = |count: usize| server.state.listed_songs.store(count, Ordering::SeqCst);
         let click =
-            |track: &str| click_resolve(&[("lib::all", "true")], 2, library_track(library, track));
-        click("song-1").translate(&binding).await.unwrap().unwrap();
-        // The list kept from that resolve was read before the server added song-3.
-        {
-            let mut catalog = binding.catalog.lock().unwrap();
-            let (read, asked, _) = catalog.all_songs.clone().unwrap();
-            catalog.all_songs = Some((
-                read,
-                asked,
-                Arc::new(vec!["song-1".into(), "song-2".into(), "song-4".into()]),
-            ));
-        }
-        let resolved = click("song-3").translate(&binding).await.unwrap().unwrap();
+            |track: &str| click_resolve(&[("lib::all", "true")], 0, library_track(library, track));
+        listed(3);
+        let resolved = click("song-1").translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3"])
+        );
+        // The server added a song: a click on it finds it.
+        listed(4);
+        let resolved = click("song-4").translate(&binding).await.unwrap().unwrap();
         assert_eq!(
             resolved.playing_items,
             library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
         );
-        assert_eq!(resolved.start_index, Some(2));
+        assert_eq!(resolved.start_index, Some(3));
+        // The server dropped two: a resolve that plays no clicked track, as one that adds the
+        // list to the queue, leaves them out.
+        listed(2);
+        let mut queued = click("song-1");
+        queued.instantly_play = false;
+        let queued = queued.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            queued.playing_items,
+            library_tracks(library, &["song-1", "song-2"])
+        );
     }
 
     #[tokio::test]
@@ -5882,46 +5875,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["song-1", "song-2", "song-3", "song-4"]
         );
-    }
-
-    #[tokio::test]
-    async fn a_click_reads_the_song_list_afresh_even_when_the_kept_one_holds_the_track() {
-        let root = TempDir::new().unwrap();
-        let (binding, server) =
-            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
-        let library = binding.library_id;
-        let click =
-            |track: &str| click_resolve(&[("lib::all", "true")], 0, library_track(library, track));
-        click("song-1").translate(&binding).await.unwrap().unwrap();
-        // The list kept from that resolve still holds a track the server has dropped since.
-        let stale = || {
-            let mut catalog = binding.catalog.lock().unwrap();
-            let (read, asked, _) = catalog.all_songs.clone().unwrap();
-            catalog.all_songs = Some((
-                read,
-                asked,
-                Arc::new(vec!["song-1".into(), "song-2".into(), "gone".into()]),
-            ));
-        };
-        stale();
-        let resolved = click("song-1").translate(&binding).await.unwrap().unwrap();
-        assert_eq!(
-            resolved.playing_items,
-            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
-        );
-        assert_eq!(resolved.start_index, Some(0));
-        // A resolve that plays no clicked track matches no row the page shows, and keeps using
-        // the kept list.
-        stale();
-        let reads = endpoint_count(&server, "search3");
-        let mut queued = click("song-1");
-        queued.instantly_play = false;
-        let queued = queued.translate(&binding).await.unwrap().unwrap();
-        assert_eq!(
-            queued.playing_items,
-            library_tracks(library, &["song-1", "song-2", "gone"])
-        );
-        assert_eq!(endpoint_count(&server, "search3"), reads);
     }
 
     #[tokio::test]

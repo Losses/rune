@@ -392,9 +392,6 @@ pub(crate) struct SubsonicCatalog {
     /// The ids of the artists in the order the server lists them, once they are loaded.
     pub(crate) artist_order: Vec<i32>,
     pub(crate) albums_loaded: bool,
-    /// The keys of the first songs of the whole song list, how many were asked for, and when
-    /// they were read.
-    pub(crate) all_songs: Option<(Instant, usize, Arc<Vec<String>>)>,
     /// The first songs of the whole song list, as read to keep only those with a cover, and when.
     pub(crate) song_pool: Option<(Instant, Arc<Vec<SubsonicSong>>)>,
     /// The ids of every album, oldest added first, and when they were read.

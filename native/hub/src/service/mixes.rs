@@ -81,9 +81,10 @@ pub(crate) trait MixSource: Send + Sync {
     /// The track keys of a collection, in order.
     fn collection_tracks(&self, target: MixTarget) -> ServiceFuture<'_, Vec<String>>;
 
-    /// The first `limit` track keys of the whole song list, in the order a song list shows them.
-    /// A source that keeps the list a while reads it afresh when `fresh` is set.
-    fn all_tracks(&self, limit: usize, fresh: bool) -> ServiceFuture<'_, Vec<String>>;
+    /// The first `limit` track keys of the whole song list, in the order a song list shows them,
+    /// read afresh each time: a list kept a while can differ from the service's anywhere, and
+    /// would play or queue tracks it no longer has.
+    fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>>;
 
     /// The track key a track id stands for, or None for an id the service never gave.
     fn track_key(&self, id: i32) -> Result<Option<String>>;
@@ -180,12 +181,11 @@ pub(crate) fn plan(queries: &[MixQuery], request: &'static str) -> Result<QueryP
     Ok(QueryPlan { plan, cover_only })
 }
 
-/// The keys the plan names, in order and without repeats. `fresh` is passed on to
-/// [`MixSource::all_tracks`].
-async fn plan_tracks(source: &dyn MixSource, plan: Plan, fresh: bool) -> Result<Vec<String>> {
+/// The keys the plan names, in order and without repeats.
+async fn plan_tracks(source: &dyn MixSource, plan: Plan) -> Result<Vec<String>> {
     match plan {
         Plan::Collection(target) => source.collection_tracks(target).await,
-        Plan::All => source.all_tracks(RESOLVED_TRACK_LIMIT, fresh).await,
+        Plan::All => source.all_tracks(RESOLVED_TRACK_LIMIT).await,
         // A random draw is not a list a resolve can name twice, so it stays refused here.
         Plan::Random(_) => Err(unsupported_query(ResolveMixQueryRequest::wire_name())),
         Plan::Items(items) => {
@@ -218,11 +218,7 @@ pub(crate) async fn resolve_mix_query(
         if planned.cover_only {
             return Err(unsupported_query(ResolveMixQueryRequest::wire_name()));
         }
-        // A click plays the list the page shows, which the page read just now, so the list is
-        // read afresh for it: one kept a while can differ anywhere, not only at the clicked
-        // track.
-        let clicked = request.instantly_play && request.initial_playback_item.is_some();
-        let mut keys = plan_tracks(source, planned.plan, clicked).await?;
+        let mut keys = plan_tracks(source, planned.plan).await?;
         keys.truncate(RESOLVED_TRACK_LIMIT);
         let library_id = source.library_id();
         let excluded: HashSet<&PlayingItemRef> = request.excluded.items.iter().collect();
@@ -336,7 +332,7 @@ mod tests {
             Box::pin(async { Ok(vec!["a".into(), "b".into()]) })
         }
 
-        fn all_tracks(&self, _: usize, _: bool) -> ServiceFuture<'_, Vec<String>> {
+        fn all_tracks(&self, _: usize) -> ServiceFuture<'_, Vec<String>> {
             Box::pin(async { Ok(vec!["a".into(), "b".into()]) })
         }
 
@@ -444,7 +440,7 @@ mod tests {
             Box::pin(async move { Ok(vec![format!("{id}a"), format!("{id}b"), "shared".into()]) })
         }
 
-        fn all_tracks(&self, _: usize, _: bool) -> ServiceFuture<'_, Vec<String>> {
+        fn all_tracks(&self, _: usize) -> ServiceFuture<'_, Vec<String>> {
             Box::pin(async { Ok(Vec::new()) })
         }
 
