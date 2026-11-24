@@ -5,7 +5,7 @@
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr, ExprTrait,
     Statement,
-    sea_query::{Alias, ColumnDef, Expr, Index, Query, Table},
+    sea_query::{Alias, ColumnDef, Expr, Index, Query, Table, TableCreateStatement},
 };
 
 #[derive(Clone, Copy)]
@@ -21,6 +21,17 @@ const T: Kind = Kind::Text;
 const I: Kind = Kind::Integer;
 
 type Layout = (&'static str, &'static [Field], &'static [&'static str]);
+const EXPORT_CURSOR_TABLE: Layout = (
+    "sync_export_cursors",
+    &[
+        Field("namespace", B, false),
+        Field("export_id", B, false),
+        Field("sequence", I, false),
+        Field("advanced_at_ms", I, false),
+        Field("needs_base", I, false),
+    ],
+    &["namespace", "export_id"],
+);
 const TABLES: &[Layout] = &[
     (
         "sync_meta",
@@ -168,17 +179,7 @@ const TABLES: &[Layout] = &[
         ],
         &["namespace", "id"],
     ),
-    (
-        "sync_export_cursors",
-        &[
-            Field("namespace", B, false),
-            Field("export_id", B, false),
-            Field("sequence", I, false),
-            Field("advanced_at_ms", I, false),
-            Field("needs_base", I, false),
-        ],
-        &["namespace", "export_id"],
-    ),
+    EXPORT_CURSOR_TABLE,
 ];
 
 const INDEXES: &[(&str, &str, &[&str], bool)] = &[
@@ -316,45 +317,37 @@ pub async fn ensure_journal_origin_on<C: ConnectionTrait>(db: &C) -> Result<(), 
     Ok(())
 }
 
-/// Add durable export cursors to replicas created before share export support.
-pub async fn ensure_export_cursors_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
-    let exists = Query::select()
-        .expr(Expr::val(1))
-        .from(Alias::new("sqlite_master"))
-        .and_where(Expr::col(Alias::new("type")).eq("table"))
-        .and_where(Expr::col(Alias::new("name")).eq("sync_export_cursors"))
-        .limit(1)
-        .to_owned();
-    if db.query_one(&exists).await?.is_some() {
-        return Ok(());
+/// Define the export cursor table for fresh installs and its upgrade migration.
+pub fn export_cursors_table() -> TableCreateStatement {
+    table_statement(&EXPORT_CURSOR_TABLE)
+}
+
+fn table_statement((name, fields, keys): &Layout) -> TableCreateStatement {
+    let mut statement = Table::create();
+    statement.table(Alias::new(*name));
+    for Field(field, kind, nullable) in *fields {
+        let mut column = ColumnDef::new(Alias::new(*field));
+        match kind {
+            Kind::Bytes => {
+                column.binary();
+            }
+            Kind::Text => {
+                column.text();
+            }
+            Kind::Integer => {
+                column.big_integer();
+            }
+        }
+        if !nullable {
+            column.not_null();
+        }
+        statement.col(column);
     }
     let mut primary_key = Index::create();
-    primary_key
-        .col(Alias::new("namespace"))
-        .col(Alias::new("export_id"));
-    let statement = Table::create()
-        .table(Alias::new("sync_export_cursors"))
-        .col(ColumnDef::new(Alias::new("namespace")).binary().not_null())
-        .col(ColumnDef::new(Alias::new("export_id")).binary().not_null())
-        .col(
-            ColumnDef::new(Alias::new("sequence"))
-                .big_integer()
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("advanced_at_ms"))
-                .big_integer()
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("needs_base"))
-                .big_integer()
-                .not_null(),
-        )
-        .primary_key(&mut primary_key)
-        .to_owned();
-    db.execute(&statement).await?;
-    Ok(())
+    for key in *keys {
+        primary_key.col(Alias::new(*key));
+    }
+    statement.primary_key(&mut primary_key).to_owned()
 }
 
 /// Install on the migration runner's transaction.
@@ -383,33 +376,8 @@ pub async fn install_on<C: ConnectionTrait>(db: &C) -> Result<(), DbErr> {
             "existing replica tables require explicit import or a fresh database".into(),
         ));
     }
-    for (name, fields, keys) in TABLES {
-        let mut statement = Table::create();
-        statement.table(Alias::new(*name));
-        for Field(field, kind, nullable) in *fields {
-            let mut column = ColumnDef::new(Alias::new(*field));
-            match kind {
-                Kind::Bytes => {
-                    column.binary();
-                }
-                Kind::Text => {
-                    column.text();
-                }
-                Kind::Integer => {
-                    column.big_integer();
-                }
-            }
-            if !nullable {
-                column.not_null();
-            }
-            statement.col(column);
-        }
-        let mut pk = Index::create();
-        for key in *keys {
-            pk.col(Alias::new(*key));
-        }
-        statement.primary_key(&mut pk);
-        db.execute(&statement).await?;
+    for layout in TABLES {
+        db.execute(&table_statement(layout)).await?;
     }
     for (name, table, columns, unique) in INDEXES {
         let mut index = Index::create();
@@ -430,8 +398,6 @@ pub async fn clear_namespace_on(
     tx: &DatabaseTransaction,
     namespace: uuid::Uuid,
 ) -> Result<u64, DbErr> {
-    // Historical databases can be reset before the replica open path upgrades this table.
-    ensure_export_cursors_on(tx).await?;
     let mut removed = 0;
     for (name, _, _) in TABLES.iter().rev() {
         let query = Query::delete()

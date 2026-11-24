@@ -1,7 +1,7 @@
 //! Transaction-bound causal authoring, reception, and accepted-state queries.
 use crate::causal_candidates::CandidateRow;
 use crate::causal_leases::{begin_write, lock_on};
-use crate::causal_schema::{ensure_export_cursors_on, ensure_journal_origin_on};
+use crate::causal_schema::ensure_journal_origin_on;
 use crate::causal_writer::WriterIncarnation;
 use anyhow::Error;
 use anyhow::{Result, ensure};
@@ -336,7 +336,6 @@ impl<M: SyncModel> CausalReplica<M> {
         };
         let anchor = protocol::initial_anchor(&identity)?;
         ensure_journal_origin_on(tx).await?;
-        ensure_export_cursors_on(tx).await?;
         ensure_writer_columns_on(tx).await?;
         let q = Query::insert()
             .into_table(Alias::new("sync_meta"))
@@ -415,7 +414,6 @@ impl<M: SyncModel> CausalReplica<M> {
         protocol::validate_model::<M>()?;
         let tx = begin_write(&db).await?;
         ensure_journal_origin_on(&tx).await?;
-        ensure_export_cursors_on(&tx).await?;
         ensure_writer_columns_on(&tx).await?;
         let writer = Arc::new(reserve_writer_on(&tx, namespace, author, file_token).await?);
         let replica = Self {

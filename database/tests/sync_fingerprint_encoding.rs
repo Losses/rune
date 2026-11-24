@@ -10,11 +10,11 @@ use database::{
         model::{Collection, Fingerprint, ObjectKey, Payload, PlaybackStatistics, RuneModel},
     },
 };
-use migration::catalog_identity;
+use migration::{Migrator, MigratorTrait, SchemaManager, catalog_identity};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
+    ColumnTrait, ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter,
-    sea_query::{Alias, Expr, ExprTrait, Query},
+    sea_query::{Alias, Expr, ExprTrait, Query, Table},
 };
 use std::sync::Arc;
 use sync::protocol::{
@@ -321,6 +321,10 @@ struct Schema1Library {
 impl Schema1Library {
     async fn new(namespace: Uuid, actor: Uuid) -> Result<Self> {
         let db = support::fixtures::memory_database(actor).await?;
+        Self::on(db, namespace, actor).await
+    }
+
+    async fn on(db: DatabaseConnection, namespace: Uuid, actor: Uuid) -> Result<Self> {
         let replica =
             CausalReplica::<Schema1Model>::create_empty(db.clone(), namespace, actor).await?;
         let endpoint = CausalEndpoint::with_projection(replica, Arc::new(Schema1Projection));
@@ -375,7 +379,14 @@ async fn schema_1_upgrade_preserves_remote_accepted_statistics_and_forwards_them
     let actor_unaccepted = Uuid::new_v4();
     let track_id = Uuid::new_v4();
 
-    let a = Schema1Library::new(namespace, actor_a).await?;
+    let db = Database::connect("sqlite::memory:").await?;
+    let _ = migration::initialize_node_id(actor_a.to_string());
+    let prior = Migrator::migrations()
+        .iter()
+        .position(|m| m.name() == "m20261124_000040_create_sync_export_cursors")
+        .expect("export cursor migration must be registered");
+    Migrator::up(&db, Some(u32::try_from(prior)?)).await?;
+    let a = Schema1Library::on(db, namespace, actor_a).await?;
     let b = Schema1Library::new(namespace, actor_b).await?;
 
     a.endpoint
@@ -448,9 +459,20 @@ async fn schema_1_upgrade_preserves_remote_accepted_statistics_and_forwards_them
     // Device B is unavailable while A upgrades and syncs to C.
     drop(b);
 
-    // Older schema 1 databases could sync statistics before export cursors existed.
-    a.db.execute_unprepared("DROP TABLE sync_export_cursors")
-        .await?;
+    // Model a library that synced statistics before export cursors existed.
+    a.db.execute(
+        &Table::drop()
+            .table(Alias::new("sync_export_cursors"))
+            .to_owned(),
+    )
+    .await?;
+    Migrator::up(&a.db, None).await?;
+    assert!(
+        SchemaManager::new(&a.db)
+            .has_table("sync_export_cursors")
+            .await?,
+        "the Migrator creates export cursors before the legacy namespace is opened"
+    );
 
     let upgraded_a = LibrarySyncStore::open(a.db.clone(), actor_a, Some(namespace)).await?;
     assert_eq!(
