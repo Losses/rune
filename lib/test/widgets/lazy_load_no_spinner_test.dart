@@ -360,6 +360,87 @@ void main() {
       await _settle(tester);
       expect(asked, [0, 100]);
     });
+
+    testWidgets('asks for it once more when its own places are built, and '
+        'not again while it keeps failing', (tester) async {
+      final asked = <int>[];
+      var failures = 1;
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.value(1000),
+          loadPage: (cursor, size) {
+            asked.add(cursor);
+            if (cursor == 100 && failures > 0) {
+              failures--;
+              return Future.error(StateError('offline'));
+            }
+            return Future.value(_tracks(cursor, size));
+          },
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      expect(asked, [0, 100]);
+
+      // Its places come into view after the connection is back.
+      _position(tester).jumpTo(64.0 * 100);
+      await _settle(tester);
+      expect(asked.where((c) => c == 100), hasLength(2));
+      expect(find.textContaining('track-1'), findsWidgets);
+    });
+
+    testWidgets('is asked for only once more while it keeps failing', (
+      tester,
+    ) async {
+      final asked = <int>[];
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.value(1000),
+          loadPage: (cursor, size) {
+            asked.add(cursor);
+            if (cursor == 0) return Future.value(_tracks(0, size));
+            return Future.error(StateError('offline'));
+          },
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      _position(tester).jumpTo(64.0 * 100);
+      await _settle(tester);
+      await _settle(tester);
+      expect(asked.where((c) => c == 100), hasLength(2));
+    });
+  });
+
+  group('the list of all tracks when the count fails', () {
+    testWidgets('takes the end of the list from the short page', (
+      tester,
+    ) async {
+      final asked = <int>[];
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.error(StateError('offline')),
+          loadPage: (cursor, size) {
+            asked.add(cursor);
+            return Future.value(cursor == 0 ? _tracks(0, size) : []);
+          },
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      await _settle(tester);
+      // The empty page ahead is asked for once, not on every rebuild.
+      expect(asked, [0, 100]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 5));
+    });
   });
 
   group('a collection page', () {

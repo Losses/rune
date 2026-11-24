@@ -47,9 +47,11 @@ class TrackListViewState extends State<TrackListView> {
   final Map<int, InternalMediaFile> _staleItems = {};
   final Set<int> _loadingIndices = {};
   // Pages whose request failed. Building their places asks for them again, so
-  // a page that keeps failing would be requested on every rebuild. A content
-  // change or a restart clears them.
+  // a page that keeps failing would be requested on every rebuild. They are
+  // skipped when loading ahead, and asked for once more when their own places
+  // are built. A content change or a restart clears them.
   final Set<int> _failedPages = {};
+  final Set<int> _retriedPages = {};
   bool _isInitialized = false;
   // Whether the first page has come, empty or not, or has failed.
   bool _firstPageSettled = false;
@@ -71,6 +73,7 @@ class TrackListViewState extends State<TrackListView> {
     _loadedItems.clear();
     _loadingIndices.clear();
     _failedPages.clear();
+    _retriedPages.clear();
     _firstPageSettled = false;
     _initializeData();
   }
@@ -127,6 +130,13 @@ class TrackListViewState extends State<TrackListView> {
             _loadedItems[cursor + i] = newItems[i];
           }
           _loadingIndices.remove(cursor);
+          // A short page is the end of the list, which stops the pages ahead
+          // of it from being asked for when the count was not known. An empty
+          // first page is left alone, the list shows its empty state for it.
+          if (newItems.length < _pageSize &&
+              (cursor > 0 || newItems.isNotEmpty)) {
+            _totalCount = min(_totalCount, cursor + newItems.length);
+          }
           if (cursor == 0) _firstPageSettled = true;
         });
       });
@@ -153,13 +163,14 @@ class TrackListViewState extends State<TrackListView> {
     }
   }
 
-  void _checkAndLoadItem(int index) {
+  void _checkAndLoadItem(int index, {bool ahead = false}) {
     if (_loadedItems.containsKey(index)) return;
 
     final pageStart = (index ~/ _pageSize) * _pageSize;
-    if (_loadingIndices.contains(pageStart) ||
-        _failedPages.contains(pageStart)) {
-      return;
+    if (_loadingIndices.contains(pageStart)) return;
+    if (_failedPages.contains(pageStart)) {
+      if (ahead || !_retriedPages.add(pageStart)) return;
+      _failedPages.remove(pageStart);
     }
     _loadPage(pageStart);
   }
@@ -169,7 +180,7 @@ class TrackListViewState extends State<TrackListView> {
     // The page after the one the list builds is loaded ahead of it, so a track
     // has arrived before its place scrolls into view.
     final ahead = min(index + _pageSize, _totalCount - 1);
-    if (ahead > index) _checkAndLoadItem(ahead);
+    if (ahead > index) _checkAndLoadItem(ahead, ahead: true);
     return _loadedItems[index] ?? _staleItems[index];
   }
 
