@@ -20,6 +20,8 @@ pub enum CapabilityReason {
     AccountRoleMissing,
     /// The grants this controller holds do not allow the call, though the owner could grant it.
     NotAllowed,
+    /// The open library is kept on this device, so no other device can use it.
+    DeviceOnly,
 }
 
 /// One field per request in the catalogue (`native/requests`), named after it.

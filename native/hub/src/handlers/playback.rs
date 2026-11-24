@@ -31,6 +31,8 @@ use ::playback::player::{
 use crate::backends::remote::{RendererLink, RendererLinkUse};
 use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
+use crate::request_owner::refuse_libraries_kept_here;
+use crate::rpc::NamedLibraries;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::service::ServiceBinding;
 use crate::{
@@ -1264,6 +1266,7 @@ impl Signal for CastResolvedItemsRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        refuse_libraries_kept_here(&node, true, |visit| request.load.visit_libraries(visit))?;
         let (link, _) = node
             .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
             .await?;

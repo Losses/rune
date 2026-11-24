@@ -1,9 +1,9 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
-    sync::{Mutex, RwLock},
+    sync::{Mutex, PoisonError, RwLock},
 };
 
 use anyhow::{Context, Result};
@@ -154,6 +154,8 @@ pub struct RuneAccessPolicy {
     snapshot: RwLock<GrantsFile>,
     writer: Mutex<()>,
     changes: watch::Sender<u64>,
+    /// Libraries no other device may reach, whatever its grants say.
+    device_only: RwLock<HashSet<Uuid>>,
 }
 impl RuneAccessPolicy {
     pub fn load(config: &Path, users: &[UserSummary]) -> Result<Self> {
@@ -208,6 +210,7 @@ impl RuneAccessPolicy {
             snapshot: RwLock::new(file.clone()),
             writer: Mutex::new(()),
             changes: watch::channel(0).0,
+            device_only: RwLock::new(HashSet::new()),
         };
         policy.persist(&file)?;
         Ok(policy)
@@ -269,6 +272,21 @@ impl RuneAccessPolicy {
             .is_ok()
             || self.check(peer, &Action::SyncPull { library_id }).is_ok()
     }
+    /// Keeps `library_id` from every other device, whatever its grants say. A streaming
+    /// service account signed in here is not lent to other devices.
+    pub fn keep_on_this_device(&self, library_id: Uuid) {
+        self.device_only
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(library_id);
+    }
+    /// Whether `library_id` is kept from every other device. When the answer is unknown the
+    /// library counts as kept, so a filter built on this fails closed.
+    pub fn is_device_only(&self, library_id: Uuid) -> bool {
+        self.device_only
+            .read()
+            .map_or(true, |kept| kept.contains(&library_id))
+    }
     pub fn trust_changed(&self, fingerprint: &str, status: Option<&UserStatus>) -> Result<()> {
         self.update(|devices| {
             if status == Some(&UserStatus::Approved) {
@@ -290,6 +308,24 @@ impl AccessPolicy for RuneAccessPolicy {
             .devices
             .get(&peer.fingerprint)
             .ok_or(Denial::MissingGrants)?;
+        let library_id = match action {
+            Action::ConnectionView { library_id }
+            | Action::ConnectionEdit { library_id }
+            | Action::SyncPull { library_id }
+            | Action::SyncPush { library_id } => Some(library_id),
+            Action::Control | Action::Administer => None,
+        };
+        if let Some(library_id) = library_id
+            && self
+                .device_only
+                .read()
+                .map_err(|_| Denial::Unavailable)?
+                .contains(library_id)
+        {
+            return Err(Denial::Action {
+                action: action.clone(),
+            });
+        }
         let allowed = match action {
             Action::Control => grants.control,
             Action::ConnectionView { library_id } => {
@@ -501,6 +537,28 @@ mod load_tests {
             );
             assert_eq!(controlless_admin.sync_level(unshared), SyncLevel::None);
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod device_only_tests {
+    use super::RuneAccessPolicy;
+    use uuid::Uuid;
+
+    #[test]
+    fn an_unreadable_set_counts_every_library_as_kept() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let policy = RuneAccessPolicy::load(dir.path(), &[])?;
+        let kept = Uuid::new_v4();
+        policy.keep_on_this_device(kept);
+        assert!(policy.is_device_only(kept));
+        assert!(!policy.is_device_only(Uuid::new_v4()));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = policy.device_only.write().unwrap();
+            panic!("poison the set");
+        }));
+        assert!(policy.is_device_only(Uuid::new_v4()));
         Ok(())
     }
 }

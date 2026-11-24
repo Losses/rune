@@ -397,7 +397,7 @@ impl NodeContext {
     /// Send the request capability snapshot to Dart if it changed. It reads the UI
     /// library and renderer link locks, so never call it while holding either.
     pub(crate) fn publish_capabilities(&self) -> Result<()> {
-        let capabilities = capability_snapshot(self)?;
+        let capabilities = self.own_capabilities()?;
         let mut last = self
             .last_capabilities
             .lock()
@@ -1030,6 +1030,27 @@ impl NodeContext {
 
     pub(crate) fn request_slot<R: TargetRequest>(&self) -> Result<Slot> {
         Ok(R::slot(&self.implementation_for_scope::<R>()?.slots()))
+    }
+
+    /// What this device's own UI may ask of the open library. Besides what the slots say, it
+    /// marks casting `DeviceOnly` for a library kept on this device. That is a fact about this
+    /// device only, so it is not part of `capability_snapshot`, which also goes to peers: a peer
+    /// cannot use the reason, and an older one does not know it.
+    pub(crate) fn own_capabilities(&self) -> Result<RequestCapabilities> {
+        let mut capabilities = capability_snapshot(self)?;
+        let kept = capabilities
+            .library_id
+            .as_deref()
+            .and_then(|library_id| Uuid::parse_str(library_id).ok())
+            .is_some_and(|library_id| self.access_policy.is_device_only(library_id));
+        // The reason is kept apart from `NotAllowed` so the UI can tell a library that
+        // cannot leave this device from a device that may not be controlled.
+        if kept && capabilities.cast_resolved_items_request == RequestCapability::Available {
+            capabilities.cast_resolved_items_request = RequestCapability::Disabled {
+                reason: CapabilityReason::DeviceOnly,
+            };
+        }
+        Ok(capabilities)
     }
 
     pub(crate) fn capabilities_for_peer(

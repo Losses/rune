@@ -1825,5 +1825,6 @@
   "artistSectionAppearsOn": "參與作品",
   "artistSectionSinglesAndEps": "單曲與 EP",
   "artistSectionLatestRelease": "最新發行",
-  "artistSectionEssentialAlbums": "必聽專輯"
+  "artistSectionEssentialAlbums": "必聽專輯",
+  "capabilityDeviceOnly": "此媒體庫僅保留在此設備上，其他設備無法播放。"
 }

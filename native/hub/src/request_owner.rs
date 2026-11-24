@@ -18,8 +18,8 @@ use crate::{
     Signal, TypedRequest,
     backends::remote::RendererLink,
     library_pool::LibraryHandle,
-    macros::{RequestScope, RequestSlots},
-    messages::{RemoveDownloadRuleRequest, SetDownloadRuleRequest},
+    macros::{BodyLibraries, RequestScope, RequestSlots},
+    messages::{CastLibraryState, RemoveDownloadRuleRequest, SetDownloadRuleRequest},
     node::NodeContext,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
@@ -51,6 +51,69 @@ pub(crate) enum CurrentPlayer {
     },
     /// The own player of the open service library, which its binding controls.
     ServicePlayer(Arc<dyn ServicePlayer>),
+}
+
+/// Refuses to send another device anything that names a library kept on this device, such as a
+/// streaming service account signed in here: no other device holds that library, so none can
+/// play or read it. It is the rule the websocket filter applies to what this device
+/// broadcasts, and like it, it counts a library as kept when the policy cannot tell.
+/// `visit_libraries` visits the libraries a request names. Items to load onto the other
+/// device's player are refused as a cast that is not possible, anything else as unavailable.
+pub(crate) fn refuse_libraries_kept_here<'a>(
+    node: &NodeContext,
+    loads_player: bool,
+    visit_libraries: impl FnOnce(&mut dyn FnMut(&'a str)),
+) -> Result<()> {
+    let mut kept = None;
+    visit_libraries(&mut |library_id: &'a str| {
+        if kept.is_none() && library_kept_here(node, library_id) {
+            kept = Some(library_id);
+        }
+    });
+    match kept {
+        Some(library_id) if loads_player => Err(ExpectedRequestError::CastNotPossible {
+            library_id: library_id.to_owned(),
+            state: CastLibraryState::NotHeld,
+        }
+        .into()),
+        Some(_) => Err(ExpectedRequestError::Unavailable {
+            what: "library kept on this device",
+        }
+        .into()),
+        None => Ok(()),
+    }
+}
+
+/// Whether the library of `library_id`, as it appears on the wire, is kept on this device.
+fn library_kept_here(node: &NodeContext, library_id: &str) -> bool {
+    Uuid::parse_str(library_id)
+        .is_ok_and(|library_id| node.access_policy.is_device_only(library_id))
+}
+
+/// Whether `request` names a library and every library it names is kept on this device.
+fn names_only_libraries_kept_here<R: TargetRequest>(node: &NodeContext, request: &R) -> bool {
+    let (mut named, mut all_kept) = (false, true);
+    request.visit_forwarded_libraries(&mut |library_id| {
+        named = true;
+        all_kept &= library_kept_here(node, library_id);
+    });
+    named && all_kept
+}
+
+/// A copy of `request` without the items it lists of libraries kept on this device, when it
+/// lists any: it names them only to skip or select them, and the other device has no use for
+/// them. None when it lists none, so the request goes as it is.
+fn without_items_kept_here<R>(node: &NodeContext, request: &R) -> Result<Option<R>>
+where
+    R: TargetRequest + DartSignal + Serialize,
+{
+    let kept = |library_id: &str| library_kept_here(node, library_id);
+    if !request.forwarded_lists_kept(&kept) {
+        return Ok(None);
+    }
+    let mut copy: R = rinf::deserialize(&rinf::serialize(request)?)?;
+    copy.leave_kept_out_of_forwarded(&kept);
+    Ok(Some(copy))
 }
 
 /// Executes requests for one concrete library or player implementation.
@@ -230,26 +293,40 @@ impl Implementation {
             + Serialize,
         <R as TypedRequest>::Response: DeserializeOwned,
     {
-        match self {
-            Self::RunePeer {
-                reconnecting: Some(alias),
-                ..
-            } => {
-                return Err(ExpectedRequestError::Reconnecting {
-                    alias: alias.clone(),
-                }
-                .into());
-            }
-            Self::RunePeer { link: None, .. } => {
-                return Err(ExpectedRequestError::Unavailable {
-                    what: "remote UI library",
-                }
-                .into());
-            }
-            _ => {}
+        let mut slot = R::slot(&self.slots());
+        let mut answered_here = false;
+        // An item of a library kept here is answered here, by the binding of its own library,
+        // as when a library of this device is open, even while the remote library reconnects.
+        if slot == Slot::Forward
+            && R::ROUTED_BY_ITEM
+            && names_only_libraries_kept_here(&params.node, request)
+        {
+            slot = Slot::Native;
+            answered_here = true;
         }
 
-        match R::slot(&self.slots()) {
+        if !answered_here {
+            match self {
+                Self::RunePeer {
+                    reconnecting: Some(alias),
+                    ..
+                } => {
+                    return Err(ExpectedRequestError::Reconnecting {
+                        alias: alias.clone(),
+                    }
+                    .into());
+                }
+                Self::RunePeer { link: None, .. } => {
+                    return Err(ExpectedRequestError::Unavailable {
+                        what: "remote UI library",
+                    }
+                    .into());
+                }
+                _ => {}
+            }
+        }
+
+        match slot {
             Slot::Native => {
                 request
                     .handle(request.extract_params(params), None, request)
@@ -262,6 +339,13 @@ impl Implementation {
                 else {
                     anyhow::bail!("Forward slot has no renderer link");
                 };
+                // Only a request whose body names items for a player loads them onto one.
+                let loads_player = matches!(R::BODY_LIBRARIES, BodyLibraries::PlayerReads);
+                refuse_libraries_kept_here(&params.node, loads_player, |visit| {
+                    request.visit_forwarded_libraries(visit)
+                })?;
+                let copy = without_items_kept_here(&params.node, request)?;
+                let request = copy.as_ref().unwrap_or(request);
                 let response = if R::SCOPE == RequestScope::Library {
                     link.call_for_current_library(request).await?
                 } else {

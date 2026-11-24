@@ -2101,5 +2101,6 @@
   "artistSectionEssentialAlbums": "Essential Albums",
   "@artistSectionEssentialAlbums": {
     "description": "The name of the tile on an artist's page that opens the albums picked as the artist's essential ones, when the library gives the section no name."
-  }
+  },
+  "capabilityDeviceOnly": "This library stays on this device, so no other device can play it."
 }

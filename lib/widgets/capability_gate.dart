@@ -11,6 +11,7 @@ String capabilityReasonText(BuildContext context, CapabilityReason reason) {
     CapabilityReason.peerTooOld => strings.capabilityPeerTooOld,
     CapabilityReason.accountRoleMissing => strings.capabilityAccountRoleMissing,
     CapabilityReason.notAllowed => strings.requestPermissionDenied,
+    CapabilityReason.deviceOnly => strings.capabilityDeviceOnly,
   };
 }
 

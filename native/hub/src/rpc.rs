@@ -48,6 +48,21 @@ pub trait TargetRequest: TypedRequest {
 
     fn set_slot(_slots: &mut RequestSlots, _slot: Slot) {}
 
+    /// Visits the libraries the request names, for a request another device may be sent: one
+    /// that devices serve to each other, which names them as [`NamedLibraries`] says. A
+    /// request only this device serves names none here.
+    fn visit_forwarded_libraries<'a>(&'a self, _visit: &mut dyn FnMut(&'a str)) {}
+
+    /// Whether the request, for one another device may be sent, lists items of a library
+    /// `kept` names, as [`NamedLibraries::lists_kept`] says.
+    fn forwarded_lists_kept(&self, _kept: &dyn Fn(&str) -> bool) -> bool {
+        false
+    }
+
+    /// Leaves out of the request, for one another device may be sent, the items
+    /// [`Self::forwarded_lists_kept`] finds.
+    fn leave_kept_out_of_forwarded(&mut self, _kept: &dyn Fn(&str) -> bool) {}
+
     fn translate<'a>(
         &'a self,
         _translator: &'a dyn RequestTranslator,
@@ -73,6 +88,15 @@ pub trait NamedLibraries {
 
     /// Visit the id of every library this value names, as it appears on the wire.
     fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str));
+
+    /// Whether the value lists items of a library `kept` names: items it names only to skip
+    /// or select them, without reading their libraries, so it does not name those libraries.
+    fn lists_kept(&self, _kept: &dyn Fn(&str) -> bool) -> bool {
+        false
+    }
+
+    /// Leaves out the items [`Self::lists_kept`] finds.
+    fn leave_out_kept(&mut self, _kept: &dyn Fn(&str) -> bool) {}
 }
 
 macro_rules! names_no_library {
@@ -97,6 +121,16 @@ impl<T: NamedLibraries> NamedLibraries for Option<T> {
             value.visit_libraries(visit);
         }
     }
+
+    fn lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+        self.as_ref().is_some_and(|value| value.lists_kept(kept))
+    }
+
+    fn leave_out_kept(&mut self, kept: &dyn Fn(&str) -> bool) {
+        if let Some(value) = self {
+            value.leave_out_kept(kept);
+        }
+    }
 }
 
 impl<T: NamedLibraries> NamedLibraries for Vec<T> {
@@ -105,6 +139,16 @@ impl<T: NamedLibraries> NamedLibraries for Vec<T> {
     fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
         for value in self {
             value.visit_libraries(visit);
+        }
+    }
+
+    fn lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+        self.iter().any(|value| value.lists_kept(kept))
+    }
+
+    fn leave_out_kept(&mut self, kept: &dyn Fn(&str) -> bool) {
+        for value in self {
+            value.leave_out_kept(kept);
         }
     }
 }

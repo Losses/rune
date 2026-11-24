@@ -1825,5 +1825,6 @@
   "artistSectionAppearsOn": "参与作品",
   "artistSectionSinglesAndEps": "单曲与 EP",
   "artistSectionLatestRelease": "最新发行",
-  "artistSectionEssentialAlbums": "必听专辑"
+  "artistSectionEssentialAlbums": "必听专辑",
+  "capabilityDeviceOnly": "此媒体库仅保留在此设备上，其他设备无法播放。"
 }
