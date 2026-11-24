@@ -17,7 +17,7 @@ use ::database::{
         stats::increase_skipped,
     },
     error::ExpectedError,
-    library_registry::{LibraryRegistry, ProtocolAdapter},
+    library_registry::LibraryRegistry,
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::PlayerCommand;
@@ -31,7 +31,7 @@ use crate::backends::remote::{RendererLink, RendererLinkUse};
 use crate::node::{HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
-use crate::subsonic_binding::SubsonicBinding;
+use crate::service::ServiceBinding;
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
@@ -107,9 +107,9 @@ pub async fn playing_items_from_requests(
         .collect()
 }
 
-async fn resolve_open_subsonic_tracks(
+async fn resolve_open_service_tracks(
     requests: &[PlayingItemRef],
-    _binding: &SubsonicBinding,
+    _binding: &dyn ServiceBinding,
 ) -> Result<Vec<PlayingItem>> {
     let mut resolved = Vec::with_capacity(requests.len());
     for request in requests {
@@ -914,10 +914,8 @@ impl Signal for LoadResolvedItemsRequest {
                 result,
             }));
         } else {
-            if let Some(binding) = node.open_subsonic_binding()?
-                && binding.play_on_this_device
-            {
-                let items = resolve_open_subsonic_tracks(&request.items, &binding).await?;
+            if let Some(binding) = node.open_service_played_here()? {
+                let items = resolve_open_service_tracks(&request.items, binding.as_ref()).await?;
                 let prepared = items
                     .into_iter()
                     .map(|item| (item, PlaybackSource::LibraryStream))
@@ -978,10 +976,7 @@ impl Signal for LoadResolvedItemsRequest {
                                 })
                                 .context(error)
                             })?;
-                        if matches!(
-                            &item_library.descriptor.protocol,
-                            ProtocolAdapter::SubsonicTranslate { .. }
-                        ) {
+                        if item_library.descriptor.protocol.service().is_some() {
                             prepared_by_item.insert(
                                 item.clone(),
                                 (item.clone(), PlaybackSource::LibraryStream),
@@ -1661,28 +1656,25 @@ async fn session_snapshot(
 ) -> Result<SessionSnapshotResponse> {
     let (status, revision) = session.playback_snapshot().await;
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
-    let subsonic_library_ids = registry
+    let service_library_ids = registry
         .libraries
         .iter()
-        .filter_map(|library| {
-            matches!(library.protocol, ProtocolAdapter::SubsonicTranslate { .. })
-                .then_some(library.record_id.0)
-        })
+        .filter_map(|library| library.protocol.service().map(|_| library.record_id.0))
         .collect();
-    session_snapshot_from_status(status, revision, &subsonic_library_ids)
+    session_snapshot_from_status(status, revision, &service_library_ids)
 }
 
 pub(crate) fn session_snapshot_from_status(
     status: PlayerStatus,
     revision: u64,
-    subsonic_library_ids: &HashSet<Uuid>,
+    service_library_ids: &HashSet<Uuid>,
 ) -> Result<SessionSnapshotResponse> {
     let items = status
         .playlist
         .into_iter()
         .map(|entry| match entry.item {
             PlayingItem::LibraryTrack { library_id, track }
-                if !subsonic_library_ids.contains(&library_id) =>
+                if !service_library_ids.contains(&library_id) =>
             {
                 Ok(PlayingItemRef::LibraryTrack {
                     library_id: library_id.to_string(),

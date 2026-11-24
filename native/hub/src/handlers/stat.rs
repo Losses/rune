@@ -17,11 +17,10 @@ use crate::{
     messages::*,
     node::NodeContext,
     request_error::ExpectedRequestError,
-    subsonic_binding::SubsonicBinding,
-    subsonic_translate::{get_liked_request, set_liked_request},
-    utils::{GlobalParams, ParamsExtractor, require_library, subsonic_binding_for_playback},
+    service::ServiceBinding,
+    utils::{GlobalParams, ParamsExtractor, require_library, service_binding_for_library},
 };
-use ::database::library_registry::{LibraryRecordId, LibraryRegistry, ProtocolAdapter};
+use ::database::library_registry::{LibraryRecordId, LibraryRegistry};
 use uuid::Uuid;
 
 type LikedParams = (Arc<NodeContext>, Arc<LibraryPool>, Option<LibraryHandle>);
@@ -34,10 +33,12 @@ fn liked_params(all_params: &GlobalParams) -> LikedParams {
     )
 }
 
-async fn item_subsonic_binding(
+/// The binding of the streaming service library that owns `item`, if one does: the open one, or
+/// one made from its record. Such a library keeps the liked state of its tracks itself.
+async fn item_service_binding(
     node: &Arc<NodeContext>,
     item: &PlayingItemRef,
-) -> Result<Option<Arc<SubsonicBinding>>> {
+) -> Result<Option<Arc<dyn ServiceBinding>>> {
     let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
         return Ok(None);
     };
@@ -48,13 +49,10 @@ async fn item_subsonic_binding(
     let Ok(record) = registry.record(LibraryRecordId(library_id)) else {
         return Ok(None);
     };
-    if !matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
+    if record.protocol.service().is_none() {
         return Ok(None);
     }
-    if let Some(binding) = node.subsonic_binding(library_id)? {
-        return Ok(Some(binding));
-    }
-    subsonic_binding_for_playback(node, library_id)
+    service_binding_for_library(node, library_id)
         .await
         .map(Some)
 }
@@ -90,8 +88,8 @@ impl Signal for SetLikedRequest {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
-            if let Some(binding) = item_subsonic_binding(&node, item).await? {
-                return set_liked_request(&binding, request).await;
+            if let Some(binding) = item_service_binding(&node, item).await? {
+                return binding.translate_set_liked_request(request).await;
             }
             let library = match item {
                 PlayingItemRef::LibraryTrack { .. } => item_library(&pool, item).await?,
@@ -173,8 +171,8 @@ impl Signal for GetLikedRequest {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
-            if let Some(binding) = item_subsonic_binding(&node, item).await? {
-                return get_liked_request(&binding, request).await;
+            if let Some(binding) = item_service_binding(&node, item).await? {
+                return binding.translate_get_liked_request(request).await;
             }
             let library = match item {
                 PlayingItemRef::LibraryTrack { .. } => item_library(&pool, item).await?,

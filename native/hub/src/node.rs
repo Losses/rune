@@ -45,7 +45,9 @@ use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
+use crate::service::ServiceBinding;
 use crate::session::PlayerWrap;
+#[cfg(test)]
 use crate::subsonic_binding::SubsonicBinding;
 use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
@@ -120,7 +122,7 @@ struct OpenLibraryState {
 
 enum LibraryBinding {
     Local,
-    Subsonic(Arc<SubsonicBinding>),
+    Service(Arc<dyn ServiceBinding>),
     RemotePeer {
         fingerprint: String,
         reconnect: Option<ReconnectTask>,
@@ -918,9 +920,9 @@ impl NodeContext {
                 link: self.renderer_link()?,
             },
             UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Subsonic(binding),
+                catalog: LibraryBinding::Service(binding),
                 ..
-            }) => OpenLibrary::Subsonic(Arc::clone(binding)),
+            }) => OpenLibrary::Service(Arc::clone(binding)),
             UiLibrary::Closed => OpenLibrary::Closed,
         })
     }
@@ -940,13 +942,11 @@ impl NodeContext {
                 reconnecting: reconnect.as_ref().map(|task| task.alias.clone()),
             },
             UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Subsonic(binding),
+                catalog: LibraryBinding::Service(binding),
                 ..
-            }) if binding.play_on_this_device => CurrentPlayer::Local,
-            UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Subsonic(binding),
-                ..
-            }) => CurrentPlayer::SubsonicJukebox(Arc::clone(binding)),
+            }) => Arc::clone(binding)
+                .own_player()
+                .map_or(CurrentPlayer::Local, CurrentPlayer::ServicePlayer),
             _ => match renderer_link {
                 Some(link) => CurrentPlayer::RunePeer {
                     link: Some(link),
@@ -1064,12 +1064,12 @@ impl NodeContext {
         let leaving_local = matches!(
             (&previous, &current),
             (CurrentPlayer::Local, CurrentPlayer::RunePeer { .. })
-                | (CurrentPlayer::Local, CurrentPlayer::SubsonicJukebox(_))
+                | (CurrentPlayer::Local, CurrentPlayer::ServicePlayer(_))
         );
         let returning_local = matches!(
             (&previous, &current),
             (CurrentPlayer::RunePeer { .. }, CurrentPlayer::Local)
-                | (CurrentPlayer::SubsonicJukebox(_), CurrentPlayer::Local)
+                | (CurrentPlayer::ServicePlayer(_), CurrentPlayer::Local)
         );
         let renderer_lost = matches!(
             (&previous, &current),
@@ -1142,53 +1142,76 @@ impl NodeContext {
             .await
     }
 
-    pub(crate) async fn set_open_subsonic_catalog(
+    pub(crate) async fn set_open_service_catalog(
         self: &Arc<Self>,
         record_id: Option<LibraryRecordId>,
-        binding: Arc<SubsonicBinding>,
+        binding: Arc<dyn ServiceBinding>,
     ) -> Result<u64> {
-        let mut feed_changes = binding.subscribe_feed_link_changes();
-        let library_id = binding.library_id;
+        let input_changes = Arc::clone(&binding)
+            .own_player()
+            .map(|player| player.visualizer_input_changes());
+        let library_id = binding.library_id();
         let generation = self
             .set_open_catalog(
                 record_id,
                 Some(library_id),
-                LibraryBinding::Subsonic(binding),
+                LibraryBinding::Service(binding),
             )
             .await?;
-        // The visualizer inputs are published only from the current player. A feed that
-        // drops or returns publishes them again. The task ends when the binding is dropped.
-        let node = Arc::downgrade(self);
-        tokio::spawn(async move {
-            while feed_changes.changed().await.is_ok() {
-                let Some(node) = node.upgrade() else {
-                    break;
-                };
-                if let Err(error) = node.republish_current_player_inputs() {
-                    log::warn!("Could not republish the visualizer inputs: {error:#}");
+        // The visualizer inputs are published only from the current player. What the service's
+        // own player gives the visualizer may change, as when its feed drops or returns, which
+        // publishes them again. The task ends when the binding is dropped.
+        if let Some(mut input_changes) = input_changes {
+            let node = Arc::downgrade(self);
+            tokio::spawn(async move {
+                while input_changes.changed().await.is_ok() {
+                    let Some(node) = node.upgrade() else {
+                        break;
+                    };
+                    if let Err(error) = node.republish_current_player_inputs() {
+                        log::warn!("Could not republish the visualizer inputs: {error:#}");
+                    }
                 }
-            }
-        });
+            });
+        }
         Ok(generation)
     }
 
-    pub(crate) fn subsonic_binding(
+    /// The binding of the service library `library_id` when it is the UI's open library.
+    pub(crate) fn service_binding(
         &self,
         library_id: Uuid,
-    ) -> Result<Option<Arc<SubsonicBinding>>> {
+    ) -> Result<Option<Arc<dyn ServiceBinding>>> {
         let ui = self
             .ui_library
             .lock()
             .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
         Ok(match &*ui {
             UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Subsonic(binding),
+                catalog: LibraryBinding::Service(binding),
                 ..
-            }) if binding.library_id == library_id => Some(Arc::clone(binding)),
+            }) if binding.library_id() == library_id => Some(Arc::clone(binding)),
             _ => None,
         })
     }
 
+    /// The open service library, when this device plays its tracks itself.
+    pub(crate) fn open_service_played_here(&self) -> Result<Option<Arc<dyn ServiceBinding>>> {
+        let ui = self
+            .ui_library
+            .lock()
+            .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
+        Ok(match &*ui {
+            UiLibrary::Open(OpenLibraryState {
+                catalog: LibraryBinding::Service(binding),
+                ..
+            }) if Arc::clone(binding).own_player().is_none() => Some(Arc::clone(binding)),
+            _ => None,
+        })
+    }
+
+    /// The open Subsonic binding, whose own state, such as the roles its probe found, tests read.
+    #[cfg(test)]
     pub(crate) fn open_subsonic_binding(&self) -> Result<Option<Arc<SubsonicBinding>>> {
         let ui = self
             .ui_library
@@ -1196,9 +1219,9 @@ impl NodeContext {
             .map_err(|_| anyhow::anyhow!("UI library lock poisoned"))?;
         Ok(match &*ui {
             UiLibrary::Open(OpenLibraryState {
-                catalog: LibraryBinding::Subsonic(binding),
+                catalog: LibraryBinding::Service(binding),
                 ..
-            }) => Some(Arc::clone(binding)),
+            }) => Arc::clone(binding).into_any().downcast().ok(),
             _ => None,
         })
     }
@@ -1210,10 +1233,8 @@ impl NodeContext {
         catalog: LibraryBinding,
     ) -> Result<u64> {
         let previous_player = self.current_player_snapshot()?;
-        let jukebox_binding = match &catalog {
-            LibraryBinding::Subsonic(binding) if !binding.play_on_this_device => {
-                Some(Arc::clone(binding))
-            }
+        let own_player = match &catalog {
+            LibraryBinding::Service(binding) => Arc::clone(binding).own_player(),
             _ => None,
         };
         let generation = {
@@ -1232,8 +1253,8 @@ impl NodeContext {
         };
         self.transition_current_player(previous_player, self.current_player()?)
             .await?;
-        if let Some(binding) = jukebox_binding {
-            binding.start_jukebox_polling();
+        if let Some(player) = own_player {
+            player.follow();
         }
         self.publish_capabilities()?;
         Ok(generation)
@@ -1443,7 +1464,7 @@ impl NodeContext {
 
     async fn leave_remote_ui(&self) {
         let previous_player = self.current_player_snapshot().ok();
-        let (remote, subsonic) = self.ui_library.lock().map_or((false, None), |mut ui| {
+        let (remote, service) = self.ui_library.lock().map_or((false, None), |mut ui| {
             let remote = matches!(
                 &*ui,
                 UiLibrary::Open(OpenLibraryState {
@@ -1451,9 +1472,9 @@ impl NodeContext {
                     ..
                 })
             );
-            let subsonic = match &*ui {
+            let service = match &*ui {
                 UiLibrary::Open(OpenLibraryState {
-                    catalog: LibraryBinding::Subsonic(binding),
+                    catalog: LibraryBinding::Service(binding),
                     ..
                 }) => Some(Arc::clone(binding)),
                 _ => None,
@@ -1472,10 +1493,10 @@ impl NodeContext {
                     .broadcast(&RendererAttachmentChanged { renderer: None });
             }
             *ui = UiLibrary::Closed;
-            (remote, subsonic)
+            (remote, service)
         });
-        if let Some(binding) = subsonic {
-            binding.stop_jukebox_polling();
+        if let Some(binding) = service {
+            binding.close();
         }
         if !remote
             && let Some(previous_player) = previous_player

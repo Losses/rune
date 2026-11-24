@@ -1,18 +1,23 @@
 use crate::{
+    macros::RequestSlots,
     messages::{
         LibraryContentChanged, PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef,
         PlaylistItem, PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
         SetRealtimeFFTEnabledRequest,
     },
     node::ReconnectConfig,
+    service::{ServiceBinding, ServiceFuture, ServicePlayer},
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
+#[cfg(test)]
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::str;
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Semaphore, watch};
 use tokio_util::sync::CancellationToken;
@@ -20,13 +25,17 @@ use uuid::Uuid;
 use visualizer::{Visualizer, VisualizerInputs};
 
 use anyhow::Result;
+use database::credentials::Credential;
 use database::playing_item::PlayingItemMetadataSummary;
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
-    RemoteAudioSource, ServiceItem, UnavailableReason,
+    RemoteAudioSource, UnavailableReason,
 };
-use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicJukebox, SubsonicSong};
+use subsonic::{
+    SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicCredentials, SubsonicJukebox,
+    SubsonicSong,
+};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
@@ -96,6 +105,9 @@ impl SubsonicIdMap {
     }
 }
 
+/// How many fetched songs a binding keeps at most.
+const MAX_FETCHED_SONGS: usize = 2000;
+
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
@@ -106,6 +118,9 @@ pub(crate) struct SubsonicBinding {
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
+    /// Songs fetched by id, kept so that what is asked about a song right after it was fetched,
+    /// such as the cover of the track that just started, needs no second request.
+    fetched_songs: Mutex<HashMap<String, SubsonicSong>>,
     visualizer_feed: Mutex<Option<ActiveFeed>>,
     /// Counts feed link changes, so the node can republish the visualizer inputs.
     feed_link_changes: watch::Sender<u64>,
@@ -647,6 +662,7 @@ impl SubsonicBinding {
             jukebox_poll: Mutex::new(None),
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
+            fetched_songs: Mutex::new(HashMap::new()),
             visualizer_feed: Mutex::new(None),
             feed_link_changes: watch::channel(0).0,
             visualizer,
@@ -734,31 +750,6 @@ impl SubsonicBinding {
             && let Some(active) = feed.take()
         {
             active.cancel.cancel();
-        }
-    }
-
-    /// Wakes once for every change of what the visualizer can use from this jukebox.
-    pub(crate) fn subscribe_feed_link_changes(&self) -> watch::Receiver<u64> {
-        self.feed_link_changes.subscribe()
-    }
-
-    /// What the visualizer can use from this jukebox right now.
-    pub(crate) fn visualizer_inputs(&self) -> VisualizerInputs {
-        if !self.probe.supports_rune_visualizer_feed() {
-            return VisualizerInputs::None;
-        }
-        let lost = self.visualizer_feed.lock().is_ok_and(|feed| {
-            feed.as_ref().is_some_and(|active| {
-                active
-                    .link
-                    .lock()
-                    .map_or(true, |link| *link == FeedLink::Lost)
-            })
-        });
-        if lost {
-            VisualizerInputs::None
-        } else {
-            VisualizerInputs::Full
         }
     }
 
@@ -878,85 +869,6 @@ impl SubsonicBinding {
         }
     }
 
-    pub(crate) async fn item_metadata(
-        &self,
-        library_id: Uuid,
-        track_id: &str,
-        with_cover: bool,
-    ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-        let (summary, cover_id) = self.item_summary(library_id, track_id).await?;
-        let cover = if with_cover {
-            self.cover_path(cover_id.as_deref()).await
-        } else {
-            None
-        };
-        Ok((summary, cover))
-    }
-
-    /// A track's summary and the ID of its cover.
-    pub(crate) async fn item_summary(
-        &self,
-        library_id: Uuid,
-        track_id: &str,
-    ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-        let song = self.song(track_id).await?;
-        let summary = PlayingItemMetadataSummary {
-            item: PlayingItem::LibraryTrack {
-                library_id,
-                track: track_id.to_owned(),
-            },
-            artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
-            album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
-            title: if song.title.is_empty() {
-                "Unknown Title".to_owned()
-            } else {
-                song.title
-            },
-            track_number: song
-                .track
-                .and_then(|number| i32::try_from(number).ok())
-                .unwrap_or_default(),
-            duration: f64::from(song.duration.unwrap_or_default()),
-        };
-        Ok((summary, song.cover_art))
-    }
-
-    pub(crate) async fn visualizer_covers(
-        &self,
-        item: &PlayingItem,
-    ) -> Result<(Option<String>, Vec<String>)> {
-        let PlayingItem::LibraryTrack { track, .. } = item else {
-            anyhow::bail!("Subsonic visualizer item is not a library track");
-        };
-        let wall_covers = RANDOM_COVERS;
-        let song = self.song(track).await?;
-        let playing = match song.cover_art.as_deref() {
-            Some(id) => {
-                self.covers
-                    .ensure_cached(Arc::clone(&self.client), id)
-                    .await?
-            }
-            None => None,
-        };
-        let albums = self.client.album_list(wall_covers as u32, 0).await?;
-        let mut wall = Vec::with_capacity(wall_covers);
-        let mut seen = HashSet::new();
-        for album in albums.into_iter().take(wall_covers) {
-            let Some(id) = album.cover_art else { continue };
-            if song.cover_art.as_ref() == Some(&id) || !seen.insert(id.clone()) {
-                continue;
-            }
-            if let Some(path) = self
-                .covers
-                .ensure_cached(Arc::clone(&self.client), &id)
-                .await?
-            {
-                wall.push(path);
-            }
-        }
-        Ok((playing, wall))
-    }
-
     async fn report_scrobble(&self, track_id: &str, time: Option<u64>, submission: bool) {
         if !self.play_on_this_device {
             return;
@@ -1020,42 +932,52 @@ impl SubsonicBinding {
         self.jukebox_snapshot().await.map(|_| ())
     }
 
-    pub(crate) async fn playback_source(
-        self: &Arc<Self>,
-        item: ServiceItem,
-    ) -> Result<RemoteAudioSource> {
+    pub(crate) async fn song(&self, track_id: &str) -> Result<SubsonicSong> {
         let song = self
             .client
-            .song(&item.track)
-            .await
-            .map_err(subsonic_playback_error)?;
-        let extension = song
-            .suffix
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "audio".to_owned());
-        let cancellation = CancellationToken::new();
-        let failure_reason = Arc::new(Mutex::new(None));
-        Ok(RemoteAudioSource {
-            request: Arc::new(SubsonicAudioRequest {
-                client: Arc::clone(&self.client),
-                track_id: item.track,
-                failure_reason: failure_reason.clone(),
-            }),
-            // The request capability owns the authenticated URL. This parse-only URL has no
-            // query, credentials, or server identity and is never requested directly.
-            url: "https://subsonic.invalid/rest/stream".to_owned(),
-            extension,
-            size: song.size.unwrap_or_default(),
-            cancellation,
-            failure_reason,
-        })
-    }
-
-    pub(crate) async fn song(&self, track_id: &str) -> Result<SubsonicSong> {
-        self.client
             .song(track_id)
             .await
-            .map_err(subsonic_playback_error)
+            .map_err(subsonic_playback_error)?;
+        let mut fetched = self
+            .fetched_songs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // The songs kept only spare the server a repeat, so a full set starts over.
+        if fetched.len() >= MAX_FETCHED_SONGS {
+            fetched.clear();
+        }
+        fetched.insert(track_id.to_owned(), song.clone());
+        Ok(song)
+    }
+
+    /// A song this binding fetched already.
+    fn known_song(&self, track_id: &str) -> Option<SubsonicSong> {
+        self.fetched_songs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(track_id)
+            .cloned()
+    }
+
+    fn song_summary(&self, track_id: &str, song: SubsonicSong) -> PlayingItemMetadataSummary {
+        PlayingItemMetadataSummary {
+            item: PlayingItem::LibraryTrack {
+                library_id: self.library_id,
+                track: track_id.to_owned(),
+            },
+            artist: song.artist.unwrap_or_else(|| "Unknown Artist".to_owned()),
+            album: song.album.unwrap_or_else(|| "Unknown Album".to_owned()),
+            title: if song.title.is_empty() {
+                "Unknown Title".to_owned()
+            } else {
+                song.title
+            },
+            track_number: song
+                .track
+                .and_then(|number| i32::try_from(number).ok())
+                .unwrap_or_default(),
+            duration: f64::from(song.duration.unwrap_or_default()),
+        }
     }
 
     pub(crate) async fn cover_path(&self, cover_id: Option<&str>) -> Option<String> {
@@ -1070,6 +992,176 @@ impl SubsonicBinding {
         self.covers
             .ensure_cached(Arc::clone(&self.client), cover_id)
             .await
+    }
+}
+
+impl ServiceBinding for SubsonicBinding {
+    fn library_id(&self) -> Uuid {
+        self.library_id
+    }
+
+    fn slots(&self) -> RequestSlots {
+        RequestSlots::subsonic(&self.probe)
+    }
+
+    fn item_metadata<'a>(
+        &'a self,
+        track: &'a str,
+        with_cover: bool,
+    ) -> ServiceFuture<'a, (PlayingItemMetadataSummary, Option<String>)> {
+        Box::pin(async move {
+            let song = self.song(track).await?;
+            let cover = if with_cover {
+                self.cover_path(song.cover_art.as_deref()).await
+            } else {
+                None
+            };
+            Ok((self.song_summary(track, song), cover))
+        })
+    }
+
+    fn cover_when_cached<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let song = match self.known_song(track) {
+                Some(song) => song,
+                None => self.song(track).await?,
+            };
+            match song.cover_art {
+                Some(cover_id) => self.cached_cover(&cover_id).await,
+                None => Ok(None),
+            }
+        })
+    }
+
+    fn visualizer_covers<'a>(
+        &'a self,
+        track: &'a str,
+    ) -> ServiceFuture<'a, (Option<String>, Vec<String>)> {
+        Box::pin(async move {
+            let wall_covers = RANDOM_COVERS;
+            let song = self.song(track).await?;
+            let playing = match song.cover_art.as_deref() {
+                Some(id) => {
+                    self.covers
+                        .ensure_cached(Arc::clone(&self.client), id)
+                        .await?
+                }
+                None => None,
+            };
+            let albums = self.client.album_list(wall_covers as u32, 0).await?;
+            let mut wall = Vec::with_capacity(wall_covers);
+            let mut seen = HashSet::new();
+            for album in albums.into_iter().take(wall_covers) {
+                let Some(id) = album.cover_art else { continue };
+                if song.cover_art.as_ref() == Some(&id) || !seen.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(path) = self
+                    .covers
+                    .ensure_cached(Arc::clone(&self.client), &id)
+                    .await?
+                {
+                    wall.push(path);
+                }
+            }
+            Ok((playing, wall))
+        })
+    }
+
+    fn playback_source<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, RemoteAudioSource> {
+        Box::pin(async move {
+            let song = self
+                .client
+                .song(track)
+                .await
+                .map_err(subsonic_playback_error)?;
+            let extension = song
+                .suffix
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "audio".to_owned());
+            let cancellation = CancellationToken::new();
+            let failure_reason = Arc::new(Mutex::new(None));
+            Ok(RemoteAudioSource {
+                request: Arc::new(SubsonicAudioRequest {
+                    client: Arc::clone(&self.client),
+                    track_id: track.to_owned(),
+                    failure_reason: failure_reason.clone(),
+                }),
+                // The request capability owns the authenticated URL. This parse-only URL has no
+                // query, credentials, or server identity and is never requested directly.
+                url: "https://subsonic.invalid/rest/stream".to_owned(),
+                extension,
+                size: song.size.unwrap_or_default(),
+                cancellation,
+                failure_reason,
+            })
+        })
+    }
+
+    fn track_started<'a>(&'a self, track: &'a str, start_time: u64) -> BoxFuture<'a, ()> {
+        Box::pin(self.report_track_started_at(track, start_time))
+    }
+
+    fn track_played_through<'a>(&'a self, track: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(self.report_track_played(track))
+    }
+
+    fn own_player(self: Arc<Self>) -> Option<Arc<dyn ServicePlayer>> {
+        if self.play_on_this_device {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
+    fn renew_sign_in(&self, credential: &Credential) {
+        // The kept credential holds the password a sign-in was verified with.
+        let Ok(password) = str::from_utf8(credential.secret.as_bytes()) else {
+            return;
+        };
+        self.client
+            .replace_credentials(SubsonicCredentials::Password {
+                user: credential.username.clone(),
+                password: password.to_owned(),
+            });
+    }
+
+    fn close(&self) {
+        self.stop_jukebox_polling();
+    }
+
+    #[cfg(test)]
+    fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
+        self
+    }
+}
+
+impl ServicePlayer for SubsonicBinding {
+    fn visualizer_inputs(&self) -> VisualizerInputs {
+        if !self.probe.supports_rune_visualizer_feed() {
+            return VisualizerInputs::None;
+        }
+        let lost = self.visualizer_feed.lock().is_ok_and(|feed| {
+            feed.as_ref().is_some_and(|active| {
+                active
+                    .link
+                    .lock()
+                    .map_or(true, |link| *link == FeedLink::Lost)
+            })
+        });
+        if lost {
+            VisualizerInputs::None
+        } else {
+            VisualizerInputs::Full
+        }
+    }
+
+    fn visualizer_input_changes(&self) -> watch::Receiver<u64> {
+        self.feed_link_changes.subscribe()
+    }
+
+    fn follow(self: Arc<Self>) {
+        self.start_jukebox_polling();
     }
 }
 
@@ -1862,7 +1954,7 @@ mod visualizer_feed_tests {
             let (url, _, server) = server(true, declares_feed).await;
             let root = TempDir::new().unwrap();
             let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
-            let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+            let player = CurrentPlayer::ServicePlayer(binding.clone());
             assert_eq!(player.visualizer_inputs(), expected);
             binding.stop_jukebox_polling();
             server.abort();
@@ -2167,7 +2259,7 @@ mod visualizer_feed_tests {
         let (url, state, server) = server(true, true).await;
         let root = TempDir::new().unwrap();
         let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
-        let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+        let player = CurrentPlayer::ServicePlayer(binding.clone());
         binding.start_jukebox_polling();
         wait_until("the feed connection", || async {
             Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
@@ -2226,12 +2318,12 @@ mod visualizer_feed_tests {
             Arc::clone(node.visualizer()),
         )
         .await;
-        node.set_open_subsonic_catalog(None, binding.clone())
+        node.set_open_service_catalog(None, binding.clone())
             .await
             .unwrap();
         assert!(matches!(
             node.current_player().unwrap(),
-            CurrentPlayer::SubsonicJukebox(_)
+            CurrentPlayer::ServicePlayer(_)
         ));
         wait_until("the feed connection", || async {
             Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
@@ -2270,7 +2362,7 @@ mod visualizer_feed_tests {
         state.refuse_feed.store(true, Ordering::SeqCst);
         let root = TempDir::new().unwrap();
         let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
-        let player = CurrentPlayer::SubsonicJukebox(binding.clone());
+        let player = CurrentPlayer::ServicePlayer(binding.clone());
         binding.start_jukebox_polling();
         wait_until("inputs to leave Full after the failed connect", || async {
             Ok((player.visualizer_inputs() == VisualizerInputs::None).then_some(()))

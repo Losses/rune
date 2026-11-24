@@ -85,6 +85,7 @@ use crate::messages::*;
 use crate::request_error::ExpectedRequestError;
 use crate::request_owner::Implementation;
 use crate::server::ServerManager;
+use crate::service::ServiceBinding;
 use crate::subsonic_binding::SubsonicBinding;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
@@ -1721,7 +1722,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         user: request.username.clone(),
         password: request.password.clone(),
     };
-    let client = SubsonicClient::new(endpoint, replacement.clone(), http);
+    let client = SubsonicClient::new(endpoint, replacement, http);
     match timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
@@ -1739,18 +1740,16 @@ pub(crate) async fn replace_subsonic_credential_on_node(
     }
     {
         let _commit = node.subsonic_credential_commit.lock().await;
+        let verified = Credential {
+            username: request.username.clone(),
+            secret: Secret::new(request.password.as_bytes().to_vec()),
+        };
         node.credentials
-            .replace(
-                *credential,
-                &Credential {
-                    username: request.username.clone(),
-                    secret: Secret::new(request.password.as_bytes().to_vec()),
-                },
-            )
+            .replace(*credential, &verified)
             .await
             .map_err(|_| credential_failure(Kind::Storage))?;
-        if let Some(binding) = node.subsonic_binding(record_id.0)? {
-            binding.client.replace_credentials(replacement);
+        if let Some(binding) = node.service_binding(record_id.0)? {
+            binding.renew_sign_in(&verified);
         }
     }
     if let Err(error) = publish_library_records_changed(node).await {
@@ -2094,7 +2093,7 @@ async fn open_subsonic_record(
     let params = Arc::new(params);
     node.attach_ui(&params).await;
     let generation = node
-        .set_open_subsonic_catalog(Some(record_id), binding)
+        .set_open_service_catalog(Some(record_id), binding)
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
     drop(commit);
@@ -2102,28 +2101,44 @@ async fn open_subsonic_record(
     Ok(generation)
 }
 
-pub(crate) async fn subsonic_binding_for_playback(
+/// The binding of the service library `library_id`: the open one, or one made from its record
+/// for this use.
+pub(crate) async fn service_binding_for_library(
     node: &NodeContext,
     library_id: Uuid,
-) -> Result<Arc<SubsonicBinding>> {
-    if let Some(binding) = node.subsonic_binding(library_id)? {
+) -> Result<Arc<dyn ServiceBinding>> {
+    if let Some(binding) = node.service_binding(library_id)? {
         return Ok(binding);
     }
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     let record = registry
         .record(LibraryRecordId(library_id))
         .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
-    let ProtocolAdapter::SubsonicTranslate {
-        endpoint,
-        credential,
-        mode,
-    } = &record.protocol
-    else {
-        return Err(Error::new(RemoteAudioError::LibraryUnavailable));
-    };
+    match &record.protocol {
+        ProtocolAdapter::SubsonicTranslate {
+            endpoint,
+            credential,
+            mode,
+        } => Ok(
+            subsonic_binding_from_record(node, library_id, endpoint, *credential, *mode).await?,
+        ),
+        ProtocolAdapter::Native | ProtocolAdapter::RuneForward { .. } => {
+            Err(Error::new(RemoteAudioError::LibraryUnavailable))
+        }
+    }
+}
+
+/// A new binding for the Subsonic library `library_id`, made from its record's fields.
+async fn subsonic_binding_from_record(
+    node: &NodeContext,
+    library_id: Uuid,
+    endpoint: &str,
+    credential: CredentialRef,
+    mode: SubsonicOpenMode,
+) -> Result<Arc<SubsonicBinding>> {
     let credential = node
         .credentials
-        .get(*credential)
+        .get(credential)
         .await
         .map_err(|_| Error::new(RemoteAudioError::CredentialsRejected))?;
     let password = String::from_utf8(credential.secret.as_bytes().to_vec())
@@ -2163,7 +2178,7 @@ pub(crate) async fn subsonic_binding_for_playback(
         probe,
         Path::new(&*node.config_path).to_path_buf(),
         library_id,
-        *mode == SubsonicOpenMode::PlayOnThisDevice,
+        mode == SubsonicOpenMode::PlayOnThisDevice,
         Arc::clone(&node.gui_broadcaster),
         Arc::clone(node.visualizer()),
     )))
@@ -2173,11 +2188,12 @@ pub(crate) async fn playback_implementation_for_library(
     node: &NodeContext,
     library: &LibraryHandle,
 ) -> Result<Implementation> {
-    match &library.descriptor.protocol {
-        ProtocolAdapter::SubsonicTranslate { .. } => Ok(Implementation::Subsonic(
-            subsonic_binding_for_playback(node, library.library_id).await?,
-        )),
-        _ => Ok(Implementation::Local),
+    if library.descriptor.protocol.service().is_some() {
+        Ok(Implementation::Service(
+            service_binding_for_library(node, library.library_id).await?,
+        ))
+    } else {
+        Ok(Implementation::Local)
     }
 }
 
@@ -2185,15 +2201,15 @@ pub(crate) async fn playback_implementation_for_item(
     node: &NodeContext,
     library_id: Uuid,
 ) -> Result<Implementation> {
-    if let Some(binding) = node.subsonic_binding(library_id)? {
-        return Ok(Implementation::Subsonic(binding));
+    if let Some(binding) = node.service_binding(library_id)? {
+        return Ok(Implementation::Service(binding));
     }
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     if let Ok(record) = registry.record(LibraryRecordId(library_id))
-        && matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. })
+        && record.protocol.service().is_some()
     {
-        return Ok(Implementation::Subsonic(
-            subsonic_binding_for_playback(node, library_id).await?,
+        return Ok(Implementation::Service(
+            service_binding_for_library(node, library_id).await?,
         ));
     }
     let library = node.library_pool.acquire(library_id).await?;

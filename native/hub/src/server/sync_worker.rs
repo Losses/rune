@@ -11,7 +11,7 @@ use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
 #[cfg(test)]
 use crate::utils::GlobalParams;
-use crate::utils::subsonic_binding_for_playback;
+use crate::utils::service_binding_for_library;
 use crate::{library_pool::LibraryHandle, node::NodeContext};
 use anyhow::Error;
 use anyhow::{Context, Result, ensure};
@@ -2555,7 +2555,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
                 .record(LibraryRecordId(library_id))
                 .or_else(|_| registry.catalog(library_id))
                 .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
-            if matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
+            if record.protocol.service().is_some() {
                 Ok(LibraryTrackKey::Service(track))
             } else {
                 Ok(LibraryTrackKey::Rune(
@@ -2634,8 +2634,8 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
-            let binding = subsonic_binding_for_playback(&owner, item.library_id).await?;
-            binding.playback_source(item).await
+            let binding = service_binding_for_library(&owner, item.library_id).await?;
+            binding.playback_source(&item.track).await
         })
     }
 }
