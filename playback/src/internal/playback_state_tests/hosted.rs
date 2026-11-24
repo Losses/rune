@@ -1483,13 +1483,21 @@ async fn a_host_that_loses_its_track_gets_it_again_once() -> Result<()> {
         let hosted = f.hosted("1440");
         start_first(f, std::slice::from_ref(&hosted), None).await?;
         f.send(PlayerCommand::Pause)?;
-        expect_paused(&mut f.events, &hosted).await?;
+        // The track may have played for a moment before the pause.
+        let paused_at = expect_paused(&mut f.events, &hosted).await?;
         assert_eq!(f.host.take(1).await?, vec![on(2, HostAction::Stop)]);
 
         f.report(lost(2))?;
         assert_eq!(
             f.host.take(1).await?,
-            vec![hand_over(HOST, &["1440"], 3, 0, 1.0, false)]
+            vec![hand_over(
+                HOST,
+                &["1440"],
+                3,
+                offset_ms(paused_at),
+                1.0,
+                false
+            )]
         );
         f.report(lost(3))?;
         assert_eq!(
