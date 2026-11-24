@@ -669,6 +669,51 @@ async fn an_entry_named_by_catalog_id_is_not_listed_beside_a_later_library_copy(
 }
 
 #[tokio::test]
+async fn an_entry_named_by_catalog_id_is_not_listed_beside_a_library_copy_found_by_lookup() {
+    let song = |id: &str, catalog: Option<&str>| {
+        let mut params = json!({"id": id, "kind": "song"});
+        if let Some(catalog) = catalog {
+            params["catalogId"] = json!(catalog);
+        }
+        json!({
+            "id": id,
+            "type": "library-songs",
+            "attributes": {"name": "Twin", "playParams": params}
+        })
+    };
+    let mut copy = song("i.twin", None);
+    copy["relationships"] = json!({"catalog": {"data": [{"id": "1001", "type": "songs"}]}});
+    let fixtures = FixtureServer::start().await;
+    fixtures
+        .on_target(
+            "GET",
+            LIBRARY_PAGE_1,
+            Reply::json(json!({"data": [song("1001", Some("1001")), song("i.twin", None)]})),
+        )
+        .on_target(
+            "GET",
+            "/v1/me/library/songs?ids=i.twin&include=catalog",
+            Reply::json(json!({"data": [copy]})),
+        )
+        .on(
+            "GET",
+            "/v1/me/library/playlists",
+            fixture("library_playlist_favorites.json"),
+        )
+        .on(
+            "GET",
+            "/v1/me/library/playlists/p.favorites/tracks",
+            fixture("dedup_favorites_tracks.json"),
+        );
+    let library = signed_in(&fixtures);
+
+    let songs = song_keys(&library).await;
+
+    assert!(songs.contains(&"i.twin".to_owned()), "{songs:?}");
+    assert!(!songs.contains(&"catalog:1001".to_owned()), "{songs:?}");
+}
+
+#[tokio::test]
 async fn the_song_list_is_kept_for_ten_minutes_then_served_while_it_is_rebuilt() {
     let fixtures = FixtureServer::start().await;
     serve_library(&fixtures);

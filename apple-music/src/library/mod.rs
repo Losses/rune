@@ -750,8 +750,6 @@ impl AppleLibrary {
         )
         .await?;
 
-        list.extend(catalog_named);
-
         // Owned ids: closures taking borrowed items here fail the compiler's Send check.
         let joining: Vec<String> = playlists
             .into_iter()
@@ -794,7 +792,10 @@ impl AppleLibrary {
             return Err(Failure::Apple(error));
         }
 
-        let catalog_copies = extra.iter().any(|song| !song.key.is_library());
+        let catalog_copies = extra
+            .iter()
+            .chain(&catalog_named)
+            .any(|song| !song.key.is_library());
         if catalog_copies && !unresolved.is_empty() {
             // Best effort: without these ids a catalog copy of such a song is listed too.
             if let Ok(songs) = self
@@ -817,6 +818,8 @@ impl AppleLibrary {
                 list.add_library_twin(catalog_id, &song.key);
             }
         }
+        // Entries named by their catalog id are listed once the twins are all known.
+        list.extend(catalog_named);
         list.extend(extra);
         Ok(list)
     }
