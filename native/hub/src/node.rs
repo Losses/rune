@@ -1074,16 +1074,27 @@ impl NodeContext {
         } else {
             None
         };
-        let leaving = {
+        let switched = || -> Result<_> {
             // A departure admits a new tenure under this lock, so none can be admitted between
             // the switch and taking the tenure it leaves. That tenure ends at the switch, so a
             // request arriving from now on is refused even if the departure's task starts late.
             let tenure = lock_tenures(&self.local_player_tenure)?;
             self.refresh_current_player(current)?;
-            leaving_local.then(|| {
+            Ok(leaving_local.then(|| {
                 tenure.close();
                 Arc::clone(&tenure)
-            })
+            }))
+        };
+        let leaving = match switched() {
+            Ok(leaving) => leaving,
+            Err(error) => {
+                // The session stays hidden only until it is shown again, which a failed switch
+                // never gets to.
+                if hidden_session.is_some() {
+                    self.local_session_hidden.fetch_sub(1, Ordering::AcqRel);
+                }
+                return Err(error);
+            }
         };
         if let Some(ending) = leaving {
             // The departure runs on its own task, so its pause still follows when the request
