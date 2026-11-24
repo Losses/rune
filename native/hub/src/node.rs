@@ -237,10 +237,9 @@ pub struct NodeContext {
     /// requests to the local player that are still running. The ended tenure stays here until
     /// the local player's departure has queued its pause.
     local_player_tenure: Arc<StdMutex<Arc<LocalPlayerTenure>>>,
-    /// How many times this device's session is yet to be shown again in the UI since its player
-    /// became current again. Its event loop shows it once it has handled what the player reported
-    /// before, and the session's events stay out of the UI until then.
-    pub(crate) local_session_hidden: Arc<AtomicUsize>,
+    /// How many `HiddenLocalSession`s are alive. The session's events stay out of the UI while
+    /// any is.
+    local_session_hidden: Arc<AtomicUsize>,
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
@@ -273,6 +272,24 @@ struct NodeBroadcaster {
     local_session_hidden: Arc<AtomicUsize>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
+}
+
+/// Keeps this device's session out of the UI for as long as it lives. The session's event loop
+/// drops it once it has caught up with its player. A switch that fails drops it at once, and so
+/// does a request to show the session that no event loop is left to take.
+pub(crate) struct HiddenLocalSession(Arc<AtomicUsize>);
+
+impl HiddenLocalSession {
+    fn new(hidden: &Arc<AtomicUsize>) -> Self {
+        hidden.fetch_add(1, Ordering::AcqRel);
+        Self(Arc::clone(hidden))
+    }
+}
+
+impl Drop for HiddenLocalSession {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// A report a renderer sent over one link, for a handoff that waits for that renderer to start
@@ -1065,36 +1082,20 @@ impl NodeContext {
                 }
             )
         );
-        // This device's session stays out of the UI until its event loop has handled what the
-        // player reported before, so that no status from before the pause reaches the UI.
-        let hidden_session = if returning_local {
-            let session = self.session()?;
-            self.local_session_hidden.fetch_add(1, Ordering::AcqRel);
-            Some(session)
-        } else {
-            None
-        };
-        let switched = || -> Result<_> {
+        // From the switch until its event loop has handled what the player reported before, this
+        // device's session stays out of the UI, so that no status from before the pause reaches
+        // it. A failed switch drops this and leaves the session as it was.
+        let hidden = returning_local.then(|| HiddenLocalSession::new(&self.local_session_hidden));
+        let leaving = {
             // A departure admits a new tenure under this lock, so none can be admitted between
             // the switch and taking the tenure it leaves. That tenure ends at the switch, so a
             // request arriving from now on is refused even if the departure's task starts late.
             let tenure = lock_tenures(&self.local_player_tenure)?;
             self.refresh_current_player(current)?;
-            Ok(leaving_local.then(|| {
+            leaving_local.then(|| {
                 tenure.close();
                 Arc::clone(&tenure)
-            }))
-        };
-        let leaving = match switched() {
-            Ok(leaving) => leaving,
-            Err(error) => {
-                // The session stays hidden only until it is shown again, which a failed switch
-                // never gets to.
-                if hidden_session.is_some() {
-                    self.local_session_hidden.fetch_sub(1, Ordering::AcqRel);
-                }
-                return Err(error);
-            }
+            })
         };
         if let Some(ending) = leaving {
             // The departure runs on its own task, so its pause still follows when the request
@@ -1106,8 +1107,8 @@ impl NodeContext {
             ))
             .await
             .context("Local player departure stopped")??;
-        } else if let Some(session) = hidden_session {
-            session.show_again().await;
+        } else if let Some(hidden) = hidden {
+            self.session()?.show_again(hidden).await;
         } else if renderer_lost {
             self.session()?.reemit_current().await?;
         }
