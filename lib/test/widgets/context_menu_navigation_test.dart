@@ -5,11 +5,15 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../main.dart' show cafeMode;
+import '../../providers/library_open_state.dart';
+import '../../providers/library_registry.dart';
 import '../../providers/linux_custom_window_controls.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/router_path.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/navigation/utils/navigation_backward.dart';
 import '../../utils/router/history.dart';
 import '../../utils/router/modal_route_wrapper.dart';
@@ -54,6 +58,29 @@ var _navigate = $push;
 /// theirs. Null when it is there at once.
 Completer<void>? _loading;
 
+/// Whether the songs open the app's own track menu, with its own Go to items,
+/// instead of the menu above.
+var _trackMenu = false;
+
+/// The song the app's track menu is opened for, on the album and by the
+/// artist the menu above goes to.
+const _song = FetchParsedMediaFileResponse(
+  file: MediaFile(
+    id: 12,
+    libraryId: 'library-1',
+    track: 'track-12',
+    path: 'Nine/Song.flac',
+    artist: 'EGOIST',
+    album: 'Nine',
+    title: 'Song',
+    duration: 180,
+    audioAvailability: AudioAvailability.local,
+    audioOrigin: AudioOrigin.host,
+  ),
+  artists: [Artist(id: 7, name: 'EGOIST')],
+  album: Album(id: 9, name: 'Nine'),
+);
+
 /// A song's row as the track lists build it: it owns its menu controller,
 /// which it lets go of when it goes, and opens the song's menu on a secondary
 /// tap with Go to Album and Go to Artist.
@@ -76,7 +103,23 @@ class _RowState extends State<_Row> {
     _controller.dispose();
   }
 
-  Future<void> _open(Offset _) async {
+  Future<void> _open(Offset position) async {
+    if (_trackMenu) {
+      openTrackItemContextMenu(
+        position,
+        context,
+        _attachKey,
+        _controller,
+        null,
+        _song.file.id,
+        null,
+        null,
+        loadPlaylists: () async => const [],
+        loadMixes: () async => const [],
+        loadMediaFile: (_) async => _song,
+      );
+      return;
+    }
     await _loading?.future;
     if (!mounted) return;
     _controller.showFlyout<void>(
@@ -190,12 +233,21 @@ Future<void> _pumpApp(WidgetTester tester) async {
     _close = _Close.item;
     _navigate = $push;
     _loading = null;
+    _trackMenu = false;
   });
   cafeMode = false;
   _routes.routes.clear();
   $router.update('/library', null);
   $history.reset();
   final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+  // No library is open, which the track menu reads.
+  final registry = LibraryRegistryProvider(
+    loadRecords: () async =>
+        const ListLibraryRecordsResponse(records: [], invalidRecords: []),
+  );
+  addTearDown(registry.dispose);
+  final library = LibraryOpenStateProvider(null, registry);
+  addTearDown(library.dispose);
   await tester.pumpWidget(
     MultiProvider(
       providers: [
@@ -204,6 +256,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
           create: (_) => ResponsiveProvider(sizes, () async => null),
         ),
         ChangeNotifierProvider<RouterPathProvider>.value(value: $router),
+        ChangeNotifierProvider<LibraryOpenStateProvider>.value(value: library),
         ChangeNotifierProvider<LinuxCustomWindowControlsProvider>.value(
           value: LinuxCustomWindowControlsProvider(),
         ),
@@ -291,6 +344,13 @@ class _Expected {
   void opened(String name) {
     pages.add((name, _shownPage(tester)));
     check();
+  }
+
+  /// The page shown is the one [name] just opened in place of the page that
+  /// was shown.
+  void replaced(String name) {
+    pages.removeLast();
+    opened(name);
   }
 
   /// The page shown is the one under the page that was just closed, as it
@@ -616,6 +676,21 @@ void main() {
     expect(_names(), ['/library', _album]);
     expect(_routes.names, ['/library', _album]);
     expect(_shownPage(tester), same(album));
+  });
+
+  testWidgets("the track menu's Go to from a page opened from search replaces "
+      'it, and back returns to search as it was', (tester) async {
+    final expected = await _start(tester);
+    _trackMenu = true;
+
+    await _goFromMenu(tester, 'Go to Album');
+    expected.opened(_album);
+    await _goFromMenu(tester, 'Go to Artist');
+    expected.replaced(_artist);
+
+    navigateBackwardWithPop();
+    await tester.pumpAndSettle();
+    expected.closed();
   });
 
   testWidgets('a dialog takes its own entry out of the history when it goes, '
