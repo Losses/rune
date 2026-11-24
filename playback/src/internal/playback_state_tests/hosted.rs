@@ -2240,13 +2240,16 @@ async fn shuffle_keeps_the_track_the_host_holds_next_where_next_goes() -> Result
         // The shuffled order may bring another track next, which the host gets in place.
         f.send(PlayerCommand::SetPlaybackMode(PlaybackMode::Shuffle))?;
         f.settle().await?;
+        // A next track that changed comes with an `add`, once its lookup answered, which may be
+        // before or after the drain.
         let mut batches = f.host.take(0).await?;
-        if batches.iter().any(|batch| {
-            batch
-                .actions
-                .iter()
-                .any(|action| matches!(action, HostAction::Remove { .. }))
-        }) {
+        let has = |batches: &[HostCommand], wanted: fn(&HostAction) -> bool| {
+            batches.iter().any(|batch| batch.actions.iter().any(wanted))
+        };
+        if has(&batches, |action| {
+            matches!(action, HostAction::Remove { .. })
+        }) && !has(&batches, |action| matches!(action, HostAction::Add { .. }))
+        {
             batches.extend(f.host.take(1).await?);
         }
         assert!(
