@@ -312,12 +312,21 @@ fn bulk_assessment(bytes: u64, base: BaseSize, cursor: ExportCursorStatus) -> Bu
         BulkAssessment::Bulk(BulkReason::GzipLimitExceeded)
     } else if let BaseSize::Present {
         content_gzip_bytes,
-        has_candidates: true,
+        manifest_gzip_bytes,
+        has_candidates,
         ..
     } = base
-        && bytes.saturating_mul(4) > content_gzip_bytes
     {
-        BulkAssessment::Bulk(BulkReason::BaseFractionExceeded)
+        let threshold = if has_candidates {
+            content_gzip_bytes
+        } else {
+            manifest_gzip_bytes
+        };
+        if bytes.saturating_mul(4) > threshold {
+            BulkAssessment::Bulk(BulkReason::BaseFractionExceeded)
+        } else {
+            BulkAssessment::Incremental
+        }
     } else {
         BulkAssessment::Incremental
     }

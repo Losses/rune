@@ -5418,74 +5418,64 @@ async fn pull_joins_a_share_whose_contentless_base_keeps_its_tail() -> Result<()
     Ok(())
 }
 
-// Note: This test is temporarily disabled as it requires deeper investigation into
-// base cutting thresholds. The core logic is implemented and other tests pass.
-// Regression test for the rule: an empty base only cuts when the tail carries catalog
-// content. Share starts empty (base manifest only), then a library is added. The tail
-// carries candidates, so the keeper cuts a new base containing the library. A joining
-// device then reads the library from that new base rather than replaying segments.
-// #[tokio::test]
-// async fn pull_joins_with_empty_base_then_adds_library_through_new_base() -> Result<()> {
-//     let namespace = Uuid::new_v4();
-//     let store = Arc::new(MemoryObjectStore::default());
-//     let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-//     let capabilities = memory_store_capabilities(true);
-//
-//     // First push: empty library, cuts a base with manifest only (no candidates)
-//     let head = device
-//         .sync_store
-//         .push_share(store.clone(), namespace, cache_path(), capabilities)
-//         .await?
-//         .context("the first push pass published no head")?;
-//     ensure!(head.bases.len() == 1, "the first push did not cut a base");
-//
-//     // Add multiple playlists to ensure the tail is large enough to exceed the base manifest
-//     // A typical empty base manifest is around 1KB, so we need tail > manifest/4
-//     // Add 500 playlists to ensure the tail is sufficiently large (> 4KB)
-//     for i in 0..500 {
-//         add_playlist(
-//             &device,
-//             8888 + i,
-//             &format!("added library {} - padding to make it large enough", i),
-//         )
-//         .await?;
-//     }
-//
-//     // Second push: tail has candidates, should cut a new base
-//     let head = device
-//         .sync_store
-//         .push_share(store.clone(), namespace, cache_path(), capabilities)
-//         .await?
-//         .context("the push with library published no head")?;
-//     ensure!(
-//         head.bases.len() == 2,
-//         "expected 2 bases after adding library (original empty + new with content), got {}",
-//         head.bases.len()
-//     );
-//
-//     // A joining device should read the playlists from the new base
-//     let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
-//     joining
-//         .sync_store
-//         .pull_share(store.clone(), namespace, cache_path(), capabilities)
-//         .await
-//         .context("joining the share failed")?;
-//
-//     // Verify we can read all the added playlists from the new base
-//     let playlist = joining
-//         .sync_store
-//         .get(&ObjectKey {
-//             collection: Collection::Playlists,
-//             id: Uuid::from_u128(8888),
-//         })
-//         .await?
-//         .context("the joined device is missing the playlist 8888")?;
-//
-//     ensure!(
-//         playlist.value == support::playlist("added library 0"),
-//         "the joined device read a different playlist: {:?}",
-//         playlist.value
-//     );
-//
-//     Ok(())
-// }
+/// Regression test for the rule: an empty base only cuts when the tail carries catalog
+/// content. Share starts empty (base manifest only), then a library is added. The tail
+/// carries candidates, so the keeper cuts a new base containing the library. A joining
+/// device then reads the library from that new base rather than replaying segments.
+#[tokio::test]
+async fn pull_joins_with_empty_base_then_adds_library_through_new_base() -> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let device = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let capabilities = memory_store_capabilities(true);
+
+    // First push: empty library, cuts a base with manifest only (no candidates)
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the first push pass published no head")?;
+    ensure!(head.bases.len() == 1, "the first push did not cut a base");
+
+    // Add 50 playlists to ensure the tail is large enough to exceed manifest/4
+    for i in 0..50 {
+        add_playlist(&device, 8888 + i, &format!("added library {}", i)).await?;
+    }
+
+    // Second push: tail has candidates, should cut a new base containing the library
+    let head = device
+        .sync_store
+        .push_share(store.clone(), namespace, cache_path(), capabilities)
+        .await?
+        .context("the push with library published no head")?;
+    ensure!(
+        head.bases.len() == 2,
+        "expected 2 bases after adding library (original empty + new with content), got {}",
+        head.bases.len()
+    );
+
+    // A joining device should read the playlist from the new base
+    let joining = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    joining
+        .sync_store
+        .pull_share(store.clone(), namespace, cache_path(), capabilities)
+        .await
+        .context("joining the share failed")?;
+
+    let playlist = joining
+        .sync_store
+        .get(&ObjectKey {
+            collection: Collection::Playlists,
+            id: Uuid::from_u128(8888),
+        })
+        .await?
+        .context("the joined device is missing the playlist")?;
+
+    ensure!(
+        playlist.value == support::playlist("added library 0"),
+        "the joined device read a different playlist: {:?}",
+        playlist.value
+    );
+
+    Ok(())
+}
