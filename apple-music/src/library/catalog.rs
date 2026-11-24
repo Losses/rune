@@ -240,6 +240,18 @@ fn about_the_sign_in(failure: &Failure) -> bool {
     }
 }
 
+/// What a failure of a search part is logged as. Apple may repeat the search term in the
+/// detail of an error, so only its status is given.
+fn failure_summary(failure: &Failure) -> String {
+    match failure.root() {
+        Failure::Apple(Error::Api { status, .. } | Error::Server { status, .. }) => {
+            format!("with status {status}")
+        }
+        Failure::Apple(Error::NotFound(_)) => "as not found".to_owned(),
+        failure => format!("as: {failure}"),
+    }
+}
+
 /// What a part of a search gave: what it found, or why it found nothing.
 enum Part<T> {
     Found(T),
@@ -465,7 +477,7 @@ impl AppleLibrary {
         .await;
         let elapsed = started.elapsed();
         let why = |part: Option<&Failure>| match part {
-            Some(failure) => format!("it failed: {failure}"),
+            Some(failure) => format!("it failed {}", failure_summary(failure)),
             None => format!("it did not answer within {:?}", self.search_wait),
         };
         match (Part::of(library), Part::of(catalog)) {
@@ -616,7 +628,7 @@ impl AppleLibrary {
             }
             let read = self.client.catalog_albums_with_tracks(&wanted).await?;
             let marks = self.library_marks(None);
-            let mut found: HashMap<String, CatalogAlbumDetail> = read
+            let found: HashMap<String, CatalogAlbumDetail> = read
                 .into_iter()
                 .map(|entry| {
                     let relationships = entry.relationships.unwrap_or_default();
@@ -638,7 +650,10 @@ impl AppleLibrary {
                     (entry.id, detail)
                 })
                 .collect();
-            Ok(wanted.iter().filter_map(|id| found.remove(id)).collect())
+            Ok(wanted
+                .iter()
+                .filter_map(|id| found.get(id).cloned())
+                .collect())
         })
         .await
     }
@@ -832,6 +847,7 @@ impl AppleLibrary {
                 mark_releases(&marks, releases);
             }
             mark_songs(&marks, &mut page.top_songs);
+            page.artist.in_library = marks.artist(&page.artist.name);
             Ok(page)
         })
         .await
@@ -1029,7 +1045,7 @@ fn album_detail(id: &str, album: &models::Album, tracks: &[Song]) -> CatalogAlbu
         .filter_map(map::catalog_track)
         .map(|mut song| {
             song.album_id = Some(id.to_owned());
-            if song.artist == album.artist {
+            if song.artist_id.is_none() && song.artist == album.artist {
                 song.artist_id = album.artist_id.as_ref().map(|id| id.as_str().to_owned());
             }
             if song.artwork.is_none() {
@@ -1044,4 +1060,29 @@ fn album_detail(id: &str, album: &models::Album, tracks: &[Song]) -> CatalogAlbu
 /// The catalog id of a catalog song.
 fn catalog_song_id(track: &Track) -> Option<&str> {
     track.key.catalog_id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_song_keeps_the_artist_id_it_came_with() {
+        let song: Song = serde_json::from_value(json!({
+            "id": "1", "type": "songs",
+            "attributes": {"name": "Track", "artistName": "Artist"},
+            "relationships": {"artists": {"data": [{"id": "9", "type": "artists"}]}}
+        }))
+        .unwrap();
+        let album: models::Album = serde_json::from_value(json!({
+            "id": "2", "type": "albums",
+            "attributes": {"name": "Album", "artistName": "Artist"}
+        }))
+        .unwrap();
+
+        let detail = album_detail("2", &album, &[song]);
+
+        assert_eq!(detail.tracks[0].artist_id.as_deref(), Some("9"));
+    }
 }

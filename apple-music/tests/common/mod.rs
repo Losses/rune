@@ -63,6 +63,14 @@ impl Reply {
         }
     }
 
+    pub fn json_status(status: u16, body: serde_json::Value) -> Self {
+        Self {
+            status,
+            body: body.to_string(),
+            headers: Vec::new(),
+        }
+    }
+
     pub fn header(mut self, name: &str, value: &str) -> Self {
         self.headers.push((name.to_owned(), value.to_owned()));
         self

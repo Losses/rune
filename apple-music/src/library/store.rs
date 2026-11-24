@@ -165,12 +165,13 @@ impl ListStore {
     /// Deletes every saved list and drops the saves not written yet. It waits for a write
     /// being made, so nothing is left of it either.
     pub fn clear(&self) {
+        // The folder first, so a save under the new generation is written after the deletion.
+        let _io = lock(&self.0.io);
         {
             let mut state = lock(&self.0.state);
             state.generation += 1;
             state.pending.clear();
         }
-        let _io = lock(&self.0.io);
         match fs::remove_dir_all(&self.0.dir) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}

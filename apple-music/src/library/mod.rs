@@ -9,7 +9,7 @@
 //! songs as `catalog:<id>`. Library albums, artists and playlists keep Apple's library ids.
 //!
 //! The catalog sits beside the library: [`AppleLibrary::search`] merges both, catalog
-//! albums, artists and playlists open by [`ItemId::Catalog`] ids.
+//! albums, artists and playlists open by [`ItemId::catalog`] ids.
 //!
 //! The song list, the album list and the recommendations are kept for a while, served at
 //! once while they are refreshed in the background once old, and, with a [`ListStore`],
@@ -948,8 +948,9 @@ impl AppleLibrary {
                 Track { in_library, ..song }
             });
             // An answer may carry songs that were not asked for.
+            let asked: HashSet<&TrackKey> = keys.iter().collect();
             for song in library.iter().filter_map(map::library_track).chain(catalog) {
-                if keys.contains(&song.key) {
+                if asked.contains(&song.key) {
                     found.entry(song.key.clone()).or_insert(song);
                 }
             }

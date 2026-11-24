@@ -248,7 +248,7 @@ pub(super) fn library_artist_item(entry: &LibraryArtist) -> ArtistItem {
     ArtistItem {
         id: ItemId::library_apple(artist.id),
         name: artist.name,
-        artwork: None,
+        artwork: artist.artwork,
         in_library: true,
     }
 }

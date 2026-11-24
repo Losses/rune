@@ -1622,3 +1622,95 @@ async fn an_artist_page_asks_for_a_language_and_the_storefront_languages_are_rea
     assert!(!asked[0].target.contains("l="));
     assert!(asked[1].target.ends_with("&l=en-GB"));
 }
+
+#[tokio::test]
+async fn a_repeated_album_id_is_answered_each_time() {
+    let fixtures = FixtureServer::start().await;
+    fixtures.on(
+        "GET",
+        "/v1/catalog/us/albums",
+        Reply::json(json!({"data": [{
+            "id": "7002", "type": "albums",
+            "attributes": {"name": "Sunrise EP", "artistName": "Artist Nine"}
+        }]})),
+    );
+    let (library, _) = signed_in(&fixtures);
+
+    let albums = library
+        .catalog_albums(&[catalog("7002"), catalog("404"), catalog("7002")])
+        .await
+        .unwrap();
+
+    assert_eq!(albums.len(), 2);
+}
+
+#[tokio::test]
+async fn an_artist_page_marks_an_artist_the_library_has() {
+    let fixtures = FixtureServer::start().await;
+    fixtures
+        .on(
+            "GET",
+            "/v1/me/library/artists",
+            Reply::json(json!({"data": [
+                {"id": "r.art9", "type": "library-artists", "attributes": {"name": "Artist Nine"}}
+            ]})),
+        )
+        .on(
+            "GET",
+            "/v1/catalog/us/artists/8002",
+            Reply::json(json!({"data": [{
+                "id": "8002", "type": "artists",
+                "attributes": {"name": "Artist Nine"},
+                "views": {}
+            }]})),
+        )
+        .on(
+            "GET",
+            "/v1/catalog/us/artists/8002/albums",
+            Reply::json(json!({"data": []})),
+        );
+    let (library, _) = signed_in(&fixtures);
+    // The artist's detail reads the library's artists, which the page then marks by.
+    assert!(
+        library
+            .catalog_artist(&catalog("8002"))
+            .await
+            .unwrap()
+            .artist
+            .in_library
+    );
+
+    let page = library
+        .catalog_artist_page_in(&catalog("8002"), None)
+        .await
+        .unwrap();
+
+    assert!(page.artist.in_library);
+}
+
+#[tokio::test]
+async fn a_library_artist_found_by_search_keeps_its_picture() {
+    let fixtures = FixtureServer::start().await;
+    fixtures.on(
+        "GET",
+        "/v1/me/library/search",
+        Reply::json(json!({"results": {"library-artists": {"data": [{
+            "id": "r.art1", "type": "library-artists",
+            "attributes": {"name": "Artist One"},
+            "relationships": {"catalog": {"data": [{
+                "id": "8001", "type": "artists",
+                "attributes": {"name": "Artist One", "artwork": {
+                    "width": 600, "height": 600, "url": "http://artwork.invalid/{w}x{h}.jpg"
+                }}
+            }]}}
+        }]}}})),
+    );
+    let (library, _) = signed_in(&fixtures);
+
+    let found = library
+        .search_fresh("one", SearchScope::Library, false)
+        .await
+        .unwrap();
+
+    assert!(found.artists[0].artwork.is_some());
+}

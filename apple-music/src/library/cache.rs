@@ -211,6 +211,8 @@ impl Caches {
         if self.session() != session {
             return;
         }
+        // What is too old to be served is not worth its memory.
+        ratings.retain(|_, rated| rated.fresh(now));
         for (key, value) in read {
             match ratings.get(key) {
                 Some(kept) if kept.fresh(now) => {}
@@ -640,5 +642,18 @@ mod tests {
 
         assert_eq!(*first.await.unwrap().unwrap_err(), "old account");
         assert_eq!(*second.unwrap(), 7);
+    }
+
+    #[test]
+    fn ratings_too_old_to_be_served_are_dropped_when_others_are_kept() {
+        let caches = Caches::default();
+        let start = Instant::now();
+        let key = |id: &str| TrackKey::catalog(id).unwrap();
+        let session = caches.session();
+        caches.merge_read_ratings(session, start, &HashMap::from([(key("1"), 0)]));
+        caches.merge_read_ratings(session, start + TTL, &HashMap::from([(key("2"), 1)]));
+
+        assert_eq!(lock(&caches.ratings).len(), 1);
+        assert_eq!(caches.rated(&[key("2")], start + TTL).len(), 1);
     }
 }
