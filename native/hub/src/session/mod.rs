@@ -101,7 +101,7 @@ pub struct PlayerSession {
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
     /// Asks the event loop to show this session in the UI again.
     show_requests: mpsc::UnboundedSender<ShowRequest>,
-    /// Wakes the event loop to name the current track and the queue again.
+    /// Wakes the event loop to name the current track again.
     rename_items: Arc<Notify>,
     /// Wakes the event loop to tell the UI again what the current item supports.
     item_capabilities_changed: Arc<Notify>,
@@ -721,21 +721,14 @@ impl PlayerSession {
                         handle_scrobbler_error(weak.upgrade(), error).await;
                     }
                     Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
+                    // Only the status is named again: the queue names its tracks as it is read,
+                    // and reading it again would ask the service about every queued track.
                     _ = rename_items.notified() => {
                         let Some(node) = weak.upgrade() else { return };
-                        // The revision goes with the queue as the player holds it once it has
-                        // applied what was sent before, as `playback_snapshot` reads them: an edit
-                        // counts in the revision before the player applies it.
-                        let (status, revision) = {
-                            let state = event_state.lock().await;
-                            let status = player.lock().await.status_after_pending();
-                            (status, state.queue_revision)
-                        };
+                        let status = player.lock().await.status_after_pending();
                         let status = status.await;
                         name_late_track(&mut item_state, &controls, true).await;
-                        handle_status_event(&node, status.clone(), &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
-                        let playlist = PlaylistStatus { items: status.playlist, unavailable: status.unavailable_reasons };
-                        handle_playlist_event(&node, playlist, broadcaster.as_ref(), &session_id, revision).await;
+                        handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
                     _ = item_capabilities_changed.notified() => {
                         let Some(node) = weak.upgrade() else { return };

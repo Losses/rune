@@ -1,7 +1,15 @@
 use super::*;
-use crate::{server::utils::device::RunMode, utils::RinfRustSignal};
+use crate::{server::utils::device::RunMode, test_wait::wait_until, utils::RinfRustSignal};
 use database::library_registry::ServiceKind;
+use playback::pcm_tap::PcmTap;
+use playback::player::{
+    ClearHandoffBlocksResult, HandoffLoadResult, MockPlayer, PausedPlayback, PlayerCommandError,
+};
+use playback::strategies::AddMode;
+use playback::{InternalLog, PlayerCommand, SimpleReceiver};
+use simple_channel::{SimpleChannel, SimpleSender};
 use std::fs;
+use std::result;
 use visualizer::Visualizer;
 
 struct Quiet;
@@ -89,7 +97,8 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
     Ok(())
 }
 
-/// A service that names its track only after `delay`, and holds the name from then on.
+/// A service that names the track `slow` only after `delay`, and any other at once, and holds the
+/// names from then on.
 struct SlowService {
     library_id: Uuid,
     delay: Duration,
@@ -134,7 +143,9 @@ impl ServiceBinding for SlowService {
     ) -> crate::service::ServiceFuture<'a, (PlayingItemMetadataSummary, Option<String>)> {
         Box::pin(async move {
             self.lookups.fetch_add(1, Ordering::SeqCst);
-            tokio::time::sleep(self.delay).await;
+            if track == "slow" {
+                tokio::time::sleep(self.delay).await;
+            }
             *self.known.lock().unwrap() = true;
             Ok((self.summary(track), None))
         })
@@ -328,6 +339,309 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
     assert_eq!(service.lookups.load(Ordering::SeqCst), 0);
     node.shutdown().await?;
     Ok(())
+}
+
+/// A player whose status reports the test makes. Asked for its status after what it did, it
+/// first reports what `reported_on_barrier` holds, as a player whose reports of what it did were
+/// still to be queued when it was asked.
+struct ScriptedPlayer {
+    reports: SimpleSender<PlayerStatus>,
+    status: std::sync::Mutex<PlayerStatus>,
+    reported_on_barrier: std::sync::Mutex<Vec<PlayerStatus>>,
+}
+
+impl ScriptedPlayer {
+    fn new() -> Self {
+        Self {
+            reports: SimpleChannel::unbounded().0,
+            status: std::sync::Mutex::new(MockPlayer.get_status()),
+            reported_on_barrier: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Reports `status`, which is the player's status from then on.
+    fn report(&self, status: PlayerStatus) {
+        *self.status.lock().unwrap() = status.clone();
+        self.reports.send(status);
+    }
+}
+
+impl Playable for ScriptedPlayer {
+    fn command_with_completion(
+        &mut self,
+        command: PlayerCommand,
+    ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
+        MockPlayer.command_with_completion(command)
+    }
+    fn command_completion(
+        &mut self,
+    ) -> BoxFuture<'static, result::Result<PlayerStatus, PlayerCommandError>> {
+        Box::pin(ready(Ok(self.get_status())))
+    }
+    fn load(&self, _index: usize) {}
+    fn play(&self) {}
+    fn pause(&self) {}
+    fn stop(&self) {}
+    fn next(&self) {}
+    fn previous(&self) {}
+    fn switch(&self, _index: usize) {}
+    fn seek(&self, _position_seconds: f64) {}
+    fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
+    fn handoff_load(
+        &self,
+        tracks: Vec<(PlayingItem, PlaybackSource)>,
+        block: HandoffBlockId,
+        start_index: Option<usize>,
+        position: Duration,
+        play: bool,
+        playback_mode: Option<PlaybackMode>,
+    ) -> oneshot::Receiver<HandoffLoadResult> {
+        MockPlayer.handoff_load(tracks, block, start_index, position, play, playback_mode)
+    }
+    fn take_back_block(
+        &self,
+        block: HandoffBlockId,
+        interrupted: InterruptedItem,
+    ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
+        MockPlayer.take_back_block(block, interrupted)
+    }
+    fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
+        MockPlayer.clear_handoff_blocks()
+    }
+    fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
+        MockPlayer.pause_reporting()
+    }
+    fn remove_from_playlist(&self, _index: usize) {}
+    fn restore_tagged(
+        &self,
+        _entries: Vec<QueueEntry>,
+        _index: Option<usize>,
+        _position: Duration,
+        _mode: PlaybackMode,
+    ) {
+    }
+    fn clear_playlist(&self) {}
+    fn move_playlist_item(&self, _old_index: usize, _new_index: usize) {}
+    fn set_playback_mode(&mut self, _mode: PlaybackMode) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn set_realtime_fft_enabled(&mut self, _enabled: bool) {}
+    fn pcm_tap(&self) -> Arc<PcmTap> {
+        MockPlayer.pcm_tap()
+    }
+    fn set_adaptive_switching_enabled(&mut self, _enabled: bool) {}
+    fn set_mix_with_others(&mut self, _enabled: bool) {}
+    fn terminate(&self) {}
+    fn get_status(&self) -> PlayerStatus {
+        self.status.lock().unwrap().clone()
+    }
+    fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+        let queued = std::mem::take(&mut *self.reported_on_barrier.lock().unwrap());
+        for status in queued {
+            self.report(status);
+        }
+        Box::pin(ready(self.get_status()))
+    }
+    fn get_playlist(&self) -> Vec<PlayingItem> {
+        let playlist = self.get_status().playlist;
+        playlist.into_iter().map(|entry| entry.item).collect()
+    }
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+        self.reports.subscribe()
+    }
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
+        MockPlayer.subscribe_played_through()
+    }
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+        MockPlayer.subscribe_playlist()
+    }
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+        MockPlayer.subscribe_realtime_fft()
+    }
+    fn subscribe_crash(&self) -> SimpleReceiver<String> {
+        MockPlayer.subscribe_crash()
+    }
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        MockPlayer.subscribe_log()
+    }
+}
+
+/// Keeps the statuses and queue updates the UI is told, with the session each is for.
+#[derive(Default)]
+struct ToldStatuses {
+    /// Each status as the session it is for, the item it names and that item's title.
+    statuses: std::sync::Mutex<Vec<(String, Option<PlayingItemRef>, String)>>,
+    queue_updates: std::sync::Mutex<Vec<String>>,
+}
+
+impl ToldStatuses {
+    /// The items the statuses of `session_id` named, with their titles, in the order told.
+    fn statuses(&self, session_id: &str) -> Vec<(Option<PlayingItemRef>, String)> {
+        let statuses = self.statuses.lock().unwrap();
+        statuses
+            .iter()
+            .filter(|(session, _, _)| session == session_id)
+            .map(|(_, item, title)| (item.clone(), title.clone()))
+            .collect()
+    }
+
+    fn queue_updates(&self, session_id: &str) -> usize {
+        let updates = self.queue_updates.lock().unwrap();
+        updates
+            .iter()
+            .filter(|session| *session == session_id)
+            .count()
+    }
+}
+
+impl Broadcaster for ToldStatuses {
+    fn broadcast(&self, signal: &dyn RinfRustSignal) {
+        if let Some(status) = signal.as_any().downcast_ref::<PlaybackStatus>() {
+            self.statuses.lock().unwrap().push((
+                status.session_id.clone(),
+                status.item_request.clone(),
+                status.title.clone().unwrap_or_default(),
+            ));
+        } else if let Some(update) = signal.as_any().downcast_ref::<PlaylistUpdate>() {
+            self.queue_updates
+                .lock()
+                .unwrap()
+                .push(update.session_id.clone());
+        }
+    }
+}
+
+/// A node with the slow service's library open, and a session of its own that plays through a
+/// scripted player, with what the UI is told meanwhile.
+struct ScriptedSession {
+    _dir: tempfile::TempDir,
+    node: Arc<NodeContext>,
+    session: Arc<PlayerSession>,
+    session_id: String,
+    player: Arc<Mutex<ScriptedPlayer>>,
+    service: Arc<SlowService>,
+    told: Arc<ToldStatuses>,
+}
+
+impl ScriptedSession {
+    async fn start() -> Result<Self> {
+        let dir = tempfile::tempdir()?;
+        crate::test_node::disable_sync_listener(dir.path())?;
+        let path = dir.path().to_string_lossy();
+        let told = Arc::new(ToldStatuses::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            told.clone(),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await?;
+        let service = Arc::new(SlowService {
+            library_id: Uuid::new_v4(),
+            delay: STATUS_METADATA_WAIT + Duration::from_secs(1),
+            known: std::sync::Mutex::new(false),
+            lookups: AtomicUsize::new(0),
+            started: AtomicUsize::new(0),
+        });
+        let binding: Arc<dyn ServiceBinding> = service.clone();
+        node.set_open_service_catalog(None, binding).await?;
+        let player = Arc::new(Mutex::new(ScriptedPlayer::new()));
+        let played: Arc<Mutex<dyn Playable>> = player.clone();
+        let session = PlayerSession::new(
+            &node,
+            "scripted",
+            false,
+            Box::new(move |real| {
+                real.terminate();
+                played
+            }),
+        )
+        .await?;
+        let session_id = session.session_id().await;
+        Ok(Self {
+            _dir: dir,
+            node,
+            session,
+            session_id,
+            player,
+            service,
+            told,
+        })
+    }
+
+    fn track(&self, track: &str) -> PlayingItem {
+        PlayingItem::LibraryTrack {
+            library_id: self.service.library_id,
+            track: track.to_owned(),
+        }
+    }
+
+    /// The player plays `item` at `position` and reports it.
+    async fn plays(&self, item: &PlayingItem, position: Duration) {
+        self.player.lock().await.report(PlayerStatus {
+            item: Some(item.clone()),
+            index: Some(0),
+            path: None,
+            position,
+            state: PlaybackState::Playing,
+            playlist: vec![item.clone().into()],
+            unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
+            playback_mode: PlaybackMode::Sequential,
+            ready: true,
+            volume: 1.0,
+        });
+    }
+
+    /// The tracks the statuses of the session named, with their titles, in the order told.
+    fn told(&self) -> Vec<(String, String)> {
+        self.told
+            .statuses(&self.session_id)
+            .into_iter()
+            .filter_map(|(item, title)| match item {
+                Some(PlayingItemRef::LibraryTrack { track, .. }) => Some((track, title)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Waits until a status names `track` with `title`.
+    async fn until_told(&self, track: &str, title: &str) -> Result<()> {
+        let wanted = (track.to_owned(), title.to_owned());
+        wait_until(&format!("{track} told as {title:?}"), || {
+            let told = self.told().contains(&wanted);
+            async move { Ok(told.then_some(())) }
+        })
+        .await
+    }
+
+    async fn stop(self) -> Result<()> {
+        self.session.shutdown().await?;
+        self.node.shutdown().await
+    }
+}
+
+/// A track a slow service named late goes out named, and the queue is not read again for it:
+/// reading it asks the service about every queued track, which holds every later report up while
+/// the service stays slow.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_late_name_does_not_read_the_queue_again() -> Result<()> {
+    let session = ScriptedSession::start().await?;
+    let slow = session.track("slow");
+    session.plays(&slow, Duration::from_secs(1)).await;
+    session.until_told("slow", "Unknown Title").await?;
+    session.until_told("slow", "Late Name").await?;
+    // Reports are handled in turn, so once a later one is told, whatever the late name sent is
+    // told too.
+    session.plays(&slow, Duration::from_secs(2)).await;
+    wait_until("the later report", || {
+        let told = session.told().len();
+        async move { Ok((told >= 3).then_some(())) }
+    })
+    .await?;
+    assert_eq!(session.told.queue_updates(&session.session_id), 0);
+    session.stop().await
 }
 
 /// Keeps what the UI is told the playing item supports.
