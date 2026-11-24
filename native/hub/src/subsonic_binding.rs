@@ -780,6 +780,11 @@ impl ServiceBinding for SubsonicBinding {
         })
     }
 
+    fn cached_summary(&self, track: &str) -> Option<PlayingItemMetadataSummary> {
+        self.known_song(track)
+            .map(|song| self.song_summary(track, song))
+    }
+
     fn cover_when_cached<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, Option<String>> {
         Box::pin(async move {
             let song = match self.known_song(track) {
