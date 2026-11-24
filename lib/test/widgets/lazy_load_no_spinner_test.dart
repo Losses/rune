@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import '../../providers/library_manager.dart';
+import '../../providers/library_open_state.dart';
 import '../../providers/responsive_providers.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../screens/query_tracks/query_tracks_list.dart';
@@ -14,6 +16,7 @@ import '../../screens/tracks/track_list.dart';
 import '../../utils/query_list.dart';
 import '../../widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
@@ -76,6 +79,34 @@ List<Group<InternalCollection>> _groups(int page) => [
           ),
       ],
     ),
+];
+
+class _LocalLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    recordId: 'local-record',
+    alias: 'Music',
+    kind: LibraryRecordKindSummaryLocal(
+      libraryId: 'library-id',
+      path: '/music',
+    ),
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// What the empty state of a list needs: its scan button reads the open library.
+List<ChangeNotifierProvider> _emptyStateProviders() => [
+  ChangeNotifierProvider<LibraryManagerProvider>(
+    create: (_) => LibraryManagerProvider(sendScanRequest: (_) {}),
+  ),
+  ChangeNotifierProvider<LibraryOpenStateProvider>(
+    create: (_) => _LocalLibrary(),
+  ),
 ];
 
 // Lets the loads and the frames they schedule run, and the animation timers
@@ -281,10 +312,12 @@ void main() {
           loadCount: () => Future.error(StateError('offline')),
           loadPage: (cursor, size) => Future.value(<InternalMediaFile>[]),
         ),
-        device: DeviceType.dock,
+        device: DeviceType.zune,
+        providers: _emptyStateProviders(),
       );
       await _settle(tester);
       expect(find.byType(ProgressRing), findsNothing);
+      expect(find.byType(NoItems), findsOneWidget);
 
       // Lets the animation timers of the pages that came end.
       await tester.pumpWidget(const SizedBox());
@@ -309,7 +342,8 @@ void main() {
             return second.future;
           },
         ),
-        device: DeviceType.dock,
+        device: DeviceType.zune,
+        providers: _emptyStateProviders(),
       );
       await _settle(tester);
 
@@ -330,6 +364,7 @@ void main() {
       second.complete(_tracks(0, 100));
       await _settle(tester);
       expect(find.byType(ProgressRing), findsNothing);
+      expect(find.text('track-0'), findsOneWidget);
     });
   });
 
@@ -458,12 +493,14 @@ void main() {
             return Future.value(<InternalMediaFile>[]);
           },
         ),
-        device: DeviceType.dock,
+        device: DeviceType.zune,
+        providers: _emptyStateProviders(),
       );
       await _settle(tester);
       await _settle(tester);
       expect(asked, [0]);
       expect(find.byType(ProgressRing), findsNothing);
+      expect(find.byType(NoItems), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 5));
