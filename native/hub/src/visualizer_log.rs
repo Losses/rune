@@ -110,11 +110,8 @@ pub fn write_to(main_db: Arc<MainDbConnection>) {
     tokio::spawn(async move {
         let mut recent: HashMap<(String, String), Instant> = HashMap::new();
         while let Some(entry) = receiver.recv().await {
-            if is_repeat(&mut recent, &entry.domain, &entry.detail, Instant::now()) {
-                continue;
-            }
-            let main_db = TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let Some(main_db) = main_db else {
+            let target = TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let Some(main_db) = destination(&mut recent, &entry, target, Instant::now()) else {
                 continue;
             };
             if let Err(e) = insert_log(&*main_db, entry.level, entry.domain, entry.detail).await {
@@ -122,6 +119,20 @@ pub fn write_to(main_db: Arc<MainDbConnection>) {
             }
         }
     });
+}
+
+/// The database `target` that `entry` is written to, or none when it is not written: while no
+/// database is attached, or when the same entry was written within [`REPEAT`]. Only an entry that
+/// is written counts as a repeat, so one dropped for want of a database is written once a library
+/// that keeps a log is open again.
+fn destination<T>(
+    recent: &mut HashMap<(String, String), Instant>,
+    entry: &Entry,
+    target: Option<T>,
+    now: Instant,
+) -> Option<T> {
+    let target = target?;
+    (!is_repeat(recent, &entry.domain, &entry.detail, now)).then_some(target)
 }
 
 /// Whether the entry was written within [`REPEAT`] before `now`; if not, remember it as written
@@ -151,6 +162,26 @@ mod tests {
             domain: "visualizer::gpu".to_owned(),
             detail: detail.to_owned(),
         }
+    }
+
+    #[test]
+    fn an_entry_dropped_for_want_of_a_database_does_not_count_as_written() {
+        let mut recent = HashMap::new();
+        let now = Instant::now();
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), None::<&str>, now),
+            None
+        );
+        // Once a library that keeps a log is open, the same entry is written, and only then is it
+        // a repeat.
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), Some("library"), now),
+            Some("library")
+        );
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), Some("library"), now),
+            None
+        );
     }
 
     #[test]
