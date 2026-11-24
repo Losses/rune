@@ -7,12 +7,13 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time as tokio_time;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use futures::future::join_all;
 
 use tokio::task;
 
 use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
+use ::playback::player::RemoteAudioError;
 
 use crate::{
     Session, Signal,
@@ -109,31 +110,51 @@ const COVER_COLOR_WAIT: Duration = Duration::from_secs(15);
 
 /// The primary color of the cover of a streaming library's item, waiting up to
 /// `COVER_COLOR_WAIT` for a cover that is not cached yet. None when the item has no cover, or
-/// the service could not give it in time, as when offline.
+/// the service could not give it in time, as when offline. A service that rejects the
+/// library's sign-in fails it, as it fails every request about the library's items.
 async fn streaming_primary_color(
     binding: &dyn ServiceBinding,
     item: &PlayingItemRef,
-) -> Option<i32> {
+) -> Result<Option<i32>> {
     let PlayingItemRef::LibraryTrack { track, .. } = item else {
-        return None;
+        return Ok(None);
     };
-    primary_color_of_cover_within(binding.cover_when_cached(track), COVER_COLOR_WAIT).await
+    primary_color_of_cover_within(binding.cover_when_cached(track), COVER_COLOR_WAIT)
+        .await
+        .map_err(|error| {
+            Error::new(ExpectedRequestError::ServiceSignInRequired {
+                record_id: binding.library_id().to_string(),
+            })
+            .context(format!("{error:#}"))
+        })
 }
 
 /// The primary color of a cover that `cover` gives the file of, once it does within `wait`.
+/// A cover that cannot be had has no color, unless the service rejected the sign-in it was
+/// asked with: that failure is returned.
 async fn primary_color_of_cover_within(
     cover: impl Future<Output = Result<Option<String>>>,
     wait: Duration,
-) -> Option<i32> {
+) -> Result<Option<i32>> {
     let cover = match tokio_time::timeout(wait, cover).await {
-        Ok(Ok(cover)) => cover?,
+        Ok(Ok(Some(cover))) => cover,
+        Ok(Ok(None)) | Err(_) => return Ok(None),
+        Ok(Err(error))
+            if error.chain().any(|cause| {
+                matches!(
+                    cause.downcast_ref::<RemoteAudioError>(),
+                    Some(RemoteAudioError::CredentialsRejected)
+                )
+            }) =>
+        {
+            return Err(error);
+        }
         Ok(Err(error)) => {
             log::warn!("Could not get the cover of a streaming item for its color: {error:#}");
-            return None;
+            return Ok(None);
         }
-        Err(_) => return None,
     };
-    cover_primary_color(&cover).await
+    Ok(cover_primary_color(&cover).await)
 }
 
 impl ParamsExtractor for GetPrimaryColorByTrackIdRequest {
@@ -169,7 +190,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
             // A library that cannot be reached has no color to give. One that needs a new
             // sign-in says so, as every request about its items does.
             let primary_color = match item_service_binding(&node, library.as_ref(), &item).await {
-                Ok(Some(binding)) => streaming_primary_color(binding.as_ref(), &item).await,
+                Ok(Some(binding)) => streaming_primary_color(binding.as_ref(), &item).await?,
                 Ok(None) => None,
                 Err(error)
                     if matches!(
@@ -315,7 +336,8 @@ mod tests {
 
         let color =
             primary_color_of_cover_within(cache.ensure_cached(Arc::clone(&source), "cover"), WAIT)
-                .await;
+                .await
+                .unwrap();
         assert_eq!(color, expected);
         assert_eq!(source.downloads.load(Ordering::SeqCst), 1);
     }
@@ -329,7 +351,8 @@ mod tests {
 
         let color =
             primary_color_of_cover_within(cache.ensure_cached(Arc::clone(&source), "cover"), WAIT)
-                .await;
+                .await
+                .unwrap();
         assert_eq!(color, metadata::cover_art::get_primary_color(&source.bytes));
         assert!(color.is_some());
     }
@@ -341,7 +364,8 @@ mod tests {
         let failing = source(Duration::ZERO, true);
         let color =
             primary_color_of_cover_within(cache.ensure_cached(Arc::clone(&failing), "cover"), WAIT)
-                .await;
+                .await
+                .unwrap();
         assert_eq!(color, None);
 
         let slow = source(Duration::from_secs(60), false);
@@ -349,11 +373,14 @@ mod tests {
             cache.ensure_cached(Arc::clone(&slow), "other"),
             Duration::from_millis(50),
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(color, None);
 
         // A track with no cover has no color either.
-        let color = primary_color_of_cover_within(async { Ok(None) }, WAIT).await;
+        let color = primary_color_of_cover_within(async { Ok(None) }, WAIT)
+            .await
+            .unwrap();
         assert_eq!(color, None);
     }
 

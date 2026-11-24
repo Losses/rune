@@ -363,6 +363,10 @@ async fn subsonic_hub_response(
             };
             json!({ "subsonic-response": { "status": "ok", "albumList2": { "album": albums } } })
         }
+        "getSong" if query.get("id").map(String::as_str) == Some("song-signed-out") => {
+            // The server no longer takes the library's sign-in by the time this song is asked for.
+            json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": "Wrong username or password" } } })
+        }
         "getSong" => {
             // The album's later disc shares its cover; every other id is the searched song.
             let (id, title) = match query.get("id").map(String::as_str) {
@@ -13663,6 +13667,40 @@ async fn a_request_about_an_item_of_a_library_without_its_credential_asks_for_a_
     .await
     .err()
     .context("a like asked of a library whose credential is gone")?;
+    assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+    assert_eq!(
+        request_failure_cause(&error),
+        Some(RequestFailureCause::ServiceSignInRequired {
+            record_id: record_id.to_string(),
+        })
+    );
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_color_whose_cover_the_service_refuses_for_its_sign_in_asks_for_a_sign_in() -> Result<()>
+{
+    use crate::request_error::request_failure_cause;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+
+    // The library opens, but the server rejects its sign-in when the cover's song is asked for.
+    let error = dispatch_gui_request(
+        &fixture.global_params,
+        &GetPrimaryColorByTrackIdRequest {
+            item: Some(service_item(record_id, "song-signed-out")),
+            call_id: None,
+        },
+    )
+    .await
+    .err()
+    .context("a color asked of a library whose sign-in the server rejects")?;
     assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
     assert_eq!(
         request_failure_cause(&error),
