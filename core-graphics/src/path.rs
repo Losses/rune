@@ -45,15 +45,55 @@ impl CGPath {
         }
     }
 
-    pub fn apply<'a, F>(&'a self, mut closure: &'a F) where F: FnMut(CGPathElementRef<'a>) {
+    /// Calls `closure` once for each element in the path.
+    ///
+    /// Core Graphics passes a `const CGPathElement *` to the applier and does not define an
+    /// ownership or retain operation for that pointer. This wrapper treats each element as a
+    /// callback-scoped borrow. Copy element data that must outlive the callback.
+    ///
+    /// A closure must have exclusive mutable access:
+    ///
+    /// ```compile_fail
+    /// extern crate core_graphics;
+    ///
+    /// use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+    /// use core_graphics::path::{CGPath, CGPathElementRef};
+    ///
+    /// let path = CGPath::from_rect(
+    ///     CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(10.0, 10.0)),
+    ///     None,
+    /// );
+    /// let closure = |_element: CGPathElementRef<'_>| {};
+    /// path.apply(&closure);
+    /// ```
+    ///
+    /// Element references cannot be retained after the callback:
+    ///
+    /// ```compile_fail
+    /// extern crate core_graphics;
+    ///
+    /// use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+    /// use core_graphics::path::{CGPath, CGPathElementRef};
+    ///
+    /// let path = Box::leak(Box::new(CGPath::from_rect(
+    ///     CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(10.0, 10.0)),
+    ///     None,
+    /// )));
+    /// let retained = Box::leak(Box::new(None));
+    /// let closure = Box::leak(Box::new(move |element: CGPathElementRef<'static>| {
+    ///     *retained = Some(element);
+    /// }));
+    /// path.apply(closure);
+    /// ```
+    pub fn apply<F>(&self, closure: &mut F) where F: for<'a> FnMut(CGPathElementRef<'a>) {
         unsafe {
-            CGPathApply(self.as_ptr(), &mut closure as *mut _ as *mut c_void, do_apply::<F>);
+            CGPathApply(self.as_ptr(), closure as *mut F as *mut c_void, do_apply::<F>);
         }
 
-        unsafe extern "C" fn do_apply<'a, F>(info: *mut c_void, element: *const CGPathElement)
-                                             where F: FnMut(CGPathElementRef<'a>) {
-            let closure = info as *mut *mut F;
-            (**closure)(CGPathElementRef::new(element))
+        unsafe extern "C" fn do_apply<F>(info: *mut c_void, element: *const CGPathElement)
+                                             where F: for<'a> FnMut(CGPathElementRef<'a>) {
+            let closure = &mut *(info as *mut F);
+            closure(CGPathElementRef::new(element))
         }
     }
 }
@@ -116,6 +156,47 @@ impl CGPathElement {
             }
         }
     }
+}
+
+#[test]
+fn test_apply_visits_rect_with_stateful_callback() {
+    use geometry::CGSize;
+
+    let path = CGPath::from_rect(
+        CGRect::new(&CGPoint::new(1.0, 2.0), &CGSize::new(3.0, 4.0)),
+        None,
+    );
+    let mut visits = 0;
+    let mut element_types = Vec::new();
+    let mut point_lists = Vec::new();
+    let mut closure = |element: CGPathElementRef<'_>| {
+        visits += 1;
+        element_types.push(element.element_type);
+        point_lists.push(
+            element.points()
+                .iter()
+                .map(|point| (point.x, point.y))
+                .collect::<Vec<_>>(),
+        );
+    };
+
+    path.apply(&mut closure);
+
+    assert_eq!(visits, 5);
+    assert_eq!(element_types, vec![
+        CGPathElementType::MoveToPoint,
+        CGPathElementType::AddLineToPoint,
+        CGPathElementType::AddLineToPoint,
+        CGPathElementType::AddLineToPoint,
+        CGPathElementType::CloseSubpath,
+    ]);
+    assert_eq!(point_lists, vec![
+        vec![(1.0, 2.0)],
+        vec![(4.0, 2.0)],
+        vec![(4.0, 6.0)],
+        vec![(1.0, 6.0)],
+        vec![],
+    ]);
 }
 
 type CGPathApplierFunction = unsafe extern "C" fn(info: *mut c_void,
