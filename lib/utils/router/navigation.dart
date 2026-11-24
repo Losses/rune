@@ -44,16 +44,25 @@ bool $pop() {
     return true;
   }
 
+  // A context menu open over the page closes, as a dialog does.
+  if (current is ContextMenuRouteEntry) {
+    $history.remove(current);
+    current.pop();
+    return true;
+  }
+
   // Pages live in the library's navigator; the welcome screens, which can
   // show dialogs, have none.
   if (current is RouteEntry && $hasLibraryNavigator) {
     final (success, result) = $history.pop();
+    // Menus left under the page go with it.
+    _closeContextMenus();
 
-    final next = $history.current;
+    final next = $history.currentPage;
 
-    if (success) {
+    if (success && next != null) {
       $router.update(
-        next!.name,
+        next.name,
         popTransitionParameter(current.name, next.name, next.arguments),
       );
       $state().pop();

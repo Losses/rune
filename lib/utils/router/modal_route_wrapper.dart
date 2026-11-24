@@ -37,6 +37,8 @@ class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
     $history.pushModal(_entry);
   }
 
+  /// The dialog's own entry leaves the history, wherever it is: a page may
+  /// have been pushed over the dialog, or another dialog opened over it.
   @override
   void dispose() {
     // Barrier, Escape and direct Navigator pops can also dismiss this route.

@@ -50,17 +50,21 @@ class NavigationHistory {
   }
 
   /// Takes off the pages above the topmost page [name] and returns that page.
-  /// Returns null and leaves the history as it is when no page [name] is
-  /// below the current one, or something other than a page is open above it.
+  /// Context menus among them are closed and taken off with them. Returns null
+  /// and leaves the history as it is when no page [name] is below the current
+  /// one, or a dialog is open above it.
   RouteEntry? popTo(String name) {
     final index = history.lastIndexWhere(
       (entry) => entry is RouteEntry && entry.name == name,
     );
-    if (index < 0 || index == history.length - 1) return null;
-    if (history.skip(index + 1).any((entry) => entry is! RouteEntry)) {
-      return null;
-    }
+    if (index < 0) return null;
+    final above = history.sublist(index + 1);
+    if (!above.any((entry) => entry is RouteEntry)) return null;
+    if (above.any((entry) => entry is ModalRouteEntry)) return null;
     history.removeRange(index + 1, history.length);
+    for (final menu in above.reversed.whereType<ContextMenuRouteEntry>()) {
+      menu.pop();
+    }
     return history[index] as RouteEntry;
   }
 
@@ -71,23 +75,26 @@ class NavigationHistory {
     history.add(RouteEntry.fromSettings(settings));
   }
 
-  /// Whether the route under the current one is [name], with nothing open over
-  /// the current route.
-  bool previousIs(String name) {
-    if (history.length < 2 || history.last is! RouteEntry) return false;
-    final previous = history[history.length - 2];
-    return previous is RouteEntry && previous.name == name;
-  }
+  /// Whether the page under the current one is [name], with nothing open over
+  /// the current page. Dialogs and context menus left under the current page
+  /// are looked past, as [previousPage] looks past them.
+  bool previousIs(String name) =>
+      history.lastOrNull is RouteEntry && previousPage?.name == name;
 
   /// Like [previousIs], but ignoring dialogs and context menus open over the
   /// current route, for what the header shows rather than what a tap does.
-  bool previousPageIs(String name) {
+  bool previousPageIs(String name) => previousPage?.name == name;
+
+  /// The page under the current one, ignoring dialogs and context menus
+  /// wherever they are, over the current page or left between pages, as
+  /// [previousPageIs] looks at it.
+  RouteEntry? get previousPage {
     final pages = history.whereType<RouteEntry>().toList();
-    if (pages.length < 2) return false;
-    final index = history.indexOf(pages.last);
-    if (index < 1 || history[index - 1] is! RouteEntry) return false;
-    return pages[pages.length - 2].name == name;
+    return pages.length < 2 ? null : pages[pages.length - 2];
   }
+
+  /// The page shown, under any dialogs and context menus open over it.
+  RouteEntry? get currentPage => history.whereType<RouteEntry>().lastOrNull;
 
   BaseRouteEntry? get current => history.isNotEmpty ? history.last : null;
   bool get isCurrentModal => current is ModalRouteEntry;
