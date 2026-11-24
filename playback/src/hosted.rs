@@ -98,8 +98,9 @@
 //!
 //! ## Unknown input
 //!
-//! Events of unknown types, unknown failure reasons and extra fields are ignored, and a message
-//! that does not parse is logged and dropped. `positionMs` may be an integer or a float.
+//! Events of unknown types and extra fields are ignored, and a message that does not parse is
+//! logged and dropped. A `jukeboxItemFailed` with a reason this version does not know still
+//! counts: its track is unavailable as unreachable. `positionMs` may be an integer or a float.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
