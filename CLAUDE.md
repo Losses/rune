@@ -1,0 +1,28 @@
+# Rune Player Development Guidelines
+
+## Dev Environment (Nix)
+- Enter with `nix develop`; Android cross-builds need `setup_android_env` first.
+- Rust and Flutter versions are pinned in `nix/devshells/default.devshell.nix` (`rustVersion`, `flutterPkg`). Bump those two lines to upgrade; `nix flake update` alone will not move them.
+- Do NOT add the `rustup` package to the devshell. rinf's cargokit always builds through `rustup` (checking `$HOME/.cargo/bin` before PATH); the devshell ships a shim `rustup` that forwards to the Nix toolchain. If `$HOME/.cargo/bin/rustup` exists it will silently win — delete it.
+
+## Build/Test/Lint Commands
+- Build: `flutter build` (platform-specific flags can be added)
+- Run: `flutter run` or `./scripts/macos_2_run.sh` (macOS)
+- Lint: `just lint` (runs Rust and Flutter linting together)
+- Rust Lint: `cargo fmt -- --check && cargo clippy -- -D warnings`
+- Flutter Lint: `flutter analyze .`
+- Rust Tests: `cargo test` (run a single test: `cargo test test_name`)
+- Rust Bench: `cargo bench` (in analysis dir)
+- Flutter Tests: `flutter test lib/test` (for a single test: `flutter test lib/test/widgets/reveal_update_test.dart`)
+- Real-app library lifecycle E2E: `scripts/e2e_library_flow.sh`
+
+## Code Style Guidelines
+- Dart: Follow Flutter lints & prefer relative imports
+- Rust: Follow Rust 2021 edition and clippy lints
+- Error handling: Use Anyhow for Rust, proper try/catch in Dart
+- Naming: Follow language idioms (snake_case for Rust, camelCase for Dart)
+- Types: Use strong typing, avoid `any` in Dart, prefer anyhow::Result<T> in Rust
+- Organization: Rust workspace crates live at the repository root; Flutter application code and tests live under `lib/` and `lib/test/`; the real-app end-to-end tests live in `integration_test/` at the root, because `flutter test` only builds and launches the real app for tests in that directory. Follow component-based structure and message-passing architecture.
+- UI dependencies: Maintain Fluent UI changes in `Losses/fluent_ui`, pin its Git commit in `pubspec.yaml`, and update `pubspec.lock` and the Nix Git hash. Do not copy the dependency into this repository.
+- PRs: Keep changes focused, ensure lints pass for all platforms
+- Documentation: Document public APIs with doc comments

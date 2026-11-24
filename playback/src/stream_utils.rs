@@ -1,0 +1,396 @@
+use crate::player::{RemoteAudioError, UnavailableReason};
+use anyhow::{Result, anyhow};
+use reqwest::header;
+use std::io::{self, Seek};
+use std::sync as std_sync;
+use std::sync::{Arc, Mutex};
+use stream_download::http as stream_download_http;
+use stream_download::http::HttpStream;
+use stream_download::{Settings, StreamDownload, storage::temp::TempStorageProvider};
+use symphonia::core::io::{MediaSource, ReadOnlySource};
+use tokio::task;
+use tokio_util::sync as tokio_util_sync;
+
+pub async fn create_stream_from_url(url: &str) -> Result<StreamDownload<TempStorageProvider>> {
+    StreamDownload::new_http(
+        url.parse()?,
+        TempStorageProvider::new(),
+        Settings::default(),
+    )
+    .await
+    .map_err(|error| anyhow!(RemoteAudioError::unreachable(error)))
+}
+
+pub async fn create_stream_media_source_from_url(url: &str) -> Result<Box<dyn MediaSource>> {
+    let reader = create_stream_from_url(url).await?;
+    let source = Box::new(ReadOnlySource::new(reader));
+    Ok(source)
+}
+
+/// Opens a stream using the caller's authenticated and certificate-pinned client.
+pub async fn create_stream_with_client(
+    client: reqwest::Client,
+    url: &str,
+) -> Result<StreamDownload<TempStorageProvider>> {
+    let stream = HttpStream::new(client, url.parse()?)
+        .await
+        .map_err(|error| anyhow!(RemoteAudioError::unreachable(error)))?;
+    StreamDownload::from_stream(
+        stream,
+        TempStorageProvider::new(),
+        Settings::default().prefetch_bytes(0),
+    )
+    .await
+    .map_err(|error| anyhow!(RemoteAudioError::unreachable(error)))
+}
+
+/// Adapts a caller capability to the downloader's initial and range requests.
+#[derive(Clone)]
+struct RenewableClient(Option<std_sync::Arc<dyn crate::player::AudioRequest>>);
+impl stream_download_http::Client for RenewableClient {
+    type Url = reqwest::Url;
+    type Headers = header::HeaderMap;
+    type Response = reqwest::Response;
+    type Error = io::Error;
+
+    fn create() -> Self {
+        Self(None)
+    }
+    async fn get(&self, _url: &Self::Url) -> io::Result<Self::Response> {
+        let capability = self
+            .0
+            .as_ref()
+            .ok_or_else(|| io::Error::other("missing audio request capability"))?;
+        capability.get(None).await.map_err(io::Error::other)
+    }
+    async fn get_range(
+        &self,
+        _url: &Self::Url,
+        start: u64,
+        end: Option<u64>,
+    ) -> io::Result<Self::Response> {
+        let capability = self
+            .0
+            .as_ref()
+            .ok_or_else(|| io::Error::other("missing audio request capability"))?;
+        capability
+            .get(Some((start, end)))
+            .await
+            .map_err(io::Error::other)
+    }
+}
+
+pub async fn create_stream_with_authorizer(
+    request: std_sync::Arc<dyn crate::player::AudioRequest>,
+    url: &str,
+) -> Result<StreamDownload<TempStorageProvider>> {
+    let stream = HttpStream::new(RenewableClient(Some(request)), url.parse()?)
+        .await
+        .map_err(|error| anyhow!(RemoteAudioError::unreachable(error)))?;
+    StreamDownload::from_stream(
+        stream,
+        TempStorageProvider::new(),
+        Settings::default().prefetch_bytes(0),
+    )
+    .await
+    .map_err(|error| anyhow!(RemoteAudioError::unreachable(error)))
+}
+
+/// Keeps a stream's lifetime tied to playback and stops reads after revocation.
+pub struct ManagedStream {
+    inner: StreamDownload<TempStorageProvider>,
+    cancel: tokio_util_sync::CancellationToken,
+    failed: Arc<Mutex<Option<UnavailableReason>>>,
+    cancellation_bridge: task::JoinHandle<()>,
+}
+impl ManagedStream {
+    pub fn new(
+        inner: StreamDownload<TempStorageProvider>,
+        cancel: tokio_util_sync::CancellationToken,
+    ) -> Self {
+        Self::new_with_failure(inner, cancel, Arc::new(Mutex::new(None)))
+    }
+    pub fn new_with_failure(
+        inner: StreamDownload<TempStorageProvider>,
+        cancel: tokio_util_sync::CancellationToken,
+        failed: Arc<Mutex<Option<UnavailableReason>>>,
+    ) -> Self {
+        let download = inner.cancellation_token();
+        let stop = cancel.clone();
+        let failed_on_cancel = failed.clone();
+        let cancellation_bridge = tokio::spawn(async move {
+            stop.cancelled().await;
+            if let Ok(mut reason) = failed_on_cancel.lock() {
+                reason.get_or_insert(UnavailableReason::AccessRevoked);
+            }
+            download.cancel();
+        });
+        Self {
+            inner,
+            cancel,
+            failed,
+            cancellation_bridge,
+        }
+    }
+    fn ensure_active(&self) -> io::Result<()> {
+        if self.cancel.is_cancelled() {
+            if let Ok(mut reason) = self.failed.lock() {
+                reason.get_or_insert(UnavailableReason::AccessRevoked);
+            }
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                RemoteAudioError::AccessRevoked,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn fail_on_incomplete_eof(
+        &mut self,
+        position: u64,
+        result: io::Result<usize>,
+    ) -> io::Result<usize> {
+        let bytes_read = match result {
+            Ok(bytes_read) => bytes_read,
+            Err(error) => {
+                if let Ok(mut reason) = self.failed.lock() {
+                    reason.get_or_insert(UnavailableReason::SourceUnreachable);
+                }
+                return Err(io::Error::new(
+                    error.kind(),
+                    RemoteAudioError::unreachable(error),
+                ));
+            }
+        };
+        if bytes_read == 0
+            && self
+                .inner
+                .content_length()
+                .is_some_and(|length| position < length)
+        {
+            if let Ok(mut reason) = self.failed.lock() {
+                *reason = Some(UnavailableReason::SourceUnreachable);
+            }
+            return Err(io::Error::other(RemoteAudioError::Incomplete));
+        }
+        Ok(bytes_read)
+    }
+}
+impl io::Read for ManagedStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.ensure_active()?;
+        let position = self.inner.stream_position()?;
+        let result = self.inner.read(buf);
+        self.fail_on_incomplete_eof(position, result)
+    }
+}
+impl io::Seek for ManagedStream {
+    fn seek(&mut self, from: io::SeekFrom) -> io::Result<u64> {
+        self.ensure_active()?;
+        self.inner.seek(from)
+    }
+}
+impl Drop for ManagedStream {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        self.inner.cancellation_token().cancel();
+        self.cancellation_bridge.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::Client;
+    use reqwest::header;
+    use tokio::task;
+    use tokio::time as tokio_time;
+
+    use super::*;
+    use reqwest::header::HeaderMap;
+    use std::io::ErrorKind;
+    use std::io::Read;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    const TEST_DEADLINE: Duration = Duration::from_secs(60);
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn authenticated_client_reads_before_full_response_arrives() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let (release, waiting) = oneshot::channel::<()>();
+        let forced = Arc::new(AtomicBool::new(false));
+        let forced_server = forced.clone();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 8192];
+            let n = socket.read(&mut request).await.unwrap();
+            assert!(
+                String::from_utf8_lossy(&request[..n])
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer test")
+            );
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            socket.write_all(&vec![7; 300 * 1024]).await.unwrap();
+            if tokio_time::timeout(TEST_DEADLINE, waiting).await.is_err() {
+                forced_server.store(true, Ordering::SeqCst);
+            }
+            let _ = socket.write_all(&vec![9; 1024 * 1024 - 300 * 1024]).await;
+        });
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer test".parse()?);
+        let client = Client::builder()
+            .default_headers(headers)
+            .no_proxy()
+            .build()?;
+        let mut stream = tokio_time::timeout(
+            TEST_DEADLINE,
+            create_stream_with_client(client, &format!("http://{address}/audio")),
+        )
+        .await??;
+        let (first, stream) = tokio_time::timeout(
+            TEST_DEADLINE,
+            task::spawn_blocking(move || {
+                let mut bytes = [0; 4];
+                stream.read_exact(&mut bytes).unwrap();
+                (bytes, stream)
+            }),
+        )
+        .await??;
+        assert_eq!(first, [7; 4]);
+        assert!(
+            !forced.load(Ordering::SeqCst),
+            "stream waited for full response"
+        );
+        release.send(()).unwrap();
+        let cancel = CancellationToken::new();
+        let mut managed = ManagedStream::new(stream, cancel.clone());
+        cancel.cancel();
+        assert_eq!(
+            managed.read(&mut [0; 1]).unwrap_err().kind(),
+            ErrorKind::PermissionDenied
+        );
+        drop(managed);
+        server.await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn managed_reader_returns_error_when_range_download_fails() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let (release_initial, wait_release) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut initial, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let _ = initial.read(&mut request).await.unwrap();
+            initial
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            initial.write_all(&[1]).await.unwrap();
+            let _ = wait_release.await;
+            drop(initial);
+
+            let (mut range, _) = listener.accept().await.unwrap();
+            let _ = range.read(&mut request).await.unwrap();
+            range
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        });
+        let client = Client::builder().no_proxy().build()?;
+        let stream = tokio_time::timeout(
+            TEST_DEADLINE,
+            create_stream_with_client(client, &format!("http://{address}/audio")),
+        )
+        .await??;
+        let mut managed = ManagedStream::new(stream, CancellationToken::new());
+        release_initial.send(()).unwrap();
+        let reader = task::spawn_blocking(move || {
+            let mut output = vec![0; 1_048_576];
+            managed.read_exact(&mut output)
+        });
+        let result = tokio_time::timeout(TEST_DEADLINE, reader).await??;
+        assert!(result.is_err(), "failed range request must fail the read");
+        server.await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn incomplete_stream_records_source_unreachable() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let (release, waiting) = oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            loop {
+                let read = socket.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\nshort",
+                )
+                .await
+                .unwrap();
+            tokio_time::timeout(TEST_DEADLINE, waiting)
+                .await
+                .expect("client must create the stream before the response ends")
+                .expect("client must release the response");
+            socket.shutdown().await.unwrap();
+        });
+        let client = Client::builder().no_proxy().build()?;
+        let stream = tokio_time::timeout(
+            TEST_DEADLINE,
+            create_stream_with_client(client, &format!("http://{address}/audio")),
+        )
+        .await??;
+        release.send(()).expect("server must await the release");
+        let reason = Arc::new(Mutex::new(None));
+        let mut managed =
+            ManagedStream::new_with_failure(stream, CancellationToken::new(), reason.clone());
+        let incomplete = managed
+            .fail_on_incomplete_eof(0, Ok(0))
+            .expect_err("early EOF must produce a typed stream error");
+        assert!(matches!(
+            incomplete
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<RemoteAudioError>()),
+            Some(RemoteAudioError::Incomplete)
+        ));
+        let _ = task::spawn_blocking(move || {
+            let mut bytes = vec![0; 1024];
+            managed.read_exact(&mut bytes)
+        })
+        .await?;
+        assert_eq!(
+            *reason.lock().unwrap(),
+            Some(UnavailableReason::SourceUnreachable)
+        );
+        server.await?;
+        Ok(())
+    }
+}

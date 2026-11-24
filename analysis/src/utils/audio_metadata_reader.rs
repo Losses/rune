@@ -1,0 +1,74 @@
+use std::{
+    io::{Read, Seek, SeekFrom},
+    path::Path,
+};
+use symphonia::core::{
+    errors::Error,
+    formats::{FormatOptions, FormatReader, Track},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
+    units::TimeBase,
+};
+
+use anyhow::{Context, Result};
+
+use ::fsio::{FsIo, OpenMode};
+use ::fsio_media_source::FsioMediaSource;
+use symphonia::default as symphonia_default;
+
+pub fn get_format(fsio: &FsIo, file_path: &str) -> Result<Box<dyn FormatReader>> {
+    // Open the media source.
+    let mut src = fsio
+        .open(Path::new(file_path), OpenMode::Read)
+        .with_context(|| "failed to open media")?;
+
+    let mut header_byte = [0; 1];
+    src.read(&mut header_byte)
+        .with_context(|| "failed to read media header")?;
+    src.seek(SeekFrom::Start(0))
+        .with_context(|| "failed to rewind media after header read")?;
+
+    // Create the media source stream.
+    let source = FsioMediaSource::new(src);
+    let mss = MediaSourceStream::new(Box::new(source), Default::default());
+
+    // Create a probe hint using the file's extension.
+    let mut hint = Hint::new();
+    let ext = file_path.split('.').next_back().unwrap_or_default();
+    hint.with_extension(ext);
+
+    // Use the default options for metadata and format readers.
+    let meta_opts: MetadataOptions = Default::default();
+    let fmt_opts: FormatOptions = Default::default();
+
+    // Probe the media source.
+    let probed = symphonia_default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .with_context(|| "unsupported format")?;
+
+    // Get the instantiated format reader.
+    let format = probed.format;
+
+    Ok(format)
+}
+
+pub fn get_codec_information(track: &Track) -> Result<(u32, f64), Error> {
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .ok_or(Error::Unsupported("No sample rate found"))?;
+    let duration = track
+        .codec_params
+        .n_frames
+        .ok_or(Error::Unsupported("No duration found"))?;
+
+    let time_base = track
+        .codec_params
+        .time_base
+        .unwrap_or_else(|| TimeBase::new(1, sample_rate));
+    let duration_in_seconds =
+        time_base.calc_time(duration).seconds as f64 + time_base.calc_time(duration).frac;
+
+    Ok((sample_rate, duration_in_seconds))
+}

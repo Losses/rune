@@ -1,0 +1,2056 @@
+{
+  "@@locale": "en",
+  "rune": "Rune",
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
+  "runePlayer": "Rune Player",
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
+  "copyright": "Copyright",
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
+  "copyrightAnnouncement": "Copyright © 2024 Rune Player Developers.",
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
+  "licenseAnnouncement": "This product is licensed under the MPL license.",
+  "@licenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
+  "factoryReset": "Factory Reset",
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
+  "factoryResetSubtitle": "Remove all items from the library list.",
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
+  "onMyIPhone": "On My iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "On My iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "bsodBody": "Your player ran into a problem and needs a restart. We respect your privacy and won't collect any data.",
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
+  "artists": "Artists",
+  "@artists": {},
+  "albums": "Albums",
+  "@albums": {},
+  "playlists": "Playlists",
+  "@playlists": {},
+  "unknownAlbum": "Unknown Album",
+  "@unknownAlbum": {},
+  "unknownTrack": "Unknown Track",
+  "@unknownTrack": {},
+  "unknownArtist": "Unknown Artist",
+  "@unknownArtist": {},
+  "selectDirectory": "Select Directory",
+  "@selectDirectory": {},
+  "noDataAvailable": "No data available",
+  "@noDataAvailable": {},
+  "start": "Start",
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
+  "search": "Search",
+  "@search": {},
+  "tracks": "Tracks",
+  "@tracks": {},
+  "system": "System",
+  "@system": {},
+  "operatingSystem": "Operating system",
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "systemVersion": "System Version",
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "kernelVersion": "Kernel Version",
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
+  "hostName": "Host Name",
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
+  "player": "Player",
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
+  "buildHash": "Build Hash",
+  "@buildHash": {},
+  "buildDate": "Build Date",
+  "@buildDate": {},
+  "commitDate": "Commit Date",
+  "@commitDate": {},
+  "rustcVersion": "Rustc version",
+  "@rustcVersion": {},
+  "activation": "Activation",
+  "@activation": {},
+  "runeIsActivated": "Rune is activated",
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
+  "productId": "Product ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "You may be a victim of genuine software.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
+  "computingDevice": "Computing Device",
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
+  "computingDeviceSubtitle": "Select GPU or CPU for faster or more efficient processing.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Performance Level",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Choose how many tasks to run simultaneously.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Performance",
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
+  "balance": "Balance",
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
+  "batterySaving": "Battery Saving",
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
+  "switchTo": "Switch to",
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
+  "removeLibrary": "Remove",
+  "@removeLibrary": {
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
+  },
+  "localFolder": "Local Folder",
+  "localFolderSubtitle": "Choose a folder on this device.",
+  "runeDevice": "Rune Device",
+  "runeDeviceSubtitle": "Connect to another Rune device.",
+  "addLibrary": "Add Library",
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
+  "addLibrarySubtitle": "Add a new library and scan existing files.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Action Menu",
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
+  "addToQueue": "Add to Queue",
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
+  "addToQueueSubtitle": "How new items will be added to the playback queue.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Play Next",
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
+  "addToEnd": "Add to End",
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
+  "middleClickAction": "Middle Click Action",
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
+  "middleClickActionSubtitle": "Action to perform when middle-clicking a track or collection.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Start Playing",
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
+  "startRoaming": "Start Roaming",
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
+  "playbackMode": "Playback Mode",
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
+  "playbackModeSubtitle": "Preferred playback mode for how your music plays.",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Color Mode",
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
+  "colorModeSubtitle": "Change the color mode that appears in Rune.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "System",
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
+  "dark": "Dark",
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
+  "light": "Light",
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
+  "trayIconColorMode": "Tray Icon Color Mode",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Control how the tray icon adapts to your system theme.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Automatic",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "themeColor": "Theme Color",
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
+  "themeColorSubtitle": "Select a color to give your Rune a refreshed look and feel.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Follow System Theme",
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
+  "dynamicColors": "Dynamic Colors",
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
+  "dynamicColorsSubtitle": "Adjust Rune's theme colors based on the cover art of the playing track.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Branding Animation",
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
+  "brandingAnimationSubtitle": "Play branding animation when Rune starts.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "This might take a few minutes.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
+  "tracksFound": " tracks found",
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
+  "albumCoversCollected": " album covers collected",
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
+  "editPlaylist": "Edit Playlist",
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
+  "editMix": "Edit Mix",
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
+  "removePlaylist": "Remove Playlist",
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
+  "removeMix": "Remove Mix",
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "addToMix": "Add to Mix",
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "newMix": "New Mix",
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "selectAGroup": "Select a Group",
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
+  "likedOnly": "Liked Only",
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
+  "allTracks": "All Tracks",
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
+  "defaultMode": "Default",
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
+  "sequential": "Sequential",
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
+  "repeatAll": "Repeat All",
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
+  "repeatOne": "Repeat One",
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
+  "shuffle": "Shuffle",
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
+  "title": "Title",
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
+  "group": "Group",
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
+  "save": "Save",
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
+  "create": "Create",
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
+  "noRecommendation": "No Recommendation",
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
+  "basedOnAll": "Based on All",
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
+  "group1": "Group 1",
+  "@group1": {},
+  "group2": "Group 2",
+  "@group2": {},
+  "group3": "Group 3",
+  "@group3": {},
+  "group4": "Group 4",
+  "@group4": {},
+  "group5": "Group 5",
+  "@group5": {},
+  "group6": "Group 6",
+  "@group6": {},
+  "group7": "Group 7",
+  "@group7": {},
+  "group8": "Group 8",
+  "@group8": {},
+  "group9": "Group 9",
+  "@group9": {},
+  "ascending": "Ascending",
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
+  "descending": "Descending",
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
+  "lastModified": "Last Modified",
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
+  "duration": "Duration",
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
+  "timesPlayedThrough": "Times Played Through",
+  "@timesPlayedThrough": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been played through completely."
+  },
+  "timesSkipped": "Times Skipped",
+  "@timesSkipped": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been skipped."
+  },
+  "pickDirectory": "Pick Directory",
+  "@pickDirectory": {
+    "description": "Button prompt text in the Mix edit modal. Pressing this button opens a modal to guide users in selecting a directory."
+  },
+  "oneDirectory": "1 Directory",
+  "@oneDirectory": {
+    "description": "Status text indicating one directory has been selected."
+  },
+  "manyDirectories": "{count} Directories",
+  "@manyDirectories": {
+    "description": "Status text indicating multiple directories have been selected.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "Confirm",
+  "@confirm": {
+    "description": "Action button text in the modal, indicating the user's intent to confirm an action."
+  },
+  "directories": "Directories",
+  "@directories": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
+  },
+  "allDirectories": "All Directories",
+  "@allDirectories": {
+    "description": "Prompt indicating that all directories have been selected."
+  },
+  "randomTracks": "Random Tracks",
+  "@randomTracks": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
+  },
+  "amount": "Amount",
+  "@amount": {
+    "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
+  },
+  "mode": "Mode",
+  "@mode": {
+    "description": "The playback mode for tracks."
+  },
+  "recommendation": "Recommendation",
+  "@recommendation": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the player's recommendation behavior."
+  },
+  "sortBy": "Sort By",
+  "@sortBy": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting method for tracks."
+  },
+  "sortOrder": "Sort Order",
+  "@sortOrder": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
+  },
+  "liked": "Liked",
+  "@liked": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
+  },
+  "noRoamingCollection": "Unable to start roaming. Tracks in the collection haven't been analyzed yet.",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "Unable to start roaming. This track hasn't been analyzed yet.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} The library is being scanned, so analysis cannot be performed.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} The library is being analyzed; please wait until the process is finished.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} Please analyze your library for the best experience.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "Not Ready",
+  "@notReady": {
+    "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
+  },
+  "createPlaylist": "Create Playlist",
+  "@createPlaylist": {
+    "description": "Modal title for creating a playlist."
+  },
+  "scanLibrary": "Scan Library",
+  "@scanLibrary": {
+    "description": "Action button text in the modal, initiating a media library scan when pressed."
+  },
+  "analyzeTracks": "Analyze Tracks",
+  "@analyzeTracks": {
+    "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
+  },
+  "scan": "Scan",
+  "@scan": {
+    "description": "Button prompt text in the settings interface, initiating a media library scan when pressed."
+  },
+  "scanning": "Scanning",
+  "@scanning": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
+  },
+  "analyze": "Analyze",
+  "@analyze": {
+    "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
+  },
+  "analyzing": "Analysing",
+  "@analyzing": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
+  },
+  "tryCreatingYourOwnCollection": "Try creating your own collection",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text displayed on a blank page in the Collection view, suggesting users create a new collection."
+  },
+  "theseActionsMayHelp": "These actions may help",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Try scanning new files",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "No collection found",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "No items in playlist",
+  "@noItemsInPlaylist": {},
+  "previous": "Previous",
+  "@previous": {
+    "description": "Button prompt text for controlling playback, used to skip to the previous track."
+  },
+  "previousSubtitle": "Go to the previous track.",
+  "@previousSubtitle": {},
+  "playPause": "Play/Pause",
+  "@playPause": {
+    "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
+  },
+  "playPauseSubtitle": "Toggle between play and pause.",
+  "@playPauseSubtitle": {},
+  "next": "Next",
+  "@next": {
+    "description": "Button prompt text for controlling playback, used to skip to the next track."
+  },
+  "nextSubtitle": "Go to the next track.",
+  "@nextSubtitle": {},
+  "volume": "Volume",
+  "@volume": {
+    "description": "Button prompt text for controlling playback, used to adjust the volume."
+  },
+  "volumeSubtitle": "Adjust the volume.",
+  "@volumeSubtitle": {},
+  "playlist": "Playlist",
+  "@playlist": {
+    "description": "Button prompt text for controlling playback, used to display the playlist."
+  },
+  "playlistSubtitle": "View the playback queue.",
+  "@playlistSubtitle": {},
+  "hidden": "Hidden",
+  "@hidden": {
+    "description": "Button prompt text indicating a hidden button; this text is typically not used."
+  },
+  "hiddenSubtitle": "Content below will be hidden in the others list.",
+  "@hiddenSubtitle": {},
+  "coverWall": "Cover Wall",
+  "@coverWall": {
+    "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
+  },
+  "coverWallSubtitle": "Display cover art for a unique ambience.",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Fullscreen",
+  "@fullscreen": {
+    "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
+  },
+  "fullscreenSubtitle": "Enter or exit fullscreen mode.",
+  "@fullscreenSubtitle": {},
+  "pause": "Pause",
+  "@pause": {
+    "description": "Button prompt text for controlling playback, used to pause the currently playing track."
+  },
+  "play": "Play",
+  "@play": {
+    "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
+  },
+  "enable": "Enable",
+  "@enable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
+  },
+  "disable": "Disable",
+  "@disable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
+  },
+  "noTracksFound": "No tracks found",
+  "@noTracksFound": {},
+  "library": "Library",
+  "@library": {
+    "description": "Title of the media library settings interface."
+  },
+  "artistQuery": "Artist Query",
+  "@artistQuery": {},
+  "playlistQuery": "Playlist Query",
+  "@playlistQuery": {},
+  "mixes": "Mixes",
+  "@mixes": {
+    "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "mixQuery": "Mix Query",
+  "@mixQuery": {},
+  "settings": "Settings",
+  "@settings": {
+    "description": "Title of the settings interface."
+  },
+  "analysis": "Analysis",
+  "@analysis": {
+    "description": "Title of the analysis settings interface."
+  },
+  "playback": "Playback",
+  "@playback": {
+    "description": "Title of the playback settings interface."
+  },
+  "theme": "Theme",
+  "@theme": {
+    "description": "Title of the theme settings interface."
+  },
+  "controller": "Controller",
+  "@controller": {
+    "description": "Title of the playback control button settings interface."
+  },
+  "about": "About",
+  "@about": {
+    "description": "Title of the about interface."
+  },
+  "selectLibraryDirectorySubtitle": "Select your audio library directory, and we will scan and analyze all tracks within it.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Reset Library",
+  "@resetLibrary": {
+    "description": "Action button text in the modal, indicating the user wants to reset the library."
+  },
+  "resetLibraryQuestion": "Reset Library",
+  "@resetLibraryQuestion": {
+    "description": "Modal title asking users if they want to reset the library."
+  },
+  "resetLibrarySubtitle": "Resetting the library will clear your file open history. Your existing media library will remain unchanged. Do you want to proceed?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Unavailable",
+  "@unavailable": {
+    "description": "Context menu element that is unavailable, appearing only when there is a bug."
+  },
+  "goToArtist": "Go to Artist",
+  "@goToArtist": {
+    "description": "Context menu item guiding users to the artist's page."
+  },
+  "goToAlbum": "Go to Album",
+  "@goToAlbum": {
+    "description": "Context menu item guiding users to the album's page."
+  },
+  "addToPlaylist": "Add to Playlist",
+  "@addToPlaylist": {
+    "description": "Context menu item guiding users to add a track or album to a playlist."
+  },
+  "newPlaylist": "New Playlist",
+  "@newPlaylist": {
+    "description": "Context menu item guiding users to create a new playlist."
+  },
+  "unableToOpenLibrary": "Unable to Open Library",
+  "@unableToOpenLibrary": {
+    "description": "Modal title informing users that the library cannot be opened."
+  },
+  "unableToOpenLibrarySubtitle": "The Library could not be opened due to the following error:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Unknown Error",
+  "@unknownError": {
+    "description": "Modal error content indicating an unknown error."
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Action button in the modal guiding users to close it."
+  },
+  "queue": "Queue",
+  "@queue": {
+    "description": "Title of the playlist modal."
+  },
+  "createMix": "Create Mix",
+  "@createMix": {
+    "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "removeMixTitle": "Remove Mix",
+  "@removeMixTitle": {
+    "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "removeMixSubtitle": "If you delete this mix, you won't be able to recover it. Do you want to delete it?",
+  "@removeMixSubtitle": {},
+  "delete": "Delete",
+  "@delete": {
+    "description": "Action button text in the modal indicating that pressing it will delete information."
+  },
+  "removePlaylistTitle": "Remove Playlist",
+  "@removePlaylistTitle": {
+    "description": "Modal title informing users they are about to delete a playlist."
+  },
+  "removePlaylistSubtitle": "If you delete this playlist, you won't be able to recover it. Do you want to delete it?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Cancel Task",
+  "@cancelTaskTitle": {
+    "description": "Modal title informing users they are about to cancel a task."
+  },
+  "cancelTaskSubtitle": "If you cancel this task, it will stop at its current completion state. Do you want to cancel it?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Cancel Task",
+  "@cancelTask": {
+    "description": "Action button text in the modal indicating that pressing it will cancel the task."
+  },
+  "continueTask": "Continue",
+  "@continueTask": {
+    "description": "Action button text in the modal indicating that pressing it will continue the task."
+  },
+  "refresh": "Refresh",
+  "@refresh": {
+    "description": "Context menu item guiding users to refresh the current page's information."
+  },
+  "explore": "Explore",
+  "@explore": {
+    "description": "Title of a functional area."
+  },
+  "language": "Language",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "System Language",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "Follow your system language, without special settings.",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "Window Size",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Choose the preferred window size for the application.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normal",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Slim",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Stocky",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Log",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Log Detail",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Remove Log",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "If you delete this log, you won't be able to recover it. Do you want to delete it?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Remove All Logs",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "If you delete all logs, you won't be able to recover them. Do you want to delete them?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Delete All",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "No logs available",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Home",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Newest",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Oldest",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Random",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Most Played",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "Personalize",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "Discover and explore the world of your favorite artists.",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "Immerse yourself in albums crafted by talented artists.",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "Curate your own personalized listening journey.",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "Delve into the tracks you know and love.",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "Relive the tracks you cherish the most.",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "Revisit the melodies that captivate you time and again.",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Show Rune",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Exit",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Back",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Export As",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Playlist File",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Cover Art Wall",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "noCoverArtToExport": "No cover art is available to export.",
+  "@noCoverArtToExport": {
+    "description": "Shown when the selected tracks have no cover art for a cover wall."
+  },
+  "ratio": "Ratio",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Frame",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Background",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Evaluation Mode",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune is not a free pint of beer. We encourage you to purchase a genuine license from the app store.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Licensed users benefit from automatic updates provided by the app store and have the privilege to propose new features directly to the developers.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "You can choose to dismiss this reminder for 180 days, and we will remind you again later.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Remind me later",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Mysterious Button",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Creak",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "It seems you've triggered a mysterious mechanism. The room's structure appears to have changed, revealing new areas to explore.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Laboratory",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "Library Setup",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "We need to know a bit more about your library. Where are your media files stored?",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "Local hard drive",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "We will store your index together in the library folder.",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "In the cloud",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "We will store your index in the configuration directory.",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Remember Window Size",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Save your window size as you adjust it, and launch the program with the same dimensions next time.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune is Still Running",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune is currently running in the background. You can easily locate it in the system tray.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Register",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "You can purchase a music file as a registration key from the store below. Click \"Register\" to verify your genuine status.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Register",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Failed",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "An error occurred during the verification process.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Complete",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Congratulations! Your software has been successfully registered. Thank you for choosing Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Invalid key",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "The key file you provided is invalid. Please check the file and try again.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8AmbiguousSubtitle": "Your tracks have been imported, but some entries matched multiple files. Rune imported one match for each.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Matched multiple files",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Not found",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "Partially Successful",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Your tracks have been imported, but some were not found.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Import Failed",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "An error occurred during the import process.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Import Playlist",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adaptive Switching",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "Restarts from the beginning if you switch back after the current track has played for more than three seconds.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "mixWithOthers": "Play Alongside Other Audio",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Other audio keeps playing while Rune plays.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "Please consider purchasing a genuine license.",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "Lyrics",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Reveal the full lyrics of the song.",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Online Services",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Login",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Login Failed",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "An error occurred while trying to login",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Provide detailed listening insights with this music tracking service.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "A free and open platform for sharing your music taste.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Contribute to an open-source database while tracking your habits.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "scrobbleCredentialsRejected": "The service rejected these credentials. Check your username and password or token.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "The service could not be reached. Check your connection and try again.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Your Last.fm {field} is missing.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API Key"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm rejected the API key or secret. Check your API credentials and try again.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "fix": "Fix",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Confirm Logout",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Are you sure you want to log out? All locally stored login credentials will be deleted.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Retry Login",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Logout",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Username",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Password",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "Hostname",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "Port",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "addConnection": "Add Connection",
+  "@addConnection": {
+    "description": "The action button of the dialog."
+  },
+  "neighbors": "Neighbors",
+  "@neighbors": {
+    "description": "The settings page that could help users connect with each other."
+  },
+  "searchNeighbors": "Search Neighbors",
+  "@searchNeighbors": {
+    "description": "The item in the neighbors settings page, to discover devices in the local network."
+  },
+  "searchNeighborsSubtitle": "Find and connect to Rune devices in your local network.",
+  "@searchNeighborsSubtitle": {
+    "description": "The subtitle of the search neighbors settings item"
+  },
+  "editDeviceInformation": "Edit Device Information",
+  "@editDeviceInformation": {
+    "description": "Appears in device settings. Refers to details shown to other users during scanning."
+  },
+  "editDeviceInformationSubtitle": "Customize details shown to other devices during scans.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
+  },
+  "enableBroadcast": "Enable Broadcast",
+  "@enableBroadcast": {
+    "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
+  },
+  "enableBroadcastSubtitle": "Share your device information publicly for others to discover.",
+  "@enableBroadcastSubtitle": {
+    "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
+  },
+  "addNeighborManually": "Add Neighbor Manually",
+  "@addNeighborManually": {
+    "description": "'Neighbor refers to devices on the same local network. If space allows, 'Manually Add Neighbor' is acceptable. Prioritize brevity."
+  },
+  "addNeighborManuallySubtitle": "Enter a device's local network info manually to connect.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
+  },
+  "stop": "Stop",
+  "@stop": {
+    "description": "Action button to terminate active."
+  },
+  "deviceFingerprint": "Device Fingerprint",
+  "@deviceFingerprint": {
+    "description": "A unique identifier for the device, used for secure identification and connection."
+  },
+  "deviceName": "Device Name",
+  "@deviceName": {
+    "description": "The user-defined name of the device, displayed to other users during scanning and connection."
+  },
+  "noDevicesFound": "No devices found",
+  "@noDevicesFound": {
+    "description": "Message shown when no devices are discovered during scanning"
+  },
+  "error": "Error: {error}",
+  "@error": {
+    "description": "Error message shown when device discovery fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permission denied"
+      }
+    }
+  },
+  "model": "Model",
+  "@model": {
+    "description": "Label for device model information"
+  },
+  "type": "Type",
+  "@type": {
+    "description": "Label for device type information"
+  },
+  "fingerprint": "Fingerprint",
+  "@fingerprint": {
+    "description": "Label for device fingerprint information"
+  },
+  "lastSeen": "Last Seen",
+  "@lastSeen": {
+    "description": "Label for when device was last detected"
+  },
+  "ipAddresses": "IP Addresses",
+  "@ipAddresses": {
+    "description": "Label for device IP addresses"
+  },
+  "pair": "Pair",
+  "@pair": {
+    "description": "Button text for initiating device pairing"
+  },
+  "pairingWith": "Pairing with {deviceName}...",
+  "@pairingWith": {
+    "description": "Message shown when pairing process starts",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Living Room TV"
+      }
+    }
+  },
+  "server": "Server",
+  "@server": {
+    "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
+  },
+  "serverControl": "Server Control",
+  "@serverControl": {
+    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  },
+  "serverControlSubtitle": "Start the server to allow other devices to discover this device on the local network.",
+  "@serverControlSubtitle": {
+    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  },
+  "selectInterface": "Network Interface",
+  "@selectInterface": {
+    "description": "Label for selecting which network interface the server should bind to. Keep technical but clear."
+  },
+  "approvedStatus": "Approved",
+  "@approvedStatus": {
+    "description": "Shown as a user/client status badge. Indicates the device is fully authorized. Use affirmative terms like 'Verified' or 'Confirmed' if more natural."
+  },
+  "pendingStatus": "Pending",
+  "@pendingStatus": {
+    "description": "Shown as a user/client status badge. Indicates waiting for approval. Prefer terms implying 'awaiting action' over technical terms like 'In Queue'."
+  },
+  "blockedStatus": "Blocked",
+  "@blockedStatus": {
+    "description": "Shown as a user/client status badge. Indicates explicit denial of access. Use strong terms like 'Banned' or 'Denied' where appropriate, but avoid overly aggressive vocabulary."
+  },
+  "unknownStatus": "Unknown",
+  "@unknownStatus": {
+    "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
+  },
+  "review": "Review",
+  "@review": {
+    "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
+  },
+  "reviewRequestTitle": "Connection Request",
+  "@reviewRequestTitle": {
+    "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
+  },
+  "blockDevice": "Block Device",
+  "@blockDevice": {
+    "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
+  },
+  "connectionVerificationMessage": "To allow the device {alias} ({model}) to connect, share the communication key fingerprint below to help verify your identity.",
+  "@connectionVerificationMessage": {
+    "description": "Instructional text in modal for establishing trust. Emphasizes sharing security credentials (fingerprint) to authenticate connections. Use terms like 'validate' or 'authenticate' if preferred in target language.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "User-defined device nickname"
+      },
+      "model": {
+        "type": "String",
+        "description": "Manufacturer's device model identifier"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "Prevent future connection. You can unblock this device at any time.",
+  "@blockDeviceSubtitle": {
+    "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
+  },
+  "removeTrust": "Remove Permission",
+  "@removeTrust": {
+    "description": "Modal title for deleting a device's permission history. Emphasizes permanent removal of both allowed/blocked statuses and the need for re-registration."
+  },
+  "removeTrustSubtitle": "This will permanently delete the permission record. The device will lose all access status (Approved/Blocked) and must send a new registration request to reappear in the list.",
+  "@removeTrustSubtitle": {
+    "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
+  },
+  "pairingTitle": "Pairing",
+  "@pairingTitle": {
+    "description": "Title for secure device pairing dialog. Should emphasize mutual authentication process."
+  },
+  "pairingLoading": "Retrieving device fingerprint...",
+  "@pairingLoading": {
+    "description": "Status text shown during fingerprint verification. Indicates security check in progress."
+  },
+  "pairingInstructions": "For security verification, select the characters that complete the fingerprint shown on your partner device. This confirms you're connecting to the right device.",
+  "@pairingInstructions": {
+    "description": "Explains partial fingerprint verification process. Uses 'security verification' instead of technical MITM terms."
+  },
+  "pairingFailureTitle": "Pairing Failed",
+  "@pairingFailureTitle": {
+    "description": "Title for fingerprint mismatch. States outcome without causing undue alarm."
+  },
+  "pairingFailureMessage": "The fingerprint doesn't match. Please ensure you're connecting to the correct device and try the verification again.",
+  "@pairingFailureMessage": {
+    "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
+  },
+  "closingWindowBehaviorTitle": "Closing Window Behavior",
+  "@closingWindowBehaviorTitle": {
+    "description": "Title text for the window close behavior settings section. Emphasizes user control over how the application closes."
+  },
+  "closingWindowBehaviorSubtitle": "Choose how the application behaves when you click the close button.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explains that users can customize the close button behavior. Use 'customize' or 'configure' as alternatives."
+  },
+  "minimizeToTray": "Minimize to Tray",
+  "@minimizeToTray": {
+    "description": "Option text indicating the program will continue running in the background when window is closed. Use 'Hide to tray' or 'Keep running' as alternative phrasing."
+  },
+  "exitProgram": "Exit Completely",
+  "@exitProgram": {
+    "description": "Option text indicating the program will terminate completely when window is closed. Use 'Close application' or 'Terminate app' as alternative phrasing."
+  },
+  "systemTabTitle": "System",
+  "@systemTabTitle": {
+    "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
+  },
+  "removeFromPlaylist": "Remove from Playlist",
+  "@removeFromPlaylist": {
+    "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
+  },
+  "waitForApprove": "Waiting for the server to approve this request...",
+  "@waitForApprove": {
+    "description": "Loading message displayed during server connection verification process."
+  },
+  "clientBlockedTitle": "Connection Blocked",
+  "@clientBlockedTitle": {
+    "description": "Error title indicating the remote device has blocked this client's connection attempts."
+  },
+  "clientBlockedMessage": "The remote device has blocked your client from connecting. You will need permission from the device owner to establish a connection.",
+  "@clientBlockedMessage": {
+    "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
+  },
+  "genres": "Genres",
+  "@genres": {
+    "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
+  },
+  "genreQuery": "Genre Query",
+  "@genreQuery": {},
+  "deduplicate": "Deduplicate",
+  "@deduplicate": {
+    "description": "Button label for removing duplicate tracks from a music library or playlist. Refers to the function of identifying and removing duplicate songs. Alternative phrasings could include 'Remove Duplicates' or 'Clean Duplicates' depending on what's most natural in the target language."
+  },
+  "deduplicateThresholdTitle": "Deduplicate Threshold",
+  "@deduplicateThresholdTitle": {
+    "description": "Title for the audio similarity threshold setting. Indicates where users can adjust how strictly audio tracks are compared for duplication detection."
+  },
+  "deduplicateThresholdSubtitle": "Adjust the sensitivity level for detecting similar audio tracks.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Brief explanation of what the audio similarity threshold setting controls. Helps users understand the purpose of this configuration option."
+  },
+  "nearlyIdentical": "Nearly Identical",
+  "@nearlyIdentical": {
+    "description": "Highest level of audio similarity threshold indicating tracks that are almost exactly the same. Used when configuring duplicate detection settings. Alternative phrasings could include 'Exact Match' or 'Perfect Match' depending on what's most natural in the target language."
+  },
+  "highlySimiar": "Highly Similar",
+  "@highlySimiar": {
+    "description": "Second highest level of audio similarity threshold indicating tracks that have very few differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Very Similar' or 'Almost Identical' depending on what's most natural in the target language."
+  },
+  "moderatelySimilar": "Moderately Similar",
+  "@moderatelySimilar": {
+    "description": "Middle level of audio similarity threshold indicating tracks that have noticeable but not major differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Somewhat Similar' or 'Partially Matching' depending on what's most natural in the target language."
+  },
+  "slightlySimilar": "Slightly Similar",
+  "@slightlySimilar": {
+    "description": "Lowest level of audio similarity threshold indicating tracks that share some characteristics but have significant differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Minimally Similar' or 'Barely Matching' depending on what's most natural in the target language."
+  },
+  "deduplicating": "Deduplicating",
+  "@deduplicating": {
+    "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
+  },
+  "linuxCustomWindowControls": "Custom Window Controls",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Enable custom window controls for a frameless window experience similar to Windows mode.",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "visualizerScenes": "Scenes",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Check the scenes the cover wall's menu offers. Drag to reorder.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "Imported {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "Could not import {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Delete Scene",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "Delete {name}? Import its scene file again to get it back.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Visualizer",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Visuals that follow the music.",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Visualizer Lab",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Show the lab over the visualizer.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScale": "Interface Scale",
+  "interfaceScaleSubtitle": "Adjust the size of text and content in Rune.",
+  "interfaceScaleSaveError": "Could not save interface scale",
+  "@interfaceScale": {
+    "description": "Title of the application interface scale setting."
+  },
+  "@interfaceScaleSubtitle": {
+    "description": "Explains interface scaling relative to system scaling."
+  },
+  "@interfaceScaleSaveError": {
+    "description": "Error title when saving interface scale fails."
+  },
+  "interfaceScaleFollowTextSize": "Follow Text Size",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "offlineAvailability": "Offline Availability",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Keep Offline",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "Stop Keeping Offline",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "Offline selection saved",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "Automatic downloads stopped",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "Could not save offline selection",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Tracks will download when a paired device is available.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "Existing files are kept.",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "Audio Unavailable",
+  "allowPairedSync": "Allow Paired Sync",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Turn off to stop other devices from connecting to this device.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "Delete Unneeded Downloads",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Choose whether to delete downloads when they are no longer kept offline.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "Delete Unneeded Downloads",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "Offline selection updated.",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "remoteOpenUntrusted": "This device does not trust the server. Pair it first.",
+  "remoteOpenNotAuthorized": "The other device has not allowed this device to connect.",
+  "remoteOpenUnreachable": "The device cannot be reached. Check its network connection.",
+  "remoteOpenProtocol": "Could not connect. Update Rune on both devices.",
+  "remoteLossRevoked": "This device's access was removed.",
+  "remoteLossDetached": "The playing device disconnected this remote control.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "The other device stopped sharing.",
+  "remoteLossNetworkLost": "The connection was lost.",
+  "syncToThisDevice": "Sync to This Device",
+  "libraryNotShared": "Not Shared",
+  "controlPermissionRequired": "No Playback Control",
+  "deviceLibraries": "Libraries",
+  "addSharedLibrary": "Add",
+  "sharedLibraryAdded": "Added",
+  "openSharedLibrary": "Open",
+  "noSharedLibraries": "This device has no shared libraries.",
+  "libraryFromDevice": "From {device}",
+  "backgroundLibrarySync": "Background Sync",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "This item no longer exists.",
+  "requestInvalid": "The request is invalid.",
+  "requestCertificateMismatch": "This device's certificate does not match.",
+  "requestUnavailable": "This is not available right now.",
+  "requestStorageBusy": "Storage is busy. Try again.",
+  "mixNoLongerExists": "This mix no longer exists.",
+  "devices": "Devices",
+  "playOn": "Play On",
+  "playOnSubtitle": "Choose where to play audio.",
+  "playOnFixedToRemote": "Fixed to this remote device",
+  "playOnPlayingOn": "Playing on {alias}",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "Offline",
+  "playOnNotApproved": "This device has not approved access.",
+  "playOnNoControl": "This device cannot be controlled.",
+  "playOnCantPlay": "Cannot play {library}.",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "Retry",
+  "castTrackMode": "When Casting a Track",
+  "castTrackReplace": "Replace Queue",
+  "castTrackPlayNext": "Play Next",
+  "castControlRenderer": "After Casting",
+  "castKeepControlling": "Keep Controlling This Device",
+  "castControlCastDevice": "Control the Cast Device",
+  "castTrackModeSubtitle": "Choose how casting changes the queue.",
+  "castControlRendererSubtitle": "Choose which device to control after casting.",
+  "castNotPossible": "{alias} cannot play {library}.",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, one{{count} track is not on {alias} yet and was not added.} other{{count} tracks are not on {alias} yet and were not added.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "This Device",
+  "devicesThatCanConnect": "Devices That Can Connect",
+  "otherDevices": "Other Devices",
+  "myDevice": "My Device",
+  "controllingNow": "Controlling Now",
+  "waitingForApproval": "Waiting for Approval",
+  "guest": "Guest",
+  "myDeviceAccessDescription": "Can play, browse, and sync your libraries.",
+  "guestAccessDescription": "Can control playback and browse libraries.",
+  "customDeviceAccess": "Custom",
+  "customizeDevice": "Customize",
+  "disconnect": "Disconnect",
+  "controlPlayback": "Control Playback",
+  "controlPlaybackDescription": "Can control playback and cast to this device.",
+  "deviceAccessLibraries": "Libraries",
+  "deviceAccessNotShared": "Not Shared",
+  "deviceAccessReadWrite": "Read and Write",
+  "requestConflict": "The queue changed. Try again.",
+  "requestPermissionDenied": "This device is not allowed to do that.",
+  "readOnly": "Read Only",
+  "queueUnavailableAccessRevoked": "Access was revoked.",
+  "queueUnavailableLibraryUnavailable": "Library is unavailable.",
+  "queueUnavailableSourceUnreachable": "Source is unreachable.",
+  "queueUnavailableUnreadable": "Audio cannot be read.",
+  "rendererLinkLost": "Connection to {alias} was lost.",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "The device key does not match its fingerprint.",
+  "requestRegistrationConflict": "A device with this fingerprint is already registered.",
+  "remoteLibraryReconnecting": "Reconnecting to {alias}…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "This device does not support this control.",
+  "capabilityOwnerOnly": "Only the device owner can do this.",
+  "requestOtherDeviceName": "the other device",
+  "requestPeerNeedsUpdatePeer": "{alias} needs a Rune update to connect.",
+  "requestPeerNeedsUpdateThisDevice": "Update Rune on this device to connect to {alias}.",
+  "remoteLossProtocolIncompatible": "Update Rune on both devices to reconnect.",
+  "capabilityPeerTooOld": "Update Rune on the other device to use this feature.",
+  "requestPeerNeedsUpdateFallback": "Update Rune on both devices to connect.",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "Your account is not allowed to do this.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "This library's settings can't be read.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "This library no longer exists.",
+  "libraryRecordIsOpen": "Close the library before removing it.",
+  "libraryMediaFolderMissing": "The library folder is missing.",
+  "libraryUntrusted": "This device is not trusted.",
+  "libraryInvalidSource": "This folder cannot be used as a library.",
+  "libraryStorageFailure": "The library could not be saved.",
+  "libraryNewerVersion": "This library was made by a newer version of Rune. Update Rune on this device to open it.",
+  "libraryShareStoreUnavailable": "Shared storage is unavailable. Sync will retry automatically.",
+  "@libraryShareStoreUnavailable": {
+    "description": "Shown when the shared storage holding the library is unreachable and the share sync retries on its own."
+  },
+  "libraryRemoteNotAuthorized": "The device did not allow this connection.",
+  "libraryRemoteUnreachable": "The device could not be reached.",
+  "libraryRemoteProtocolFailure": "The device returned an incompatible response.",
+  "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",
+  "libraryNotSupportedYet": "This library type is not supported yet.",
+  "turnOnBackgroundSync": "Turn On Background Sync",
+  "turnOffBackgroundSync": "Turn Off Background Sync",
+  "shareLibraryModeSubtitle": "Where should Rune store your index?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "In the shared folder",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "We will store your index in the shared folder, so your other devices can sync with it.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "On this device",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Connect to a folder on a WebDAV server.",
+  "s3": "S3",
+  "s3Subtitle": "Connect to a folder in an S3 bucket.",
+  "folder": "Folder",
+  "bucket": "Bucket",
+  "region": "Region",
+  "accessKeyId": "Access Key ID",
+  "secretAccessKey": "Secret Access Key",
+  "libraryOpenDalAuthenticationRejected": "Check the username and password.",
+  "libraryOpenDalUnreachable": "Check the server address and network connection.",
+  "libraryOpenDalNotFolder": "Check that the selected folder exists and is accessible.",
+  "libraryOpenDalReadOnly": "Choose a writable folder to keep the index in the share.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Connect to a Subsonic music server.",
+  "playOnThisDevice": "Play on This Device",
+  "controlServerPlayer": "Control the Server's Player",
+  "howDoYouWantToUseIt": "How do you want to use it?",
+  "fileDialogOpenTitle": "Open",
+  "@fileDialogOpenTitle": {
+    "description": "Title of the file dialog when opening a file."
+  },
+  "fileDialogSaveTitle": "Save As",
+  "@fileDialogSaveTitle": {
+    "description": "Title of the file dialog when saving a file."
+  },
+  "fileDialogFolderTitle": "Select Folder",
+  "@fileDialogFolderTitle": {
+    "description": "Title of the file dialog when picking a folder."
+  },
+  "fileDialogOpen": "Open",
+  "@fileDialogOpen": {
+    "description": "Button and menu command that opens the selected file or folder in the file dialog."
+  },
+  "fileDialogSelectFolder": "Select Folder",
+  "@fileDialogSelectFolder": {
+    "description": "Confirm button of the file dialog when picking a folder."
+  },
+  "fileDialogFileName": "File Name",
+  "@fileDialogFileName": {
+    "description": "Label of the file dialog's file name box."
+  },
+  "fileDialogSaveAsType": "Save as Type",
+  "@fileDialogSaveAsType": {
+    "description": "Label of the file type box when saving."
+  },
+  "fileDialogFileTypes": "File Types",
+  "@fileDialogFileTypes": {
+    "description": "Accessible name of the file type box when opening files."
+  },
+  "fileDialogAllFiles": "All Files",
+  "@fileDialogAllFiles": {
+    "description": "File type entry that shows every file."
+  },
+  "fileDialogForward": "Forward",
+  "@fileDialogForward": {
+    "description": "Button that goes forward to the next folder."
+  },
+  "fileDialogRecentLocations": "Recent Locations",
+  "@fileDialogRecentLocations": {
+    "description": "Button listing folders visited in the file dialog."
+  },
+  "fileDialogUp": "Up",
+  "@fileDialogUp": {
+    "description": "Button that goes to the parent folder."
+  },
+  "fileDialogAddress": "Address",
+  "@fileDialogAddress": {
+    "description": "Accessible name of the file dialog's address bar."
+  },
+  "fileDialogSearchIn": "Search {folder}",
+  "@fileDialogSearchIn": {
+    "description": "Placeholder of the search box; folder is the folder being shown.",
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogNewFolder": "New Folder",
+  "@fileDialogNewFolder": {
+    "description": "Command that creates a folder; also the new folder's first name."
+  },
+  "fileDialogView": "View",
+  "@fileDialogView": {
+    "description": "Menu of layouts for the items."
+  },
+  "fileDialogExtraLargeIcons": "Extra Large Icons",
+  "fileDialogLargeIcons": "Large Icons",
+  "fileDialogMediumIcons": "Medium Icons",
+  "fileDialogSmallIcons": "Small Icons",
+  "fileDialogList": "List",
+  "@fileDialogList": {
+    "description": "Layout that lists items in columns."
+  },
+  "fileDialogDetails": "Details",
+  "@fileDialogDetails": {
+    "description": "Layout that shows items with columns of details."
+  },
+  "fileDialogTiles": "Tiles",
+  "@fileDialogTiles": {
+    "description": "Layout that shows items as tiles."
+  },
+  "fileDialogContent": "Content",
+  "@fileDialogContent": {
+    "description": "Layout that shows items with their details on one line."
+  },
+  "fileDialogHiddenItems": "Hidden Items",
+  "@fileDialogHiddenItems": {
+    "description": "Toggle that shows hidden files and folders."
+  },
+  "fileDialogName": "Name",
+  "@fileDialogName": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogDateModified": "Date Modified",
+  "@fileDialogDateModified": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogSize": "Size",
+  "@fileDialogSize": {
+    "description": "Column header and sort option."
+  },
+  "fileDialogAscending": "Ascending",
+  "@fileDialogAscending": {
+    "description": "Sort direction."
+  },
+  "fileDialogDescending": "Descending",
+  "@fileDialogDescending": {
+    "description": "Sort direction."
+  },
+  "fileDialogFileFolder": "File Folder",
+  "@fileDialogFileFolder": {
+    "description": "Type shown for folders."
+  },
+  "fileDialogFileOfType": "{extension} File",
+  "@fileDialogFileOfType": {
+    "description": "Type shown for a file; extension is its extension in capitals, such as FLAC.",
+    "placeholders": {
+      "extension": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFile": "File",
+  "@fileDialogFile": {
+    "description": "Type shown for a file without an extension."
+  },
+  "fileDialogQuickAccess": "Quick Access",
+  "@fileDialogQuickAccess": {
+    "description": "Navigation pane group of the folders pinned in the system's file browser."
+  },
+  "fileDialogThisDevice": "This Device",
+  "@fileDialogThisDevice": {
+    "description": "Navigation pane group of this device's folders and drives."
+  },
+  "fileDialogDesktop": "Desktop",
+  "fileDialogDocuments": "Documents",
+  "fileDialogDownloads": "Downloads",
+  "fileDialogMusic": "Music",
+  "fileDialogPictures": "Pictures",
+  "fileDialogVideos": "Videos",
+  "fileDialogLocalDisk": "Local Disk",
+  "@fileDialogLocalDisk": {
+    "description": "Name of a drive without a label."
+  },
+  "fileDialogRemovableDisk": "Removable Disk",
+  "@fileDialogRemovableDisk": {
+    "description": "Name of a removable drive without a label."
+  },
+  "fileDialogOpticalDrive": "Optical Drive",
+  "@fileDialogOpticalDrive": {
+    "description": "Name of a CD or DVD drive without a label."
+  },
+  "fileDialogNetworkDrive": "Network Drive",
+  "@fileDialogNetworkDrive": {
+    "description": "Name of a network drive without a label."
+  },
+  "fileDialogDriveName": "{name} ({drive})",
+  "@fileDialogDriveName": {
+    "description": "A drive's name with its letter or mount point, such as Local Disk (C:).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "drive": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFreeSpace": "{free} free of {total}",
+  "@fileDialogFreeSpace": {
+    "description": "Free space of a drive.",
+    "placeholders": {
+      "free": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogCopyAsPath": "Copy as Path",
+  "@fileDialogCopyAsPath": {
+    "description": "Context menu command that copies the item's path."
+  },
+  "fileDialogRename": "Rename",
+  "@fileDialogRename": {
+    "description": "Context menu command that renames the item."
+  },
+  "fileDialogEmptyFolder": "This folder is empty.",
+  "fileDialogNoMatches": "No items match your search.",
+  "fileDialogNotFound": "Cannot find {location}. Check the spelling and try again.",
+  "@fileDialogNotFound": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFileNotFound": "Cannot find the file {name}. Check the file name and try again.",
+  "@fileDialogFileNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogPathNotFound": "The path {name} does not exist. Check the path and try again.",
+  "@fileDialogPathNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogFolderNotFound": "The folder {name} does not exist. Check the folder name and try again.",
+  "@fileDialogFolderNotFound": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogSizeColumnToFit": "Size Column to Fit",
+  "fileDialogSizeAllColumnsToFit": "Size All Columns to Fit",
+  "fileDialogChangeView": "Change Your View",
+  "fileDialogMoreOptions": "More Options",
+  "fileDialogPermissionDenied": "You do not have permission to access {location}.",
+  "@fileDialogPermissionDenied": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogUnavailable": "{location} is unavailable. Check that the drive is connected and try again.",
+  "@fileDialogUnavailable": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogNotAFolder": "{location} is a file and cannot be opened as a folder.",
+  "@fileDialogNotAFolder": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogAlreadyExists": "An item named {name} already exists in this location.",
+  "@fileDialogAlreadyExists": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogInvalidName": "{name} cannot be used as a name here.",
+  "@fileDialogInvalidName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogConfirmSaveAs": "Confirm Save As",
+  "@fileDialogConfirmSaveAs": {
+    "description": "Title of the question asked before replacing a file."
+  },
+  "fileDialogReplacePrompt": "{name} already exists. Do you want to replace it?",
+  "@fileDialogReplacePrompt": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileDialogReplace": "Replace",
+  "@fileDialogReplace": {
+    "description": "Button that replaces an existing file."
+  },
+  "fileDialogItemCount": "{count, plural, =1{1 item} other{{count} items}}",
+  "@fileDialogItemCount": {
+    "description": "Number of items in the folder, read out by screen readers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fileDialogNavigationPane": "Navigation Pane",
+  "@fileDialogNavigationPane": {
+    "description": "Accessible name of the list of places on the left."
+  },
+  "fileDialogItems": "Items",
+  "@fileDialogItems": {
+    "description": "Accessible name of the area listing the folder's items."
+  }
+}

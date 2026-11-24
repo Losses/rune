@@ -1,0 +1,12 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 734aba5..5d5b340 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -147,6 +147,7 @@ add_library(
+   src/window.c
+   src/dummy_render_surface.c
+   src/plugins/services.c
++  src/plugins/desktop_stubs.c
+ )
+ 
+ target_link_libraries(flutterpi_module PUBLIC

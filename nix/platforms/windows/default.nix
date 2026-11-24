@@ -1,0 +1,78 @@
+# Windows Platform Adapter
+# Supports both x86_64-windows (x64) and aarch64-windows (arm64).
+#
+# Exposes the standard contract:
+# - devShells.default: Complete MSVC + Rust + Flutter dev shell
+# - packages.default: Rune Windows application package
+#
+# Can be evaluated through flake.nix or standalone by nova-nix:
+#   nova-nix eval nix/platforms/windows/default.nix
+
+{ system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
+, inputs ? {}
+, customMsvcRoot ? null
+, useSystemMsvc ? false
+, vcVersion ? (if useSystemMsvc then "14.39.33519" else (import ./msvc-packages.nix).vcVersion)
+, sdkVersion ? (if useSystemMsvc then "10.0.22621.0" else (import ./msvc-packages.nix).sdkVersion)
+}:
+
+let
+  # Use built-in fetchurl if standalone, or fallback to nixpkgs fetchurl if available
+  fetchurl = if inputs ? nixpkgs then
+    (import inputs.nixpkgs { inherit system; }).fetchurl
+  else
+    (import <nix/fetchurl.nix>);
+
+  portableMsvc = import ./msvc-portable.nix { inherit fetchurl system; };
+
+  msvc = import ./msvc.nix {
+    inherit system arch vcVersion sdkVersion;
+    customMsvcRoot = if customMsvcRoot != null then customMsvcRoot
+      else if useSystemMsvc then null else portableMsvc;
+  };
+
+  rust = import ./rust.nix {
+    inherit fetchurl system arch;
+  };
+
+  flutter = import ./flutter.nix {
+    inherit fetchurl system arch;
+  };
+
+  tools = import ./tools.nix {
+    inherit fetchurl system arch;
+  };
+
+  innosetup = import ./innosetup.nix {
+    inherit fetchurl system arch;
+  };
+
+  dxc = import ./dxc.nix {
+    inherit fetchurl system arch;
+  };
+
+  devshell = import ./devshell.nix {
+    inherit msvc rust flutter tools system arch;
+  };
+
+  runeWindows = import ./package.nix {
+    inherit msvc rust flutter tools system arch;
+  };
+
+  rinf = import ./rinf.nix {
+    inherit fetchurl rust msvc system;
+  };
+
+in {
+  inherit msvc portableMsvc rust flutter tools innosetup dxc rinf arch system;
+
+  devShells = {
+    default = devshell;
+  };
+
+  packages = {
+    default = runeWindows;
+    msvc = portableMsvc;
+  };
+}

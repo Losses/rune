@@ -1,0 +1,88 @@
+# Flutter SDK for Windows (supports x64 and arm64 targets)
+# Sourced directly from official Google Flutter Infra matching Scoop Extras bucket.
+
+{ fetchurl ? (import <nix/fetchurl.nix>)
+, version ? "3.47.6"
+, system ? "x86_64-windows"
+, arch ? (if system == "aarch64-windows" then "arm64" else "x64")
+}:
+
+let
+  flutterManifests = {
+    "3.47.6" = {
+      archive = "flutter_windows_3.47.6-stable.zip";
+      engine = "692136cb6582dbfc5af3fb33c2515a069f2f66d0";
+      dartArm64Sha256 = "97b07b183089179d005b43ad77ec06462b3fd7d6f72f561c6592c85c47ce451a";
+      sha256 = "a01bb0d26de91bc23c97cd9ccfaad281a612fb8304213fdd5df1119a09404796";
+    };
+    "3.27.4" = {
+      archive = "flutter_windows_3.27.4-stable.zip";
+      sha256 = "1141d3edb64c454273feac88f31f84945a1f3309a72c58aa9a5f2bb2b0fc8db3";
+    };
+    "3.27.1" = {
+      archive = "flutter_windows_3.27.1-stable.zip";
+      sha256 = "7e72b71b3570a117c6070a5935bcf3ccd0254a6d63e5eff99d4bc4ddb5006ca9";
+    };
+  };
+
+  selected = flutterManifests.${version};
+
+  flutterArchive = fetchurl {
+    url = "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/${selected.archive}";
+    sha256 = selected.sha256;
+  };
+
+  # Keep the previously working archive derivation byte-for-byte equivalent.
+  rawPackage = derivation {
+    name = "flutter-windows-${arch}-${version}";
+    system = system;
+    builder = "cmd.exe";
+    args = [ "/c" "mkdir %out% && tar.exe -xf %src% -C %out%" ];
+    src = flutterArchive;
+    PATH = "C:\\Windows\\System32";
+  };
+
+  # The generic archive ships x64 Dart. Native Dart remains a separate immutable output.
+  nativeDart = if arch != "arm64" then null else derivation {
+    name = "flutter-dart-windows-arm64-${version}";
+    inherit system;
+    builder = "cmd.exe";
+    args = [ "/c" "mkdir %out% && tar.exe -xf %src% -C %out%" ];
+    src = fetchurl {
+      url = "https://storage.googleapis.com/flutter_infra_release/flutter/${selected.engine}/dart-sdk-windows-arm64.zip";
+      sha256 = selected.dartArm64Sha256;
+    };
+    PATH = "C:\\Windows\\System32";
+  };
+
+  package = derivation {
+    name = "flutter-windows-${arch}-${version}";
+    system = system;
+    builder = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+    args = [ "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" ./flutter-build.ps1 ];
+    sdk = "${rawPackage}/flutter";
+    dartSdk = if nativeDart == null then "${rawPackage}/flutter/bin/cache/dart-sdk" else "${nativeDart}/dart-sdk";
+    inherit arch;
+    launcher = ./flutter-launcher.ps1;
+    # A package input changes the facade cache key when this patch changes.
+    axPatch = if version == "3.47.6" then ../../../scripts/patches/flutter-193372.patch else "";
+    imePatch = if version == "3.47.6" then ../../../scripts/patches/flutter-windows-ime-geometry.patch else "";
+    PATH = "C:\\Windows\\System32;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
+  };
+
+in rec {
+  inherit version arch package rawPackage;
+
+  binPath = "${package}/flutter/bin";
+
+  # Flags to pass to flutter build windows
+  buildFlag = ""; # Flutter 'build windows' targets the host arch only; --arm64 is not a valid flag
+
+  env = {
+    PUB_CACHE = "$env:LOCALAPPDATA\\Pub\\Cache";
+  };
+
+  setupHookPwsh = ''
+    $env:PATH = "${binPath};" + $env:PATH
+  '';
+}

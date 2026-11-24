@@ -1,0 +1,118 @@
+import 'dart:async';
+
+import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import '../../config/animation.dart';
+import '../../bindings/bindings.dart';
+import '../../widgets/belt_container.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/band_link_tile.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../providers/status.dart';
+import '../../providers/volume.dart';
+import '../../providers/playback_controller.dart';
+import '../../providers/responsive_providers.dart';
+import '../../widgets/capability_gate.dart';
+
+class BandScreenCoverWallView extends StatefulWidget {
+  const BandScreenCoverWallView({super.key});
+
+  @override
+  LibraryHomeListState createState() => LibraryHomeListState();
+}
+
+class LibraryHomeListState extends State<BandScreenCoverWallView> {
+  final layoutManager = StartScreenLayoutManager();
+
+  @override
+  void dispose() {
+    super.dispose();
+    layoutManager.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => layoutManager.playAnimations(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controllers = Provider.of<PlaybackControllerProvider>(context);
+    Provider.of<PlaybackStatusProvider>(context);
+    Provider.of<VolumeProvider>(context);
+
+    final children = controllers
+        .availableEntries(context)
+        .where((x) => x.onShortcut != null)
+        .where(
+          (item) => item.capability(context, true) is! RequestCapabilityHidden,
+        )
+        .map(
+          (item) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: CapabilityGate(
+                capability: item.capability(context, true),
+                child: BandLinkTile(
+                  title: item.titleBuilder(context),
+                  onPressed: () {
+                    final fn = item.onShortcut;
+                    if (fn != null) {
+                      fn(context);
+                    }
+                  },
+                  icon: item.icon(context),
+                ),
+              ),
+            ),
+          ),
+        )
+        .toList();
+
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.tv,
+        DeviceType.station,
+      ],
+      builder: (context, activeBreakpoint) {
+        if (activeBreakpoint == DeviceType.dock) {
+          return SingleChildScrollView(child: Column(children: children));
+        }
+
+        if (activeBreakpoint == DeviceType.belt) {
+          return BeltContainer(
+            child: SmoothHorizontalScroll(
+              builder: (context, controller) {
+                return SingleChildScrollView(
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: children),
+                );
+              },
+            ),
+          );
+        }
+
+        return SmoothHorizontalScroll(
+          builder: (context, controller) {
+            return SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Row(children: children),
+            );
+          },
+        );
+      },
+    );
+  }
+}

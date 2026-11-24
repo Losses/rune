@@ -1,0 +1,96 @@
+use database::sync::LibrarySyncStore;
+use database::{
+    actions::{
+        analysis::{
+            analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
+        },
+        metadata::{
+            MissingHostFilePolicy, ScanOptions,
+            empty_progress_callback as empty_scan_progress_callback, scan_audio_library,
+        },
+        recommendation::sync_recommendation,
+    },
+    connection::{connect_main_db, connect_recommendation_db},
+};
+use std::{path::PathBuf, sync::Arc};
+
+use log::{error, info};
+use tracing_subscriber::filter::EnvFilter;
+
+use analysis::utils::computing_device::ComputingDevice;
+use fsio::FsIo;
+use std::env;
+use uuid::Uuid;
+
+#[tokio::main]
+async fn main() {
+    let filter = EnvFilter::new(
+        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info",
+    );
+
+    let fsio = Arc::new(FsIo::new());
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_test_writer()
+        .init();
+
+    let path = ".";
+    let node_id = Uuid::new_v4();
+    let main_db = connect_main_db(&fsio, path, None, &node_id.to_string())
+        .await
+        .unwrap();
+
+    // Get the first command line argument.
+    let args: Vec<String> = env::args().collect();
+    let path = args.get(1).cloned().expect("Audio data path not provided");
+
+    let root_path = PathBuf::from(&path);
+
+    let library = LibrarySyncStore::open(main_db.clone(), node_id, None)
+        .await
+        .unwrap();
+    library.import_existing(node_id).await.unwrap();
+
+    // Scan the audio library
+    let _ = scan_audio_library(
+        &fsio,
+        &main_db,
+        &node_id.to_string(),
+        &root_path,
+        ScanOptions {
+            cleanup: true,
+            force: false,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
+        empty_scan_progress_callback,
+        &library.record_store(),
+    )
+    .await;
+
+    info!("Analyzing tracks");
+    // Analyze the audio files in the database
+    analysis_audio_library(
+        Arc::clone(&fsio),
+        &main_db,
+        &root_path,
+        10,
+        ComputingDevice::Gpu,
+        empty_analysis_progress_callback,
+        None,
+    )
+    .await
+    .expect("Audio analysis failed");
+
+    info!("Syncing recommendation");
+    let recommend_db = connect_recommendation_db(&fsio, &path, None, &main_db)
+        .await
+        .unwrap();
+    match sync_recommendation(&main_db, &recommend_db).await {
+        Ok(_) => info!("OK!"),
+        Err(e) => error!("Unable to sync recommendation: {e}"),
+    };
+
+    println!("OK");
+}

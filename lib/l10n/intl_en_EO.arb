@@ -1,0 +1,1810 @@
+{
+  "@@locale": "en_EO",
+  "rune": "Rune",
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
+  "runePlayer": "Rune Ludilo",
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
+  "copyright": "Kopirajto",
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
+  "copyrightAnnouncement": "Kopirajto © 2024 Rune Ludilo Programistoj.",
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
+  "licenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
+  "@licenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
+  "factoryReset": "Fabrika Restarigo",
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
+  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko.",
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
+  "bsodBody": "Via ludilo renkontis problemon kaj bezonas rekomenci. Ni respektas vian privatecon kaj ne kolektos datumojn.",
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
+  "artists": "Artistoj",
+  "@artists": {},
+  "albums": "Albumoj",
+  "@albums": {},
+  "playlists": "Ludlistoj",
+  "@playlists": {},
+  "unknownAlbum": "Nekonata Albumo",
+  "@unknownAlbum": {},
+  "unknownTrack": "Nekonata Kanto",
+  "@unknownTrack": {},
+  "unknownArtist": "Nekonata Artisto",
+  "@unknownArtist": {},
+  "selectDirectory": "Elekti Dosierujon",
+  "@selectDirectory": {},
+  "noDataAvailable": "Neniu datumoj disponeblaj",
+  "@noDataAvailable": {},
+  "start": "Komenci",
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
+  "search": "Serĉi",
+  "@search": {},
+  "tracks": "Kantoj",
+  "@tracks": {},
+  "system": "Sistemo",
+  "@system": {},
+  "operatingSystem": "Operaciumo",
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "systemVersion": "Sistemversio",
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "kernelVersion": "Kernversio",
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
+  "hostName": "Gastiga Nomo",
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
+  "player": "Ludilo",
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
+  "buildHash": "Kompila Hash",
+  "@buildHash": {},
+  "buildDate": "Kompila Dato",
+  "@buildDate": {},
+  "commitDate": "Engaĝiĝa Dato",
+  "@commitDate": {},
+  "rustcVersion": "Rustc versio",
+  "@rustcVersion": {},
+  "activation": "Aktivigo",
+  "@activation": {},
+  "runeIsActivated": "Rune estas aktivigita",
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
+  "productId": "Produkta ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Vi povus esti viktimo de originala programaro.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
+  "computingDevice": "Komputila Aparato",
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
+  "computingDeviceSubtitle": "Elektu GPU aŭ CPU por pli rapida aŭ pli efika prilaborado.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Rendimentonivelo",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Elektu kiom da taskoj kuri samtempe.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Rendimento",
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
+  "balance": "Ekvilibro",
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
+  "batterySaving": "Ŝparado de Baterio",
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
+  "switchTo": "Ŝalti al",
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
+  "removeLibrary": "Forigi",
+  "@removeLibrary": {
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
+  },
+  "localFolder": "Loka Dosierujo",
+  "localFolderSubtitle": "Elektu dosierujon en ĉi tiu aparato.",
+  "runeDevice": "Rune-Aparato",
+  "runeDeviceSubtitle": "Konektiĝu al alia Rune-aparato.",
+  "addLibrary": "Aldoni Bibliotekon",
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
+  "addLibrarySubtitle": "Aldoni novan bibliotekon kaj skani ekzistantajn dosierojn.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Agmenuo",
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
+  "addToQueue": "Aldoni al Vico",
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
+  "addToQueueSubtitle": "Kiel novaj elementoj estos aldonitaj al la ludvico.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Ludi Sekvan",
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
+  "addToEnd": "Aldoni al Fino",
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
+  "middleClickAction": "Meza Klako Ago",
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
+  "middleClickActionSubtitle": "Ago por plenumi kiam meze klakante kanton aŭ kolekton.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Komenci Ludi",
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
+  "startRoaming": "Komenci Vagi",
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
+  "playbackMode": "Reprodukto Reĝimo",
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
+  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Kolora Reĝimo",
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
+  "colorModeSubtitle": "Ŝanĝi la koloran reĝimon kiu aperas en Rune.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "Sistemo",
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
+  "dark": "Malluma",
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
+  "light": "Luma",
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
+  "themeColor": "Temkoloro",
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
+  "themeColorSubtitle": "Elekti koloron por doni al via Rune freŝan aspekton kaj senton.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Sekvi Sisteman Temon",
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
+  "dynamicColors": "Dinamika Koloroj",
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
+  "dynamicColorsSubtitle": "Adapti la temkolorojn de Rune bazitaj sur la kovrila arto de la ludanta kanto.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Marka Animacio",
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
+  "brandingAnimationSubtitle": "Ludi marka animacion kiam Rune komenciĝas.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Ĉi tio povus daŭri kelkajn minutojn.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
+  "tracksFound": " kantoj trovitaj",
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
+  "albumCoversCollected": " albumkovriloj kolektitaj",
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
+  "editPlaylist": "Redakti Ludliston",
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
+  "editMix": "Redakti Miksaĵon",
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "edit": "Redakti",
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "Forigi",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
+  "removePlaylist": "Forigi Ludliston",
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
+  "removeMix": "Forigi Miksaĵon",
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "addToMix": "Aldoni al Miksaĵo",
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "newMix": "Nova Miksaĵo",
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "selectAGroup": "Elektu Grupon",
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
+  "likedOnly": "Nur Ŝatataj",
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
+  "allTracks": "Ĉiuj Kantoj",
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
+  "defaultMode": "Defaŭlta",
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
+  "sequential": "Sinsekva",
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
+  "repeatAll": "Ripeti Ĉiujn",
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
+  "repeatOne": "Ripeti Unu",
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
+  "shuffle": "Hazarda",
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
+  "title": "Titolo",
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
+  "group": "Grupo",
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
+  "save": "Konservi",
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
+  "create": "Krei",
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
+  "cancel": "Nuligi",
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
+  "noRecommendation": "Neniu Rekomendo",
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
+  "basedOnAll": "Bazita sur Ĉiuj",
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
+  "group1": "Grupo 1",
+  "@group1": {},
+  "group2": "Grupo 2",
+  "@group2": {},
+  "group3": "Grupo 3",
+  "@group3": {},
+  "group4": "Grupo 4",
+  "@group4": {},
+  "group5": "Grupo 5",
+  "@group5": {},
+  "group6": "Grupo 6",
+  "@group6": {},
+  "group7": "Grupo 7",
+  "@group7": {},
+  "group8": "Grupo 8",
+  "@group8": {},
+  "group9": "Grupo 9",
+  "@group9": {},
+  "ascending": "Pliiĝanta",
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
+  "descending": "Malkreskanta",
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
+  "lastModified": "Laste Modifita",
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
+  "duration": "Daŭro",
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
+  "timesPlayedThrough": "Fojoj Ludita Tra",
+  "@timesPlayedThrough": {
+    "description": "Eniro en la redakta modalo de Miksado. Ĉi tiu opcio permesas uzantojn ordigi laŭ la nombro de fojoj kiam aŭdio estis plene ludita."
+  },
+  "timesSkipped": "Fojoj Preterlasita",
+  "@timesSkipped": {
+    "description": "Eniro en la redakta modalo de Miksado. Ĉi tiu opcio permesas uzantojn ordigi laŭ la nombro de fojoj kiam aŭdio estis preterlasita."
+  },
+  "pickDirectory": "Elekti Dosierujon",
+  "@pickDirectory": {
+    "description": "Butona teksto en la redakta modalo de Miksado. Premante ĉi tiun butonon malfermas modalon por gvidi uzantojn en elektado de dosierujo."
+  },
+  "oneDirectory": "1 Dosierujo",
+  "@oneDirectory": {
+    "description": "Statusa teksto indikanta ke unu dosierujo estis elektita."
+  },
+  "manyDirectories": "{count} Dosierujoj",
+  "@manyDirectories": {
+    "description": "Statusa teksto indikanta ke pluraj dosierujoj estis elektitaj.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "Konfirmi",
+  "@confirm": {
+    "description": "Agada butona teksto en la modalo, indikante la intencon de la uzanto konfirmi agon."
+  },
+  "directories": "Dosierujoj",
+  "@directories": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj estas por filtrado de trakoj laŭ dosierujo."
+  },
+  "allDirectories": "Ĉiuj Dosierujoj",
+  "@allDirectories": {
+    "description": "Indiko ke ĉiuj dosierujoj estis elektitaj."
+  },
+  "randomTracks": "Hazardaj Trakoj",
+  "@randomTracks": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj estas por elektado de nombro da hazardaj trakoj."
+  },
+  "amount": "Kvanto",
+  "@amount": {
+    "description": "Teksto en la modalo indikanta la nombron de trakoj elektitaj per glitilo aŭ eniga skatolo."
+  },
+  "mode": "Modo",
+  "@mode": {
+    "description": "La luda modo por trakoj."
+  },
+  "recommendation": "Rekomendo",
+  "@recommendation": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la rekomendan konduton de la ludilo."
+  },
+  "sortBy": "Ordigi Laŭ",
+  "@sortBy": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la metodon de ordigo por trakoj."
+  },
+  "sortOrder": "Ordo de Ordigo",
+  "@sortOrder": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la direkton de ordigo por trakoj."
+  },
+  "liked": "Ŝatata",
+  "@liked": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj filtriloj trakoj markitaj kiel 'ŝatataj' de la uzanto."
+  },
+  "noRoamingCollection": "Ne eblas komenci vagadon. Trakoj en la kolekto ankoraŭ ne estis analizitaj.",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "Ne eblas komenci vagadon. Ĉi tiu trako ankoraŭ ne estis analizita.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} La bibliotekon estas analizata; bonvolu atendi ĝis la procezo finiĝos.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} Bonvolu analizi vian bibliotekon por la plej bona sperto.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "Ne Preta",
+  "@notReady": {
+    "description": "Modala titolo indikante ke trakoj ne estis analizitaj kaj rekomendoj ne povas esti faritaj."
+  },
+  "createPlaylist": "Krei Ludliston",
+  "@createPlaylist": {
+    "description": "Modala titolo por krei ludliston."
+  },
+  "scanLibrary": "Skanu Bibliotekon",
+  "@scanLibrary": {
+    "description": "Agada butona teksto en la modalo, inicianta skanadon de la amaskomunikila biblioteko kiam premitaj."
+  },
+  "analyzeTracks": "Analizu Trakojn",
+  "@analyzeTracks": {
+    "description": "Agada butona teksto en la modalo, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
+  },
+  "scan": "Skanu",
+  "@scan": {
+    "description": "Butona teksto en la agorda interfaco, inicianta skanadon de la amaskomunikila biblioteko kiam premitaj."
+  },
+  "scanning": "Skanado",
+  "@scanning": {
+    "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe skanata."
+  },
+  "analyze": "Analizu",
+  "@analyze": {
+    "description": "Butona teksto en la agorda interfaco, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
+  },
+  "analyzing": "Analizado",
+  "@analyzing": {
+    "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe analizata."
+  },
+  "tryCreatingYourOwnCollection": "Provu krei vian propran kolekton",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Teksto montrata sur malplena paĝo en la Kolekta vidpunkto, sugestante al uzantoj krei novan kolekton."
+  },
+  "theseActionsMayHelp": "Ĉi tiuj agoj povas helpi",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Provu skani novajn dosierojn",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Neniu kolekto trovita",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Neniuj eroj en ludlisto",
+  "@noItemsInPlaylist": {},
+  "previous": "Antaŭa",
+  "@previous": {
+    "description": "Butona teksto por kontroli ludon, uzata por salti al la antaŭa trako."
+  },
+  "previousSubtitle": "Iru al la antaŭa trako",
+  "@previousSubtitle": {},
+  "playPause": "Ludi/Pauzi",
+  "@playPause": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti inter ludi kaj pauzi stato."
+  },
+  "playPauseSubtitle": "Ŝalti inter ludi kaj pauzi",
+  "@playPauseSubtitle": {},
+  "next": "Sekva",
+  "@next": {
+    "description": "Butona teksto por kontroli ludon, uzata por salti al la sekva trako."
+  },
+  "nextSubtitle": "Iru al la sekva trako",
+  "@nextSubtitle": {},
+  "volume": "Volumo",
+  "@volume": {
+    "description": "Butona teksto por kontroli ludon, uzata por ĝustigi la volumon."
+  },
+  "volumeSubtitle": "Ĝustigi la volumon",
+  "@volumeSubtitle": {},
+  "playlist": "Ludlisto",
+  "@playlist": {
+    "description": "Butona teksto por kontroli ludon, uzata por montri la ludliston."
+  },
+  "playlistSubtitle": "Vidi la ludvicon",
+  "@playlistSubtitle": {},
+  "hidden": "Kaŝita",
+  "@hidden": {
+    "description": "Butona teksto indikanta kaŝitan butonon; ĉi tiu teksto tipe ne estas uzata."
+  },
+  "hiddenSubtitle": "Enhavo sube estos kaŝita en la aliaj listo",
+  "@hiddenSubtitle": {},
+  "coverWall": "Kovrila Muro",
+  "@coverWall": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti al la kovrila muro paĝo, dekoracia paĝo komponita de albumaj kovriloj."
+  },
+  "coverWallSubtitle": "Montri kovrilarton por unika etoso",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Plenekrana",
+  "@fullscreen": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti plenekranan modon."
+  },
+  "fullscreenSubtitle": "Eniri aŭ eliri plenekranan modon",
+  "@fullscreenSubtitle": {},
+  "pause": "Pauzi",
+  "@pause": {
+    "description": "Butona teksto por kontroli ludon, uzata por pauzi la nun ludantan trakon."
+  },
+  "play": "Ludi",
+  "@play": {
+    "description": "Butona teksto por kontroli ludon, uzata por rekomenci ludi el pauzita stato."
+  },
+  "enable": "Ebligi",
+  "@enable": {
+    "description": "Radio butona teksto en la agorda interfaco, indikante ke funkcio estas ebligita."
+  },
+  "disable": "Malebligi",
+  "@disable": {
+    "description": "Radio butona teksto en la agorda interfaco, indikante ke funkcio ne estas ebligita."
+  },
+  "noTracksFound": "Neniuj trakoj trovitaj",
+  "@noTracksFound": {},
+  "library": "Biblioteko",
+  "@library": {
+    "description": "Titolo de la agorda interfaco de amaskomunikila biblioteko."
+  },
+  "artistQuery": "Artista Demando",
+  "@artistQuery": {},
+  "playlistQuery": "Ludlisto Demando",
+  "@playlistQuery": {},
+  "mixes": "Miksaĵoj",
+  "@mixes": {
+    "description": "Titolo de la Miksado interfaco, rilatante al speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "mixQuery": "Miksaĵo Demando",
+  "@mixQuery": {},
+  "settings": "Agordoj",
+  "@settings": {
+    "description": "Titolo de la agorda interfaco."
+  },
+  "analysis": "Analizo",
+  "@analysis": {
+    "description": "Titolo de la analizo agorda interfaco."
+  },
+  "playback": "Reproduktado",
+  "@playback": {
+    "description": "Titolo de la reproduktada agorda interfaco."
+  },
+  "theme": "Temo",
+  "@theme": {
+    "description": "Titolo de la temaj agordaj interfaco."
+  },
+  "controller": "Regilo",
+  "@controller": {
+    "description": "Titolo de la reproduktadkontrola butona agorda interfaco."
+  },
+  "about": "Pri",
+  "@about": {
+    "description": "Titolo de la pri interfaco."
+  },
+  "selectLibraryDirectorySubtitle": "Elektu vian aŭdian bibliotekan dosierujon, kaj ni skanos kaj analizos ĉiujn trakojn ene de ĝi.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Restarigi Bibliotekon",
+  "@resetLibrary": {
+    "description": "Agada butona teksto en la modalo, indikante ke la uzanto volas restarigi la bibliotekon."
+  },
+  "resetLibraryQuestion": "Restarigi Bibliotekon",
+  "@resetLibraryQuestion": {
+    "description": "Modala titolo demandante uzantojn ĉu ili volas restarigi la bibliotekon."
+  },
+  "resetLibrarySubtitle": "Restarigo de la biblioteko malplenigos vian dosier-historion. Via ekzistanta amaskomunikila biblioteko restos senŝanĝa. Ĉu vi volas daŭrigi?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Ne disponebla",
+  "@unavailable": {
+    "description": "Kunteksta menuero kiu estas ne disponebla, aperante nur kiam estas cimo."
+  },
+  "goToArtist": "Iru al Artisto",
+  "@goToArtist": {
+    "description": "Kunteksta menuero gvidanta uzantojn al la paĝo de la artisto."
+  },
+  "goToAlbum": "Iru al Albumo",
+  "@goToAlbum": {
+    "description": "Kunteksta menuero gvidanta uzantojn al la paĝo de la albumo."
+  },
+  "addToPlaylist": "Aldoni al Ludlisto",
+  "@addToPlaylist": {
+    "description": "Kunteksta menuero gvidanta uzantojn aldoni trakon aŭ albumon al ludlisto."
+  },
+  "newPlaylist": "Nova Ludlisto",
+  "@newPlaylist": {
+    "description": "Kunteksta menuero gvidanta uzantojn krei novan ludliston."
+  },
+  "unableToOpenLibrary": "Ne eblas Malfermi Bibliotekon",
+  "@unableToOpenLibrary": {
+    "description": "Modala titolo informante uzantojn ke la biblioteko ne povas esti malfermita."
+  },
+  "unableToOpenLibrarySubtitle": "La Biblioteko ne povis esti malfermita pro la sekva eraro:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Nekonata Eraro",
+  "@unknownError": {
+    "description": "Modala erara enhavo indikante nekonatan eraron."
+  },
+  "close": "Fermi",
+  "@close": {
+    "description": "Agada butono en la modalo gvidanta uzantojn fermi ĝin."
+  },
+  "queue": "Vico",
+  "@queue": {
+    "description": "Titolo de la ludlista modalo."
+  },
+  "createMix": "Krei Miksaĵon",
+  "@createMix": {
+    "description": "Kunteksta menuero gvidanta uzantojn krei novan Miksaĵon, speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "removeMixTitle": "Forigi Miksaĵon",
+  "@removeMixTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri forigi Miksaĵon, speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "removeMixSubtitle": "Se vi forigas ĉi tiun miksaĵon, vi ne povos restarigi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removeMixSubtitle": {},
+  "delete": "Forigi",
+  "@delete": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin forigos informon."
+  },
+  "removePlaylistTitle": "Forigi Ludliston",
+  "@removePlaylistTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri forigi ludliston."
+  },
+  "removePlaylistSubtitle": "Se vi forigas ĉi tiun ludliston, vi ne povos restarigi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Nuligi Taskon",
+  "@cancelTaskTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri nuligi taskon."
+  },
+  "cancelTaskSubtitle": "Se vi nuligas ĉi tiun taskon, ĝi haltos ĉe sia nuna kompletiga stato. Ĉu vi volas nuligi ĝin?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Nuligi Taskon",
+  "@cancelTask": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin nuligos la taskon."
+  },
+  "continueTask": "Daŭrigi",
+  "@continueTask": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin daŭrigos la taskon."
+  },
+  "refresh": "Refreŝigi",
+  "@refresh": {
+    "description": "Kunteksta menuero gvidanta uzantojn refreŝigi la informon de la aktuala paĝo."
+  },
+  "explore": "Esplori",
+  "@explore": {
+    "description": "Titolo de funkcia areo."
+  },
+  "language": "Lingvo",
+  "@language": {
+    "description": "Titolo de la lingvaj agordoj paĝo."
+  },
+  "followSystemLanguage": "Sistemo Lingvo",
+  "@followSystemLanguage": {
+    "description": "Ago butono teksto en agordoj, kiu indikas ke la lingvo de Rune sekvu la operaciumon."
+  },
+  "followSystemLanguageSubtitle": "Sekvu la agordojn de via sistemo lingvo, sen specialaj agordoj.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  },
+  "windowSize": "Fenestra Grandeco",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Elektu la preferatan fenestran grandecon por la aplikaĵo.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normala",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Maldika",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Larĝa",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Protokolo",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Protokola Detalo",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Forigi Protokolon",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "Se vi forigos ĉi tiun protokolon, vi ne povos retrovi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Forigi Ĉiujn Protokolojn",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "Se vi forigos ĉiujn protokolojn, vi ne povos retrovi ilin. Ĉu vi volas forigi ilin?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Forigi Ĉion",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "Neniuj protokoloj disponeblaj",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Hejmo",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Plej Nova",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Plej Malnova",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Hazarda",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Plej Luditaj",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "Personigi",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "Malkovru kaj esploru la mondon de viaj plej ŝatataj artistoj",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "Plonĝu en albumojn kreitajn de talentaj artistoj",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "Kreu vian propran personigitan aŭskultan vojaĝon",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "Profundiĝu en la kantojn, kiujn vi konas kaj amas",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "Revivu la kantojn, kiujn vi plej trezoras",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "Revizitu la melodiojn, kiuj kaptas vin denove kaj denove",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Montri Rune",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Eliri",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Reen",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Eksporti Kiel",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Ludlista Dosiero",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Kovrila Muro",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "noCoverArtToExport": "Neniu kovrilbildo estas disponebla por eksporti.",
+  "ratio": "Proporcio",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Kadro",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Fono",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Prova Reĝimo",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune ne estas senpaga biero. Ni kuraĝigas vin aĉeti legitiman licencon de la aplikaĵa vendejo.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Licencitaj uzantoj profitas de aŭtomataj ĝisdatigoj provizitaj de la aplikaĵa vendejo kaj rajtas proponi novajn funkciojn rekte al la programistoj.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "Vi povas elekti forbati ĉi tiun memorigilon dum 180 tagoj, kaj ni memorigos vin poste.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Memorigu min poste",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Mistera Butono",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Knaro",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "Ŝajnas ke vi ekfunkciigis misteran mekanismon. La ĉambra strukturo ŝajne ŝanĝiĝis, malkaŝante novajn areojn por esplori.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Laboratorio",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "Biblioteka Agordo",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "Ni bezonas scii iom pli pri via biblioteko. Kie estas viaj mediadosieroj konservitaj?",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "Loka diskilo",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "Ni konservos vian mediindekson kune en la biblioteka dosierujo.",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "En la nubo",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "Ni konservos vian mediindekson en la agorda dosierujo de Rune.",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Memori Fenestran Grandecon",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Konservu vian fenestran grandecon dum vi ĝustigas ĝin, kaj lanĉu la programon kun la samaj dimensioj venontfoje.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune Ankoraŭ Funkcias",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune nun funkcias fone. Vi povas facile trovi ĝin en la sistema taskopleto.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Registri",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "Vi povas aĉeti muzikdosieron kiel registran ŝlosilon de la suba vendejo. Klaku \"Registri\" por kontroli vian legitiman staton.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Registri",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Malsukcesis",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "Eraro okazis dum la kontrola procezo.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Kompleta",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Gratulojn! Via programaro estis sukcese registrita. Dankon pro elekti Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Nevalida ŝlosilo",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "La ŝlosildosiero, kiun vi provizis, estas nevalida. Bonvolu kontroli la dosieron kaj provi denove.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8AmbiguousSubtitle": "Viaj kantoj estas importitaj, sed kelkaj eroj kongruis kun pluraj dosieroj. Rune importis unu kongruon por ĉiu.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Pluraj dosieroj kongruis",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Ne trovita",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "Parte Sukcesa",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Viaj kantoj estas importitaj, sed kelkaj ne estis trovitaj.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Importo Malsukcesis",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "Eraro okazis dum la importa procezo.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Importi Ludliston",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adapta Ŝanĝo",
+  "@adaptiveSwitching": {
+    "description": "Agorda titolo de ero en la paĝo de reproduktaj agordoj"
+  },
+  "adaptiveSwitchingSubtitle": "Rekomencas de la komenco se vi ŝanĝas reen post kiam la nuna trako ludis dum pli ol tri sekundoj.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Agorda priskribo de ero en la paĝo de reproduktaj agordoj"
+  },
+  "considerPurchase": "Bonvolu konsideri aĉeti originalan licencon.",
+  "@considerPurchase": {
+    "description": "Averto en la pri-paĝo, gvidante uzanton por aĉeti licencon"
+  },
+  "lyrics": "Kantoteksto",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Montri la plenan kantotekston",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Retaj Servoj",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Ensaluti",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Ensaluto Malsukcesis",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Eraro okazis dum ensaluto",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "scrobbleCredentialsRejected": "La servo rifuzis tiujn akreditaĵojn. Kontrolu vian uzantnomon kaj pasvorton aŭ ĵetonon.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "La servo ne atingeblis. Kontrolu vian konekton kaj reprovu.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Via Last.fm {field} mankas.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API-Ŝlosilo"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm rifuzis la API-ŝlosilon aŭ sekreton. Kontrolu viajn API-akreditaĵojn kaj reprovu.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "Provizu detalajn aŭskultajn statistikojn per ĉi tiu muzikspura servo.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Senpaga kaj malfermita platformo por kunhavigi vian muzikguston.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Kontribuu al malfermitkoda datumbazo dum vi spuras viajn kutimojn.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Ripari",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Konfirmi Elsaluton",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Ĉu vi certas, ke vi volas elsaluti? Ĉiuj loke konservitaj ensalutaj akreditiloj estos forigitaj.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Reprovi Ensaluton",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Elsaluti",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Kopii",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Uzantnomo",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Pasvorto",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-Ŝlosilo",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API-Sekreto",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Uzanta Ĵetono",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "Gastiganto nomo",
+  "@hostname": {
+    "description": "La gastiganto-noma parto de URL."
+  },
+  "port": "Pordo",
+  "@port": {
+    "description": "La porda parto de URL."
+  },
+  "addConnection": "Aldoni Konekton",
+  "@addConnection": {
+    "description": "La ago-butono de la dialogo."
+  },
+  "neighbors": "Najbaroj",
+  "@neighbors": {
+    "description": "La agorda paĝo kiu povus helpi uzantojn konektiĝi unu kun la alia."
+  },
+  "searchNeighbors": "Serĉi Najbarojn",
+  "@searchNeighbors": {
+    "description": "La ero en la najbara agorda paĝo, por malkovri aparatojn en la loka reto."
+  },
+  "searchNeighborsSubtitle": "Trovi kaj konektiĝi al Rune-aparatoj en via loka reto.",
+  "@searchNeighborsSubtitle": {
+    "description": "La subtitolo de la serĉi-najbarojn agorda ero"
+  },
+  "editDeviceInformation": "Redakti Aparat-informojn",
+  "@editDeviceInformation": {
+    "description": "Aperas en aparat-agordoj. Rilatas al detaloj montritaj al aliaj uzantoj dum skanado."
+  },
+  "editDeviceInformationSubtitle": "Adapti detalojn montritajn al aliaj aparatoj dum skanoj.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emfazas ke ŝanĝoj influas videblecon en skan-listoj de aliaj. Evitas teknikajn terminojn. Fokusas je 'skanoj' kiel interaga kunteksto."
+  },
+  "enableBroadcast": "Ebligi Dissendo",
+  "@enableBroadcast": {
+    "description": "'Dissendo' implicas aktive sendado de aparat-informoj. Se cela lingvo mankas rektan ekvivalenton, prioritatu 'videbliigi' aŭ 'kunhavigi disponeblon'."
+  },
+  "enableBroadcastSubtitle": "Kunhavigi viajn aparat-informojn publike por ke aliaj malkovru.",
+  "@enableBroadcastSubtitle": {
+    "description": "Evitas duecocon: 'publike' = al uzantoj en la loka reto, ne la tuta interreto."
+  },
+  "addNeighborManually": "Aldoni Najbaron Mane",
+  "@addNeighborManually": {
+    "description": "'Najbaro' rilatas al aparatoj en la sama loka reto. Se spaco permesas, 'Mane Aldoni Najbaron' estas akceptebla. Prioritatas breviton."
+  },
+  "addNeighborManuallySubtitle": "Enigi aparat-lokan ret-informon mane por konektiĝi.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Klarigas 'loka reto' ≠ publika interreto (ekz. IP/pordo ene de LAN). 'konektiĝi' implicas establi rektan ligon, ne nur videblecon."
+  },
+  "stop": "Halti",
+  "@stop": {
+    "description": "Ago-butono por ĉesigi aktivan agon."
+  },
+  "deviceFingerprint": "Aparat-fingropremo",
+  "@deviceFingerprint": {
+    "description": "Unika identigilo por la aparato, uzata por sekura identigo kaj konekto."
+  },
+  "deviceName": "Aparat-nomo",
+  "@deviceName": {
+    "description": "La uzant-difinita nomo de la aparato, montrita al aliaj uzantoj dum skanado kaj konekto."
+  },
+  "noDevicesFound": "Neniuj aparatoj trovitaj",
+  "@noDevicesFound": {
+    "description": "Mesaĝo montrita kiam neniuj aparatoj estas malkovritaj dum skanado"
+  },
+  "error": "Eraro: {error}",
+  "@error": {
+    "description": "Eraromesaĝo montrita kiam aparat-malkovro malsukcesas",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permeso rifuzita"
+      }
+    }
+  },
+  "model": "Modelo",
+  "@model": {
+    "description": "Etikedo por aparat-modelo informoj"
+  },
+  "type": "Tipo",
+  "@type": {
+    "description": "Etikedo por aparat-tipo informoj"
+  },
+  "fingerprint": "Fingropremo",
+  "@fingerprint": {
+    "description": "Etikedo por aparat-fingropremo informoj"
+  },
+  "lastSeen": "Laste Vidita",
+  "@lastSeen": {
+    "description": "Etikedo por kiam aparato estis laste detektita"
+  },
+  "ipAddresses": "IP-adresoj",
+  "@ipAddresses": {
+    "description": "Etikedo por aparat-IP-adresoj"
+  },
+  "pair": "Parigi",
+  "@pair": {
+    "description": "Butonoteksto por komenci aparat-parigon"
+  },
+  "pairingWith": "Pariĝante kun {deviceName}...",
+  "@pairingWith": {
+    "description": "Mesaĝo montrita kiam pariga proceso komenciĝas",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Salona Televido"
+      }
+    }
+  },
+  "server": "Servilo",
+  "@server": {
+    "description": "La titolo de la agorda paĝo por regi amaskomunikilaj ludilo-kunhavigaj kondutoj. Inkluzivas administri rajtitajn uzantojn kaj dissendi aparatan ĉeeston."
+  },
+  "serverControl": "Servilo-regado",
+  "@serverControl": {
+    "description": "Sekcia titolo por regi la lokan retan servilon. 'Servilo' ĉi tie rilatas al la fona servo kiu administras aparat-malkovron."
+  },
+  "serverControlSubtitle": "Startigi la servilon por permesi aliajn aparatojn malkovri ĉi tiun aparaton en la loka reto.",
+  "@serverControlSubtitle": {
+    "description": "Klarigas ke la servilo nur funkcias en la loka reto. Emfazas ke startigo ebligas videblecon al aliaj."
+  },
+  "selectInterface": "Reta Interfaco",
+  "@selectInterface": {
+    "description": "Etikedo por elekti kiun retan interfacon la servilo devus bindi. Manteni teknika sed klara."
+  },
+  "approvedStatus": "Aprobita",
+  "@approvedStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas ke la aparato estas plene rajtigita. Uzu afirmajn terminojn kiel 'Kontrolita' aŭ 'Konfirmita' se pli naturaj."
+  },
+  "pendingStatus": "Atendanta",
+  "@pendingStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas atendado por aprobo. Preferu terminojn implicantajn 'atendanta ago' ol teknikajn terminojn kiel 'En Vico'."
+  },
+  "blockedStatus": "Blokita",
+  "@blockedStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas eksplicitan rifuzon de aliro. Uzu fortajn terminojn kiel 'Malpermesita' aŭ 'Rifuzita' kie taŭgaj, sed evitu tro agresajn vortojn."
+  },
+  "unknownStatus": "Nekonata",
+  "@unknownStatus": {
+    "description": "Montrita kiel uzanto/kliento-stata insigno. Indikas ke la stato estas nerekonita aŭ nedifinita. Sugesti terminojn kiel 'Nerekonita' aŭ 'Nedifinita' sed manteni neŭtralan tonon sen implici erarojn. Asociita kun neŭtralaj koloroj kiel grizo en la UI."
+  },
+  "review": "Kontroli",
+  "@review": {
+    "description": "Butono por kontroli atendantajn aparat-konektajn petojn. Malfermas modalon por aprobi aŭ bloki la aparaton."
+  },
+  "reviewRequestTitle": "Konekta Peto",
+  "@reviewRequestTitle": {
+    "description": "Titolo montrita en la modalo dum kontrolado de aparat-konekto. Manteni konciza, fokusi je bezonata ago."
+  },
+  "blockDevice": "Bloki Aparaton",
+  "@blockDevice": {
+    "description": "Ago por daŭre rifuzi aliron. Uzu fortajn verbojn kiel 'Malpermesi' se kulture pli taŭgaj, sed evitu negativajn konotaciojn."
+  },
+  "connectionVerificationMessage": "Por permesi al la aparato {alias} ({model}) konektiĝi, kunhavigu la komunikadan ŝlosilo-fingropremon sube por helpi kontroli vian identecon.",
+  "@connectionVerificationMessage": {
+    "description": "Instrua teksto en modalo por establi fidon. Emfazas kunhavigi sekurecajn akreditaĵojn (fingropremon) por aŭtentigi konektojn. Uzu terminojn kiel 'validigi' aŭ 'aŭtentigi' se preferitaj en cela lingvo.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "Uzant-difinita aparat-kromnomo"
+      },
+      "model": {
+        "type": "String",
+        "description": "Fabrikant-aparata modelo-identigilo"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "Malhelpi estontan konekton. Vi povas malbloki ĉi tiun aparaton iam ajn.",
+  "@blockDeviceSubtitle": {
+    "description": "Klarigas blokadajn konsekvencojn kaj malfareblon. Uzu 'Malpermesi' aŭ 'Rifuzi' kiel alternativojn. Frazigi 'en agordoj' kuntekste (ekz., 'per aparat-administrado' se UI diferencas)."
+  },
+  "removeTrust": "Forigi Permeson",
+  "@removeTrust": {
+    "description": "Modala titolo por forigi aparat-permeso-historion. Emfazas daŭran forigon de ambaŭ permesitaj/blokitaj statoj kaj la bezonon de re-registriĝo."
+  },
+  "removeTrustSubtitle": "Ĉi tio daŭre forigos la permeso-dosieron. La aparato perdos ĉiujn alir-statojn (Aprobita/Blokita) kaj devos sendi novan registriĝan peton por reaperi en la listo.",
+  "@removeTrustSubtitle": {
+    "description": "Klarigas ke forigo forigas ĉiujn historiajn statojn kaj postulas freŝan registriĝon. Uzu terminojn kiel 'viŝi' aŭ 'viŝi historion' se pli naturaj, sed mantenu konsekvencon kun 'removeTrust' ago."
+  },
+  "pairingTitle": "Parigado",
+  "@pairingTitle": {
+    "description": "Titolo por sekura aparat-pariga dialogo. Devus emfazi reciprokan aŭtentig-procezon."
+  },
+  "pairingLoading": "Akiras aparat-fingropremon...",
+  "@pairingLoading": {
+    "description": "Statusteksto montrita dum fingropremo-kontrolo. Indikas sekurecan kontrolon en progreso."
+  },
+  "pairingInstructions": "Por sekureca kontrolo, elektu la signojn kiuj kompletasthe fingropremon montritan sur via partnera aparato. Ĉi tio konfirmas ke vi konektiĝas al la ĝusta aparato.",
+  "@pairingInstructions": {
+    "description": "Klarigas partan fingropremo-kontrolan procezon. Uzas 'sekurecan kontrolon' anstataŭ teknikajn MITM-terminojn."
+  },
+  "pairingFailureTitle": "Parigado Malsukcesis",
+  "@pairingFailureTitle": {
+    "description": "Titolo por fingropremo-malkonkordo. Deklaras rezulton sen kaŭzi maltrankvilan alarmon."
+  },
+  "pairingFailureMessage": "La fingropremo ne kongruas. Bonvolu certigi ke vi konektiĝas al la ĝusta aparato kaj reprovu la kontrolon.",
+  "@pairingFailureMessage": {
+    "description": "Gvidas uzanton reprovi anstataŭ sugesti ret-kontrolojn. Fokusas je aparat-kontrolo."
+  },
+  "closingWindowBehaviorTitle": "Konduto de Fenestra Fermado",
+  "@closingWindowBehaviorTitle": {
+    "description": "Titolteksto por la sekcio de fenestra ferm-konduto agordoj. Emfazas uzanto-regadon pri kiel la aplikaĵo fermiĝas."
+  },
+  "closingWindowBehaviorSubtitle": "Elektu kiel la aplikaĵo kondutas kiam vi alklakas la fermu-butonon.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Klarigas ke uzantoj povas adapti ferm-butonan konduton. Uzu 'adapti' aŭ 'agordi' kiel alternativojn."
+  },
+  "minimizeToTray": "Malplejgrandigi al Pleto",
+  "@minimizeToTray": {
+    "description": "Opcia teksto indikanta ke la programo daŭros funkci en la fono kiam fenestro estas fermita. Uzu 'Kaŝi al pleto' aŭ 'Daŭri funkcii' kiel alternativajn frazigojn."
+  },
+  "exitProgram": "Eliri Tute",
+  "@exitProgram": {
+    "description": "Opcia teksto indikanta ke la programo tute ĉesiĝos kiam fenestro estas fermita. Uzu 'Fermi aplikaĵon' aŭ 'Ĉesigi programon' kiel alternativajn frazigojn."
+  },
+  "systemTabTitle": "Sistema",
+  "@systemTabTitle": {
+    "description": "Naviga langeto-titolo por la sistema agordoj sekcio. Indikas kolekton de sistema-nivelaj agordaj opcioj."
+  },
+  "removeFromPlaylist": "Forigi el Ludlisto",
+  "@removeFromPlaylist": {
+    "description": "Ago por forigi kanton el la nuna ludlisto. Aperas kiel menu-opcio dum dekstra klako sur kanto. Uzu verbojn kiel 'Forviŝi' aŭ 'Forigi' bazite je tio kio estas pli natura en la cela lingvo."
+  },
+  "waitForApprove": "Atendas ke la servilo aprobu ĉi tiun peton...",
+  "@waitForApprove": {
+    "description": "Ŝarga mesaĝo montrita dum servilo-konekta kontrola proceso."
+  },
+  "clientBlockedTitle": "Konekto Blokita",
+  "@clientBlockedTitle": {
+    "description": "Eraro-titolo indikanta ke la fora aparato blokis ĉi tiun klienton-konektajn provojn."
+  },
+  "clientBlockedMessage": "La fora aparato blokis vian klienton de konektiĝado. Vi bezonos permeson de la aparat-posedanto por establi konekton.",
+  "@clientBlockedMessage": {
+    "description": "Klarigas ke la uzanto-konekta provo estis rifuzita ĉar ilia kliento estis blokita de la fora aparato. Sugestas ke uzanto bezonas kontakti la aparat-posedanton por solvo."
+  },
+  "genres": "Ĝenroj",
+  "@genres": {
+    "description": "Kaplinjo aŭ sekcia titolo por listo de muzik-kategorioj/-stiloj. Povus esti uzata en muzikbiblioteko-organizado, filtrajn opciojn, aŭ muzikprefero-agordojn. Alternativaj frazigoj povus inkluzivi 'Muzik-kategoriojn', 'Muzik-stilojn', aŭ 'Muzik-tipojn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "genreQuery": "Ĝenro-demando",
+  "@genreQuery": {},
+  "deduplicate": "Malduobligi",
+  "@deduplicate": {
+    "description": "Butono-etikedo por forigi duobligitajn kantojn el muzikbiblioteko aŭ ludlisto. Rilatas al la funkcio identigi kaj forigi duobligitajn kantojn. Alternativaj frazigoj povus inkluzivi 'Forigi Duoblaĵojn' aŭ 'Purigi Duoblaĵojn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "deduplicateThresholdTitle": "Maldubliga Sojlo",
+  "@deduplicateThresholdTitle": {
+    "description": "Titolo por la aŭdaĵ-simileco-sojla agordo. Indikas kie uzantoj povas ĝustigi kiel strikte aŭdaĵ-kantoj estas komparataj por dublaĵo-detekto."
+  },
+  "deduplicateThresholdSubtitle": "Ĝustigu la sentececon por detekti similajn aŭdaĵ-kantojn.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Mallonga klarigo de tio kion la aŭdaĵ-simileco-sojla agordo regas. Helpas uzantojn kompreni la celon de ĉi tiu agorda opcio."
+  },
+  "nearlyIdentical": "Preskaŭ Identaj",
+  "@nearlyIdentical": {
+    "description": "Plej alta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj estas preskaŭ ĝuste la samaj. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Ĝustan Kongruon' aŭ 'Perfektan Kongruon' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "highlySimiar": "Tre Similaj",
+  "@highlySimiar": {
+    "description": "Dua plej alta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj havas tre malmultajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Tre Similajn' aŭ 'Preskaŭ Identajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "moderatelySimilar": "Mezgrade Similaj",
+  "@moderatelySimilar": {
+    "description": "Meza nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj havas rimarkindajn sed ne gravajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Iomete Similajn' aŭ 'Parte Kongruajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "slightlySimilar": "Iomete Similaj",
+  "@slightlySimilar": {
+    "description": "Plej malalta nivelo de aŭdaĵ-simileco-sojlo indikanta kantojn kiuj kunhavas iujn ecojn sed havas signifajn diferencojn. Uzata dum agordi dublaĵo-detektajn agordojn. Alternativaj frazigoj povus inkluzivi 'Minimume Similajn' aŭ 'Apenaŭ Kongruajn' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "deduplicating": "Maldubligante",
+  "@deduplicating": {
+    "description": "Etikedo indikanta ke la maldubliga proceso estas nuntempe aktiva. Montrita al uzantoj dum duobligitaj kantoj estas forigataj el ilia muzikbiblioteko aŭ ludlisto. Alternativaj frazigoj povus inkluzivi 'Forigi duoblaĵojn progresanta' aŭ 'Maldubligado progresanta' depende de tio kio estas plej natura en la cela lingvo."
+  },
+  "interfaceScale": "Interfaca skalo",
+  "interfaceScaleSubtitle": "Agordi la grandecon de teksto kaj enhavo en Rune.",
+  "interfaceScaleSaveError": "Ne eblis konservi la interfacan skalon.",
+  "remoteOpenUntrusted": "Ĉi tiu aparato ankoraŭ ne fidas tiun servilon. Unue parigu ilin.",
+  "remoteOpenNotAuthorized": "La alia aparato ne permesis ĉi tiun aparaton aŭ blokis ĝin.",
+  "remoteOpenUnreachable": "La aparato ne estas atingebla. Kontrolu, ke ĝi estas ŝaltita kaj en la sama reto.",
+  "remoteOpenProtocol": "Ne eblis komuniki kun la aparato. Ambaŭ aparatoj bezonas la saman version de Rune.",
+  "remoteLossRevoked": "La aliro de ĉi tiu aparato estis forigita.",
+  "remoteLossDetached": "La ludigilo malkonektis ĉi tiun regilon.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "La alia aparato ĉesis kundividi.",
+  "remoteLossNetworkLost": "La konekto perdiĝis.",
+  "syncToThisDevice": "Sinkronigi al Ĉi Tiu Aparato",
+  "libraryNotShared": "Ne kunhavigita",
+  "controlPermissionRequired": "Neniu ludregado",
+  "deviceLibraries": "Bibliotekoj",
+  "addSharedLibrary": "Aldoni",
+  "sharedLibraryAdded": "Aldonita",
+  "openSharedLibrary": "Malfermi",
+  "noSharedLibraries": "Ĉi tiu aparato ne havas bibliotekojn por dividi",
+  "libraryFromDevice": "De {device}",
+  "backgroundLibrarySync": "Sinkronigi en la fono",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "Ĉi tiu ero ne plu ekzistas",
+  "requestInvalid": "La peto ne estis valida",
+  "requestCertificateMismatch": "La atestilo de ĉi tiu aparato ne kongruas.",
+  "requestUnavailable": "Ĉi tio nun ne disponeblas",
+  "requestStorageBusy": "La memoro estas okupita. Bonvolu reprovi.",
+  "mixNoLongerExists": "Ĉi tiu miksaĵo ne plu ekzistas",
+  "devices": "Aparatoj",
+  "playOn": "Ludi per",
+  "playOnSubtitle": "Elektu kie aŭdio ludos.",
+  "playOnFixedToRemote": "Fiksita al ĉi tiu fora aparato",
+  "playOnPlayingOn": "Ludante ĉe {alias}",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "Senrete",
+  "playOnNotApproved": "Ĉi tiu aparato ankoraŭ ne aprobis vin",
+  "playOnNoControl": "Ne eblas regi ĉi tiun aparaton",
+  "playOnCantPlay": "Ne eblas ludi {library}",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "Reprovi",
+  "castTrackMode": "Kiam oni ĵetas trakon",
+  "castTrackReplace": "Anstataŭigi la atendovicon kaj ludi nun",
+  "castTrackPlayNext": "Ludi ĝin poste",
+  "castControlRenderer": "Post ĵetado",
+  "castKeepControlling": "Daŭre regi ĉi tiun aparaton",
+  "castControlCastDevice": "Regi la aparaton, al kiu ĝi estis ĵetita",
+  "castTrackModeSubtitle": "Elektu kiel ŝanĝiĝas la atendovico de la ludilo.",
+  "castControlRendererSubtitle": "Elektu kiun aparaton vi plu regas.",
+  "castNotPossible": "{alias} ne povas ludi {library}",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, one{{count} trako ankoraŭ ne estas ĉe {alias} kaj ne estis aldonita.} other{{count} trakoj ankoraŭ ne estas ĉe {alias} kaj ne estis aldonitaj.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "Ĉi tiu aparato",
+  "devicesThatCanConnect": "Aparatoj kiuj povas konektiĝi al ĉi tiu",
+  "otherDevices": "Aliaj aparatoj",
+  "myDevice": "Mia aparato",
+  "controllingNow": "Regas ĉi tiun aparaton nun",
+  "waitingForApproval": "Atendante aprobon",
+  "guest": "Gasto",
+  "myDeviceAccessDescription": "Povas ludi, foliumi kaj sinkronigi viajn bibliotekojn",
+  "guestAccessDescription": "Povas regi la ludadon kaj foliumi dum tio",
+  "customDeviceAccess": "Propra",
+  "customizeDevice": "Agordi",
+  "disconnect": "Malkonekti",
+  "controlPlayback": "Regi la ludadon",
+  "controlPlaybackDescription": "Povas ludi, paŭzi, vicigi kaj ĵeti al ĉi tiu aparato.",
+  "deviceAccessLibraries": "Bibliotekoj",
+  "deviceAccessNotShared": "Ne kunhavigita",
+  "deviceAccessReadWrite": "Legebla kaj skribebla",
+  "requestConflict": "La vico ŝanĝiĝis; reprovu",
+  "requestPermissionDenied": "Ĉi tiu aparato ne rajtas fari tion",
+  "readOnly": "Nurlegebla",
+  "queueUnavailableAccessRevoked": "La atingo estis revokita",
+  "queueUnavailableLibraryUnavailable": "La biblioteko ne disponeblas",
+  "queueUnavailableSourceUnreachable": "La fonto ne atingeblas",
+  "queueUnavailableUnreadable": "La aŭdaĵo ne legeblas",
+  "rendererLinkLost": "Konekto al {alias} perdiĝis",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "La aparatŝlosilo ne kongruas kun la fingrospuro",
+  "requestRegistrationConflict": "Aparato kun ĉi tiu fingrospuro jam estas registrita",
+  "remoteLibraryReconnecting": "Rekonektante al {alias}…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "Ĉi tiu aparato ne subtenas ĉi tiun regilon",
+  "capabilityOwnerOnly": "Nur la posedanta aparato povas fari tion",
+  "requestOtherDeviceName": "la alia aparato",
+  "requestPeerNeedsUpdatePeer": "{alias} bezonas ĝisdatigon de Rune por konektiĝi.",
+  "requestPeerNeedsUpdateThisDevice": "{alias} uzas pli novan version de Rune. Ĝisdatigu Rune ĉe ĉi tiu aparato por konektiĝi.",
+  "remoteLossProtocolIncompatible": "La versioj de Rune ne plu kongruas. Ĝisdatigu Rune ĉe ambaŭ aparatoj por rekonektiĝi.",
+  "capabilityPeerTooOld": "Ĝisdatigu Rune ĉe la alia aparato por uzi ĉi tion.",
+  "requestPeerNeedsUpdateFallback": "Ĝisdatigu Rune ĉe ambaŭ aparatoj por konektiĝi.",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "Via konto en ĉi tiu servilo ne rajtas fari tion.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "La agordoj de ĉi tiu biblioteko ne legeblas.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "Tiu biblioteka registro ne plu ekzistas.",
+  "libraryRecordIsOpen": "Fermu la bibliotekon antaŭ ol forigi ĝian registron.",
+  "libraryMediaFolderMissing": "La biblioteka dosierujo mankas.",
+  "libraryUntrusted": "Ĉi tiu aparato ne estas fidata.",
+  "libraryInvalidSource": "Ĉi tiu dosierujo ne povas esti biblioteko.",
+  "libraryStorageFailure": "La biblioteko ne povis esti konservita.",
+  "libraryNewerVersion": "Ĉi tiun bibliotekon kreis pli nova versio de Rune. Ĝisdatigu Rune ĉe ĉi tiu aparato por malfermi ĝin.",
+  "libraryShareStoreUnavailable": "La komuna konservejo ne atingeblas. La sinkronigo aŭtomate reprovos.",
+  "libraryRemoteNotAuthorized": "La aparato ne rajtigis ĉi tiun konekton.",
+  "libraryRemoteUnreachable": "La aparato ne atingeblas.",
+  "libraryRemoteProtocolFailure": "La aparato sendis nekongruan respondon.",
+  "libraryProtocolIncompatible": "Ĉi tiu aparato uzas nekongruan protokolversion.",
+  "libraryNotSupportedYet": "Ĉi tiu biblioteka tipo ankoraŭ ne estas subtenata.",
+  "onMyIPhone": "Sur mia iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "Sur mia iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "Koloro de pleta piktogramo",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Elektu la piktograman koloron.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Aŭtomata",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "Ludi kune kun alia aŭdio",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Alia aŭdio plu ludas dum Rune ludas.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "Scenoj",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Elektu scenojn por la kovromuro. Trenu por ordigi.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "Importis {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "Ne eblis importi {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Forigi scenon",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "Forigi {name}? Importu ĝin denove por restarigi.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Vidigilo",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Vidaĵoj laŭ la muziko",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Vidigila laboratorio",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Montri la laboratorion super la vidigilo.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "Sekvi tekstgrandecon",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "linuxCustomWindowControls": "Custom Window Controls",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Ebligi proprajn fenestrajn regilojn por senkadra fenestro simila al la Vindoza reĝimo.",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "Senreta havebleco",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Konservi senrete",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "Ĉesi konservi senrete",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "Senreta elekto konservita",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "Aŭtomataj elŝutoj ĉesigitaj",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "Ne eblis konservi la senretan elekton.",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Trakoj elŝutiĝos kiam parigita aparato disponeblos.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "Ekzistantaj dosieroj estas konservataj.",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "Aŭdio ne disponeblas",
+  "allowPairedSync": "Permesi sinkronigon kun parigitaj aparatoj",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Malŝaltu por malhelpi aliajn aparatojn konektiĝi al ĉi tiu aparato.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "Forigi nebezonatajn elŝutojn",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Elektu ĉu forigi elŝutojn kiam ili ne plu estas konservataj senrete.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "Forigi nebezonatajn elŝutojn",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "Senreta elekto ĝisdatigita.",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "turnOnBackgroundSync": "Ŝalti Sinkronigon en la Fono",
+  "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono",
+  "shareLibraryModeSubtitle": "Kie Rune konservu vian mediindekson?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "En la komuna dosierujo",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Ni konservos vian mediindekson en la komuna dosierujo, por ke viaj aliaj aparatoj povu sinkronigi ĝin.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "En ĉi tiu aparato",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Konektu al dosierujo ĉe WebDAV-servilo.",
+  "s3": "S3",
+  "s3Subtitle": "Konektu al dosierujo en S3-bukedo.",
+  "folder": "Dosierujo",
+  "bucket": "Bukedo",
+  "region": "Regiono",
+  "accessKeyId": "Identigilo de alirŝlosilo",
+  "secretAccessKey": "Sekreta alirŝlosilo",
+  "libraryOpenDalAuthenticationRejected": "Kontrolu la uzantnomon kaj pasvorton.",
+  "libraryOpenDalUnreachable": "Kontrolu la servilan adreson kaj retkonekton.",
+  "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla.",
+  "libraryOpenDalReadOnly": "Elektu skribeblan dosierujon por konservi la mediindekson en la komuna dosierujo.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Konektu al Subsona muzikservilo.",
+  "playOnThisDevice": "Ludi en Ĉi tiu Aparato",
+  "controlServerPlayer": "Regi la Servilan Ludilon",
+  "howDoYouWantToUseIt": "Kiel vi volas uzi ĝin?",
+  "fileDialogOpenTitle": "Malfermi",
+  "fileDialogSaveTitle": "Konservi Kiel",
+  "fileDialogFolderTitle": "Elekti Dosierujon",
+  "fileDialogOpen": "Malfermi",
+  "fileDialogSelectFolder": "Elekti Dosierujon",
+  "fileDialogFileName": "Dosiernomo",
+  "fileDialogSaveAsType": "Konservi Kiel Tipo",
+  "fileDialogFileTypes": "Dosiertipoj",
+  "fileDialogAllFiles": "Ĉiuj Dosieroj",
+  "fileDialogForward": "Antaŭen",
+  "fileDialogRecentLocations": "Lastaj Lokoj",
+  "fileDialogUp": "Supren",
+  "fileDialogAddress": "Adreso",
+  "fileDialogSearchIn": "Serĉi en {folder}",
+  "fileDialogNewFolder": "Nova Dosierujo",
+  "fileDialogView": "Vido",
+  "fileDialogExtraLargeIcons": "Grandegaj Piktogramoj",
+  "fileDialogLargeIcons": "Grandaj Piktogramoj",
+  "fileDialogMediumIcons": "Mezaj Piktogramoj",
+  "fileDialogSmallIcons": "Malgrandaj Piktogramoj",
+  "fileDialogList": "Listo",
+  "fileDialogDetails": "Detaloj",
+  "fileDialogTiles": "Kaheloj",
+  "fileDialogContent": "Enhavo",
+  "fileDialogHiddenItems": "Kaŝitaj Eroj",
+  "fileDialogName": "Nomo",
+  "fileDialogDateModified": "Dato de Ŝanĝo",
+  "fileDialogSize": "Grando",
+  "fileDialogAscending": "Kreskanta",
+  "fileDialogDescending": "Malkreskanta",
+  "fileDialogFileFolder": "Dosierujo",
+  "fileDialogFileOfType": "Dosiero {extension}",
+  "fileDialogFile": "Dosiero",
+  "fileDialogQuickAccess": "Rapida Aliro",
+  "fileDialogThisDevice": "Ĉi Tiu Aparato",
+  "fileDialogDesktop": "Labortablo",
+  "fileDialogDocuments": "Dokumentoj",
+  "fileDialogDownloads": "Elŝutoj",
+  "fileDialogMusic": "Muziko",
+  "fileDialogPictures": "Bildoj",
+  "fileDialogVideos": "Filmoj",
+  "fileDialogLocalDisk": "Loka Disko",
+  "fileDialogRemovableDisk": "Demetebla Disko",
+  "fileDialogOpticalDrive": "Optika Legilo",
+  "fileDialogNetworkDrive": "Reta Disko",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{free} liberaj el {total}",
+  "fileDialogCopyAsPath": "Kopii kiel Vojon",
+  "fileDialogRename": "Alinomi",
+  "fileDialogEmptyFolder": "Ĉi tiu dosierujo estas malplena.",
+  "fileDialogNoMatches": "Neniu ero kongruas kun via serĉo.",
+  "fileDialogNotFound": "Ne eblas trovi {location}. Kontrolu la literumon kaj reprovu.",
+  "fileDialogFileNotFound": "Ne eblas trovi la dosieron {name}. Kontrolu la dosiernomon kaj reprovu.",
+  "fileDialogPathNotFound": "La vojo {name} ne ekzistas. Kontrolu la vojon kaj reprovu.",
+  "fileDialogFolderNotFound": "La dosierujo {name} ne ekzistas. Kontrolu la nomon de la dosierujo kaj reprovu.",
+  "fileDialogSizeColumnToFit": "Adapti Kolumnon al Enhavo",
+  "fileDialogSizeAllColumnsToFit": "Adapti Ĉiujn Kolumnojn al Enhavo",
+  "fileDialogChangeView": "Ŝanĝi la Vidon",
+  "fileDialogMoreOptions": "Pliaj Elektoj",
+  "fileDialogPermissionDenied": "Vi ne havas permeson aliri {location}.",
+  "fileDialogUnavailable": "{location} ne disponeblas. Kontrolu, ke la disko estas konektita, kaj reprovu.",
+  "fileDialogNotAFolder": "{location} estas dosiero kaj ne malfermeblas kiel dosierujo.",
+  "fileDialogAlreadyExists": "Ero nomata {name} jam ekzistas ĉi tie.",
+  "fileDialogInvalidName": "{name} ne povas esti uzata kiel nomo ĉi tie.",
+  "fileDialogConfirmSaveAs": "Konfirmi Konservon",
+  "fileDialogReplacePrompt": "{name} jam ekzistas. Ĉu anstataŭigi ĝin?",
+  "fileDialogReplace": "Anstataŭigi",
+  "fileDialogItemCount": "{count, plural, =1{1 ero} other{{count} eroj}}",
+  "fileDialogNavigationPane": "Naviga Panelo",
+  "fileDialogItems": "Eroj"
+}

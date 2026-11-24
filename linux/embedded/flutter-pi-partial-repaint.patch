@@ -1,0 +1,399 @@
+diff --git a/README.md b/README.md
+index 220eecf..1678e8f 100644
+--- a/README.md
++++ b/README.md
+@@ -371,6 +371,12 @@ OPTIONS:
+   --pixel-ratio <ratio>     Override the Flutter device-pixel-ratio. The ratio
+                              must be a finite number greater than zero.
+ 
++  --partial-repaint          Let Flutter draw only the parts of the screen that
++                             changed since the buffer it draws into was last
++                             shown, instead of the whole screen every frame.
++                             Needs OpenGL and the EGL_EXT_buffer_age extension.
++                             Platform views are not shown with this option.
++
+   --pixelformat <format>     Selects the pixel format to use for the framebuffers.
+                              If this is not specified, a good pixel format will
+                              be selected automatically.
+diff --git a/src/compositor_ng.c b/src/compositor_ng.c
+index d6f6718..03e3b55 100644
+--- a/src/compositor_ng.c
++++ b/src/compositor_ng.c
+@@ -391,6 +391,62 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
+     return ok;
+ }
+ 
++int compositor_present_window_surface(struct compositor *compositor) {
++    struct fl_layer_composition *composition;
++    struct render_surface *render_surface;
++    struct view_geometry geometry;
++    struct fl_layer *layer;
++    int ok;
++
++    ASSERT_NOT_NULL(compositor);
++
++    geometry = window_get_view_geometry(compositor->main_window);
++
++    // this will not increase the refcount on the surface.
++    render_surface = window_get_render_surface(compositor->main_window, VEC2I((int) geometry.view_size.x, (int) geometry.view_size.y));
++    if (render_surface == NULL) {
++        LOG_ERROR("Couldn't get the window's render surface.\n");
++        return EIO;
++    }
++
++    // Flutter drew into the window surface itself, so there is no backing store.
++    FlutterBackingStore fl_store = {
++        .struct_size = sizeof(FlutterBackingStore),
++        .did_update = true,
++    };
++
++    ok = render_surface_queue_present(render_surface, &fl_store);
++    if (ok != 0) {
++        return ok;
++    }
++
++    composition = fl_layer_composition_new(1);
++    if (composition == NULL) {
++        return ENOMEM;
++    }
++
++    layer = fl_layer_composition_peek_layer(composition, 0);
++    layer->surface = surface_ref(CAST_SURFACE(render_surface));
++    layer->props.is_aa_rect = true;
++    layer->props.aa_rect = AA_RECT_FROM_COORDS(0, 0, geometry.view_size.x, geometry.view_size.y);
++    layer->props.quad = get_quad(layer->props.aa_rect);
++    layer->props.opacity = 1.0;
++    layer->props.rotation = 0.0;
++    layer->props.n_clip_rects = 0;
++    layer->props.clip_rects = NULL;
++
++    // Like compositor_push_fl_layers: the frame is in the surface's buffers either way.
++    TRACER_BEGIN(compositor->tracer, "compositor_push_composition");
++    ok = compositor_push_composition(compositor, composition);
++    TRACER_END(compositor->tracer, "compositor_push_composition");
++    if (ok != 0) {
++        LOG_DEBUG("Couldn't show the window surface. window_push_composition: %s\n", strerror(ok));
++    }
++
++    fl_layer_composition_unref(composition);
++    return 0;
++}
++
+ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata) {
+     struct compositor *compositor;
+     int ok;
+diff --git a/src/compositor_ng.h b/src/compositor_ng.h
+index d736096..fcbc5ba 100644
+--- a/src/compositor_ng.h
++++ b/src/compositor_ng.h
+@@ -172,6 +172,14 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor,
+ 
+ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor);
+ 
++/**
++ * @brief Shows what flutter drew straight into the main window's render surface.
++ *
++ * For when flutter renders without this compositor, so it can redraw only what changed
++ * (see --partial-repaint). Called on the raster thread once flutter has drawn the frame.
++ */
++int compositor_present_window_surface(struct compositor *compositor);
++
+ int compositor_request_frame(struct compositor *compositor, compositor_frame_begin_cb_t cb, void *userdata);
+ 
+ #ifdef HAVE_EGL_GLES2
+diff --git a/src/flutter-pi.c b/src/flutter-pi.c
+index e1246b7..98801ac 100644
+--- a/src/flutter-pi.c
++++ b/src/flutter-pi.c
+@@ -129,6 +129,12 @@ OPTIONS:\n\
+ \n\
+   --pixel-ratio <ratio>     Override the Flutter device-pixel-ratio. The ratio\n\
+                             must be a finite number greater than zero.\n\
++\n\
++  --partial-repaint          Let Flutter draw only the parts of the screen that\n\
++                             changed since the buffer it draws into was last\n\
++                             shown, instead of the whole screen every frame.\n\
++                             Needs OpenGL and the EGL_EXT_buffer_age extension.\n\
++                             Platform views are not shown with this option.\n\
+ \n\
+   --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
+                              If this is not specified, a good pixel format will\n\
+@@ -171,6 +177,21 @@ SEE ALSO:\n\
+ 
+ struct libseat;
+ 
++/**
++ * @brief What changed on screen in the last frames flutter presented, newest first.
++ *
++ * With --partial-repaint, flutter draws into the window's EGL surface, whose buffers
++ * hold the frame from some frames ago (the EGL buffer age). This history says what
++ * changed since then. GBM surfaces have at most 4 buffers, so 4 frames are enough.
++ */
++struct damage_history {
++    FlutterRect frames[4];
++    size_t n_frames;
++
++    /// What populate_existing_damage hands flutter. Flutter only reads it during that call.
++    FlutterRect existing;
++};
++
+ struct flutterpi {
+     /**
+ 	 * @brief The KMS device.
+@@ -267,6 +288,15 @@ struct flutterpi {
+     bool session_active;
+ 
+     char *desired_videomode;
++
++    /**
++     * @brief Flutter draws straight into the main window's EGL surface, without the
++     * compositor, and redraws only what changed. See --partial-repaint.
++     */
++    bool partial_repaint;
++
++    /// Only used with partial_repaint, and only on the raster thread.
++    struct damage_history damage_history;
+ };
+ 
+ struct device_id_and_fd {
+@@ -373,6 +403,119 @@ static uint32_t fbo_callback(void *userdata) {
+     return 0;
+ }
+ 
++#ifndef EGL_BUFFER_AGE_EXT
++    #define EGL_BUFFER_AGE_EXT 0x313D
++#endif
++
++static bool flutter_rect_is_empty(FlutterRect rect) {
++    return rect.right <= rect.left || rect.bottom <= rect.top;
++}
++
++static FlutterRect flutter_rect_union(FlutterRect a, FlutterRect b) {
++    if (flutter_rect_is_empty(a)) {
++        return b;
++    } else if (flutter_rect_is_empty(b)) {
++        return a;
++    }
++
++    return (FlutterRect){
++        .left = MIN2(a.left, b.left),
++        .top = MIN2(a.top, b.top),
++        .right = MAX2(a.right, b.right),
++        .bottom = MAX2(a.bottom, b.bottom),
++    };
++}
++
++static void damage_history_push(struct damage_history *history, const FlutterDamage *frame_damage) {
++    FlutterRect frame = { 0 };
++
++    for (size_t i = 0; i < frame_damage->num_rects; i++) {
++        frame = flutter_rect_union(frame, frame_damage->damage[i]);
++    }
++
++    memmove(history->frames + 1, history->frames, (ARRAY_SIZE(history->frames) - 1) * sizeof *history->frames);
++    history->frames[0] = frame;
++    if (history->n_frames < ARRAY_SIZE(history->frames)) {
++        history->n_frames++;
++    }
++}
++
++/// What changed since a buffer of this age was drawn, apart from the frame flutter is about to draw.
++static FlutterRect damage_history_since(const struct damage_history *history, EGLint buffer_age, FlutterRect whole_buffer) {
++    FlutterRect damage = { 0 };
++
++    // An age of 0 means the buffer's contents are undefined.
++    if (buffer_age <= 0 || (size_t) (buffer_age - 1) > history->n_frames) {
++        return whole_buffer;
++    }
++
++    for (EGLint i = 0; i < buffer_age - 1; i++) {
++        damage = flutter_rect_union(damage, history->frames[i]);
++    }
++
++    return damage;
++}
++
++/// Called on the raster thread before flutter draws into the window surface (--partial-repaint):
++/// tells flutter which part of the buffer it is about to draw into is out of date.
++static void on_populate_existing_damage(void *userdata, const intptr_t fbo_id, FlutterDamage *existing_damage) {
++    struct flutterpi *flutterpi;
++    EGLDisplay display;
++    EGLSurface surface;
++    EGLint age, width, height;
++
++    ASSERT_NOT_NULL(userdata);
++    ASSERT_NOT_NULL(existing_damage);
++    flutterpi = userdata;
++    (void) fbo_id;
++
++    display = gl_renderer_get_egl_display(flutterpi->gl_renderer);
++    surface = compositor_get_egl_surface(flutterpi->compositor);
++
++    existing_damage->struct_size = sizeof *existing_damage;
++
++    if (eglQuerySurface(display, surface, EGL_WIDTH, &width) != EGL_TRUE || eglQuerySurface(display, surface, EGL_HEIGHT, &height) != EGL_TRUE) {
++        // Flutter draws everything when it gets no damage.
++        existing_damage->num_rects = 0;
++        existing_damage->damage = NULL;
++        return;
++    }
++
++    if (eglQuerySurface(display, surface, EGL_BUFFER_AGE_EXT, &age) != EGL_TRUE) {
++        age = 0;
++    }
++
++    flutterpi->damage_history.existing = damage_history_since(
++        &flutterpi->damage_history,
++        age,
++        (FlutterRect){ .left = 0, .top = 0, .right = width, .bottom = height }
++    );
++
++    existing_damage->num_rects = 1;
++    existing_damage->damage = &flutterpi->damage_history.existing;
++}
++
++/// Called on the raster thread when flutter has drawn a frame into the window surface
++/// (--partial-repaint): shows it, and remembers what changed.
++static bool on_present_with_info(void *userdata, const FlutterPresentInfo *info) {
++    struct flutterpi *flutterpi;
++    int ok;
++
++    ASSERT_NOT_NULL(userdata);
++    ASSERT_NOT_NULL(info);
++    flutterpi = userdata;
++
++    ok = compositor_present_window_surface(flutterpi->compositor);
++    if (ok != 0) {
++        // The buffers may no longer hold what the history says, so the next frames draw everything.
++        flutterpi->damage_history.n_frames = 0;
++        return false;
++    }
++
++    damage_history_push(&flutterpi->damage_history, &info->frame_damage);
++    return true;
++}
++
+ /// Called on some flutter internal thread when the flutter
+ /// resource uploading EGLContext should be made current.
+ static bool on_make_resource_current(void *userdata) {
+@@ -1263,6 +1406,7 @@ static FlutterEngine create_flutter_engine(
+     int engine_argc,
+     char **engine_argv,
+     struct compositor *compositor,
++    bool partial_repaint,
+     FlutterEngineAOTData aot_data,
+     const FlutterEngineProcTable *procs
+ ) {
+@@ -1308,6 +1452,17 @@ static FlutterEngine create_flutter_engine(
+         renderer_config.open_gl.fbo_with_frame_info_callback = NULL;
+         renderer_config.open_gl.present_with_info = NULL;
+         renderer_config.open_gl.populate_existing_damage = NULL;
++
++        if (partial_repaint) {
++            // Flutter only tracks what changed when it draws into the window surface itself,
++            // instead of into the compositor's backing stores.
++            renderer_config.open_gl.present = NULL;
++            renderer_config.open_gl.present_with_info = on_present_with_info;
++            renderer_config.open_gl.populate_existing_damage = on_populate_existing_damage;
++            // Flutter asks for the existing damage only when it (re)wraps the window surface,
++            // so make it do that after every present, once the next back buffer is known.
++            renderer_config.open_gl.fbo_reset_after_present = true;
++        }
+ #else
+         UNREACHABLE();
+ #endif
+@@ -1356,7 +1511,7 @@ static FlutterEngine create_flutter_engine(
+     project_args.custom_dart_entrypoint = NULL;
+     project_args.custom_task_runners = &custom_task_runners;
+     project_args.shutdown_dart_vm_when_done = true;
+-    project_args.compositor = compositor_get_flutter_compositor(compositor);
++    project_args.compositor = partial_repaint ? NULL : compositor_get_flutter_compositor(compositor);
+     project_args.dart_old_gen_heap_size = -1;
+     project_args.aot_data = aot_data;
+     project_args.compute_platform_resolved_locale_callback = on_compute_platform_resolved_locales;
+@@ -1410,6 +1565,7 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
+         flutterpi->flutter.engine_argc,
+         flutterpi->flutter.engine_argv,
+         flutterpi->compositor,
++        flutterpi->partial_repaint,
+         flutterpi->flutter.aot_data,
+         &flutterpi->flutter.procs
+     );
+@@ -1863,6 +2019,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
+     int runtime_mode_int = FLUTTER_RUNTIME_MODE_DEBUG;
+     int vulkan_int = false;
+     int dummy_display_int = 0;
++    int partial_repaint_int = 0;
+     int longopt_index = 0;
+     int opt, ok;
+ 
+@@ -1883,6 +2040,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
+         { "dummy-display", no_argument, &dummy_display_int, 1 },
+         { "dummy-display-size", required_argument, NULL, 's' },
+         { "drm-fd", required_argument, NULL, 'f' },
++        { "partial-repaint", no_argument, &partial_repaint_int, 1 },
+         { 0, 0, 0, 0 },
+     };
+     memset(result_out, 0, sizeof *result_out);
+@@ -2061,6 +2219,8 @@ valid_format:
+ 
+     result_out->dummy_display = !!dummy_display_int;
+ 
++    result_out->partial_repaint = !!partial_repaint_int;
++
+     return true;
+ }
+ 
+@@ -2356,6 +2516,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
+     void *engine_handle;
+     char *bundle_path, **engine_argv, *desired_videomode;
+     int ok, engine_argc, wakeup_fd;
++    bool partial_repaint;
+ 
+     fpi = malloc(sizeof *fpi);
+     if (fpi == NULL) {
+@@ -2556,6 +2717,22 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
+         goto fail_unref_scheduler;
+     }
+ 
++    partial_repaint = false;
++    if (cmd_args.partial_repaint) {
++#ifdef HAVE_EGL_GLES2
++        if (renderer_type != kOpenGL_RendererType || cmd_args.dummy_display) {
++            LOG_ERROR("--partial-repaint needs OpenGL rendering to a display. Flutter will draw the whole screen every frame.\n");
++        } else if (!gl_renderer_supports_egl_extension(gl_renderer, "EGL_EXT_buffer_age") &&
++                   !gl_renderer_supports_egl_extension(gl_renderer, "EGL_KHR_partial_update")) {
++            LOG_ERROR("--partial-repaint needs the EGL_EXT_buffer_age extension. Flutter will draw the whole screen every frame.\n");
++        } else {
++            partial_repaint = true;
++        }
++#else
++        LOG_ERROR("--partial-repaint needs OpenGL rendering. Flutter will draw the whole screen every frame.\n");
++#endif
++    }
++
+     if (cmd_args.dummy_display) {
+         window = dummy_window_new(
+             tracer,
+@@ -2761,6 +2938,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
+     fpi->plugin_registry = plugin_registry;
+     fpi->texture_registry = texture_registry;
+     fpi->libseat = libseat;
++    fpi->partial_repaint = partial_repaint;
++    memset(&fpi->damage_history, 0, sizeof fpi->damage_history);
+     return fpi;
+ 
+ fail_destroy_texture_registry:
+diff --git a/src/flutter-pi.h b/src/flutter-pi.h
+index c264493..d09a570 100644
+--- a/src/flutter-pi.h
++++ b/src/flutter-pi.h
+@@ -147,6 +147,8 @@ struct flutterpi_cmdline_args {
+ 
+     bool has_drm_fd;
+     int drm_fd;
++
++    bool partial_repaint;
+ };
+ 
+ int flutterpi_fill_view_properties(bool has_orientation, enum device_orientation orientation, bool has_rotation, int rotation);

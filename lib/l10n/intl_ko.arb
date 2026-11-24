@@ -1,0 +1,1810 @@
+{
+  "@@locale": "ko",
+  "rune": "Rune",
+  "@rune": {
+    "description": "소프트웨어의 브랜드 이름으로 번역하지 않아야 합니다."
+  },
+  "runePlayer": "Rune 플레이어",
+  "@runePlayer": {
+    "description": "'플레이어' 부분은 일반적으로 번역되어야 하지만 'Rune'은 브랜드 이름으로 번역하지 않아야 합니다."
+  },
+  "copyright": "저작권",
+  "@copyright": {
+    "description": "설정 인터페이스의 저작권 섹션에 나타나는 항목의 제목입니다."
+  },
+  "copyrightAnnouncement": "저작권 © 2024 Rune 플레이어 개발자.",
+  "@copyrightAnnouncement": {
+    "description": "완전한 저작권 문구입니다."
+  },
+  "licenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
+  "@licenseAnnouncement": {
+    "description": "완전한 소프트웨어 라이선스 문구입니다."
+  },
+  "factoryReset": "공장 초기화",
+  "@factoryReset": {
+    "description": "설정 페이지에서 '라이브러리 기록 초기화' 작업을 트리거하는 버튼의 제목입니다."
+  },
+  "factoryResetSubtitle": "라이브러리 목록에서 모든 항목 제거",
+  "@factoryResetSubtitle": {
+    "description": "설정 인터페이스의 '공장 초기화' 버튼에 대한 설명 텍스트입니다."
+  },
+  "bsodBody": "플레이어에 문제가 발생하여 재시작이 필요합니다. 우리는 당신의 프라이버시를 존중하며 데이터를 수집하지 않습니다.",
+  "@bsodBody": {
+    "description": "블루 스크린 인터페이스에서 소프트웨어가 치명적인 오류를 만났음을 사용자에게 설명합니다. 두 번째 문장은 현대 소프트웨어 엔지니어링의 널리 퍼진 프라이버시 문제를 유머러스하게 다룹니다. 유머를 유지하세요."
+  },
+  "artists": "아티스트",
+  "@artists": {},
+  "albums": "앨범",
+  "@albums": {},
+  "playlists": "재생 목록",
+  "@playlists": {},
+  "unknownAlbum": "알 수 없는 앨범",
+  "@unknownAlbum": {},
+  "unknownTrack": "알 수 없는 트랙",
+  "@unknownTrack": {},
+  "unknownArtist": "알 수 없는 아티스트",
+  "@unknownArtist": {},
+  "selectDirectory": "디렉토리 선택",
+  "@selectDirectory": {},
+  "noDataAvailable": "데이터 없음",
+  "@noDataAvailable": {},
+  "start": "시작",
+  "@start": {
+    "description": "라이브러리 홈 기능 목록 근처에 나타나는 장식 텍스트입니다."
+  },
+  "search": "검색",
+  "@search": {},
+  "tracks": "트랙",
+  "@tracks": {},
+  "system": "시스템",
+  "@system": {},
+  "operatingSystem": "운영 체제",
+  "@operatingSystem": {
+    "description": "정보 페이지의 소프트웨어 정보 항목 제목 중 하나입니다."
+  },
+  "systemVersion": "시스템 버전",
+  "@systemVersion": {
+    "description": "정보 페이지의 소프트웨어 정보 항목 제목 중 하나입니다."
+  },
+  "kernelVersion": "커널 버전",
+  "@kernelVersion": {
+    "description": "진단 목적으로 운영 체제 커널의 버전을 나타내는 정보 페이지의 항목입니다."
+  },
+  "hostName": "호스트 이름",
+  "@hostName": {
+    "description": "컴퓨터의 이름을 나타내는 정보 페이지의 항목입니다."
+  },
+  "player": "플레이어",
+  "@player": {
+    "description": "소프트웨어 메타데이터에 대한 정보 페이지의 섹션 제목으로, 소프트웨어의 버전 정보를 제공합니다."
+  },
+  "buildHash": "빌드 해시",
+  "@buildHash": {},
+  "buildDate": "빌드 날짜",
+  "@buildDate": {},
+  "commitDate": "커밋 날짜",
+  "@commitDate": {},
+  "rustcVersion": "Rustc 버전",
+  "@rustcVersion": {},
+  "activation": "활성화",
+  "@activation": {},
+  "runeIsActivated": "Rune이 활성화되었습니다",
+  "@runeIsActivated": {
+    "description": "소프트웨어가 현재 활성화되어 있음을 사용자에게 알립니다. 사실, 소프트웨어는 어떤 상황에서도 항상 활성화되어 있습니다."
+  },
+  "productId": "제품 ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "정품 소프트웨어의 피해자가 될 수 있습니다.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "이 문구는 Easter egg로, 정품 소프트웨어를 사용하는 것이 불법 복제 버전을 사용하는 것보다 더 나쁜 경험을 제공하는 반-불법 복제 조치를 풍자합니다. 유머를 유지하세요."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "이 프로젝트를 지원하는 디자인 연구 조직입니다. 이름을 번역하지 않고 그대로 유지하세요."
+  },
+  "computingDevice": "컴퓨팅 장치",
+  "@computingDevice": {
+    "description": "오디오 분석 작업을 수행할 하드웨어 장치를 선택할 수 있는 설정 항목 제목입니다."
+  },
+  "computingDeviceSubtitle": "빠르거나 효율적인 처리를 위해 GPU 또는 CPU를 선택하세요.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "성능 수준",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "동시에 실행할 작업 수를 선택하세요.",
+  "@performanceLevelSubtitle": {},
+  "performance": "성능",
+  "@performance": {
+    "description": "가능한 한 빨리 계산을 완료하기 위해 사용 가능한 하드웨어 리소스를 활용하는 고성능 모드입니다."
+  },
+  "balance": "밸런스",
+  "@balance": {
+    "description": "시스템이 지연되지 않도록 계산 작업을 균등하게 분배하는 균형 모드입니다."
+  },
+  "batterySaving": "배터리 절약",
+  "@batterySaving": {
+    "description": "리소스 사용을 최소화하여 과열을 방지하는 에너지 절약 모드로, 덜 강력한 장치에 적합합니다."
+  },
+  "switchTo": "전환",
+  "@switchTo": {
+    "description": "미디어 라이브러리를 전환하기 위한 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 현재 라이브러리가 닫히고 새 라이브러리가 열립니다."
+  },
+  "removeLibrary": "제거",
+  "@removeLibrary": {
+    "description": "미디어 라이브러리를 제거하기 위한 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 기록에서 라이브러리 항목이 삭제됩니다."
+  },
+  "localFolder": "로컬 폴더",
+  "localFolderSubtitle": "이 기기의 폴더를 선택하세요.",
+  "runeDevice": "Rune 기기",
+  "runeDeviceSubtitle": "다른 Rune 기기에 연결하세요.",
+  "addLibrary": "라이브러리 추가",
+  "@addLibrary": {
+    "description": "새 미디어 라이브러리를 만들기 위한 설정 인터페이스의 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 사용자가 디렉토리를 선택하고 라이브러리를 만들 수 있도록 안내합니다."
+  },
+  "addLibrarySubtitle": "새 라이브러리를 추가하고 기존 파일을 스캔합니다.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "작업 메뉴",
+  "@actionMenu": {
+    "description": "설정 인터페이스 요소 목록의 구분선입니다. 이 구분선 아래의 모든 항목은 화면에 직접 표시되지 않고 팝업 버튼에 숨겨집니다."
+  },
+  "addToQueue": "큐에 추가",
+  "@addToQueue": {
+    "description": "컨텍스트 메뉴의 항목입니다. 이 항목을 누르면 해당 트랙이나 앨범이 재생 큐에 추가됩니다."
+  },
+  "addToQueueSubtitle": "새 항목이 재생 큐에 추가되는 방법입니다.",
+  "@addToQueueSubtitle": {},
+  "playNext": "다음에 재생",
+  "@playNext": {
+    "description": "재생 목록에서 다음에 재생할 트랙이나 앨범을 큐에 추가하는 작업입니다."
+  },
+  "addToEnd": "끝에 추가",
+  "@addToEnd": {
+    "description": "재생 목록 끝에 트랙이나 앨범을 큐에 추가하는 작업입니다."
+  },
+  "middleClickAction": "중간 클릭 동작",
+  "@middleClickAction": {
+    "description": "사용자가 트랙이나 앨범을 중간 클릭할 때의 동작을 제어하는 설정 인터페이스의 제목입니다."
+  },
+  "middleClickActionSubtitle": "트랙이나 컬렉션을 중간 클릭할 때 수행할 작업입니다.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "재생 시작",
+  "@startPlaying": {
+    "description": "사용자가 음악 재생을 시작할 수 있는 작업입니다."
+  },
+  "startRoaming": "로밍 시작",
+  "@startRoaming": {
+    "description": "현재 트랙이나 앨범과 유사한 음악을 재생하기 시작할 수 있는 작업입니다."
+  },
+  "playbackMode": "재생 모드",
+  "@playbackMode": {
+    "description": "사용자가 셔플 또는 순차 재생과 같은 원하는 재생 모드를 선택할 수 있도록 돕는 설정 인터페이스의 제목입니다."
+  },
+  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다",
+  "@playbackModeSubtitle": {},
+  "colorMode": "색상 모드",
+  "@colorMode": {
+    "description": "사용자가 인터페이스 색상 모드를 선택할 수 있도록 돕는 설정 항목으로, 라이트 및 다크 모드를 포함합니다."
+  },
+  "colorModeSubtitle": "Rune에 나타나는 색상 모드를 변경하세요.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "시스템",
+  "@systemColorMode": {
+    "description": "활성화되면 소프트웨어의 라이트 또는 다크 모드가 시스템 설정과 일치하도록 조정하는 색상 설정 항목입니다."
+  },
+  "dark": "다크",
+  "@dark": {
+    "description": "선택 시 다크 모드를 활성화하는 색상 설정 항목입니다."
+  },
+  "light": "라이트",
+  "@light": {
+    "description": "선택 시 라이트 모드를 활성화하는 색상 설정 항목입니다."
+  },
+  "themeColor": "테마 색상",
+  "@themeColor": {
+    "description": "사용자가 선호하는 테마 색상을 선택할 수 있도록 돕는 설정 항목입니다."
+  },
+  "themeColorSubtitle": "Rune에 새롭고 신선한 느낌을 주기 위해 색상을 선택하세요.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "시스템 테마 따르기",
+  "@followSystemTheme": {
+    "description": "테마 색상 설정의 항목입니다. 활성화되면 소프트웨어의 테마 색상이 시스템 설정을 따릅니다."
+  },
+  "dynamicColors": "동적 색상",
+  "@dynamicColors": {
+    "description": "활성화되면 현재 재생 중인 트랙의 커버 아트에 따라 소프트웨어의 테마 색상이 변경되는 색상 설정 항목입니다."
+  },
+  "dynamicColorsSubtitle": "재생 중인 트랙의 커버 아트에 따라 Rune의 테마 색상을 조정하세요.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "브랜딩 애니메이션",
+  "@brandingAnimation": {
+    "description": "소프트웨어 시작 시 환영 애니메이션을 재생할지 제어할 수 있는 설정 항목입니다."
+  },
+  "brandingAnimationSubtitle": "Rune 시작 시 브랜딩 애니메이션을 재생합니다.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "몇 분이 걸릴 수 있습니다.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "스캔 대기 화면의 제목으로, 사용자에게 인내심을 가지라고 상기시킵니다."
+  },
+  "tracksFound": " 트랙 발견",
+  "@tracksFound": {
+    "description": "스캔 대기 화면에서 몇 개의 트랙이 스캔되었는지 사용자에게 알리는 프롬프트 텍스트입니다."
+  },
+  "albumCoversCollected": " 앨범 커버 수집됨",
+  "@albumCoversCollected": {
+    "description": "스캔 대기 화면에서 몇 개의 앨범 커버가 스캔되었는지 사용자에게 알리는 프롬프트 텍스트입니다."
+  },
+  "editPlaylist": "재생 목록 편집",
+  "@editPlaylist": {
+    "description": "사용자가 재생 목록의 메타데이터를 편집할 수 있는 컨텍스트 메뉴의 항목입니다."
+  },
+  "editMix": "믹스 편집",
+  "@editMix": {
+    "description": "사용자가 믹스의 메타데이터를 편집할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "edit": "편집",
+  "@edit": {
+    "description": "소프트웨어가 무엇을 편집해야 하는지 식별할 수 없을 때, 사용자가 콘텐츠를 편집하도록 안내하는 컨텍스트 메뉴의 동사입니다."
+  },
+  "remove": "제거",
+  "@remove": {
+    "description": "소프트웨어가 무엇을 제거해야 하는지 식별할 수 없을 때, 사용자가 콘텐츠를 제거하도록 안내하는 컨텍스트 메뉴의 동사입니다."
+  },
+  "removePlaylist": "재생 목록 제거",
+  "@removePlaylist": {
+    "description": "사용자가 재생 목록을 삭제할 수 있는 컨텍스트 메뉴의 항목입니다."
+  },
+  "removeMix": "믹스 제거",
+  "@removeMix": {
+    "description": "사용자가 믹스를 삭제할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "addToMix": "믹스에 추가",
+  "@addToMix": {
+    "description": "사용자가 트랙이나 앨범을 믹스에 추가할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "newMix": "새 믹스",
+  "@newMix": {
+    "description": "사용자가 새 믹스를 만들 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "selectAGroup": "그룹 선택",
+  "@selectAGroup": {
+    "description": "믹스 또는 재생 목록 편집 모달에 있는 입력 필드의 자리 표시자 텍스트로, 사용자가 콘텐츠 그룹을 선택하도록 안내합니다."
+  },
+  "likedOnly": "좋아요만",
+  "@likedOnly": {
+    "description": "믹스 편집 인터페이스의 항목으로, 사용자가 '좋아요'를 누른 트랙만 필터링하고 유지하는 체크박스 옵션입니다."
+  },
+  "allTracks": "모든 트랙",
+  "@allTracks": {
+    "description": "믹스 편집 인터페이스의 항목으로, 사용자가 '좋아요'를 누른 트랙뿐만 아니라 모든 트랙을 필터링하고 유지하는 체크박스 옵션입니다."
+  },
+  "defaultMode": "기본",
+  "@defaultMode": {
+    "description": "현재 시스템 동작을 유지하면서 모드를 지정하지 않고 재생 목록에서 트랙을 탐색하는 방법입니다."
+  },
+  "sequential": "순차적",
+  "@sequential": {
+    "description": "재생 목록에서 시작부터 끝까지 순서대로 재생하는 방법입니다."
+  },
+  "repeatAll": "모두 반복",
+  "@repeatAll": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 끝난 후 처음부터 반복합니다."
+  },
+  "repeatOne": "하나 반복",
+  "@repeatOne": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 하나의 트랙을 계속 반복합니다."
+  },
+  "shuffle": "셔플",
+  "@shuffle": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 무작위 순서로 재생합니다."
+  },
+  "title": "제목",
+  "@title": {
+    "description": "재생 목록 또는 믹스 편집 모달에서 사용자가 제목을 편집하도록 안내합니다."
+  },
+  "group": "그룹",
+  "@group": {
+    "description": "재생 목록 또는 믹스 편집 모달에서 사용자가 그룹을 편집하도록 안내합니다."
+  },
+  "save": "저장",
+  "@save": {
+    "description": "모달에서 변경 사항을 저장할 때 누르는 동작 버튼입니다."
+  },
+  "create": "생성",
+  "@create": {
+    "description": "모달에서 새 항목을 생성할 때 누르는 동작 버튼입니다."
+  },
+  "cancel": "취소",
+  "@cancel": {
+    "description": "모달을 변경 없이 닫는 동작 버튼입니다."
+  },
+  "noRecommendation": "추천 없음",
+  "@noRecommendation": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 사용자가 쿼리 결과를 기반으로 추천하지 않겠다는 의도를 나타냅니다."
+  },
+  "basedOnAll": "모두 기반",
+  "@basedOnAll": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 전체 쿼리 결과를 기반으로 유사한 트랙을 추천합니다."
+  },
+  "group1": "그룹 1",
+  "@group1": {},
+  "group2": "그룹 2",
+  "@group2": {},
+  "group3": "그룹 3",
+  "@group3": {},
+  "group4": "그룹 4",
+  "@group4": {},
+  "group5": "그룹 5",
+  "@group5": {},
+  "group6": "그룹 6",
+  "@group6": {},
+  "group7": "그룹 7",
+  "@group7": {},
+  "group8": "그룹 8",
+  "@group8": {},
+  "group9": "그룹 9",
+  "@group9": {},
+  "ascending": "오름차순",
+  "@ascending": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 쿼리 결과를 오름차순으로 정렬합니다."
+  },
+  "descending": "내림차순",
+  "@descending": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 쿼리 결과를 내림차순으로 정렬합니다."
+  },
+  "lastModified": "마지막 수정",
+  "@lastModified": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 파일 메타데이터의 마지막 수정 시간으로 정렬합니다."
+  },
+  "duration": "재생 시간",
+  "@duration": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오 길이로 정렬합니다."
+  },
+  "timesPlayedThrough": "완전히 재생된 횟수",
+  "@timesPlayedThrough": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오가 완전히 재생된 횟수로 정렬합니다."
+  },
+  "timesSkipped": "건너뛴 횟수",
+  "@timesSkipped": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오가 건너뛰어진 횟수로 정렬합니다."
+  },
+  "pickDirectory": "디렉토리 선택",
+  "@pickDirectory": {
+    "description": "믹스 편집 모달의 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 사용자가 디렉토리를 선택하도록 안내하는 모달이 열립니다."
+  },
+  "oneDirectory": "1개의 디렉토리",
+  "@oneDirectory": {
+    "description": "하나의 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다."
+  },
+  "manyDirectories": "{count}개의 디렉토리",
+  "@manyDirectories": {
+    "description": "여러 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "확인",
+  "@confirm": {
+    "description": "사용자의 작업을 확인하는 의도를 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "directories": "디렉토리",
+  "@directories": {
+    "description": "트랙을 폴더별로 필터링하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "allDirectories": "모든 디렉토리",
+  "@allDirectories": {
+    "description": "모든 디렉토리가 선택되었음을 나타내는 프롬프트입니다."
+  },
+  "randomTracks": "무작위 트랙",
+  "@randomTracks": {
+    "description": "무작위로 선택된 트랙 수를 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "amount": "수량",
+  "@amount": {
+    "description": "슬라이더 또는 입력 상자를 통해 선택된 트랙 수를 나타내는 모달의 프롬프트 텍스트입니다."
+  },
+  "mode": "모드",
+  "@mode": {
+    "description": "트랙의 재생 모드입니다."
+  },
+  "recommendation": "추천",
+  "@recommendation": {
+    "description": "플레이어의 추천 동작을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "sortBy": "정렬 기준",
+  "@sortBy": {
+    "description": "트랙의 정렬 방법을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "sortOrder": "정렬 순서",
+  "@sortOrder": {
+    "description": "트랙의 정렬 방향을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "liked": "좋아요",
+  "@liked": {
+    "description": "사용자가 '좋아요'로 표시한 트랙을 필터링하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "noRoamingCollection": "로밍을 시작할 수 없습니다. 컬렉션의 트랙이 아직 분석되지 않았습니다.",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "로밍을 시작할 수 없습니다. 이 트랙이 아직 분석되지 않았습니다.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} 라이브러리가 분석 중입니다. 프로세스가 완료될 때까지 기다려 주십시오.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} 최상의 경험을 위해 라이브러리를 분석하십시오.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "준비되지 않음",
+  "@notReady": {
+    "description": "트랙이 분석되지 않아 추천을 할 수 없음을 나타내는 모달 제목입니다."
+  },
+  "createPlaylist": "재생 목록 만들기",
+  "@createPlaylist": {
+    "description": "재생 목록을 만드는 모달 제목입니다."
+  },
+  "scanLibrary": "라이브러리 스캔",
+  "@scanLibrary": {
+    "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리 스캔을 시작합니다."
+  },
+  "analyzeTracks": "트랙 분석",
+  "@analyzeTracks": {
+    "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
+  },
+  "scan": "스캔",
+  "@scan": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 누르면 미디어 라이브러리 스캔을 시작합니다."
+  },
+  "scanning": "스캔 중",
+  "@scanning": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 스캔 중임을 나타냅니다."
+  },
+  "analyze": "분석",
+  "@analyze": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
+  },
+  "analyzing": "분석 중",
+  "@analyzing": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 분석 중임을 나타냅니다."
+  },
+  "tryCreatingYourOwnCollection": "자신만의 컬렉션을 만들어 보세요",
+  "@tryCreatingYourOwnCollection": {
+    "description": "컬렉션 뷰의 빈 페이지에 표시되는 텍스트로, 사용자가 새 컬렉션을 만들도록 제안합니다."
+  },
+  "theseActionsMayHelp": "이러한 조치가 도움이 될 수 있습니다",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "새 파일을 스캔해 보세요",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "컬렉션을 찾을 수 없음",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "재생 목록에 항목이 없음",
+  "@noItemsInPlaylist": {},
+  "previous": "이전",
+  "@previous": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 이전 트랙으로 건너뛰는 데 사용됩니다."
+  },
+  "previousSubtitle": "이전 트랙으로 이동",
+  "@previousSubtitle": {},
+  "playPause": "재생/일시 정지",
+  "@playPause": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 재생 및 일시 정지 상태 간 전환에 사용됩니다."
+  },
+  "playPauseSubtitle": "재생 및 일시 정지 간 전환",
+  "@playPauseSubtitle": {},
+  "next": "다음",
+  "@next": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 다음 트랙으로 건너뛰는 데 사용됩니다."
+  },
+  "nextSubtitle": "다음 트랙으로 이동",
+  "@nextSubtitle": {},
+  "volume": "볼륨",
+  "@volume": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 볼륨 조절에 사용됩니다."
+  },
+  "volumeSubtitle": "볼륨 조절",
+  "@volumeSubtitle": {},
+  "playlist": "재생 목록",
+  "@playlist": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 재생 목록을 표시하는 데 사용됩니다."
+  },
+  "playlistSubtitle": "재생 대기열 보기",
+  "@playlistSubtitle": {},
+  "hidden": "숨김",
+  "@hidden": {
+    "description": "숨겨진 버튼을 나타내는 버튼 프롬프트 텍스트로, 일반적으로 사용되지 않습니다."
+  },
+  "hiddenSubtitle": "아래 내용이 다른 목록에서 숨겨집니다",
+  "@hiddenSubtitle": {},
+  "coverWall": "커버 월",
+  "@coverWall": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 앨범 커버로 구성된 데코레이션 페이지인 커버 월 페이지로 전환하는 데 사용됩니다."
+  },
+  "coverWallSubtitle": "독특한 분위기를 위한 커버 아트 표시",
+  "@coverWallSubtitle": {},
+  "fullscreen": "전체 화면",
+  "@fullscreen": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 전체 화면 모드를 전환하는 데 사용됩니다."
+  },
+  "fullscreenSubtitle": "전체 화면 모드로 전환 또는 종료",
+  "@fullscreenSubtitle": {},
+  "pause": "일시 정지",
+  "@pause": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 현재 재생 중인 트랙을 일시 정지하는 데 사용됩니다."
+  },
+  "play": "재생",
+  "@play": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 일시 정지 상태에서 재생을 재개하는 데 사용됩니다."
+  },
+  "enable": "활성화",
+  "@enable": {
+    "description": "설정 인터페이스의 라디오 버튼 프롬프트 텍스트로, 기능이 활성화되었음을 나타냅니다."
+  },
+  "disable": "비활성화",
+  "@disable": {
+    "description": "설정 인터페이스의 라디오 버튼 프롬프트 텍스트로, 기능이 활성화되지 않았음을 나타냅니다."
+  },
+  "noTracksFound": "트랙을 찾을 수 없음",
+  "@noTracksFound": {},
+  "library": "라이브러리",
+  "@library": {
+    "description": "미디어 라이브러리 설정 인터페이스의 제목입니다."
+  },
+  "artistQuery": "아티스트 쿼리",
+  "@artistQuery": {},
+  "playlistQuery": "재생 목록 쿼리",
+  "@playlistQuery": {},
+  "mixes": "믹스",
+  "@mixes": {
+    "description": "믹스 인터페이스의 제목으로, 스마트 재생 목록의 한 유형을 의미합니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "mixQuery": "믹스 쿼리",
+  "@mixQuery": {},
+  "settings": "설정",
+  "@settings": {
+    "description": "설정 인터페이스의 제목입니다."
+  },
+  "analysis": "분석",
+  "@analysis": {
+    "description": "분석 설정 인터페이스의 제목입니다."
+  },
+  "playback": "재생",
+  "@playback": {
+    "description": "재생 설정 인터페이스의 제목입니다."
+  },
+  "theme": "테마",
+  "@theme": {
+    "description": "테마 설정 인터페이스의 제목입니다."
+  },
+  "controller": "컨트롤러",
+  "@controller": {
+    "description": "재생 제어 버튼 설정 인터페이스의 제목입니다."
+  },
+  "about": "정보",
+  "@about": {
+    "description": "정보 인터페이스의 제목입니다."
+  },
+  "selectLibraryDirectorySubtitle": "오디오 라이브러리 디렉토리를 선택하면 모든 트랙을 스캔하고 분석합니다.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "라이브러리 재설정",
+  "@resetLibrary": {
+    "description": "사용자가 라이브러리를 재설정하려는 의도를 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "resetLibraryQuestion": "라이브러리 재설정",
+  "@resetLibraryQuestion": {
+    "description": "사용자에게 라이브러리를 재설정할 것인지 묻는 모달 제목입니다."
+  },
+  "resetLibrarySubtitle": "라이브러리를 재설정하면 파일 열기 기록이 지워집니다. 기존 미디어 라이브러리는 변경되지 않습니다. 계속하시겠습니까?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "사용 불가",
+  "@unavailable": {
+    "description": "버그가 있을 때만 나타나는 사용 불가능한 컨텍스트 메뉴 요소입니다."
+  },
+  "goToArtist": "아티스트로 이동",
+  "@goToArtist": {
+    "description": "사용자를 아티스트 페이지로 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "goToAlbum": "앨범으로 이동",
+  "@goToAlbum": {
+    "description": "사용자를 앨범 페이지로 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "addToPlaylist": "재생 목록에 추가",
+  "@addToPlaylist": {
+    "description": "트랙이나 앨범을 재생 목록에 추가하도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "newPlaylist": "새 재생 목록",
+  "@newPlaylist": {
+    "description": "새 재생 목록을 만들도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "unableToOpenLibrary": "라이브러리를 열 수 없음",
+  "@unableToOpenLibrary": {
+    "description": "라이브러리를 열 수 없음을 사용자에게 알리는 모달 제목입니다."
+  },
+  "unableToOpenLibrarySubtitle": "다음 오류로 인해 라이브러리를 열 수 없습니다:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "알 수 없는 오류",
+  "@unknownError": {
+    "description": "알 수 없는 오류를 나타내는 모달 오류 내용입니다."
+  },
+  "close": "닫기",
+  "@close": {
+    "description": "사용자가 모달을 닫도록 안내하는 액션 버튼입니다."
+  },
+  "queue": "대기열",
+  "@queue": {
+    "description": "재생 목록 모달의 제목입니다."
+  },
+  "createMix": "믹스 만들기",
+  "@createMix": {
+    "description": "새 믹스, 즉 스마트 재생 목록의 한 유형을 만들도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "removeMixTitle": "믹스 제거",
+  "@removeMixTitle": {
+    "description": "사용자가 믹스, 즉 스마트 재생 목록의 한 유형을 삭제하려고 함을 알리는 모달 제목입니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "removeMixSubtitle": "이 믹스를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removeMixSubtitle": {},
+  "delete": "삭제",
+  "@delete": {
+    "description": "정보를 삭제할 것임을 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "removePlaylistTitle": "재생 목록 삭제",
+  "@removePlaylistTitle": {
+    "description": "사용자에게 재생 목록을 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "removePlaylistSubtitle": "이 재생 목록을 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "작업 취소",
+  "@cancelTaskTitle": {
+    "description": "사용자에게 작업을 취소하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "cancelTaskSubtitle": "이 작업을 취소하면 현재 완료 상태에서 중지됩니다. 취소하시겠습니까?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "작업 취소",
+  "@cancelTask": {
+    "description": "작업을 취소하는 모달의 동작 버튼 텍스트입니다."
+  },
+  "continueTask": "계속",
+  "@continueTask": {
+    "description": "작업을 계속 진행하는 모달의 동작 버튼 텍스트입니다."
+  },
+  "refresh": "새로 고침",
+  "@refresh": {
+    "description": "현재 페이지의 정보를 새로 고치도록 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "explore": "탐색",
+  "@explore": {
+    "description": "기능 영역의 제목입니다."
+  },
+  "language": "언어",
+  "@language": {
+    "description": "언어 설정 페이지의 제목입니다."
+  },
+  "followSystemLanguage": "시스템 언어",
+  "@followSystemLanguage": {
+    "description": "설정에서 Rune의 언어가 운영 체제를 따르도록 하는 작업 버튼 텍스트입니다."
+  },
+  "followSystemLanguageSubtitle": "특별한 설정 없이 시스템 언어 설정을 따릅니다.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  },
+  "windowSize": "창 크기",
+  "@windowSize": {
+    "description": "테마 페이지에서 창 크기를 설정하는 프롬프트 텍스트입니다."
+  },
+  "windowSizeSubtitle": "애플리케이션에 선호하는 창 크기를 선택하세요.",
+  "@windowSizeSubtitle": {
+    "description": "창 크기 옵션을 설명하는 부제목입니다."
+  },
+  "normalWindowSize": "보통",
+  "@normalWindowSize": {
+    "description": "표준 창 크기 옵션입니다."
+  },
+  "slimWindowSize": "슬림",
+  "@slimWindowSize": {
+    "description": "좁은 창 크기 옵션입니다."
+  },
+  "stockyWindowSize": "넓음",
+  "@stockyWindowSize": {
+    "description": "넓은 창 크기 옵션입니다."
+  },
+  "log": "로그",
+  "@log": {
+    "description": "설정 섹션의 로깅 페이지 제목입니다. 이 페이지에는 프로그램 실행 중 발생한 오류 및 경고가 포함됩니다."
+  },
+  "viewLogDetail": "로그 세부정보",
+  "@viewLogDetail": {
+    "description": "컨텍스트 메뉴 항목입니다. 이 항목을 누르면 로그 세부정보 모달이 표시됩니다."
+  },
+  "removeLogTitle": "로그 삭제",
+  "@removeLogTitle": {
+    "description": "사용자가 로그를 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "removeLogSubtitle": "이 로그를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "모든 로그 삭제",
+  "@clearLogTitle": {
+    "description": "사용자가 모든 로그를 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "clearLogSubtitle": "모든 로그를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "모두 삭제",
+  "@deleteAll": {
+    "description": "컨텍스트 메뉴 항목입니다. 이 항목을 누르면 사용 가능한 모든 항목이 제거됩니다."
+  },
+  "noLogsAvailable": "사용 가능한 로그가 없습니다",
+  "@noLogsAvailable": {
+    "description": "로그 설정 페이지의 빈 상태 아이콘 제목입니다."
+  },
+  "home": "홈",
+  "@home": {
+    "description": "홈 설정 페이지의 제목입니다."
+  },
+  "newest": "최신",
+  "@newest": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "oldest": "오래된",
+  "@oldest": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "random": "무작위",
+  "@random": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "mostPlayed": "가장 많이 재생됨",
+  "@mostPlayed": {
+    "description": "라이브러리 홈 그룹의 제목입니다."
+  },
+  "personalize": "개인화",
+  "@personalize": {
+    "description": "라이브러리 홈 페이지의 컨텍스트 메뉴 항목입니다."
+  },
+  "artistsLibraryHomeSubtitle": "좋아하는 아티스트의 세계를 발견하고 탐험하세요",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 아티스트 섹션에 대한 부제목입니다."
+  },
+  "albumsLibraryHomeSubtitle": "재능 있는 아티스트가 제작한 앨범에 몰입하세요",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 앨범 섹션에 대한 부제목입니다."
+  },
+  "playlistsLibraryHomeSubtitle": "개인화된 청취 여정을 큐레이션하세요",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 재생목록 섹션에 대한 부제목입니다."
+  },
+  "tracksLibraryHomeSubtitle": "알고 사랑하는 트랙을 탐구하세요",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 트랙 섹션에 대한 부제목입니다."
+  },
+  "likedLibraryHomeSubtitle": "가장 소중히 여기는 트랙을 다시 경험하세요",
+  "@likedLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 좋아요 섹션에 대한 부제목입니다."
+  },
+  "mostLibraryHomeSubtitle": "다시 한번 당신을 사로잡는 멜로디를 재방문하세요",
+  "@mostLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 가장 많이 재생된 섹션에 대한 부제목입니다."
+  },
+  "showRune": "Rune 보기",
+  "@showRune": {
+    "description": "트레이 메뉴의 항목입니다."
+  },
+  "exit": "종료",
+  "@exit": {
+    "description": "트레이 메뉴의 항목입니다."
+  },
+  "back": "뒤로",
+  "@back": {
+    "description": "윈도우 제목 표시줄의 왼쪽 상단 아이콘의 툴팁입니다."
+  },
+  "exportTracks": "내보내기",
+  "@exportTracks": {
+    "description": "컬렉션을 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "exportM3u8": "재생목록 파일",
+  "@exportM3u8": {
+    "description": "컬렉션을 M3U8 형식으로 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "exportCoverWall": "커버 아트 월",
+  "@exportCoverWall": {
+    "description": "커버 아트 월을 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "noCoverArtToExport": "내보낼 커버 아트가 없습니다.",
+  "ratio": "비율",
+  "@ratio": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "frame": "프레임",
+  "@frame": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "background": "배경",
+  "@background": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "evaluationMode": "평가 모드",
+  "@evaluationMode": {
+    "description": "평가 모드 모달의 제목입니다."
+  },
+  "evaluationModeContent1": "Rune은 공짜 맥주가 아닙니다. 앱 스토어에서 정품 라이센스를 구매하시길 권장합니다.",
+  "@evaluationModeContent1": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "evaluationModeContent2": "라이센스 사용자는 앱 스토어에서 제공하는 자동 업데이트를 받고 개발자에게 직접 새로운 기능을 제안할 수 있습니다.",
+  "@evaluationModeContent2": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "evaluationModeContent3": "이 알림을 180일 동안 해제할 수 있으며, 나중에 다시 알림을 받게 됩니다.",
+  "@evaluationModeContent3": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "remindMeLater": "나중에 알림",
+  "@remindMeLater": {
+    "description": "평가 모드 모달의 액션 버튼입니다."
+  },
+  "mysteriousButton": "신비한 버튼",
+  "@mysteriousButton": {
+    "description": "컨텍스트 메뉴 항목입니다."
+  },
+  "mysteriousModalTitle": "삐걱",
+  "@mysteriousModalTitle": {
+    "description": "모달의 제목입니다."
+  },
+  "mysteriousModalContent": "신비한 메커니즘을 작동시킨 것 같습니다. 방의 구조가 바뀌어 새로운 탐험 구역이 나타났습니다.",
+  "@mysteriousModalContent": {
+    "description": "모달의 내용입니다."
+  },
+  "laboratory": "실험실",
+  "@laboratory": {
+    "description": "링크 제목의 제목입니다."
+  },
+  "libraryMode": "라이브러리 설정",
+  "@libraryMode": {
+    "description": "데이터베이스를 저장할 위치를 선택하도록 사용자를 안내하는 모달의 제목입니다."
+  },
+  "libraryModeSubtitle": "라이브러리에 대해 조금 더 알고 싶습니다. 미디어 파일이 어디에 저장되어 있습니까?",
+  "@libraryModeSubtitle": {
+    "description": "데이터베이스를 저장할 위치를 선택하도록 사용자를 안내하는 모달의 부제목입니다."
+  },
+  "portableMode": "로컬 하드 드라이브",
+  "@portableMode": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보입니다."
+  },
+  "portableModeSubtitle": "미디어 인덱스를 라이브러리 폴더에 함께 저장합니다.",
+  "@portableModeSubtitle": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보의 부제목입니다."
+  },
+  "localMode": "클라우드에",
+  "@localMode": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보입니다."
+  },
+  "localModeSubtitle": "미디어 인덱스를 Rune의 구성 디렉토리에 저장합니다.",
+  "@localModeSubtitle": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보의 부제목입니다."
+  },
+  "rememberWindowSize": "창 크기 기억",
+  "@rememberWindowSize": {
+    "description": "테마 페이지의 설정 옵션 제목입니다."
+  },
+  "rememberWindowSizeSubtitle": "창 크기를 조정할 때 저장하고, 다음 실행 시 동일한 크기로 시작합니다.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "테마 페이지의 설정 옵션 부제목입니다."
+  },
+  "closeNotification": "Rune이 여전히 실행 중입니다",
+  "@closeNotification": {
+    "description": "사용자가 창을 닫을 때 나타나는 알림입니다."
+  },
+  "closeNotificationSubtitle": "Rune이 현재 백그라운드에서 실행 중입니다. 시스템 트레이에서 쉽게 찾을 수 있습니다.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "등록",
+  "@register": {
+    "description": "설정 페이지의 등록 타일 제목입니다."
+  },
+  "evaluationModeContent4": "아래 스토어에서 음악 파일을 등록 키로 구매할 수 있습니다. \"등록\"을 클릭하여 정품 상태를 확인하세요.",
+  "@evaluationModeContent4": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "registerAction": "등록",
+  "@registerAction": {
+    "description": "모달의 등록 버튼 레이블입니다."
+  },
+  "registerFailed": "실패",
+  "@registerFailed": {
+    "description": "등록 실패 모달의 제목입니다."
+  },
+  "registerFailedSubtitle": "인증 과정에서 오류가 발생했습니다.",
+  "@registerFailedSubtitle": {
+    "description": "등록 실패 모달의 내용입니다."
+  },
+  "registerSuccess": "완료",
+  "@registerSuccess": {
+    "description": "등록 성공 모달의 제목입니다."
+  },
+  "registerSuccessSubtitle": "축하합니다! 소프트웨어가 성공적으로 등록되었습니다. Rune을 선택해 주셔서 감사합니다.",
+  "@registerSuccessSubtitle": {
+    "description": "등록 성공 모달의 내용입니다."
+  },
+  "registerInvalid": "잘못된 키",
+  "@registerInvalid": {
+    "description": "잘못된 등록 키 모달의 제목입니다."
+  },
+  "registerInvalidSubtitle": "제공한 키 파일이 잘못되었습니다. 파일을 확인하고 다시 시도하세요.",
+  "@registerInvalidSubtitle": {
+    "description": "잘못된 등록 키 모달의 내용입니다."
+  },
+  "importM3u8AmbiguousSubtitle": "트랙이 가져와졌지만 여러 파일과 일치하는 항목이 있습니다. 각 항목마다 일치하는 트랙 하나를 가져왔습니다.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "여러 파일과 일치",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "찾을 수 없음",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "부분적으로 성공",
+  "@importM3u8Success": {
+    "description": "부분적으로 가져오기 성공 모달의 제목입니다."
+  },
+  "importM3u8SuccessSubtitle": "트랙이 가져와졌지만 일부는 찾을 수 없습니다.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "부분적으로 가져오기 성공 모달의 내용입니다."
+  },
+  "importM3u8Failed": "가져오기 실패",
+  "@importM3u8Failed": {
+    "description": "가져오기 실패 모달의 제목입니다."
+  },
+  "importM3u8FailedSubtitle": "가져오기 과정에서 오류가 발생했습니다.",
+  "@importM3u8FailedSubtitle": {
+    "description": "가져오기 실패 모달의 내용입니다."
+  },
+  "importM3u8": "재생목록 가져오기",
+  "@importM3u8": {
+    "description": "새 재생목록을 가져오도록 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "adaptiveSwitching": "적응형 전환",
+  "@adaptiveSwitching": {
+    "description": "재생 설정 페이지의 항목 설정 제목"
+  },
+  "adaptiveSwitchingSubtitle": "현재 트랙이 3초 이상 재생된 후 다시 전환하면 처음부터 재시작됩니다.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "재생 설정 페이지의 항목 설정 설명"
+  },
+  "considerPurchase": "정품 라이선스를 구매해 주시기 바랍니다.",
+  "@considerPurchase": {
+    "description": "라이선스 구매를 안내하는 정보 페이지의 공지"
+  },
+  "lyrics": "가사",
+  "@lyrics": {
+    "description": "재생 제어 버튼 텍스트로, 가사 페이지로 전환할 때 사용됩니다."
+  },
+  "lyricsSubtitle": "노래의 전체 가사를 표시합니다",
+  "@lyricsSubtitle": {},
+  "onlineServices": "온라인 서비스",
+  "@onlineServices": {
+    "description": "재생 설정 페이지의 장 제목입니다."
+  },
+  "login": "로그인",
+  "@login": {
+    "description": "로그인 모달의 동작 버튼입니다."
+  },
+  "loginFailed": "로그인 실패",
+  "@loginFailed": {
+    "description": "로그인 모달의 로그인 실패 버튼 제목입니다."
+  },
+  "loginFailedSubtitle": "로그인 시도 중 오류가 발생했습니다",
+  "@loginFailedSubtitle": {
+    "description": "로그인 모달의 로그인 실패 버튼 부제목입니다."
+  },
+  "scrobbleCredentialsRejected": "서비스에서 이 인증 정보를 거부했습니다. 사용자 이름과 비밀번호 또는 토큰을 확인하세요.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "서비스에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm {field}이(가) 없습니다.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API 키"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm에서 API 키 또는 시크릿을 거부했습니다. API 인증 정보를 확인한 후 다시 시도하세요.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "이 음악 추적 서비스를 통해 상세한 청취 통계를 제공합니다.",
+  "@lastFmSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "libreFmSubtitle": "음악 취향을 공유할 수 있는 무료 오픈 플랫폼입니다.",
+  "@libreFmSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "listenBrainzSubtitle": "오픈소스 데이터베이스에 기여하면서 청취 습관을 추적합니다.",
+  "@listenBrainzSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "fix": "수정",
+  "@fix": {
+    "description": "서비스 로그인 실패 설정 항목의 동작 버튼입니다."
+  },
+  "confirmLogoutTitle": "로그아웃 확인",
+  "@confirmLogoutTitle": {
+    "description": "로그아웃 확인 대화 상자의 제목입니다."
+  },
+  "confirmLogoutSubtitle": "로그아웃하시겠습니까? 모든 로컬에 저장된 로그인 정보가 삭제됩니다.",
+  "@confirmLogoutSubtitle": {
+    "description": "로그아웃 확인 대화 상자의 부제목입니다."
+  },
+  "retryLogin": "로그인 재시도",
+  "@retryLogin": {
+    "description": "오류 옵션 메뉴에서 로그인 재시도 옵션입니다."
+  },
+  "logout": "로그아웃",
+  "@logout": {
+    "description": "오류 옵션 메뉴에서 로그아웃 옵션입니다."
+  },
+  "copy": "복사",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "사용자 이름",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "비밀번호",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API 키",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API 시크릿",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "사용자 토큰",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "호스트명",
+  "@hostname": {
+    "description": "URL의 호스트명 부분."
+  },
+  "port": "포트",
+  "@port": {
+    "description": "URL의 포트 부분."
+  },
+  "addConnection": "연결 추가",
+  "@addConnection": {
+    "description": "대화상자의 작업 버튼."
+  },
+  "neighbors": "주변 기기",
+  "@neighbors": {
+    "description": "사용자들이 서로 연결할 수 있도록 도와주는 설정 페이지."
+  },
+  "searchNeighbors": "주변 기기 검색",
+  "@searchNeighbors": {
+    "description": "로컬 네트워크에서 기기를 발견하기 위한 주변 기기 설정 페이지의 항목."
+  },
+  "searchNeighborsSubtitle": "로컬 네트워크에서 Rune 기기를 찾고 연결하세요.",
+  "@searchNeighborsSubtitle": {
+    "description": "주변 기기 검색 설정 항목의 부제목"
+  },
+  "editDeviceInformation": "기기 정보 편집",
+  "@editDeviceInformation": {
+    "description": "기기 설정에 나타남. 스캔 중에 다른 사용자에게 표시되는 세부사항을 의미."
+  },
+  "editDeviceInformationSubtitle": "스캔 중에 다른 기기에 표시되는 세부사항을 사용자 정의하세요.",
+  "@editDeviceInformationSubtitle": {
+    "description": "변경 사항이 다른 사용자의 스캔 목록에서의 가시성에 영향을 미친다는 점을 강조. 기술 용어 피함. '스캔'을 상호작용 컨텍스트로 집중."
+  },
+  "enableBroadcast": "브로드캐스트 활성화",
+  "@enableBroadcast": {
+    "description": "'브로드캐스트'는 기기 정보를 능동적으로 전송하는 것을 의미. 대상 언어에 직접적인 동등어가 없다면 '표시하기' 또는 '가용성 공유'를 우선시."
+  },
+  "enableBroadcastSubtitle": "다른 사용자가 발견할 수 있도록 기기 정보를 공개적으로 공유하세요.",
+  "@enableBroadcastSubtitle": {
+    "description": "모호함 피하기: '공개적으로' = 로컬 네트워크의 사용자들에게, 전체 인터넷이 아님."
+  },
+  "addNeighborManually": "주변 기기 수동 추가",
+  "@addNeighborManually": {
+    "description": "'주변 기기'는 같은 로컬 네트워크의 기기를 의미. 공간이 허용한다면 '수동으로 주변 기기 추가'도 허용. 간결함을 우선시."
+  },
+  "addNeighborManuallySubtitle": "기기의 로컬 네트워크 정보를 수동으로 입력하여 연결하세요.",
+  "@addNeighborManuallySubtitle": {
+    "description": "'로컬 네트워크' ≠ 공용 인터넷(예: LAN 내 IP/포트)임을 명확히. '연결'은 단순한 가시성이 아닌 직접 연결 설정을 의미."
+  },
+  "stop": "중지",
+  "@stop": {
+    "description": "활성 작업을 종료하는 작업 버튼."
+  },
+  "deviceFingerprint": "기기 지문",
+  "@deviceFingerprint": {
+    "description": "기기의 고유 식별자로, 보안 식별 및 연결에 사용됨."
+  },
+  "deviceName": "기기 이름",
+  "@deviceName": {
+    "description": "사용자 정의 기기 이름으로, 스캔 및 연결 시 다른 사용자에게 표시됨."
+  },
+  "noDevicesFound": "기기를 찾을 수 없음",
+  "@noDevicesFound": {
+    "description": "스캔 중 기기가 발견되지 않았을 때 표시되는 메시지"
+  },
+  "error": "오류: {error}",
+  "@error": {
+    "description": "기기 검색이 실패했을 때 표시되는 오류 메시지",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "권한 거부됨"
+      }
+    }
+  },
+  "model": "모델",
+  "@model": {
+    "description": "기기 모델 정보를 위한 라벨"
+  },
+  "type": "유형",
+  "@type": {
+    "description": "기기 유형 정보를 위한 라벨"
+  },
+  "fingerprint": "지문",
+  "@fingerprint": {
+    "description": "기기 지문 정보를 위한 라벨"
+  },
+  "lastSeen": "마지막 확인",
+  "@lastSeen": {
+    "description": "기기가 마지막으로 감지된 시점을 위한 라벨"
+  },
+  "ipAddresses": "IP 주소",
+  "@ipAddresses": {
+    "description": "기기 IP 주소를 위한 라벨"
+  },
+  "pair": "페어링",
+  "@pair": {
+    "description": "기기 페어링을 시작하는 버튼 텍스트"
+  },
+  "pairingWith": "{deviceName}와 페어링 중...",
+  "@pairingWith": {
+    "description": "페어링 프로세스가 시작될 때 표시되는 메시지",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "거실 TV"
+      }
+    }
+  },
+  "server": "서버",
+  "@server": {
+    "description": "미디어 플레이어 공유 동작을 제어하는 설정 페이지 제목. 승인된 사용자 관리 및 기기 존재 브로드캐스트 포함."
+  },
+  "serverControl": "서버 제어",
+  "@serverControl": {
+    "description": "로컬 네트워크 서버를 제어하는 섹션 제목. 여기서 '서버'는 기기 발견을 처리하는 백그라운드 서비스를 의미."
+  },
+  "serverControlSubtitle": "다른 기기들이 로컬 네트워크에서 이 기기를 발견할 수 있도록 서버를 시작하세요.",
+  "@serverControlSubtitle": {
+    "description": "서버가 로컬 네트워크에서만 작동한다는 점을 명확히. 시작하면 다른 기기들에게 가시성이 활성화된다는 점을 강조."
+  },
+  "selectInterface": "네트워크 인터페이스",
+  "@selectInterface": {
+    "description": "서버가 바인딩할 네트워크 인터페이스를 선택하는 라벨. 기술적이지만 명확하게 유지."
+  },
+  "approvedStatus": "승인됨",
+  "@approvedStatus": {
+    "description": "사용자/클라이언트 상태 배지로 표시. 기기가 완전히 승인되었음을 나타냄. '확인됨' 또는 '인증됨'과 같은 긍정적인 용어가 더 자연스럽다면 사용."
+  },
+  "pendingStatus": "대기 중",
+  "@pendingStatus": {
+    "description": "사용자/클라이언트 상태 배지로 표시. 승인을 기다리고 있음을 나타냄. '대기열에 있음'과 같은 기술 용어보다는 '작업 대기'를 의미하는 용어를 선호."
+  },
+  "blockedStatus": "차단됨",
+  "@blockedStatus": {
+    "description": "사용자/클라이언트 상태 배지로 표시. 명시적인 접근 거부를 나타냄. 적절한 경우 '금지됨' 또는 '거부됨'과 같은 강한 용어를 사용하되, 지나치게 공격적인 어휘는 피함."
+  },
+  "unknownStatus": "알 수 없음",
+  "@unknownStatus": {
+    "description": "사용자/클라이언트 상태 배지로 표시. 상태가 인식되지 않거나 정의되지 않았음을 나타냄. '인식되지 않음' 또는 '정의되지 않음'과 같은 용어를 제안하되 오류를 의미하지 않도록 중립적인 톤을 유지. UI에서 회색과 같은 중립적인 색상과 연관됨."
+  },
+  "review": "검토",
+  "@review": {
+    "description": "대기 중인 기기 연결 요청을 검토하는 버튼. 기기를 승인하거나 차단하는 모달을 트리거."
+  },
+  "reviewRequestTitle": "연결 요청",
+  "@reviewRequestTitle": {
+    "description": "기기 연결을 검토할 때 모달에 표시되는 제목. 간결하게 유지하고 필요한 작업에 집중."
+  },
+  "blockDevice": "기기 차단",
+  "@blockDevice": {
+    "description": "접근을 영구적으로 거부하는 작업. 문화적으로 더 적절하다면 '금지'와 같은 강한 동사를 사용하되 부정적인 함의는 피함."
+  },
+  "connectionVerificationMessage": "기기 {alias} ({model})의 연결을 허용하려면, 신원 확인을 위해 아래의 통신 키 지문을 공유하세요.",
+  "@connectionVerificationMessage": {
+    "description": "신뢰 구축을 위한 모달의 지침 텍스트. 연결 인증을 위한 보안 자격 증명(지문) 공유를 강조. 대상 언어에서 선호된다면 '검증' 또는 '인증'과 같은 용어 사용.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "사용자 정의 기기 별명"
+      },
+      "model": {
+        "type": "String",
+        "description": "제조사 기기 모델 식별자"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "향후 연결을 방지합니다. 언제든지 이 기기의 차단을 해제할 수 있습니다.",
+  "@blockDeviceSubtitle": {
+    "description": "차단 결과와 되돌릴 수 있음을 설명. '금지' 또는 '거부'를 대안으로 사용. UI가 다르다면 '설정에서' 대신 '기기 관리를 통해'와 같이 문맥적으로 표현."
+  },
+  "removeTrust": "권한 제거",
+  "@removeTrust": {
+    "description": "기기의 권한 기록을 삭제하는 모달 제목. 허용/차단된 상태의 영구적 제거와 재등록의 필요성을 강조."
+  },
+  "removeTrustSubtitle": "이것은 권한 기록을 영구적으로 삭제합니다. 기기는 모든 접근 상태(승인됨/차단됨)를 잃게 되며 목록에 다시 나타나려면 새로운 등록 요청을 보내야 합니다.",
+  "@removeTrustSubtitle": {
+    "description": "삭제가 모든 기록 상태를 제거하고 새로운 등록이 필요함을 설명. 더 자연스럽다면 '지우기' 또는 '기록 지우기'와 같은 용어를 사용하되 'removeTrust' 작업과의 일관성을 유지."
+  },
+  "pairingTitle": "페어링",
+  "@pairingTitle": {
+    "description": "보안 기기 페어링 대화상자의 제목. 상호 인증 프로세스를 강조해야 함."
+  },
+  "pairingLoading": "기기 지문 검색 중...",
+  "@pairingLoading": {
+    "description": "지문 확인 중에 표시되는 상태 텍스트. 진행 중인 보안 검사를 나타냄."
+  },
+  "pairingInstructions": "보안 확인을 위해 파트너 기기에 표시된 지문을 완성하는 문자를 선택하세요. 이것은 올바른 기기에 연결하고 있음을 확인합니다.",
+  "@pairingInstructions": {
+    "description": "부분적 지문 확인 프로세스를 설명. 기술적인 MITM 용어 대신 '보안 확인'을 사용."
+  },
+  "pairingFailureTitle": "페어링 실패",
+  "@pairingFailureTitle": {
+    "description": "지문 불일치에 대한 제목. 과도한 경고를 일으키지 않고 결과를 명시."
+  },
+  "pairingFailureMessage": "지문이 일치하지 않습니다. 올바른 기기에 연결하고 있는지 확인하고 확인을 다시 시도하세요.",
+  "@pairingFailureMessage": {
+    "description": "네트워크 확인을 제안하는 대신 사용자에게 재시도를 안내. 기기 확인에 집중."
+  },
+  "closingWindowBehaviorTitle": "창 닫기 동작",
+  "@closingWindowBehaviorTitle": {
+    "description": "창 닫기 동작 설정 섹션의 제목 텍스트. 애플리케이션이 어떻게 닫히는지에 대한 사용자 제어를 강조."
+  },
+  "closingWindowBehaviorSubtitle": "닫기 버튼을 클릭할 때 애플리케이션이 어떻게 동작할지 선택하세요.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "사용자가 닫기 버튼 동작을 사용자 정의할 수 있음을 설명. '사용자 정의' 또는 '구성'을 대안으로 사용."
+  },
+  "minimizeToTray": "트레이로 최소화",
+  "@minimizeToTray": {
+    "description": "창이 닫혔을 때 프로그램이 백그라운드에서 계속 실행됨을 나타내는 옵션 텍스트. '트레이로 숨기기' 또는 '계속 실행'을 대체 표현으로 사용."
+  },
+  "exitProgram": "완전히 종료",
+  "@exitProgram": {
+    "description": "창이 닫혔을 때 프로그램이 완전히 종료됨을 나타내는 옵션 텍스트. '애플리케이션 닫기' 또는 '앱 종료'를 대체 표현으로 사용."
+  },
+  "systemTabTitle": "시스템",
+  "@systemTabTitle": {
+    "description": "시스템 설정 섹션의 탐색 탭 제목. 시스템 수준의 구성 옵션 모음을 나타냄."
+  },
+  "removeFromPlaylist": "재생목록에서 제거",
+  "@removeFromPlaylist": {
+    "description": "현재 재생목록에서 트랙을 제거하는 작업. 노래에 우클릭할 때 메뉴 옵션으로 나타남. 대상 언어에서 더 자연스러운 것에 따라 '삭제' 또는 '제거'와 같은 동사 사용."
+  },
+  "waitForApprove": "서버가 이 요청을 승인하기를 기다리는 중...",
+  "@waitForApprove": {
+    "description": "서버 연결 확인 프로세스 중에 표시되는 로딩 메시지."
+  },
+  "clientBlockedTitle": "연결 차단됨",
+  "@clientBlockedTitle": {
+    "description": "원격 기기가 이 클라이언트의 연결 시도를 차단했음을 나타내는 오류 제목."
+  },
+  "clientBlockedMessage": "원격 기기가 클라이언트의 연결을 차단했습니다. 연결을 설정하려면 기기 소유자의 허가가 필요합니다.",
+  "@clientBlockedMessage": {
+    "description": "사용자의 연결 시도가 원격 기기에 의해 클라이언트가 차단되어 거절되었음을 설명. 해결을 위해 사용자가 기기 소유자에게 연락해야 함을 제안."
+  },
+  "genres": "장르",
+  "@genres": {
+    "description": "음악 카테고리/스타일 목록의 헤더 또는 섹션 제목. 음악 라이브러리 구성, 필터 옵션 또는 음악 선호도 설정에서 사용될 수 있음. 대상 언어에서 가장 자연스러운 것에 따라 '음악 카테고리', '음악 스타일' 또는 '음악 유형'과 같은 대체 표현 사용 가능."
+  },
+  "genreQuery": "장르 쿼리",
+  "@genreQuery": {},
+  "deduplicate": "중복 제거",
+  "@deduplicate": {
+    "description": "음악 라이브러리나 재생목록에서 중복 트랙을 제거하는 버튼 라벨. 중복된 노래를 식별하고 제거하는 기능을 의미. 대상 언어에서 가장 자연스러운 것에 따라 '중복 삭제' 또는 '중복 정리'와 같은 대체 표현 사용 가능."
+  },
+  "deduplicateThresholdTitle": "중복 제거 임계값",
+  "@deduplicateThresholdTitle": {
+    "description": "오디오 유사성 임계값 설정의 제목. 사용자가 중복 감지를 위해 오디오 트랙을 얼마나 엄격하게 비교할지 조정할 수 있는 곳을 나타냄."
+  },
+  "deduplicateThresholdSubtitle": "유사한 오디오 트랙을 감지하는 민감도 수준을 조정하세요.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "오디오 유사성 임계값 설정이 제어하는 내용에 대한 간단한 설명. 사용자가 이 구성 옵션의 목적을 이해하는 데 도움."
+  },
+  "nearlyIdentical": "거의 동일",
+  "@nearlyIdentical": {
+    "description": "거의 정확히 동일한 트랙을 나타내는 가장 높은 수준의 오디오 유사성 임계값. 중복 감지 설정을 구성할 때 사용. 대상 언어에서 가장 자연스러운 것에 따라 '정확한 일치' 또는 '완벽한 일치'와 같은 대체 표현 사용 가능."
+  },
+  "highlySimiar": "매우 유사",
+  "@highlySimiar": {
+    "description": "매우 적은 차이를 가진 트랙을 나타내는 두 번째로 높은 수준의 오디오 유사성 임계값. 중복 감지 설정을 구성할 때 사용. 대상 언어에서 가장 자연스러운 것에 따라 '매우 유사함' 또는 '거의 동일함'과 같은 대체 표현 사용 가능."
+  },
+  "moderatelySimilar": "보통 유사",
+  "@moderatelySimilar": {
+    "description": "눈에 띄지만 주요하지 않은 차이를 가진 트랙을 나타내는 중간 수준의 오디오 유사성 임계값. 중복 감지 설정을 구성할 때 사용. 대상 언어에서 가장 자연스러운 것에 따라 '어느 정도 유사함' 또는 '부분적으로 일치함'과 같은 대체 표현 사용 가능."
+  },
+  "slightlySimilar": "약간 유사",
+  "@slightlySimilar": {
+    "description": "일부 특성을 공유하지만 상당한 차이를 가진 트랙을 나타내는 가장 낮은 수준의 오디오 유사성 임계값. 중복 감지 설정을 구성할 때 사용. 대상 언어에서 가장 자연스러운 것에 따라 '최소한 유사함' 또는 '거의 일치하지 않음'과 같은 대체 표현 사용 가능."
+  },
+  "deduplicating": "중복 제거 중",
+  "@deduplicating": {
+    "description": "중복 제거 프로세스가 현재 활성화되어 있음을 나타내는 라벨. 음악 라이브러리나 재생목록에서 중복 트랙이 제거되는 동안 사용자에게 표시. 대상 언어에서 가장 자연스러운 것에 따라 '중복 제거 진행 중' 또는 '중복 삭제 중'과 같은 대체 표현 사용 가능."
+  },
+  "interfaceScale": "인터페이스 배율",
+  "interfaceScaleSubtitle": "Rune의 텍스트와 콘텐츠 크기를 조정합니다.",
+  "interfaceScaleSaveError": "인터페이스 배율을 저장할 수 없습니다",
+  "linuxCustomWindowControls": "사용자 지정 창 제어",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Windows 모드처럼 테두리 없는 창에 사용자 지정 제어를 사용합니다.",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "오프라인 사용",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "오프라인에서 유지",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "오프라인 유지 중지",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "오프라인 선택을 저장했습니다",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "자동 다운로드를 중지했습니다",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "오프라인 선택을 저장할 수 없습니다",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "연결된 기기를 사용할 수 있게 되면 트랙을 다운로드합니다.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "기존 로컬 파일은 유지됩니다.",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "오디오를 사용할 수 없음",
+  "allowPairedSync": "동기화 허용",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "끄면 다른 기기가 이 기기에 연결할 수 없습니다.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "불필요한 다운로드 삭제",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "오프라인에서 더 이상 필요하지 않은 다운로드를 삭제할지 선택합니다.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "더 이상 필요하지 않은 다운로드 파일도 삭제",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "오프라인 선택을 업데이트하고 정리를 시도했습니다.",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "remoteOpenUntrusted": "이 기기는 아직 서버를 신뢰하지 않습니다. 먼저 페어링하세요.",
+  "remoteOpenNotAuthorized": "다른 기기에서 이 기기를 허용하지 않았거나 차단했습니다.",
+  "remoteOpenUnreachable": "기기에 연결할 수 없습니다. 켜져 있고 같은 네트워크에 있는지 확인하세요.",
+  "remoteOpenProtocol": "기기와 통신할 수 없습니다. 두 기기에 같은 버전의 Rune이 필요합니다.",
+  "remoteLossRevoked": "이 기기의 접근 권한이 제거되었습니다.",
+  "remoteLossDetached": "렌더러가 이 컨트롤러의 연결을 해제했습니다.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "다른 기기에서 공유를 중지했습니다.",
+  "remoteLossNetworkLost": "연결이 끊어졌습니다.",
+  "syncToThisDevice": "이 장치에 동기화",
+  "libraryNotShared": "공유되지 않음",
+  "controlPermissionRequired": "재생 제어 불가",
+  "deviceLibraries": "라이브러리",
+  "addSharedLibrary": "추가",
+  "sharedLibraryAdded": "추가됨",
+  "openSharedLibrary": "열기",
+  "noSharedLibraries": "이 기기에 공유할 라이브러리가 없습니다",
+  "libraryFromDevice": "{device}에서",
+  "backgroundLibrarySync": "백그라운드 동기화",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "이 항목이 더 이상 존재하지 않습니다",
+  "requestInvalid": "요청이 유효하지 않습니다",
+  "requestCertificateMismatch": "이 기기의 인증서가 일치하지 않습니다",
+  "requestUnavailable": "지금은 사용할 수 없습니다",
+  "requestStorageBusy": "저장소가 사용 중입니다. 다시 시도해 주세요.",
+  "mixNoLongerExists": "이 믹스가 더 이상 존재하지 않습니다",
+  "devices": "기기",
+  "playOn": "재생 위치",
+  "playOnSubtitle": "오디오를 재생할 위치를 선택하세요.",
+  "playOnFixedToRemote": "이 원격 기기로 고정됨",
+  "playOnPlayingOn": "{alias}에서 재생 중",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "오프라인",
+  "playOnNotApproved": "이 기기는 아직 사용자를 승인하지 않았습니다",
+  "playOnNoControl": "이 기기를 제어할 수 없습니다",
+  "playOnCantPlay": "{library}을(를) 재생할 수 없습니다",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "다시 시도",
+  "castTrackMode": "트랙 캐스팅 시",
+  "castTrackReplace": "대기열 바꾸기",
+  "castTrackPlayNext": "다음에 재생",
+  "castControlRenderer": "캐스팅 후",
+  "castKeepControlling": "이 기기 계속 제어",
+  "castControlCastDevice": "캐스팅한 기기 제어",
+  "castTrackModeSubtitle": "재생 기기의 대기열 변경 방식을 선택하세요.",
+  "castControlRendererSubtitle": "계속 제어할 기기를 선택하세요.",
+  "castNotPossible": "{alias}에서 {library}을(를) 재생할 수 없습니다",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, other{{alias}에 아직 없는 트랙 {count}개는 추가되지 않았습니다.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "이 기기",
+  "devicesThatCanConnect": "연결 가능한 기기",
+  "otherDevices": "다른 기기",
+  "myDevice": "내 기기",
+  "controllingNow": "현재 이 기기를 제어 중",
+  "waitingForApproval": "승인 대기 중",
+  "guest": "게스트",
+  "myDeviceAccessDescription": "라이브러리를 재생하고 탐색하고 동기화할 수 있습니다",
+  "guestAccessDescription": "재생을 제어하고 제어하는 동안 탐색할 수 있습니다",
+  "customDeviceAccess": "사용자 지정",
+  "customizeDevice": "사용자 지정",
+  "disconnect": "연결 해제",
+  "controlPlayback": "재생 제어",
+  "controlPlaybackDescription": "이 기기에서 재생, 일시 정지, 대기열 추가 및 캐스트를 할 수 있습니다",
+  "deviceAccessLibraries": "라이브러리",
+  "deviceAccessNotShared": "공유되지 않음",
+  "deviceAccessReadWrite": "읽기 및 쓰기",
+  "requestConflict": "재생 대기열이 변경되었습니다. 다시 시도하세요",
+  "requestPermissionDenied": "이 기기는 해당 작업을 수행할 수 없습니다",
+  "readOnly": "읽기 전용",
+  "queueUnavailableAccessRevoked": "접근 권한이 취소되었습니다",
+  "queueUnavailableLibraryUnavailable": "라이브러리를 사용할 수 없습니다",
+  "queueUnavailableSourceUnreachable": "소스에 연결할 수 없습니다",
+  "queueUnavailableUnreadable": "오디오를 읽을 수 없습니다",
+  "rendererLinkLost": "{alias} 연결이 끊겼습니다",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "기기 키가 지문과 일치하지 않습니다",
+  "requestRegistrationConflict": "이 지문을 사용하는 기기가 이미 등록되어 있습니다",
+  "remoteLibraryReconnecting": "{alias}에 다시 연결하는 중…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "이 기기는 이 조작을 지원하지 않습니다",
+  "capabilityOwnerOnly": "소유자 기기에서만 할 수 있습니다",
+  "requestOtherDeviceName": "다른 기기",
+  "requestPeerNeedsUpdatePeer": "연결하려면 {alias}에서 Rune을 업데이트하세요.",
+  "requestPeerNeedsUpdateThisDevice": "{alias}에 연결하려면 이 기기에서 Rune을 업데이트하세요.",
+  "remoteLossProtocolIncompatible": "Rune 버전이 더 이상 일치하지 않습니다. 다시 연결하려면 두 기기 모두에서 Rune을 업데이트하세요.",
+  "capabilityPeerTooOld": "이 기능을 사용하려면 다른 기기에서 Rune을 업데이트하세요.",
+  "requestPeerNeedsUpdateFallback": "연결하려면 두 기기 모두에서 Rune을 업데이트하세요.",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "이 서버의 계정에는 이 작업을 수행할 권한이 없습니다.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "이 라이브러리의 설정을 읽을 수 없습니다.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "이 라이브러리는 더 이상 없습니다.",
+  "libraryRecordIsOpen": "라이브러리를 삭제하기 전에 닫으세요.",
+  "libraryMediaFolderMissing": "라이브러리 폴더를 찾을 수 없습니다.",
+  "libraryUntrusted": "이 기기는 신뢰할 수 없습니다.",
+  "libraryInvalidSource": "이 폴더를 라이브러리로 사용할 수 없습니다.",
+  "libraryStorageFailure": "라이브러리를 저장하지 못했습니다.",
+  "libraryNewerVersion": "이 라이브러리는 더 새로운 버전의 Rune에서 만들어졌습니다. 열려면 이 기기에서 Rune을 업데이트하세요.",
+  "libraryShareStoreUnavailable": "공유 저장소를 사용할 수 없습니다. 동기화가 자동으로 다시 시도됩니다.",
+  "libraryRemoteNotAuthorized": "기기에서 연결을 승인하지 않았습니다.",
+  "libraryRemoteUnreachable": "기기에 연결할 수 없습니다.",
+  "libraryRemoteProtocolFailure": "기기에서 호환되지 않는 응답을 보냈습니다.",
+  "libraryProtocolIncompatible": "이 기기의 프로토콜 버전은 호환되지 않습니다.",
+  "libraryNotSupportedYet": "이 라이브러리 유형은 아직 지원되지 않습니다.",
+  "onMyIPhone": "나의 iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "나의 iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "트레이 아이콘 색상",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "아이콘 색상을 선택합니다.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "자동",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "다른 오디오와 함께 재생",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Rune이 재생되는 동안 다른 오디오도 계속 재생됩니다.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "장면",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "커버 월 메뉴에 표시할 장면을 선택하세요. 드래그하여 정렬하세요.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name} 가져옴",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name}을(를) 가져올 수 없습니다",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "장면 삭제",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name}을(를) 삭제할까요? 다시 가져오면 복원됩니다.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "비주얼라이저",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "음악에 맞춘 비주얼",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "비주얼라이저 실험실",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "비주얼라이저 위에 실험실을 표시합니다.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "텍스트 크기 따르기",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "turnOnBackgroundSync": "백그라운드 동기화 켜기",
+  "turnOffBackgroundSync": "백그라운드 동기화 끄기",
+  "shareLibraryModeSubtitle": "Rune은 미디어 인덱스를 어디에 저장할까요?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "공유 폴더에",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "다른 기기에서 동기화할 수 있도록 미디어 인덱스를 공유 폴더에 저장합니다.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "이 기기에",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAV 서버의 폴더에 연결합니다.",
+  "s3": "S3",
+  "s3Subtitle": "S3 버킷의 폴더에 연결합니다.",
+  "folder": "폴더",
+  "bucket": "버킷",
+  "region": "리전",
+  "accessKeyId": "액세스 키 ID",
+  "secretAccessKey": "보안 액세스 키",
+  "libraryOpenDalAuthenticationRejected": "사용자 이름과 비밀번호를 확인하세요.",
+  "libraryOpenDalUnreachable": "서버 주소와 네트워크 연결을 확인하세요.",
+  "libraryOpenDalNotFolder": "선택한 폴더가 있고 접근할 수 있는지 확인하세요.",
+  "libraryOpenDalReadOnly": "미디어 인덱스를 공유 폴더에 저장하려면 쓰기 가능한 폴더를 선택하세요.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic 음악 서버에 연결합니다.",
+  "playOnThisDevice": "이 기기에서 재생",
+  "controlServerPlayer": "서버 플레이어 제어",
+  "howDoYouWantToUseIt": "어떻게 사용하시겠습니까?",
+  "fileDialogOpenTitle": "열기",
+  "fileDialogSaveTitle": "다른 이름으로 저장",
+  "fileDialogFolderTitle": "폴더 선택",
+  "fileDialogOpen": "열기",
+  "fileDialogSelectFolder": "폴더 선택",
+  "fileDialogFileName": "파일 이름",
+  "fileDialogSaveAsType": "파일 형식",
+  "fileDialogFileTypes": "파일 형식",
+  "fileDialogAllFiles": "모든 파일",
+  "fileDialogForward": "앞으로",
+  "fileDialogRecentLocations": "최근 위치",
+  "fileDialogUp": "위로",
+  "fileDialogAddress": "주소",
+  "fileDialogSearchIn": "{folder} 검색",
+  "fileDialogNewFolder": "새 폴더",
+  "fileDialogView": "보기",
+  "fileDialogExtraLargeIcons": "아주 큰 아이콘",
+  "fileDialogLargeIcons": "큰 아이콘",
+  "fileDialogMediumIcons": "보통 아이콘",
+  "fileDialogSmallIcons": "작은 아이콘",
+  "fileDialogList": "목록",
+  "fileDialogDetails": "자세히",
+  "fileDialogTiles": "타일",
+  "fileDialogContent": "내용",
+  "fileDialogHiddenItems": "숨긴 항목",
+  "fileDialogName": "이름",
+  "fileDialogDateModified": "수정한 날짜",
+  "fileDialogSize": "크기",
+  "fileDialogAscending": "오름차순",
+  "fileDialogDescending": "내림차순",
+  "fileDialogFileFolder": "파일 폴더",
+  "fileDialogFileOfType": "{extension} 파일",
+  "fileDialogFile": "파일",
+  "fileDialogQuickAccess": "빠른 액세스",
+  "fileDialogThisDevice": "이 기기",
+  "fileDialogDesktop": "바탕 화면",
+  "fileDialogDocuments": "문서",
+  "fileDialogDownloads": "다운로드",
+  "fileDialogMusic": "음악",
+  "fileDialogPictures": "사진",
+  "fileDialogVideos": "동영상",
+  "fileDialogLocalDisk": "로컬 디스크",
+  "fileDialogRemovableDisk": "이동식 디스크",
+  "fileDialogOpticalDrive": "광학 드라이브",
+  "fileDialogNetworkDrive": "네트워크 드라이브",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{total} 중 {free} 사용 가능",
+  "fileDialogCopyAsPath": "경로로 복사",
+  "fileDialogRename": "이름 바꾸기",
+  "fileDialogEmptyFolder": "이 폴더는 비어 있습니다.",
+  "fileDialogNoMatches": "검색과 일치하는 항목이 없습니다.",
+  "fileDialogNotFound": "{location}을(를) 찾을 수 없습니다. 철자를 확인하고 다시 시도하세요.",
+  "fileDialogFileNotFound": "파일 {name}을(를) 찾을 수 없습니다. 파일 이름을 확인하고 다시 시도하세요.",
+  "fileDialogPathNotFound": "경로 {name}이(가) 없습니다. 경로를 확인하고 다시 시도하세요.",
+  "fileDialogFolderNotFound": "폴더 {name}이(가) 없습니다. 폴더 이름을 확인하고 다시 시도하세요.",
+  "fileDialogSizeColumnToFit": "열 너비 자동 맞춤",
+  "fileDialogSizeAllColumnsToFit": "모든 열 너비 자동 맞춤",
+  "fileDialogChangeView": "보기 변경",
+  "fileDialogMoreOptions": "추가 옵션",
+  "fileDialogPermissionDenied": "{location}에 액세스할 권한이 없습니다.",
+  "fileDialogUnavailable": "{location}을(를) 사용할 수 없습니다. 드라이브가 연결되어 있는지 확인하고 다시 시도하세요.",
+  "fileDialogNotAFolder": "{location}은(는) 파일이므로 폴더로 열 수 없습니다.",
+  "fileDialogAlreadyExists": "이 위치에 이름이 {name}인 항목이 이미 있습니다.",
+  "fileDialogInvalidName": "{name}은(는) 여기에서 이름으로 사용할 수 없습니다.",
+  "fileDialogConfirmSaveAs": "다른 이름으로 저장 확인",
+  "fileDialogReplacePrompt": "{name}이(가) 이미 있습니다. 바꾸시겠습니까?",
+  "fileDialogReplace": "바꾸기",
+  "fileDialogItemCount": "{count, plural, other{항목 {count}개}}",
+  "fileDialogNavigationPane": "탐색 창",
+  "fileDialogItems": "항목"
+}

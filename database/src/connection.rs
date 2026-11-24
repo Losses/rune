@@ -1,0 +1,795 @@
+use std::io::ErrorKind;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+};
+
+use anyhow::{Context, Result};
+use log::{info, warn};
+use sea_orm::sqlx;
+use sea_orm::{
+    Database, SqlxSqliteConnector,
+    sqlx::{
+        ConnectOptions, Connection, SqlitePool,
+        sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteLockingMode, SqliteSynchronous},
+    },
+};
+#[cfg(windows)]
+use std::path as std_path;
+use sync_orm::causal_store;
+use tokio::fs;
+use uuid::Uuid;
+#[cfg(windows)]
+use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_HIDDEN, SetFileAttributesW};
+#[cfg(windows)]
+use windows::core::PWSTR;
+
+use ::fsio::FsIo;
+
+use crate::actions::mixes::initialize_mix_queries_before_replication;
+use crate::actions::recommendation::load_recommendation_vectors;
+use crate::error::NewerLibraryDatabase;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageMode {
+    Portable,
+    Redirected(Uuid),
+}
+
+pub struct StorageInfo {
+    pub state: LibraryState,
+    pub rune_dir: PathBuf,
+    pub db_dir: PathBuf,
+}
+
+impl StorageInfo {
+    pub fn get_main_db_path(&self) -> PathBuf {
+        self.db_dir.join(".0.db")
+    }
+
+    /// Where older versions kept the LMDB recommendation index: a directory
+    /// (`.analysis`, before August 2025) or a file (`.analysis.db`). Nothing
+    /// reads them any more, they are only deleted.
+    pub fn get_legacy_recommendation_db_paths(&self) -> [PathBuf; 2] {
+        [
+            self.db_dir.join(".analysis"),
+            self.db_dir.join(".analysis.db"),
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LibraryState {
+    Uninitialized,
+    Initialized(StorageMode),
+}
+
+impl LibraryState {
+    pub fn storage_mode(&self) -> Option<&StorageMode> {
+        match self {
+            LibraryState::Uninitialized => None,
+            LibraryState::Initialized(mode) => Some(mode),
+        }
+    }
+}
+
+/// Android SAF roots address `.rune` relative to the granted tree.
+/// Native folders, including replicas in app storage, use the full path.
+fn rune_dir_path(lib_path: &str) -> PathBuf {
+    if cfg!(target_os = "android") && lib_path.starts_with("content://") {
+        PathBuf::from(".rune")
+    } else {
+        Path::new(lib_path).join(".rune")
+    }
+}
+
+/// Redirected databases live in the app's local storage (an absolute path),
+/// which FsIo on Android cannot address (it is rooted at the SAF tree).
+fn db_uses_local_fs(db_dir: &Path) -> bool {
+    cfg!(target_os = "android") && db_dir.is_absolute()
+}
+
+pub fn check_library_state(fsio: &FsIo, lib_path: &str) -> Result<LibraryState> {
+    let rune_dir = rune_dir_path(lib_path);
+
+    // The marker of an initialized library is its main DB or a redirect file —
+    // NOT the bare .rune directory, which FsIo on Android creates eagerly for
+    // its fs cache (.rune/.android-fs.db) before any initialization happens.
+    let main_db = rune_dir.join(".0.db");
+    let redirect_file = rune_dir.join(".redirect");
+    if !fsio.exists(&main_db)? && !fsio.exists(&redirect_file)? {
+        return Ok(LibraryState::Uninitialized);
+    }
+
+    let mode = detect_storage_mode(fsio, &rune_dir)?;
+    Ok(LibraryState::Initialized(mode))
+}
+
+pub fn detect_storage_mode(fsio: &FsIo, rune_dir: &Path) -> Result<StorageMode> {
+    let redirect_file = rune_dir.join(".redirect");
+
+    if fsio.exists(&redirect_file)? {
+        let content = fsio.read_to_string(&redirect_file)?;
+        let uuid = Uuid::parse_str(content.trim()).context("Invalid UUID in .redirect file")?;
+        Ok(StorageMode::Redirected(uuid))
+    } else {
+        Ok(StorageMode::Portable)
+    }
+}
+
+#[cfg(windows)]
+fn set_hidden_attribute(path: &std_path::Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+
+    unsafe {
+        SetFileAttributesW(PWSTR(wide.as_ptr() as *mut u16), FILE_ATTRIBUTE_HIDDEN)?;
+    }
+    Ok(())
+}
+
+pub fn check_storage_mode(fsio: &FsIo, lib_path: &str) -> Result<StorageMode> {
+    let rune_dir = rune_dir_path(lib_path);
+    let redirect_file = rune_dir.join(".redirect");
+
+    if !fsio.exists(&rune_dir)? {
+        return Ok(StorageMode::Portable);
+    }
+
+    if fsio.exists(&redirect_file)? {
+        let content = fsio.read_to_string(&redirect_file)?;
+        let uuid = Uuid::parse_str(content.trim())?;
+        Ok(StorageMode::Redirected(uuid))
+    } else {
+        Ok(StorageMode::Portable)
+    }
+}
+
+pub async fn create_redirect(fsio: &FsIo, lib_path: &str) -> Result<()> {
+    let rune_dir = rune_dir_path(lib_path);
+    if !fsio.exists(&rune_dir)? {
+        fsio.ensure_directory(&rune_dir).await?;
+        #[cfg(windows)]
+        set_hidden_attribute(&rune_dir)?;
+    }
+
+    let redirect_file = rune_dir.join(".redirect");
+    fsio.write_string(&redirect_file, &Uuid::new_v4().to_string())
+        .await?;
+    Ok(())
+}
+
+pub fn get_storage_info(fsio: &FsIo, lib_path: &str, db_path: Option<&str>) -> Result<StorageInfo> {
+    let rune_dir = rune_dir_path(lib_path);
+    let state = check_library_state(fsio, lib_path)?;
+
+    let db_dir = match &state {
+        LibraryState::Uninitialized => rune_dir.clone(),
+        LibraryState::Initialized(mode) => match mode {
+            StorageMode::Portable => rune_dir.clone(),
+            StorageMode::Redirected(uuid) => {
+                let db_path = db_path.context("db_path is required for redirected storage")?;
+                PathBuf::from(db_path).join(uuid.to_string())
+            }
+        },
+    };
+
+    Ok(StorageInfo {
+        state,
+        rune_dir,
+        db_dir,
+    })
+}
+
+pub type MainDbConnection = sea_orm::DatabaseConnection;
+
+#[derive(Debug)]
+enum WalFallbackReason {
+    CouldNotOpen(String),
+    CouldNotEnable(String),
+    UnexpectedMode(String),
+    ProbeFailed(String),
+}
+
+fn open_sqlite_options(path: &Path) -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .synchronous(SqliteSynchronous::Extra)
+}
+
+async fn set_delete_mode(path: &Path, exclusive: bool) -> Result<()> {
+    let mut options = open_sqlite_options(path).journal_mode(SqliteJournalMode::Delete);
+    if exclusive {
+        options = options.locking_mode(SqliteLockingMode::Exclusive);
+    }
+    let mut connection = options.connect().await?;
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode=DELETE")
+        .fetch_one(&mut connection)
+        .await?;
+    connection.close().await?;
+    anyhow::ensure!(
+        mode.eq_ignore_ascii_case("delete"),
+        "SQLite reported journal mode {mode} after requesting DELETE"
+    );
+    Ok(())
+}
+
+/// Read and rewrite the header's `user_version` through the WAL. Reading maps the
+/// `-shm` index and writing appends to `-wal`, which is what fails on filesystems
+/// without shared-memory support. It changes neither the schema nor any data.
+async fn probe_wal(connection: &mut sqlx::SqliteConnection) -> Result<()> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *connection)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "PRAGMA user_version = {version}"
+    )))
+    .execute(&mut *connection)
+    .await?;
+    let reread: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *connection)
+        .await?;
+    anyhow::ensure!(
+        reread == version,
+        "SQLite WAL probe read back a different value"
+    );
+    Ok(())
+}
+
+async fn configure_journal_mode(
+    path: &Path,
+    redirected: bool,
+    fail_wal_probe: bool,
+) -> Result<bool> {
+    if !redirected {
+        set_delete_mode(path, false).await?;
+        return Ok(false);
+    }
+
+    let attempt = async {
+        let options = open_sqlite_options(path);
+        let mut connection = options
+            .connect()
+            .await
+            .map_err(|error| WalFallbackReason::CouldNotOpen(format!("{error:#}")))?;
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode=WAL")
+            .fetch_one(&mut connection)
+            .await
+            .map_err(|error| WalFallbackReason::CouldNotEnable(format!("{error:#}")))?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(WalFallbackReason::UnexpectedMode(mode));
+        }
+        if fail_wal_probe {
+            return Err(WalFallbackReason::ProbeFailed(
+                "injected WAL probe failure".to_string(),
+            ));
+        }
+        probe_wal(&mut connection)
+            .await
+            .map_err(|error| WalFallbackReason::ProbeFailed(format!("{error:#}")))?;
+        connection
+            .close()
+            .await
+            .map_err(|error| WalFallbackReason::ProbeFailed(format!("{error:#}")))?;
+        Ok(())
+    }
+    .await;
+
+    match attempt {
+        Ok(()) => Ok(true),
+        Err(reason) => {
+            let detail = match &reason {
+                WalFallbackReason::CouldNotOpen(detail)
+                | WalFallbackReason::CouldNotEnable(detail)
+                | WalFallbackReason::UnexpectedMode(detail)
+                | WalFallbackReason::ProbeFailed(detail) => detail,
+            };
+            warn!(
+                "SQLite WAL unavailable for redirected library; falling back to DELETE ({reason:?}): {detail}"
+            );
+            set_delete_mode(path, true).await?;
+            Ok(false)
+        }
+    }
+}
+
+/// The migrations the SQLite database at [path] records; none for a new,
+/// empty file.
+async fn recorded_migrations(path: &Path) -> Result<Vec<String>> {
+    let mut connection = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .connect()
+        .await?;
+    let table: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'seaql_migrations'",
+    )
+    .fetch_optional(&mut connection)
+    .await?;
+    let versions = match table {
+        Some(_) => {
+            sqlx::query_scalar("SELECT version FROM seaql_migrations")
+                .fetch_all(&mut connection)
+                .await?
+        }
+        None => Vec::new(),
+    };
+    connection.close().await?;
+    Ok(versions)
+}
+
+/// A library database written by a newer Rune records migrations this
+/// version does not have. It is left as it is and not opened
+/// ([`NewerLibraryDatabase`]); every other one goes to the migrator.
+async fn refuse_newer_history(sqlite_path: &Path) -> Result<()> {
+    match migration::MigrationHistory::of(&recorded_migrations(sqlite_path).await?) {
+        migration::MigrationHistory::Newer(migrations) => {
+            Err(NewerLibraryDatabase { migrations }.into())
+        }
+        migration::MigrationHistory::Known | migration::MigrationHistory::Unknown(_) => Ok(()),
+    }
+}
+
+pub async fn connect_main_db(
+    fsio: &FsIo,
+    lib_path: &str,
+    db_path: Option<&str>,
+    node_id: &str,
+) -> Result<MainDbConnection> {
+    connect_main_db_with_probe(fsio, lib_path, db_path, node_id, false).await
+}
+
+async fn connect_main_db_with_probe(
+    fsio: &FsIo,
+    lib_path: &str,
+    db_path: Option<&str>,
+    node_id: &str,
+    fail_wal_probe: bool,
+) -> Result<MainDbConnection> {
+    let storage_info = get_storage_info(fsio, lib_path, db_path)?;
+    let catalog_fs = (!db_uses_local_fs(&storage_info.db_dir)).then_some(fsio);
+    connect_main_db_from_storage_info(catalog_fs, storage_info, node_id, fail_wal_probe).await
+}
+
+/// Open a redirected catalog whose media root is remote and has no Rune marker.
+/// Its SQLite files still follow the regular `<config>/<storage_key>/.0.db` layout.
+pub async fn connect_main_db_redirected(
+    db_dir: &Path,
+    storage_key: Uuid,
+    node_id: &str,
+) -> Result<MainDbConnection> {
+    let storage_info = StorageInfo {
+        state: LibraryState::Initialized(StorageMode::Redirected(storage_key)),
+        rune_dir: PathBuf::new(),
+        db_dir: db_dir.to_path_buf(),
+    };
+    connect_main_db_from_storage_info(None, storage_info, node_id, false).await
+}
+
+async fn connect_main_db_from_storage_info(
+    catalog_fs: Option<&FsIo>,
+    storage_info: StorageInfo,
+    node_id: &str,
+    fail_wal_probe: bool,
+) -> Result<MainDbConnection> {
+    let db_file = storage_info.get_main_db_path();
+
+    let db_path = if let Some(fsio) = catalog_fs {
+        if !storage_info.db_dir.exists() {
+            fsio.ensure_directory(&storage_info.db_dir).await?;
+        }
+        let db_node = fsio.ensure_file(&db_file).await?;
+        fsio.canonicalize_path(&db_node.path)?
+    } else {
+        fs::create_dir_all(&storage_info.db_dir).await?;
+        if !fs::try_exists(&db_file).await? {
+            fs::write(&db_file, b"").await?;
+        }
+        db_file
+    };
+    refuse_newer_history(&db_path).await?;
+
+    // The path goes in as it is, not through a URL: a Windows path such as `\\?\UNC\...`
+    // would otherwise be cut at its `?`.
+    let wal_enabled = configure_journal_mode(
+        &db_path,
+        matches!(
+            storage_info.state.storage_mode(),
+            Some(StorageMode::Redirected(_))
+        ),
+        fail_wal_probe,
+    )
+    .await?;
+
+    let journal_mode = if wal_enabled {
+        SqliteJournalMode::Wal
+    } else {
+        SqliteJournalMode::Delete
+    };
+    let connection_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true)
+        .synchronous(SqliteSynchronous::Extra)
+        .journal_mode(journal_mode);
+
+    let pool = SqlitePool::connect_with(connection_options).await?;
+
+    info!("Initializing main database: {}", db_path.display());
+
+    let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
+
+    if let Err(err) = initialize_db(&db, node_id).await {
+        let _ = db.close().await;
+        return Err(err);
+    }
+
+    Ok(db)
+}
+
+pub async fn initialize_db(conn: &sea_orm::DatabaseConnection, node_id: &str) -> Result<()> {
+    // Initialize node_id for migrations.
+    // We ignore the result because it might have been initialized already, which is fine.
+    let _ = migration::initialize_node_id(node_id.to_string());
+
+    migration::up_with_actor(conn, Some(node_id), None).await?;
+    if causal_store::list_namespace_ids_on(conn, 1)
+        .await?
+        .is_empty()
+    {
+        initialize_mix_queries_before_replication(conn).await?;
+    }
+    Ok(())
+}
+
+pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
+    info!("Initializing fake main database.");
+
+    let db = Database::connect("sqlite::memory:").await?;
+
+    Ok(db)
+}
+
+#[cfg(test)]
+mod journal_mode_tests {
+    use super::*;
+    use sea_orm::sqlx;
+    use sea_orm::{ConnectionTrait, DbBackend, Statement};
+    use std::fs;
+    use tempfile::TempDir;
+
+    async fn mode(db: &MainDbConnection) -> Result<String> {
+        Ok(db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "PRAGMA journal_mode".to_string(),
+            ))
+            .await?
+            .context("missing journal mode")?
+            .try_get::<String>("", "journal_mode")?)
+    }
+
+    #[tokio::test]
+    async fn remote_catalog_opens_existing_database_in_its_local_directory() -> Result<()> {
+        let temp = TempDir::new()?;
+        let key = Uuid::new_v4();
+        let catalog = temp.path().join(key.to_string());
+        let db = connect_main_db_redirected(&catalog, key, "node").await?;
+        assert!(catalog.join(".0.db").is_file());
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "wal");
+        db.execute_unprepared("CREATE TABLE reopen_probe (value INTEGER)")
+            .await?;
+        db.execute_unprepared("INSERT INTO reopen_probe VALUES (73)")
+            .await?;
+        db.close().await?;
+
+        let db = connect_main_db_redirected(&catalog, key, "node").await?;
+        let value: i64 = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT value FROM reopen_probe",
+            ))
+            .await?
+            .context("missing saved row")?
+            .try_get("", "value")?;
+        assert_eq!(value, 73);
+        db.close().await?;
+        Ok(())
+    }
+
+    /// A library folder whose database records [versions], with a table the
+    /// way an old version made it.
+    async fn library_recording(root: &Path, versions: &[&str]) -> Result<Vec<u8>> {
+        let rune_dir = root.join(".rune");
+        tokio::fs::create_dir_all(&rune_dir).await?;
+        let mut old = SqliteConnectOptions::new()
+            .filename(rune_dir.join(".0.db"))
+            .create_if_missing(true)
+            .connect()
+            .await?;
+        sqlx::query("CREATE TABLE seaql_migrations (version TEXT PRIMARY KEY, applied_at INTEGER)")
+            .execute(&mut old)
+            .await?;
+        for version in versions {
+            sqlx::query("INSERT INTO seaql_migrations VALUES (?, 0)")
+                .bind(*version)
+                .execute(&mut old)
+                .await?;
+        }
+        sqlx::query("CREATE TABLE media_analysis (id INTEGER PRIMARY KEY)")
+            .execute(&mut old)
+            .await?;
+        old.close().await?;
+        Ok(tokio::fs::read(rune_dir.join(".0.db")).await?)
+    }
+
+    #[tokio::test]
+    async fn a_library_from_before_the_first_release_opens_in_place() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Chaos");
+        let rune_dir = root.join(".rune");
+        tokio::fs::create_dir_all(&rune_dir).await?;
+        let old = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(rune_dir.join(".0.db"))
+                .create_if_missing(true),
+        )
+        .await?;
+        migration::test_fixtures::write_pre_release_library(
+            &SqlxSqliteConnector::from_sqlx_sqlite_pool(old.clone()),
+            migration::test_fixtures::PreReleaseLibrary::August26,
+        )
+        .await?;
+        old.close().await;
+
+        let fsio = FsIo::new();
+        let db =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
+        let files: Vec<String> =
+            sqlx::query_scalar("SELECT file_name FROM media_files ORDER BY id")
+                .fetch_all(db.get_sqlite_connection_pool())
+                .await?;
+        assert_eq!(files, ["Intro.flac", "Outro.flac"]);
+        db.close().await?;
+        // Migrated where it is: nothing beside it.
+        let mut entries = tokio::fs::read_dir(&rune_dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            assert!(name.starts_with(".0.db"), "{name}");
+            assert!(!name.contains("replaced"), "{name}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_version_is_left_alone() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("Later");
+        let recorded = library_recording(
+            &root,
+            &[
+                "m20230701_000001_create_media_files_table",
+                "m29991231_000999_from_a_later_version",
+            ],
+        )
+        .await?;
+        let fsio = FsIo::new();
+        let opened =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await;
+        let refused = opened.err().context("a newer library opened")?;
+        let newer = refused
+            .downcast_ref::<NewerLibraryDatabase>()
+            .context("refused for another reason")?;
+        assert_eq!(newer.migrations, ["m29991231_000999_from_a_later_version"]);
+        assert_eq!(tokio::fs::read(root.join(".rune/.0.db")).await?, recorded);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn redirected_database_uses_wal_after_verified_probe() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library").to_string_lossy().into_owned();
+        let fsio = FsIo::new();
+        create_redirect(&fsio, &root).await?;
+        let db = connect_main_db(
+            &fsio,
+            &root,
+            Some(dir.path().to_str().context("temp path")?),
+            "node",
+        )
+        .await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "wal");
+        db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn portable_database_converts_existing_wal_to_delete() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library");
+        let rune_dir = root.join(".rune");
+        fs::create_dir_all(&rune_dir)?;
+        let file = rune_dir.join(".0.db");
+        let mut existing = SqliteConnectOptions::new()
+            .filename(&file)
+            .create_if_missing(true)
+            .connect()
+            .await?;
+        sqlx::query_scalar::<_, String>("PRAGMA journal_mode=WAL")
+            .fetch_one(&mut existing)
+            .await?;
+        existing.close().await?;
+
+        let fsio = FsIo::new();
+        let db =
+            connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "delete");
+        db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn wal_probe_failure_falls_back_to_delete_without_failing_open() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().join("library").to_string_lossy().into_owned();
+        let fsio = FsIo::new();
+        create_redirect(&fsio, &root).await?;
+        let db = connect_main_db_with_probe(
+            &fsio,
+            &root,
+            Some(dir.path().to_str().context("temp path")?),
+            "node",
+            true,
+        )
+        .await?;
+        assert_eq!(mode(&db).await?.to_ascii_lowercase(), "delete");
+        db.close().await?;
+        Ok(())
+    }
+}
+
+/// The feature vectors of the analysed tracks with their file ids, sorted by
+/// file id.
+pub type RecommendationVectors = Arc<Vec<(u32, [f32; 61])>>;
+
+/// The vectors of all analysed tracks, kept in memory for exact
+/// nearest-neighbour search.
+///
+/// The data lives in the `media_analysis` table of the main database and is
+/// read from there: when the library is opened (see
+/// [`connect_recommendation_db`]), before and after a library scan, and again
+/// after every analysis run (see `sync_recommendation`). Nothing is stored on
+/// disk.
+///
+/// The vectors are replaced as a whole behind an `Arc`, so a query only holds
+/// the lock for the moment it takes to clone the pointer and never while it
+/// computes (or awaits).
+#[derive(Debug, Default)]
+pub struct RecommendationDbConnection {
+    vectors: RwLock<RecommendationVectors>,
+}
+
+impl RecommendationDbConnection {
+    /// An empty store, which finds no recommendations until vectors are
+    /// loaded into it.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The current vectors, sorted by file id, one per file.
+    pub fn vectors(&self) -> RecommendationVectors {
+        match self.vectors.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Replace all vectors. The input is sorted by file id; on duplicate ids
+    /// the last one wins.
+    pub fn replace(&self, vectors: impl IntoIterator<Item = (u32, [f32; 61])>) {
+        let map: BTreeMap<u32, [f32; 61]> = vectors.into_iter().collect();
+        let vectors = Arc::new(map.into_iter().collect::<Vec<_>>());
+        match self.vectors.write() {
+            Ok(mut guard) => *guard = vectors,
+            Err(poisoned) => *poisoned.into_inner() = vectors,
+        }
+    }
+}
+
+/// Prepare the recommendation store of a library.
+///
+/// Older versions kept the vectors in a LMDB index (the directory `.analysis`
+/// or the file `.analysis.db`). It was only a copy of `media_analysis`, so it
+/// is deleted here. The store is then filled from `main_db`. Neither a failure
+/// to delete the legacy data nor a failure to read the vectors prevents the
+/// library from opening: both are logged, and the store stays empty in the
+/// second case until the next `sync_recommendation`.
+pub async fn connect_recommendation_db(
+    fsio: &FsIo,
+    lib_path: &str,
+    db_path: Option<&str>,
+    main_db: &MainDbConnection,
+) -> Result<RecommendationDbConnection> {
+    let storage_info = get_storage_info(fsio, lib_path, db_path)?;
+
+    for legacy_path in storage_info.get_legacy_recommendation_db_paths() {
+        if let Err(e) = remove_legacy_recommendation_db(fsio, &storage_info, &legacy_path).await {
+            warn!(
+                "Failed to delete the legacy recommendation database {}: {e:#}",
+                legacy_path.display()
+            );
+        }
+    }
+
+    info!("Loading recommendation vectors");
+    let recommend_db = RecommendationDbConnection::new();
+    if let Err(e) = load_recommendation_vectors(main_db, &recommend_db).await {
+        warn!("Failed to load the recommendation vectors, recommendations are empty: {e:#}");
+    }
+
+    Ok(recommend_db)
+}
+
+/// Open recommendation state for a redirected catalog with a remote media root.
+/// Legacy files, if present, are removed from the same local storage directory.
+pub async fn connect_recommendation_db_redirected(
+    db_dir: &Path,
+    main_db: &MainDbConnection,
+) -> Result<RecommendationDbConnection> {
+    for legacy_path in [db_dir.join(".analysis"), db_dir.join(".analysis.db")] {
+        match fs::symlink_metadata(&legacy_path).await {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&legacy_path).await?,
+            Ok(_) => fs::remove_file(&legacy_path).await?,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    info!("Loading recommendation vectors");
+    let recommend_db = RecommendationDbConnection::new();
+    if let Err(error) = load_recommendation_vectors(main_db, &recommend_db).await {
+        warn!("Failed to load the recommendation vectors, recommendations are empty: {error:#}");
+    }
+    Ok(recommend_db)
+}
+
+/// Delete a legacy recommendation file or directory (with its content).
+/// Does nothing if it does not exist.
+async fn remove_legacy_recommendation_db(
+    fsio: &FsIo,
+    storage_info: &StorageInfo,
+    legacy_path: &Path,
+) -> Result<()> {
+    if db_uses_local_fs(&storage_info.db_dir) {
+        let metadata = match fs::symlink_metadata(legacy_path).await {
+            Ok(metadata) => metadata,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        if metadata.is_dir() {
+            fs::remove_dir_all(legacy_path).await?;
+        } else {
+            fs::remove_file(legacy_path).await?;
+        }
+    } else {
+        if !fsio.exists(legacy_path)? {
+            return Ok(());
+        }
+        if fsio.is_dir(legacy_path).await? {
+            fsio.remove_dir_all(legacy_path).await?;
+        } else {
+            fsio.remove_file(legacy_path).await?;
+        }
+    }
+    info!(
+        "Deleted legacy recommendation database {}",
+        legacy_path.display()
+    );
+    Ok(())
+}
+
+pub fn connect_fake_recommendation_db() -> Result<RecommendationDbConnection> {
+    info!("Initializing fake recommendation database");
+
+    Ok(RecommendationDbConnection::new())
+}
