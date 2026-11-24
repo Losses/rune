@@ -637,6 +637,38 @@ async fn a_refresh_that_cannot_read_a_playlist_keeps_the_complete_song_list() {
 }
 
 #[tokio::test]
+async fn an_entry_named_by_catalog_id_is_not_listed_beside_a_later_library_copy() {
+    let song = |id: &str| {
+        json!({
+            "id": id,
+            "type": "library-songs",
+            "attributes": {
+                "name": "Twin",
+                "playParams": {"id": id, "kind": "song", "catalogId": "1001"}
+            }
+        })
+    };
+    let fixtures = FixtureServer::start().await;
+    fixtures
+        .on(
+            "GET",
+            "/v1/me/library/songs",
+            Reply::json(json!({"data": [song("1001"), song("i.twin")]})),
+        )
+        .on(
+            "GET",
+            "/v1/me/library/playlists",
+            Reply::json(json!({"data": []})),
+        );
+    let library = signed_in(&fixtures);
+
+    let songs = library.songs().await.unwrap();
+
+    assert_eq!(songs.len(), 1);
+    assert!(songs.get(&key("i.twin")).is_some());
+}
+
+#[tokio::test]
 async fn the_song_list_is_kept_for_ten_minutes_then_served_while_it_is_rebuilt() {
     let fixtures = FixtureServer::start().await;
     serve_library(&fixtures);

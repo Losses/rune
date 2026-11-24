@@ -723,11 +723,18 @@ impl AppleLibrary {
         let mut list = SongList::default();
         // Library songs whose catalog id only their `catalog` relationship names.
         let mut unresolved = Vec::new();
+        let mut catalog_named = Vec::new();
         let library = async {
             let mut pages = self.client.library_song_pages(SONG_INCLUDE, PARALLEL_READS);
             while let Some(page) = pages.try_next().await? {
                 for entry in &page {
-                    list.extend(map::library_track(entry));
+                    // Entries named by their catalog id wait for the twins of every page, so
+                    // none is listed beside the library copy that comes after it.
+                    if TrackKey::library(&entry.id).is_ok() {
+                        list.extend(map::library_track(entry));
+                    } else {
+                        catalog_named.extend(map::library_track(entry));
+                    }
                     match (TrackKey::library(&entry.id), entry.store_id()) {
                         (Ok(key), Some(catalog_id)) => list.add_library_twin(catalog_id, &key),
                         (Ok(_), None) => unresolved.push(entry.id.clone()),
@@ -742,6 +749,8 @@ impl AppleLibrary {
             self.client.library_playlists().try_collect::<Vec<_>>(),
         )
         .await?;
+
+        list.extend(catalog_named);
 
         // Owned ids: closures taking borrowed items here fail the compiler's Send check.
         let joining: Vec<String> = playlists
