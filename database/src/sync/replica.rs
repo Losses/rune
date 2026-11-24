@@ -842,20 +842,13 @@ impl LibrarySyncStore {
         } else {
             None
         };
-        let newest_base = match stored.as_ref().and_then(|sizes| sizes.content) {
-            // A base with no content has no fraction to compare; its first change is published
-            // incrementally.
-            Some(0) | None => BaseSize::Absent,
-            Some(bytes) => BaseSize::GzipBytes(bytes),
-        };
-        // The keeper, though, only replaces a base with no content once a tail outgrows the base
-        // itself, as it did before the content size was kept: replacing it on the first tail
-        // rebuilt the base for every acknowledgement, and readers joining a head that stacks the
-        // empty base beside its replacement failed to reconcile it.
-        let newest_for_keeper = match stored.as_ref().map(|sizes| (sizes.content, sizes.manifest)) {
-            Some((Some(0), Some(manifest))) => BaseSize::GzipBytes(manifest),
-            Some((Some(bytes), _)) => BaseSize::GzipBytes(bytes),
-            _ => BaseSize::Absent,
+        let newest_base = match stored {
+            Some(sizes) => BaseSize::Present {
+                content_gzip_bytes: sizes.content,
+                manifest_gzip_bytes: sizes.manifest,
+                has_candidates: sizes.has_candidates,
+            },
+            None => BaseSize::Absent,
         };
         let activities = heads
             .iter()
@@ -891,9 +884,22 @@ impl LibrarySyncStore {
                     })
                     .map(|observed| observed.first_seen_ms.max(0) as u64)
                     .unwrap_or(now_ms),
-                gzip_bytes: match newest_for_keeper {
-                    BaseSize::GzipBytes(bytes) => bytes,
+                content_gzip_bytes: match newest_base {
+                    BaseSize::Present {
+                        content_gzip_bytes, ..
+                    } => content_gzip_bytes,
                     BaseSize::Absent => 0,
+                },
+                manifest_gzip_bytes: match newest_base {
+                    BaseSize::Present {
+                        manifest_gzip_bytes,
+                        ..
+                    } => manifest_gzip_bytes,
+                    BaseSize::Absent => 0,
+                },
+                has_candidates: match newest_base {
+                    BaseSize::Present { has_candidates, .. } => has_candidates,
+                    BaseSize::Absent => false,
                 },
             });
         let tail_bytes = current_head
@@ -920,7 +926,7 @@ impl LibrarySyncStore {
                         anchor: current_head.head.anchor,
                     },
                     existing_segments: &current_head.segments,
-                    newest_base_gzip_bytes: newest_base,
+                    newest_base,
                     export_cursor: cursor_status,
                     max_events_per_segment: 100,
                 }),

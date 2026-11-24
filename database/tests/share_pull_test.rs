@@ -4749,7 +4749,7 @@ fn planned_segment_gzip_bytes(
             anchor: head.head.anchor,
         },
         existing_segments: &head.segments,
-        newest_base_gzip_bytes: share::BaseSize::Absent,
+        newest_base: share::BaseSize::Absent,
         export_cursor: share::ExportCursorStatus::Current,
         max_events_per_segment: 100,
     })
@@ -4931,7 +4931,7 @@ async fn forget_the_manifest_size_and_flag(device: &SqlLibrary, base_id: &str) -
         content_gzip_bytes: None,
         chunks: chunks.clone(),
         has_candidates: None,
-        manifest_gzip_bytes: None,
+        manifest_gzip_bytes: 0,
     };
     save_state(&device.db, &state).await?;
     Ok(())
@@ -5019,8 +5019,8 @@ async fn push_resolves_the_candidate_flag_of_a_manifest_record_from_an_earlier_b
     let (content_gzip_bytes, has_candidates) =
         recorded_manifest_size_and_flag(&device, &base_id).await?;
     ensure!(
-        content_gzip_bytes == Some(0),
-        "the context-only base did not record a zero content size: {content_gzip_bytes:?}"
+        content_gzip_bytes == cut_content_gzip_bytes,
+        "the context-only base did not record its content size: {content_gzip_bytes:?}, cut {cut_content_gzip_bytes:?}"
     );
     ensure!(
         has_candidates == Some(false),
@@ -5357,10 +5357,9 @@ async fn garbage_collection_stops_on_a_base_manifest_that_changed_or_disappeared
 }
 
 /// The keeper does not rebuild a base that holds no candidate chunks just because a tail exists:
-/// replacing it on the first tail rebuilt the base for every acknowledgement and left readers
-/// joining a head that stacks the empty base beside its replacement unable to reconcile it. The
-/// tail stays a segment, the head keeps the single base, and a device joining afterwards reads
-/// the playlist through it.
+/// replacing it on the first tail rebuilt the base for every acknowledgement. The tail stays a
+/// segment, the head keeps the single base, and a device joining afterwards reads the playlist
+/// through it.
 #[tokio::test]
 async fn pull_joins_a_share_whose_contentless_base_keeps_its_tail() -> Result<()> {
     let namespace = Uuid::new_v4();

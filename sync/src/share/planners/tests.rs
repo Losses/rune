@@ -88,9 +88,29 @@ fn entry(local_sequence: u64, origin: Option<StoreIdentity>, text: &str) -> Jour
     }
 }
 
+/// A base that holds candidates; `content` is the compressed size of its chunks and context
+/// fragments, and its manifest size is not compared.
+fn base_with_candidates(content: u64) -> BaseSize {
+    BaseSize::Present {
+        content_gzip_bytes: content,
+        manifest_gzip_bytes: content,
+        has_candidates: true,
+    }
+}
+
+/// A base whose manifest references only context fragments: `content` is that fragment total, and
+/// a tail is compared with `manifest`.
+fn base_without_candidates(content: u64, manifest: u64) -> BaseSize {
+    BaseSize::Present {
+        content_gzip_bytes: content,
+        manifest_gzip_bytes: manifest,
+        has_candidates: false,
+    }
+}
+
 struct PublishOptions<'a> {
     head: Checkpoint,
-    newest_base_gzip_bytes: BaseSize,
+    newest_base: BaseSize,
     export_cursor: ExportCursorStatus,
     max_events_per_segment: usize,
     existing_segments: &'a [SegmentRef],
@@ -111,7 +131,7 @@ fn publish_input<'a>(
         share_local_replicas,
         head: options.head,
         existing_segments: options.existing_segments,
-        newest_base_gzip_bytes: options.newest_base_gzip_bytes,
+        newest_base: options.newest_base,
         export_cursor: options.export_cursor,
         max_events_per_segment: options.max_events_per_segment,
     }
@@ -147,7 +167,7 @@ fn publication_filters_origins_and_numbers_only_selected_events() {
                 seq: 7,
                 anchor: [8; 32],
             },
-            newest_base_gzip_bytes: BaseSize::Absent,
+            newest_base: BaseSize::Absent,
             export_cursor: ExportCursorStatus::Current,
             max_events_per_segment: 10,
             existing_segments: &[],
@@ -193,7 +213,7 @@ fn filtered_relay_only_advances_export_cursor_without_publishing_a_link() {
                     seq: 4,
                     anchor: [4; 32],
                 },
-                newest_base_gzip_bytes: BaseSize::Absent,
+                newest_base: BaseSize::Absent,
                 export_cursor: ExportCursorStatus::Current,
                 max_events_per_segment: 10,
                 existing_segments: &[],
@@ -222,7 +242,7 @@ fn publication_uses_segments_and_rolls_up_each_sixteen_contiguous_inputs() {
                 seq: 0,
                 anchor: [1; 32],
             },
-            newest_base_gzip_bytes: BaseSize::Absent,
+            newest_base: BaseSize::Absent,
             export_cursor: ExportCursorStatus::Current,
             max_events_per_segment: 1,
             existing_segments: &[],
@@ -255,7 +275,7 @@ fn export_pin_expiry_cuts_base_even_without_pending_events() {
                 seq: 9,
                 anchor: [0; 32],
             },
-            newest_base_gzip_bytes: BaseSize::Absent,
+            newest_base: BaseSize::Absent,
             export_cursor: ExportCursorStatus::NeedsBase,
             max_events_per_segment: 10,
             existing_segments: &[],
@@ -285,7 +305,7 @@ fn base_fraction_is_strictly_greater_than_one_quarter() {
                     seq: 0,
                     anchor: [0; 32],
                 },
-                newest_base_gzip_bytes: BaseSize::Absent,
+                newest_base: BaseSize::Absent,
                 export_cursor: ExportCursorStatus::Current,
                 max_events_per_segment: 10,
                 existing_segments: &[],
@@ -308,7 +328,7 @@ fn base_fraction_is_strictly_greater_than_one_quarter() {
                 seq: 0,
                 anchor: [0; 32],
             },
-            newest_base_gzip_bytes: BaseSize::GzipBytes(compressed_bytes * 4),
+            newest_base: base_with_candidates(compressed_bytes * 4),
             export_cursor: ExportCursorStatus::Current,
             max_events_per_segment: 10,
             existing_segments: &[],
@@ -327,7 +347,7 @@ fn base_fraction_is_strictly_greater_than_one_quarter() {
                 seq: 0,
                 anchor: [0; 32],
             },
-            newest_base_gzip_bytes: BaseSize::GzipBytes(compressed_bytes * 4 - 1),
+            newest_base: base_with_candidates(compressed_bytes * 4 - 1),
             export_cursor: ExportCursorStatus::Current,
             max_events_per_segment: 10,
             existing_segments: &[],
@@ -358,7 +378,7 @@ fn bulk_gzip_limit_is_strictly_greater_than_sixteen_mib() {
         BulkAssessment::Bulk(BulkReason::GzipLimitExceeded)
     );
     assert_eq!(
-        bulk_assessment(1, BaseSize::GzipBytes(0), ExportCursorStatus::Current),
+        bulk_assessment(1, base_with_candidates(0), ExportCursorStatus::Current),
         BulkAssessment::Bulk(BulkReason::BaseFractionExceeded)
     );
 }
@@ -386,7 +406,7 @@ fn gzip_limit_boundary_selects_bulk_path() {
                 seq: 0,
                 anchor: [0; 32],
             },
-            newest_base_gzip_bytes: BaseSize::Absent,
+            newest_base: BaseSize::Absent,
             export_cursor: ExportCursorStatus::Current,
             max_events_per_segment: 500,
             existing_segments: &[],
@@ -427,7 +447,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             &activities,
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             25
         ),
@@ -440,7 +462,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             &activities,
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             26
         ),
@@ -453,7 +477,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             &activities,
             NewestBase::Present {
                 created_ms: 2 + KEEPER_ACTIVE_MS,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             0
         ),
@@ -478,7 +504,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             &fresh_activities,
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             0
         ),
@@ -502,7 +530,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             ],
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             0
         ),
@@ -524,7 +554,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             ],
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             0
         ),
@@ -548,7 +580,9 @@ fn keeper_and_base_cut_boundaries_follow_local_observation_time() {
             ],
             NewestBase::Present {
                 created_ms: 1,
-                gzip_bytes: 100
+                content_gzip_bytes: 100,
+                manifest_gzip_bytes: 100,
+                has_candidates: true,
             },
             0
         ),
@@ -789,4 +823,77 @@ fn gc_rejects_any_non_owned_object_delete_candidate() {
         retirements: &[],
     });
     assert!(result.is_err());
+}
+
+#[test]
+fn a_base_without_candidates_has_no_publish_fraction() {
+    let id = identity();
+    let entries = vec![entry(1, None, "only event")];
+    let streams = BTreeSet::new();
+    let locals = BTreeSet::new();
+    let options = |base: BaseSize| PublishOptions {
+        head: Checkpoint {
+            seq: 0,
+            anchor: [0; 32],
+        },
+        newest_base: base,
+        export_cursor: ExportCursorStatus::Current,
+        max_events_per_segment: 10,
+        existing_segments: &[],
+    };
+    let PublishDecision::CutBase { reason, .. } = plan_publish(publish_input(
+        &id,
+        &entries,
+        &streams,
+        &locals,
+        options(base_with_candidates(0)),
+    ))
+    .unwrap() else {
+        panic!("a base that holds candidates must cut for any update")
+    };
+    assert_eq!(reason, BulkReason::BaseFractionExceeded);
+    let PublishDecision::PublishSegments { .. } = plan_publish(publish_input(
+        &id,
+        &entries,
+        &streams,
+        &locals,
+        options(base_without_candidates(0, 1_000_000)),
+    ))
+    .unwrap() else {
+        panic!("a base without candidates has no fraction to exceed")
+    };
+}
+
+#[test]
+fn the_keeper_replaces_a_base_without_candidates_only_after_the_tail_outgrows_the_manifest() {
+    let me = Uuid::from_u128(1);
+    let activities = [StreamActivity {
+        stream_id: me,
+        last_head_change_ms: 1,
+    }];
+    let newest = |has_candidates: bool| NewestBase::Present {
+        created_ms: 1,
+        content_gzip_bytes: 0,
+        manifest_gzip_bytes: 1_000,
+        has_candidates,
+    };
+    // Without candidates the content is not the denominator: a small tail waits even though the
+    // base holds no content, and the manifest decides when the base is replaced.
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(false), 1),
+        KeeperDecision::Wait
+    );
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(false), 250),
+        KeeperDecision::Wait
+    );
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(false), 251),
+        KeeperDecision::CutBase(BaseCutReason::TailFraction)
+    );
+    // A base that holds candidates compares with its content, which is empty here.
+    assert_eq!(
+        plan_keeper(me, 2, &activities, newest(true), 1),
+        KeeperDecision::CutBase(BaseCutReason::TailFraction)
+    );
 }
