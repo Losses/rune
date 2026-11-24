@@ -2472,6 +2472,12 @@ impl HomeSource for SubsonicBinding {
         })
     }
 
+    fn editable(&self, collection_type: CollectionType) -> bool {
+        // As on the playlists page: a playlist can be renamed and deleted, and artists and
+        // albums cannot change.
+        collection_type == CollectionType::Playlist
+    }
+
     fn newest(
         &self,
         collection_type: CollectionType,
@@ -5474,6 +5480,41 @@ mod tests {
             .collect();
         assert_eq!(ids.len(), 4);
         assert_eq!(ids[0], track.id.to_string());
+    }
+
+    #[tokio::test]
+    async fn home_playlists_can_be_renamed_and_removed_as_on_the_playlists_page() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
+        let group = |title: &str, query| ComplexQuery {
+            title: title.into(),
+            query,
+        };
+        let mode = LibraryHomeListMode::Forward;
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![
+                    group("Playlists", LibraryHomeQuery::Playlists(mode)),
+                    group("Albums", LibraryHomeQuery::Albums(mode)),
+                    group("Artists", LibraryHomeQuery::Artists(mode)),
+                ],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let readonly = |index: usize| {
+            home.result[index]
+                .entries
+                .iter()
+                .map(|entry| entry.readonly)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(readonly(0), [false]);
+        assert_eq!(readonly(1), [true, true]);
+        assert_eq!(readonly(2), [true, true]);
     }
 
     #[tokio::test]

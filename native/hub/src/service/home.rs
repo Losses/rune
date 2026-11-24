@@ -66,6 +66,10 @@ pub(crate) trait HomeSource: Send + Sync {
     /// Every album, artist or playlist.
     fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>>;
 
+    /// Whether the user can rename and remove the albums, artists or playlists of the type, as
+    /// the service's own pages let them.
+    fn editable(&self, collection_type: CollectionType) -> bool;
+
     /// The `limit` newest albums, artists or playlists, newest first, when the service can list
     /// them so without reading every one. None leaves the home to read every one and reverse
     /// the list.
@@ -144,6 +148,7 @@ async fn collection_entries(
         ),
     };
     let covers = source.cover_paths(cover_pairs(&items)).await?;
+    let readonly = !source.editable(collection_type);
     Ok(items
         .into_iter()
         .map(|item| ComplexQueryEntry {
@@ -152,7 +157,7 @@ async fn collection_entries(
             id: item.id,
             name: item.name,
             collection_type,
-            readonly: true,
+            readonly,
         })
         .collect())
 }
@@ -354,6 +359,10 @@ mod tests {
                     }]),
                 }
             })
+        }
+
+        fn editable(&self, _: CollectionType) -> bool {
+            false
         }
 
         fn tracks(&self, _: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
