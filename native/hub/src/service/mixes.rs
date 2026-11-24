@@ -180,11 +180,12 @@ pub(crate) fn plan(queries: &[MixQuery], request: &'static str) -> Result<QueryP
     Ok(QueryPlan { plan, cover_only })
 }
 
-/// The keys the plan names, in order and without repeats.
-async fn plan_tracks(source: &dyn MixSource, plan: Plan) -> Result<Vec<String>> {
+/// The keys the plan names, in order and without repeats. `fresh` is passed on to
+/// [`MixSource::all_tracks`].
+async fn plan_tracks(source: &dyn MixSource, plan: Plan, fresh: bool) -> Result<Vec<String>> {
     match plan {
         Plan::Collection(target) => source.collection_tracks(target).await,
-        Plan::All => source.all_tracks(RESOLVED_TRACK_LIMIT, false).await,
+        Plan::All => source.all_tracks(RESOLVED_TRACK_LIMIT, fresh).await,
         // A random draw is not a list a resolve can name twice, so it stays refused here.
         Plan::Random(_) => Err(unsupported_query(ResolveMixQueryRequest::wire_name())),
         Plan::Items(items) => {
@@ -217,26 +218,13 @@ pub(crate) async fn resolve_mix_query(
         if planned.cover_only {
             return Err(unsupported_query(ResolveMixQueryRequest::wire_name()));
         }
-        let library_id = source.library_id();
-        let whole_list = planned.plan == Plan::All;
-        let mut keys = plan_tracks(source, planned.plan).await?;
-        // A song list kept a while may lack the clicked track, as one the service added since,
-        // which the page that shows the track did read: the list is read afresh then.
-        let clicked = request
-            .initial_playback_item
-            .as_ref()
-            .filter(|_| request.instantly_play)
-            .and_then(|item| match item {
-                PlayingItemRef::LibraryTrack {
-                    library_id: item_library,
-                    track,
-                } if *item_library == library_id => Some(track),
-                _ => None,
-            });
-        if whole_list && clicked.is_some_and(|track| !keys.contains(track)) {
-            keys = source.all_tracks(RESOLVED_TRACK_LIMIT, true).await?;
-        }
+        // A click plays the list the page shows, which the page read just now, so the list is
+        // read afresh for it: one kept a while can differ anywhere, not only at the clicked
+        // track.
+        let clicked = request.instantly_play && request.initial_playback_item.is_some();
+        let mut keys = plan_tracks(source, planned.plan, clicked).await?;
         keys.truncate(RESOLVED_TRACK_LIMIT);
+        let library_id = source.library_id();
         let excluded: HashSet<&PlayingItemRef> = request.excluded.items.iter().collect();
         keys.into_iter()
             .map(|track| PlayingItemRef::LibraryTrack {

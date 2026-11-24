@@ -5500,14 +5500,11 @@ mod tests {
             keys(&resolved.playing_items),
             ["song-1", "song-2", "song-3", "song-4"]
         );
-        // Asking again reads nothing: the list is kept for a while.
+        // Asking again without a click reads nothing: the list is kept for a while.
         let before = endpoint_count(&server, "search3");
-        resolve_mix_query_request(
-            &binding,
-            &resolve_queries(&binding, all.clone(), "song-1", &[]),
-        )
-        .await
-        .unwrap();
+        let mut again = resolve_queries(&binding, all.clone(), "song-1", &[]);
+        again.instantly_play = false;
+        resolve_mix_query_request(&binding, &again).await.unwrap();
         assert_eq!(endpoint_count(&server, "search3"), before);
         let mut page = mix_query_request(
             &binding,
@@ -5751,6 +5748,46 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["song-1", "song-2", "song-3", "song-4"]
         );
+    }
+
+    #[tokio::test]
+    async fn a_click_reads_the_song_list_afresh_even_when_the_kept_one_holds_the_track() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        let click =
+            |track: &str| click_resolve(&[("lib::all", "true")], 0, library_track(library, track));
+        click("song-1").translate(&binding).await.unwrap().unwrap();
+        // The list kept from that resolve still holds a track the server has dropped since.
+        let stale = || {
+            let mut catalog = binding.catalog.lock().unwrap();
+            let (read, asked, _) = catalog.all_songs.clone().unwrap();
+            catalog.all_songs = Some((
+                read,
+                asked,
+                Arc::new(vec!["song-1".into(), "song-2".into(), "gone".into()]),
+            ));
+        };
+        stale();
+        let resolved = click("song-1").translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, Some(0));
+        // A resolve that plays no clicked track matches no row the page shows, and keeps using
+        // the kept list.
+        stale();
+        let reads = endpoint_count(&server, "search3");
+        let mut queued = click("song-1");
+        queued.instantly_play = false;
+        let queued = queued.translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            queued.playing_items,
+            library_tracks(library, &["song-1", "song-2", "gone"])
+        );
+        assert_eq!(endpoint_count(&server, "search3"), reads);
     }
 
     fn assert_secret_free(value: &str) {
