@@ -395,6 +395,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           if (!mounted || generation != _generation) return;
           _restartListing();
         });
+        SchedulerBinding.instance.ensureVisualUpdate();
         return;
       }
 

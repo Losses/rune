@@ -46,6 +46,10 @@ class TrackListViewState extends State<TrackListView> {
   // Shown only until the fresh page arrives, so a reload keeps the list on screen.
   final Map<int, InternalMediaFile> _staleItems = {};
   final Set<int> _loadingIndices = {};
+  // Pages whose request failed. Building their places asks for them again, so
+  // a page that keeps failing would be requested on every rebuild. A content
+  // change or a restart clears them.
+  final Set<int> _failedPages = {};
   bool _isInitialized = false;
   int _generation = 0;
   StreamSubscription? _contentSubscription;
@@ -64,6 +68,7 @@ class TrackListViewState extends State<TrackListView> {
     _staleItems.addAll(_loadedItems);
     _loadedItems.clear();
     _loadingIndices.clear();
+    _failedPages.clear();
     _initializeData();
   }
 
@@ -136,6 +141,7 @@ class TrackListViewState extends State<TrackListView> {
         if (!mounted || generation != _generation) return;
         setState(() {
           _loadingIndices.remove(cursor);
+          _failedPages.add(cursor);
         });
       });
       SchedulerBinding.instance.ensureVisualUpdate();
@@ -144,9 +150,12 @@ class TrackListViewState extends State<TrackListView> {
 
   void _checkAndLoadItem(int index) {
     if (_loadedItems.containsKey(index)) return;
-    if (_loadingIndices.contains((index ~/ _pageSize) * _pageSize)) return;
 
     final pageStart = (index ~/ _pageSize) * _pageSize;
+    if (_loadingIndices.contains(pageStart) ||
+        _failedPages.contains(pageStart)) {
+      return;
+    }
     _loadPage(pageStart);
   }
 
@@ -161,7 +170,14 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInitialized) {
+    // The ring stays until the first page has come or failed, so the list is
+    // never a screen of blank places. A reload keeps the stale tracks instead.
+    final waitingForFirstPage =
+        _totalCount > 0 &&
+        _loadedItems.isEmpty &&
+        _staleItems.isEmpty &&
+        !_failedPages.contains(0);
+    if (!_isInitialized || waitingForFirstPage) {
       return const Center(child: ProgressRing());
     }
 

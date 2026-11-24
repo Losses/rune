@@ -251,6 +251,56 @@ void main() {
     });
   });
 
+  group('the list of all tracks before its first page', () {
+    testWidgets('keeps the ring until the first page comes', (tester) async {
+      final first = Completer<List<InternalMediaFile>>();
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.value(1000),
+          loadPage: (cursor, size) => first.future,
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      expect(find.byType(ProgressRing), findsOneWidget);
+
+      first.complete(_tracks(0, 100));
+      await _settle(tester);
+      expect(find.byType(ProgressRing), findsNothing);
+      expect(find.text('track-0'), findsOneWidget);
+    });
+  });
+
+  group('the list of all tracks when a page fails', () {
+    testWidgets('does not ask for it again until the list restarts', (
+      tester,
+    ) async {
+      final asked = <int>[];
+      await _pump(
+        tester,
+        (layout) => TrackListView(
+          layoutManager: layout,
+          loadCount: () => Future.value(1000),
+          loadPage: (cursor, size) {
+            asked.add(cursor);
+            if (cursor == 0) return Future.value(_tracks(0, size));
+            return Future.error(StateError('offline'));
+          },
+        ),
+        device: DeviceType.zune,
+      );
+      await _settle(tester);
+      expect(find.text('track-0'), findsOneWidget);
+
+      // The page ahead failed once, and the rebuilds after it leave it be.
+      expect(asked, [0, 100]);
+      await _settle(tester);
+      expect(asked, [0, 100]);
+    });
+  });
+
   group('a collection page', () {
     late Map<int, Completer<(List<Group<InternalCollection>>, bool)>> waiting;
     late List<int> asked;
