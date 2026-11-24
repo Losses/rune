@@ -10,6 +10,7 @@ import '../../providers/library_open_state.dart';
 import '../../providers/playing_item_capabilities.dart';
 import '../../providers/request_capabilities.dart';
 import '../../providers/responsive_providers.dart';
+import '../../utils/api/request_failure.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/dialogs/add_to_playlist/add_to_playlist_dialog.dart';
@@ -387,6 +388,42 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
   });
+
+  for (final failing in ['playlists', 'mixes', 'file']) {
+    testWidgets('a track menu whose $failing fail to load shows the failure', (
+      tester,
+    ) async {
+      const failure = RequestFailure(
+        'Load',
+        RequestErrorKind.unavailable,
+        'unavailable',
+      );
+      await rightClick(
+        tester,
+        (position, context, attachKey, controller) => openTrackItemContextMenu(
+          position,
+          context,
+          attachKey,
+          controller,
+          null,
+          parsed.file.id,
+          null,
+          null,
+          loadPlaylists: () async =>
+              failing == 'playlists' ? throw failure : const [roadTrip],
+          loadMixes: () async =>
+              failing == 'mixes' ? throw failure : const [morning],
+          loadMediaFile: (_) async =>
+              failing == 'file' ? throw failure : parsed,
+          fetchLikedStatus: (_) async => false,
+        ),
+      );
+
+      expect(find.byType(MenuFlyout), findsNothing);
+      expect(find.byType(ContentDialog), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+    });
+  }
 
   group('Add to Playlist on a collection', () {
     for (final type in [

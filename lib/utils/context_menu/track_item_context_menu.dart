@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../api/request_failure.dart';
 import '../dialogs/information/error.dart';
 import 'package:provider/provider.dart';
@@ -156,6 +157,17 @@ void openTrackItemContextMenu(
     if (trackLikeOffered(context, track)) {
       liked = await readTrackLiked(context, track, fetchLikedStatus);
     }
+  } on ParallelWaitError<dynamic, dynamic> catch (error) {
+    // The loads are asked together, so a failure of one arrives wrapped.
+    final (playlistsError, mixesError, fileError) =
+        error.errors as (AsyncError?, AsyncError?, AsyncError?);
+    final failure = [playlistsError, mixesError, fileError]
+        .map((x) => x?.error)
+        .whereType<RequestFailure>()
+        .firstOrNull;
+    if (failure == null) rethrow;
+    if (context.mounted) await _showRequestFailure(context, failure);
+    return;
   } on RequestFailure catch (error) {
     if (context.mounted) await _showRequestFailure(context, error);
     return;
