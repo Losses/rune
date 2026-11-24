@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -100,7 +101,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     i += 1;
     return hash13(
       x + i,
-      (DateTime.now().millisecondsSinceEpoch / 100000).floor().toDouble(),
+      (clock.now().millisecondsSinceEpoch / 100000).floor().toDouble(),
       widget.name.hashCode.toDouble(),
     );
   }
@@ -171,7 +172,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   }
 
   void _initializeGrid() {
-    _lastFlipTime = DateTime.now();
+    _lastFlipTime = clock.now();
     _gridCount = _determineGridSize();
     _frontPaths = List.from(widget.paths);
     _backPaths = List.from(widget.paths);
@@ -198,9 +199,9 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   }
 
   void _check() {
-    if (DateTime.now().difference(_lastFlipTime).inSeconds >= flipInterval) {
+    if (clock.now().difference(_lastFlipTime).inSeconds >= flipInterval) {
       _isExecuting = true;
-      _lastFlipTime = DateTime.now();
+      _lastFlipTime = clock.now();
       _prepareFlip();
       _updateCache().then((_) {
         _isExecuting = false;
@@ -268,7 +269,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     for (int k = 0; k < _gridCount * _gridCount; k++) {
       if (rand(k.toDouble()) > 0.64 && _stageFlipGridData(k)) {
         _isFlipping[k] = true;
-        _flipStartTimes[k] = DateTime.now();
+        _flipStartTimes[k] = clock.now();
         isGoingToFlip = true;
       } else {
         _isFlipping[k] = false;
@@ -288,7 +289,8 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     bool needsUpdate = false;
     for (int k = 0; k < _gridCount * _gridCount; k++) {
       if (_isFlipping[k] && _flipStartTimes[k] != null) {
-        final elapsedTime = DateTime.now()
+        final elapsedTime = clock
+            .now()
             .difference(_flipStartTimes[k]!)
             .inMilliseconds;
         _rotates[k] = (elapsedTime / widget.speed) * pi;
