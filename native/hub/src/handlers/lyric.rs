@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{error, warn};
 
 use ::database::{
@@ -12,41 +12,72 @@ use ::lyric::{
 use ::metadata::reader::get_lyrics;
 
 use crate::{
-    Session, Signal,
-    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
+    Session, Signal, TypedRequest,
+    handlers::playback::{
+        ItemRoutingParams, item_service, item_service_binding, local_item_library,
+        playing_item_from_request, reject_remote_independent_item,
+    },
     library_pool::LibraryHandle,
     messages::*,
+    request_error::ExpectedRequestError,
+    rpc::{Slot, TargetRequest},
+    service::item_slots,
     utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
 impl ParamsExtractor for GetLyricByTrackIdRequest {
-    type Params = (Option<LibraryHandle>,);
+    type Params = ItemRoutingParams;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(),)
+        (
+            all_params.library.clone(),
+            all_params.node.clone(),
+            all_params.library_pool.clone(),
+        )
     }
 }
 
 impl Signal for GetLyricByTrackIdRequest {
-    type Params = (Option<LibraryHandle>,);
+    type Params = ItemRoutingParams;
     type Response = GetLyricByTrackIdResponse;
 
     async fn handle(
         &self,
-        (library,): Self::Params,
+        (library, node, pool): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let library = require_library(library)?;
-        let fsio = &library.fsio;
-        let media_root = &library.media_root;
-        let main_db = &library.main_db;
-        let item = &dart_signal.item;
-
-        let Some(item) = item else {
+        let Some(item) = &dart_signal.item else {
+            require_library(library)?;
             return Ok(None);
         };
         reject_remote_independent_item(session.as_ref(), item)?;
+        // A streaming library's item is answered as its service declares for its items,
+        // whichever library is open: by that library's binding, or as unsupported.
+        if let Some(service) = item_service(&node, library.as_ref(), item)? {
+            return match GetLyricByTrackIdRequest::slot(&item_slots(service)) {
+                Slot::Translate => {
+                    let binding = item_service_binding(&node, library.as_ref(), item)
+                        .await?
+                        .context("Streaming library is not available")?;
+                    binding
+                        .translate_get_lyric_by_track_id_request(dart_signal)
+                        .await
+                }
+                Slot::Unsupported { reason } => Err(ExpectedRequestError::Unsupported {
+                    request: GetLyricByTrackIdRequest::wire_name(),
+                    reason,
+                }
+                .into()),
+                Slot::Native | Slot::Forward => {
+                    anyhow::bail!("A streaming library's lyrics come from its service")
+                }
+            };
+        }
+        let library = local_item_library(library, &pool, item).await?;
+        let fsio = &library.fsio;
+        let media_root = &library.media_root;
+        let main_db = &library.main_db;
 
         let lines = match load_lyric_lines(fsio, media_root, main_db, item, &library).await {
             Ok(lines) => lines,

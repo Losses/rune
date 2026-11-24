@@ -8,19 +8,19 @@ use ::database::error::ExpectedError;
 use ::database::library_registry::LibraryAccess;
 use ::playback::player::PlayingItem;
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     Session, Signal,
-    handlers::playback::{playing_item_from_request, reject_remote_independent_item},
+    handlers::playback::{
+        item_service_binding, playing_item_from_request, reject_remote_independent_item,
+    },
     library_pool::{LibraryHandle, LibraryPool},
     messages::*,
     node::NodeContext,
     request_error::ExpectedRequestError,
-    service::ServiceBinding,
-    utils::{GlobalParams, ParamsExtractor, require_library, service_binding_for_library},
+    utils::{GlobalParams, ParamsExtractor, require_library},
 };
-use ::database::library_registry::{LibraryRecordId, LibraryRegistry};
 use uuid::Uuid;
 
 type LikedParams = (Arc<NodeContext>, Arc<LibraryPool>, Option<LibraryHandle>);
@@ -31,30 +31,6 @@ fn liked_params(all_params: &GlobalParams) -> LikedParams {
         all_params.library_pool.clone(),
         all_params.library.clone(),
     )
-}
-
-/// The binding of the streaming service library that owns `item`, if one does: the open one, or
-/// one made from its record. Such a library keeps the liked state of its tracks itself.
-async fn item_service_binding(
-    node: &Arc<NodeContext>,
-    item: &PlayingItemRef,
-) -> Result<Option<Arc<dyn ServiceBinding>>> {
-    let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
-        return Ok(None);
-    };
-    let library_id = Uuid::parse_str(library_id).map_err(|error| {
-        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
-    })?;
-    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
-    let Ok(record) = registry.record(LibraryRecordId(library_id)) else {
-        return Ok(None);
-    };
-    if record.protocol.service().is_none() {
-        return Ok(None);
-    }
-    service_binding_for_library(node, library_id)
-        .await
-        .map(Some)
 }
 
 async fn item_library(pool: &Arc<LibraryPool>, item: &PlayingItemRef) -> Result<LibraryHandle> {
@@ -88,7 +64,7 @@ impl Signal for SetLikedRequest {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
-            if let Some(binding) = item_service_binding(&node, item).await? {
+            if let Some(binding) = item_service_binding(&node, ui_library.as_ref(), item).await? {
                 return binding.translate_set_liked_request(request).await;
             }
             let library = match item {
@@ -171,7 +147,7 @@ impl Signal for GetLikedRequest {
         let request = dart_signal;
         if let Some(item) = &request.item {
             reject_remote_independent_item(session.as_ref(), item)?;
-            if let Some(binding) = item_service_binding(&node, item).await? {
+            if let Some(binding) = item_service_binding(&node, ui_library.as_ref(), item).await? {
                 return binding.translate_get_liked_request(request).await;
             }
             let library = match item {

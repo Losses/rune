@@ -26,18 +26,18 @@ use crate::messages::{
     FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
     FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
     GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
-    GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LibraryContentChanged,
-    LoadPlay, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine,
-    LyricContentLineSection, MediaFile, MediaFileSummary, MixQuery, MixQueryRequest,
-    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
-    PlaybackMode, PlayingItemRef, Playlist, PlaylistOccurrence, PlaylistOccurrenceCursor,
-    PlaylistOperateMode, PlaylistRevisionRequest, PlaylistRevisionResponse, PreviousRequest,
-    RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
-    RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
-    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
-    ResolveMixQueryRequest, ResolveMixQueryResponse, SearchCollectionSummaryRequest,
-    SearchCollectionSummaryResponse, SearchForRequest, SearchForResponse,
-    SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest,
+    HandoffLoadRequest, LibraryContentChanged, LoadPlay, LoadRequest, LoadResolvedItemsRequest,
+    LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection, MediaFile,
+    MediaFileSummary, MixQuery, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
+    NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
+    PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PlaylistRevisionRequest,
+    PlaylistRevisionResponse, PreviousRequest, RefreshSessionRequest,
+    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
+    RemovePlaylistResponse, RemoveRequest, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
+    SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
     SessionSnapshotRequest, SessionSnapshotResponse, SetAdaptiveSwitchingEnabledRequest,
     SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
     SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
@@ -2425,7 +2425,13 @@ macro_rules! subsonic_requests {
         routed_native { $($native_request:ty),* $(,)? }
         jukebox_supported { $($jukebox_request:ty => $jukebox_handler:ident as $jukebox_method:ident),* $(,)? }
         player { $($player_request:ty),* $(,)? }
+        items { $($item_request:ty => $item_slot:ident),* $(,)? }
     ) => {
+        $(const _: () = assert!(
+            <$item_request as crate::rpc::TargetRequest>::ROUTED_BY_ITEM,
+            "item slots are only for requests routed by item",
+        );)*
+
         impl RequestTranslator for SubsonicBinding {
             $(
                 fn $method<'a>(
@@ -2459,6 +2465,14 @@ macro_rules! subsonic_requests {
                 }
                 $(slots.set::<$request>(Slot::Translate);)*
                 $(slots.set::<$native_request>(Slot::Native);)*
+                slots
+            }
+
+            /// What a Subsonic library answers about its own items, of the requests routed by
+            /// item, whichever library is open. The others are unsupported for its items.
+            pub(crate) fn subsonic_items() -> Self {
+                let mut slots = Self::unimplemented();
+                $(slots.set::<$item_request>(Slot::$item_slot);)*
                 slots
             }
         }
@@ -2495,6 +2509,8 @@ subsonic_requests! {
     routed_native {
         SetLikedRequest,
         GetLikedRequest,
+        GetLyricByTrackIdRequest,
+        GetPrimaryColorByTrackIdRequest,
     }
     jukebox_supported {
         VolumeRequest => jukebox_volume_request as translate_volume_request,
@@ -2533,6 +2549,13 @@ subsonic_requests! {
         RefreshSessionRequest,
         SessionSnapshotRequest,
         PlaylistRevisionRequest,
+    }
+    items {
+        SetLikedRequest => Translate,
+        GetLikedRequest => Translate,
+        GetLyricByTrackIdRequest => Translate,
+        // The hub takes the color of a streaming item from its cover in the library's cover cache.
+        GetPrimaryColorByTrackIdRequest => Native,
     }
 }
 
@@ -4157,7 +4180,13 @@ mod tests {
         });
         assert_eq!(SetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(GetLikedRequest::slot(&slots), Slot::Native);
-        assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Translate);
+        // Lyrics are routed by item, as likes are: the open library leaves an item of another
+        // library to that library, and the binding answers for its own items.
+        assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Native);
+        let items = RequestSlots::subsonic_items();
+        assert_eq!(GetLyricByTrackIdRequest::slot(&items), Slot::Translate);
+        assert_eq!(SetLikedRequest::slot(&items), Slot::Translate);
+        assert_eq!(GetLikedRequest::slot(&items), Slot::Translate);
     }
 
     #[test]

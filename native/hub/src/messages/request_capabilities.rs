@@ -1,6 +1,7 @@
 use rinf::{RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
+use super::playback::PlayingItemRef;
 use crate::rpc::{Slot, UnsupportedReason};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
@@ -214,3 +215,21 @@ impl From<Slot> for RequestCapability {
 }
 
 crate::implement_rinf_rust_signal_trait!(RequestCapabilities);
+
+/// What the current item of this device's player supports of the requests a device answers by
+/// the library of the item they name (`RequestRouting::Item` in the catalogue), one field per
+/// request, named after it, as that library's implementation declares in its item slots. The
+/// open library's [`RequestCapabilities`] cannot say this, as the queue may hold items of other
+/// libraries. Sent before the status that first names `item`; Dart applies it only while `item`
+/// plays. Kept by hand for rinf like [`RequestCapabilities`]; `item_capability_snapshot` builds
+/// it from the catalogue, so a missing or extra field fails to compile.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RustSignal)]
+pub struct PlayingItemCapabilities {
+    pub item: Option<PlayingItemRef>,
+    pub set_liked_request: RequestCapability,
+    pub get_liked_request: RequestCapability,
+    pub get_lyric_by_track_id_request: RequestCapability,
+    pub get_primary_color_by_track_id_request: RequestCapability,
+}
+
+crate::implement_rinf_rust_signal_trait!(PlayingItemCapabilities);

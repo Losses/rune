@@ -602,6 +602,47 @@ impl ServiceCoverCache {
     }
 }
 
+/// Where the primary color of the cached cover at `cover` is kept: beside it, under the same
+/// name with the extension `color`.
+fn color_path(cover: &Path) -> PathBuf {
+    cover.with_extension("color")
+}
+
+/// The primary color of the cached cover at `cover`, as `metadata::cover_art::get_primary_color`
+/// gives it for the cover's bytes. It is kept beside the cover with the digest of the bytes it
+/// was worked out from, and read from there while the cover holds those bytes: a cover evicted
+/// and fetched again may hold other artwork by the time a color worked out before is written.
+/// None when the cover cannot be read or has no color. Reading and decoding run off the async
+/// runtime.
+pub(crate) async fn cover_primary_color(cover: &str) -> Option<i32> {
+    let cover = PathBuf::from(cover);
+    task::spawn_blocking(move || {
+        let bytes = fs::read(&cover).ok()?;
+        let digest = blake3::hash(&bytes).to_hex();
+        let color_file = color_path(&cover);
+        if let Ok(text) = fs::read_to_string(&color_file)
+            && let Some((kept_for, color)) = text.trim().split_once(' ')
+            && kept_for == digest.as_str()
+            && let Ok(color) = color.parse::<i32>()
+        {
+            return Some(color);
+        }
+        let color = metadata::cover_art::get_primary_color(&bytes)?;
+        // A file of its own, as another request may work out the same color at once.
+        let temporary = color_file.with_extension(format!("{}.color.tmp", Uuid::new_v4().simple()));
+        if fs::write(&temporary, format!("{digest} {color}"))
+            .and_then(|()| fs::rename(&temporary, &color_file))
+            .is_err()
+        {
+            let _ = fs::remove_file(&temporary);
+        }
+        Some(color)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// Bounds of one service library's cover cache. A cover wall or album list shows hundreds of
 /// covers, so the cache must hold several pages of them.
 #[derive(Clone, Copy)]
@@ -642,7 +683,9 @@ fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> io
             break;
         };
         let (path, size, _) = entries.swap_remove(oldest_index);
-        fs::remove_file(path)?;
+        fs::remove_file(&path)?;
+        // The color kept beside the cover goes with it, so a cover fetched again is read afresh.
+        let _ = fs::remove_file(color_path(&path));
         bytes = bytes.saturating_sub(size);
     }
     Ok(())
@@ -1063,6 +1106,36 @@ mod tests {
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 128);
         assert!(!root.path().join("cover-0.img").exists());
         assert!(newest.exists());
+    }
+
+    #[test]
+    fn evicting_a_cover_removes_the_color_kept_beside_it() {
+        let root = TempDir::new().unwrap();
+        let old = root.path().join("old.img");
+        let newest = root.path().join("new.img");
+        for path in [&old, &newest] {
+            fs::write(path, b"cover").unwrap();
+            fs::write(path.with_extension("color"), b"7").unwrap();
+        }
+        OpenOptions::new()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+            .unwrap();
+        evict_cover_cache(
+            root.path(),
+            &newest,
+            CoverCacheLimits {
+                max_files: 1,
+                max_bytes: u64::MAX,
+            },
+        )
+        .unwrap();
+        assert!(!old.exists());
+        assert!(!old.with_extension("color").exists());
+        assert!(newest.exists());
+        assert!(newest.with_extension("color").exists());
     }
 
     #[tokio::test]

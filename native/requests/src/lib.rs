@@ -34,6 +34,15 @@ enum RequestReceiver {
     Standalone,
 }
 
+/// Which library a device answers a request by.
+#[derive(Clone, Copy, PartialEq)]
+enum RequestRouting {
+    /// The library its UI has open.
+    OpenLibrary,
+    /// The library of the one item the request names, whichever library its UI has open.
+    Item,
+}
+
 struct RequestResponse {
     request: String,
     response: Option<String>,
@@ -42,6 +51,7 @@ struct RequestResponse {
     body_libraries: BodyLibraries,
     introduced_minor: Option<u32>,
     receiver: RequestReceiver,
+    routing: RequestRouting,
 }
 
 fn body_libraries_tokens(body_libraries: BodyLibraries) -> proc_macro2::TokenStream {
@@ -74,6 +84,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "DetachRendererRequest".to_string(),
@@ -83,6 +94,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListRenderersRequest".to_string(),
@@ -92,6 +104,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "HandoffRequest".to_string(),
@@ -101,6 +114,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetDeviceGrantsRequest".to_string(),
@@ -110,6 +124,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetDeviceGrantsRequest".to_string(),
@@ -119,6 +134,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListControllersRequest".to_string(),
@@ -128,6 +144,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "DetachControllerRequest".to_string(),
@@ -137,6 +154,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListLocalLibrariesRequest".to_string(),
@@ -146,6 +164,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListLibraryRecordsRequest".to_string(),
@@ -155,6 +174,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveLibraryRecordRequest".to_string(),
@@ -164,6 +184,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetLibraryBackgroundSyncRequest".to_string(),
@@ -173,6 +194,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RegisterLocalLibraryRequest".to_string(),
@@ -182,6 +204,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RegisterRemoteControlRequest".to_string(),
@@ -191,6 +214,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RegisterSubsonicLibraryRequest".to_string(),
@@ -200,6 +224,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RegisterOpenDalLibraryRequest".to_string(),
@@ -209,6 +234,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "DetectOpenDalShareDataRequest".to_string(),
@@ -218,6 +244,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "OpenLibraryRequest".to_string(),
@@ -227,6 +254,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ReplaceSubsonicCredentialRequest".to_string(),
@@ -236,6 +264,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "InitializeNodeRequest".to_string(),
@@ -245,6 +274,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RunFsSelfTestRequest".to_string(),
@@ -254,6 +284,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListFileDialogPlacesRequest".to_string(),
@@ -263,6 +294,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ResolveFileDialogPathRequest".to_string(),
@@ -272,6 +304,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListFileDialogFolderRequest".to_string(),
@@ -281,6 +314,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         // The reply carries pixels as binary, which the catalogue's
         // responses cannot, so the receiver sends it itself.
@@ -292,6 +326,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CreateFileDialogFolderRequest".to_string(),
@@ -301,6 +336,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RenameFileDialogEntryRequest".to_string(),
@@ -310,6 +346,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Standalone,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListPeerLibrariesRequest".to_string(),
@@ -319,6 +356,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AddRemoteLibraryRequest".to_string(),
@@ -328,6 +366,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         // Library
         RequestResponse {
@@ -338,6 +377,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetSyncSettingsRequest".to_string(),
@@ -347,6 +387,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetDownloadRuleRequest".to_string(),
@@ -356,6 +397,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveDownloadRuleRequest".to_string(),
@@ -365,6 +407,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "TestLibraryInitializedRequest".to_string(),
@@ -374,6 +417,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CloseLibraryRequest".to_string(),
@@ -383,6 +427,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CancelTaskRequest".to_string(),
@@ -392,6 +437,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ScanAudioLibraryRequest".to_string(),
@@ -401,6 +447,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AnalyzeAudioLibraryRequest".to_string(),
@@ -410,6 +457,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "DeduplicateAudioLibraryRequest".to_string(),
@@ -419,6 +467,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Playback
         RequestResponse {
@@ -429,6 +478,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "LoadRequest".to_string(),
@@ -438,6 +488,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "PlayRequest".to_string(),
@@ -447,6 +498,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "PauseRequest".to_string(),
@@ -456,6 +508,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "NextRequest".to_string(),
@@ -465,6 +518,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "PreviousRequest".to_string(),
@@ -474,6 +528,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SwitchRequest".to_string(),
@@ -483,6 +538,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SeekRequest".to_string(),
@@ -492,6 +548,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveRequest".to_string(),
@@ -501,6 +558,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetPlaybackModeRequest".to_string(),
@@ -510,6 +568,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "MovePlaylistItemRequest".to_string(),
@@ -519,6 +578,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetRealtimeFFTEnabledRequest".to_string(),
@@ -528,6 +588,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetAdaptiveSwitchingEnabledRequest".to_string(),
@@ -537,6 +598,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // This device's own audio session, so never forwarded to a renderer.
         RequestResponse {
@@ -547,6 +609,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         // Visualizer (the GPU and the frame buffer live in this process)
         RequestResponse {
@@ -557,6 +620,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StopVisualizerRequest".to_string(),
@@ -566,6 +630,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ResizeVisualizerRequest".to_string(),
@@ -575,6 +640,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerPresetDirsRequest".to_string(),
@@ -584,6 +650,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerAccentRequest".to_string(),
@@ -593,6 +660,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerVisibleRequest".to_string(),
@@ -602,6 +670,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "LoadVisualizerPresetRequest".to_string(),
@@ -611,6 +680,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "NextVisualizerPresetRequest".to_string(),
@@ -620,6 +690,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "PreviousVisualizerPresetRequest".to_string(),
@@ -629,6 +700,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RandomVisualizerPresetRequest".to_string(),
@@ -638,6 +710,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ImportVisualizerSceneRequest".to_string(),
@@ -647,6 +720,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveVisualizerSceneRequest".to_string(),
@@ -656,6 +730,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerScenesRequest".to_string(),
@@ -665,6 +740,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerLogRequest".to_string(),
@@ -674,6 +750,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SetVisualizerLabRequest".to_string(),
@@ -683,6 +760,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerLabCommandRequest".to_string(),
@@ -692,6 +770,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerLabRequest".to_string(),
@@ -701,6 +780,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerPlanRequest".to_string(),
@@ -710,6 +790,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerSupportRequest".to_string(),
@@ -719,6 +800,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerStatusRequest".to_string(),
@@ -728,6 +810,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListVisualizerPresetsRequest".to_string(),
@@ -737,6 +820,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListVisualizerCreditsRequest".to_string(),
@@ -746,6 +830,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "VisualizerTextureShownRequest".to_string(),
@@ -755,6 +840,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // SFX
         RequestResponse {
@@ -765,6 +851,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Analyze
         RequestResponse {
@@ -775,6 +862,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetAnalyzeCountRequest".to_string(),
@@ -784,6 +872,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Media File
         RequestResponse {
@@ -794,6 +883,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchMediaFileByIdsRequest".to_string(),
@@ -803,6 +893,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchParsedMediaFileRequest".to_string(),
@@ -812,6 +903,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SearchMediaFileSummaryRequest".to_string(),
@@ -821,6 +913,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Lyric
         RequestResponse {
@@ -831,6 +924,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetLyricByTrackIdRequest".to_string(),
@@ -840,6 +934,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::Item,
         },
         // Collection
         RequestResponse {
@@ -850,6 +945,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
@@ -859,6 +955,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchCollectionByIdsRequest".to_string(),
@@ -868,6 +965,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SearchCollectionSummaryRequest".to_string(),
@@ -877,6 +975,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Cover Art
         RequestResponse {
@@ -887,6 +986,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetPrimaryColorByTrackIdRequest".to_string(),
@@ -896,6 +996,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::Item,
         },
         // Playlist
         RequestResponse {
@@ -906,6 +1007,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CreatePlaylistRequest".to_string(),
@@ -915,6 +1017,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CreateM3u8PlaylistRequest".to_string(),
@@ -924,6 +1027,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "UpdatePlaylistRequest".to_string(),
@@ -933,6 +1037,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemovePlaylistRequest".to_string(),
@@ -942,6 +1047,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AddItemToPlaylistRequest".to_string(),
@@ -951,6 +1057,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ReorderPlaylistItemPositionRequest".to_string(),
@@ -960,6 +1067,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchPlaylistOccurrencesRequest".to_string(),
@@ -969,6 +1077,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetPlaylistByIdRequest".to_string(),
@@ -978,6 +1087,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Mix
         RequestResponse {
@@ -988,6 +1098,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CreateMixRequest".to_string(),
@@ -997,6 +1108,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "UpdateMixRequest".to_string(),
@@ -1006,6 +1118,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveMixRequest".to_string(),
@@ -1015,6 +1128,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AddItemToMixRequest".to_string(),
@@ -1024,6 +1138,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetMixByIdRequest".to_string(),
@@ -1033,6 +1148,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "MixQueryRequest".to_string(),
@@ -1042,6 +1158,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchMixQueriesRequest".to_string(),
@@ -1051,6 +1168,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ResolveMixQueryRequest".to_string(),
@@ -1060,6 +1178,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CastResolvedItemsRequest".to_string(),
@@ -1069,6 +1188,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemotePlaylistRevisionRequest".to_string(),
@@ -1078,6 +1198,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "LoadResolvedItemsRequest".to_string(),
@@ -1087,6 +1208,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "HandoffLoadRequest".to_string(),
@@ -1096,6 +1218,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::PlayerReads,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "TakeBackHandoffBlockRequest".to_string(),
@@ -1105,6 +1228,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CastPreflightRequest".to_string(),
@@ -1114,6 +1238,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RefreshSessionRequest".to_string(),
@@ -1123,6 +1248,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SessionSnapshotRequest".to_string(),
@@ -1132,6 +1258,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "PlaylistRevisionRequest".to_string(),
@@ -1141,6 +1268,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Like
         RequestResponse {
@@ -1151,6 +1279,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::Item,
         },
         RequestResponse {
             request: "GetLikedRequest".to_string(),
@@ -1160,6 +1289,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::Authorized,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::Item,
         },
         // Query and Search
         RequestResponse {
@@ -1170,6 +1300,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "SearchForRequest".to_string(),
@@ -1179,6 +1310,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Directory
         RequestResponse {
@@ -1189,6 +1321,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Scrobbler
         RequestResponse {
@@ -1199,6 +1332,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AuthenticateMultipleServiceRequest".to_string(),
@@ -1208,6 +1342,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "LogoutSingleServiceRequest".to_string(),
@@ -1217,6 +1352,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // Log
         RequestResponse {
@@ -1227,6 +1363,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ClearLogRequest".to_string(),
@@ -1236,6 +1373,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveLogRequest".to_string(),
@@ -1245,6 +1383,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         // System
         RequestResponse {
@@ -1255,6 +1394,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         // License
         RequestResponse {
@@ -1265,6 +1405,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ValidateLicenseRequest".to_string(),
@@ -1274,6 +1415,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         // Neighbors
         RequestResponse {
@@ -1284,6 +1426,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StopBroadcastRequest".to_string(),
@@ -1293,6 +1436,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StartListeningRequest".to_string(),
@@ -1302,6 +1446,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
@@ -1311,6 +1456,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
@@ -1320,6 +1466,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
@@ -1329,6 +1476,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
@@ -1338,6 +1486,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
@@ -1347,6 +1496,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ListPairedServersRequest".to_string(),
@@ -1356,6 +1506,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetOpenLibraryRequest".to_string(),
@@ -1365,6 +1516,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
@@ -1374,6 +1526,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
@@ -1383,6 +1536,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
@@ -1392,6 +1546,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
@@ -1401,6 +1556,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "EditHostsRequest".to_string(),
@@ -1410,6 +1566,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
@@ -1419,6 +1576,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
@@ -1428,6 +1586,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
@@ -1437,6 +1596,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "CheckDeviceOnServerRequest".to_string(),
@@ -1446,6 +1606,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
@@ -1455,6 +1616,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
@@ -1464,6 +1626,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "FetchRemoteFileRequest".to_string(),
@@ -1473,6 +1636,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
             request: "RemoveItemFromPlaylistRequest".to_string(),
@@ -1482,6 +1646,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             body_libraries: BodyLibraries::NoLibrary,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
         },
     ];
 
@@ -1620,12 +1785,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             RequestAccess::Administer => quote! { RequestAccess::Administer },
         };
         let body_libraries = body_libraries_tokens(entry.body_libraries);
+        let routed_by_item = entry.routing == RequestRouting::Item;
         quote! {
             impl TargetRequest for #request {
                 const SCOPE: RequestScope = #scope;
                 const ACCESS: RequestAccess = #access;
                 const BODY_LIBRARIES: BodyLibraries = #body_libraries;
                 const INTRODUCED_MINOR: u32 = #introduced_minor;
+                const ROUTED_BY_ITEM: bool = #routed_by_item;
 
                 fn slot(slots: &RequestSlots) -> Slot {
                     slots.#field
@@ -1691,6 +1858,14 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         let request = format_ident!("{}", entry.request);
         quote! { #field: node.request_slot::<#request>()?.into(), }
     });
+    let item_capability_fields = types
+        .iter()
+        .zip(&slot_fields)
+        .filter(|(entry, _)| entry.routing == RequestRouting::Item)
+        .map(|(entry, field)| {
+            let request = format_ident!("{}", entry.request);
+            quote! { #field: <#request as TargetRequest>::slot(slots).into(), }
+        });
     let scoped_slots = types
         .iter()
         .zip(&slot_fields)
@@ -1962,6 +2137,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         pub(crate) fn capability_snapshot(node: &NodeContext) -> Result<RequestCapabilities> {
             let (record_id, generation, library_id) = node.capability_library_identity()?;
             Ok(RequestCapabilities { record_id, generation, library_id: library_id.map(|id| id.to_string()), #(#capability_snapshot_fields)* })
+        }
+
+        /// What `item` supports of the requests routed by item, read from `slots`: the item
+        /// slots of the implementation of the library it belongs to.
+        pub(crate) fn item_capability_snapshot(item: Option<PlayingItemRef>, slots: &RequestSlots) -> PlayingItemCapabilities {
+            PlayingItemCapabilities { item, #(#item_capability_fields)* }
         }
 
         impl RequestCapabilities {

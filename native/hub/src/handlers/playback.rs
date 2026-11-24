@@ -17,14 +17,14 @@ use ::database::{
         stats::increase_skipped,
     },
     error::ExpectedError,
-    library_registry::LibraryRegistry,
+    library_registry::{LibraryRecordId, LibraryRegistry, ServiceKind},
     playing_item::{MediaFileHandle, dispatcher::PlayingItemActionDispatcher},
 };
 use ::playback::PlayerCommand;
 use ::playback::player::{
     HandoffBlockId as PlayerHandoffBlockId, LibraryItem, PausedPlayback, Playable, PlaybackSource,
     PlaybackState as PlayerPlaybackState, PlayerCommandError, PlayerStatus, PlayingItem,
-    PlaylistEdit, PlaylistLoad, PlaylistPlacement,
+    PlaylistEdit, PlaylistLoad, PlaylistPlacement, RemoteAudioError,
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
@@ -40,7 +40,7 @@ use crate::{
     session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, RESOLVED_TRACK_LIMIT, files_to_playback_request,
-        require_library, resolved_start,
+        require_library, resolved_start, service_binding_for_library,
     },
 };
 use anyhow::Error;
@@ -90,6 +90,108 @@ pub(crate) fn reject_remote_independent_item(
         .into());
     }
     Ok(())
+}
+
+/// The streaming service of the library that owns `item`, read from its registry record alone,
+/// so nothing is built or contacted. None for a local item. `open_library` is the local library
+/// the request came with, which holds its own items.
+pub(crate) fn item_service(
+    node: &NodeContext,
+    open_library: Option<&LibraryHandle>,
+    item: &PlayingItemRef,
+) -> Result<Option<ServiceKind>> {
+    let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
+        return Ok(None);
+    };
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    if open_library.is_some_and(|library| library.library_id == library_id) {
+        return Ok(None);
+    }
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    Ok(registry
+        .record(LibraryRecordId(library_id))
+        .ok()
+        .and_then(|record| record.protocol.service()))
+}
+
+/// The binding of the streaming service library that owns `item`, if one does. The open
+/// library and the binding of the open service library answer first; the registry is read only
+/// when neither holds the item's library, and `open_library` is the local library the request
+/// came with, which holds its own items.
+pub(crate) async fn item_service_binding(
+    node: &Arc<NodeContext>,
+    open_library: Option<&LibraryHandle>,
+    item: &PlayingItemRef,
+) -> Result<Option<Arc<dyn ServiceBinding>>> {
+    let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
+        return Ok(None);
+    };
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    if open_library.is_some_and(|library| library.library_id == library_id) {
+        return Ok(None);
+    }
+    if let Some(binding) = node.service_binding(library_id)? {
+        return Ok(Some(binding));
+    }
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    let is_service = registry
+        .record(LibraryRecordId(library_id))
+        .is_ok_and(|record| record.protocol.service().is_some());
+    if !is_service {
+        return Ok(None);
+    }
+    service_binding_for_library(node, library_id)
+        .await
+        .map(Some)
+        .map_err(|error| item_library_failure(error, library_id))
+}
+
+/// A failure to make the binding of an item's service library, as the request about the item
+/// fails with: a library whose service needs a new sign-in, or one out of reach. The player
+/// reads the same failure for how its tracks are unavailable; a request must not fail as
+/// internal for it.
+fn item_library_failure(error: Error, library_id: Uuid) -> Error {
+    let typed = match error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<RemoteAudioError>())
+    {
+        Some(RemoteAudioError::CredentialsRejected) => {
+            ExpectedRequestError::ServiceSignInRequired {
+                record_id: library_id.to_string(),
+            }
+        }
+        Some(_) => ExpectedRequestError::Unavailable {
+            what: "streaming library",
+        },
+        None => return error,
+    };
+    Error::new(typed).context(format!("{error:#}"))
+}
+
+/// What the handlers that route by item take: the open local library, the node and the pool.
+pub(crate) type ItemRoutingParams = (Option<LibraryHandle>, Arc<NodeContext>, Arc<LibraryPool>);
+
+/// The library a local item is read from: the open one, or, while a streaming library is
+/// open and so none is, the library the item names.
+pub(crate) async fn local_item_library(
+    open_library: Option<LibraryHandle>,
+    pool: &Arc<LibraryPool>,
+    item: &PlayingItemRef,
+) -> Result<LibraryHandle> {
+    if let Some(library) = open_library {
+        return Ok(library);
+    }
+    let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
+        return require_library(None);
+    };
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    pool.acquire_for_request(library_id).await
 }
 
 /// Convert many requests against one library with a single id lookup.

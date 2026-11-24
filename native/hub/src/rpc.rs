@@ -40,6 +40,9 @@ pub trait TargetRequest: TypedRequest {
     const ACCESS: RequestAccess;
     const BODY_LIBRARIES: BodyLibraries;
     const INTRODUCED_MINOR: u32;
+    /// Whether this device answers the request by the library of the item it names, whichever
+    /// library the UI has open.
+    const ROUTED_BY_ITEM: bool = false;
 
     fn slot(slots: &RequestSlots) -> Slot;
 
