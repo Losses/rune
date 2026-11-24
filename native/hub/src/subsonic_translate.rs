@@ -2236,7 +2236,7 @@ impl MixSource for SubsonicBinding {
         })
     }
 
-    fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
+    fn all_tracks(&self, limit: usize, fresh: bool) -> ServiceFuture<'_, Vec<String>> {
         Box::pin(async move {
             let kept = self
                 .catalog
@@ -2244,7 +2244,7 @@ impl MixSource for SubsonicBinding {
                 .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?
                 .all_songs
                 .clone()
-                .filter(|(read, asked, _)| read.elapsed() < LIST_TTL && limit <= *asked)
+                .filter(|(read, asked, _)| !fresh && read.elapsed() < LIST_TTL && limit <= *asked)
                 .map(|(_, _, keys)| keys);
             let keys = match kept {
                 Some(keys) => keys,
@@ -5655,6 +5655,33 @@ mod tests {
         .await;
         assert!(created.is_err());
         assert_eq!(server.broadcasts.load(Ordering::SeqCst), before + 1);
+    }
+
+    #[tokio::test]
+    async fn a_click_on_a_track_the_kept_song_list_lacks_reads_the_list_afresh() {
+        let root = TempDir::new().unwrap();
+        let (binding, _server) =
+            mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
+        let library = binding.library_id;
+        let click =
+            |track: &str| click_resolve(&[("lib::all", "true")], 2, library_track(library, track));
+        click("song-1").translate(&binding).await.unwrap().unwrap();
+        // The list kept from that resolve was read before the server added song-3.
+        {
+            let mut catalog = binding.catalog.lock().unwrap();
+            let (read, asked, _) = catalog.all_songs.clone().unwrap();
+            catalog.all_songs = Some((
+                read,
+                asked,
+                Arc::new(vec!["song-1".into(), "song-2".into(), "song-4".into()]),
+            ));
+        }
+        let resolved = click("song-3").translate(&binding).await.unwrap().unwrap();
+        assert_eq!(
+            resolved.playing_items,
+            library_tracks(library, &["song-1", "song-2", "song-3", "song-4"])
+        );
+        assert_eq!(resolved.start_index, Some(2));
     }
 
     fn assert_secret_free(value: &str) {
