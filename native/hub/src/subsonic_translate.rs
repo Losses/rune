@@ -5284,12 +5284,15 @@ mod tests {
         assert_eq!(without.start_index, Some(0));
         // A track the query does not hold starts the fallback items at the hint.
         let mut elsewhere = resolve(&binding, album, "elsewhere", &[]);
+        elsewhere
+            .fallback_playing_items
+            .push(track_ref(&binding, "fallback-2"));
         elsewhere.hint_position = 1;
         let missing = resolve_mix_query_request(&binding, &elsewhere)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(tracks(&missing), ["fallback"]);
+        assert_eq!(tracks(&missing), ["fallback", "fallback-2"]);
         assert_eq!(missing.start_index, Some(1));
         // Nothing to play: no index.
         let mut quiet = resolve(&binding, album, "song-2", &[]);
