@@ -17,6 +17,7 @@ String libraryRegistryFailureMessage(
   OpenLibraryFailureKind.storage => s.libraryStorageFailure,
   RegisterLibraryFailureKind.remoteNotAuthorized ||
   OpenLibraryFailureKind.remoteNotAuthorized => s.libraryRemoteNotAuthorized,
+  RegisterLibraryFailureKind.syncNotShared => s.libraryNotShared,
   RegisterLibraryFailureKind.remoteUnreachable ||
   OpenLibraryFailureKind.remoteUnreachable => s.libraryRemoteUnreachable,
   RegisterLibraryFailureKind.openDalAuthenticationRejected =>

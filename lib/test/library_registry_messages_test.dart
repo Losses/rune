@@ -16,4 +16,12 @@ void main() {
       s.libraryStorageFailure,
     );
   });
+
+  test('a replica without sync access says the library is not shared', () {
+    final s = AppLocalizationsEn();
+    expect(
+      libraryRegistryFailureMessage(s, RegisterLibraryFailureKind.syncNotShared),
+      s.libraryNotShared,
+    );
+  });
 }

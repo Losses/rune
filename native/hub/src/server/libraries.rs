@@ -26,8 +26,8 @@ use crate::backends::remote::{RemoteConnectError, token_error};
 use crate::handlers::neighbors::select_pinned_pair_host;
 use crate::library_pool::LibraryHandle;
 use crate::messages::{
-    CastLibraryState, ClientSummary, DeviceSyncLevel, PeerLibrary, RendererAvailability,
-    RendererCandidate,
+    CastLibraryState, ClientSummary, DeviceSyncLevel, PeerLibrary, RegisterLibraryFailureKind,
+    RendererAvailability, RendererCandidate,
 };
 use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
@@ -655,6 +655,14 @@ pub(crate) async fn add_remote_library(
     let library_id = Uuid::parse_str(library_id).map_err(|error| {
         ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
     })?;
+    // A replica holds the owner's database, so it needs at least pull access.
+    // A record without it could never open or synchronize.
+    if matches!(access_level, DeviceSyncLevel::None) {
+        return Err(ExpectedRequestError::LibraryRegistrationFailed {
+            kind: RegisterLibraryFailureKind::SyncNotShared,
+        }
+        .into());
+    }
     let descriptor =
         create_replica(config_dir, &mut registry, library_id, alias, fingerprint).await?;
     LibraryRegistry::set_access_level(

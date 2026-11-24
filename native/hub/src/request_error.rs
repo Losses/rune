@@ -148,6 +148,7 @@ fn registration_failure_kind(kind: RegisterLibraryFailureKind) -> RequestErrorKi
         Kind::Untrusted
         | Kind::RemoteUntrusted
         | Kind::RemoteNotAuthorized
+        | Kind::SyncNotShared
         | Kind::SubsonicWrongCredentials
         | Kind::SubsonicRoleMissing
         | Kind::OpenDalAuthenticationRejected
