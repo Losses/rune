@@ -180,6 +180,16 @@ class Queue extends StatefulWidget {
 class _QueueState extends State<Queue> {
   final ScrollController _scrollController = ScrollController();
   late final StreamSubscription<RequestFailure> _failureSubscription;
+  static const _revealAttempts = 8;
+  bool _revealScheduled = false;
+  // Held by the playing row only, so the reveal reaches it without searching.
+  // The reorderable list builds a dragged row's feedback, the placeholder it
+  // leaves and the gap it would drop into from the same widget, so a key that
+  // stayed on the row would be mounted three times once the row is dragged.
+  // The row therefore holds the key only while the reveal runs, a few frames
+  // after the flyout opens, and dragging is off until then.
+  final _currentRowKey = GlobalKey();
+  bool _revealing = false;
 
   @override
   void initState() {
@@ -205,6 +215,58 @@ class _QueueState extends State<Queue> {
     _failureSubscription.cancel();
   }
 
+  // Runs once, on the first build that identifies the playing row, so the row
+  // is in view when the flyout opens. A build before the playback status
+  // arrives has no playing row yet, so it must not use up the one run. The
+  // rows build lazily and may differ in height, so the list jumps to an
+  // estimate from the average row height, then the playing row, once built, is
+  // placed exactly.
+  void _revealCurrent(int index, int count) {
+    if (_revealScheduled || index < 0) return;
+    _revealScheduled = true;
+    if (index == 0) return;
+    _revealing = true;
+    _jumpTowardsCurrent(index, count, _revealAttempts);
+  }
+
+  // Runs [stage] at the end of a frame. A post-frame callback does not ask for
+  // a frame by itself, so one added after a frame was built, as every stage
+  // after the first is, would wait until something else changed on screen.
+  void _afterFrame(VoidCallback stage) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => stage());
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  // The estimate improves with every jump because the rows built on the way
+  // raise or lower the average, so a few jumps reach a row the first one missed.
+  void _jumpTowardsCurrent(int index, int count, int attemptsLeft) {
+    _afterFrame(() {
+      if (!mounted) return;
+      if (!_scrollController.hasClients) {
+        setState(() => _revealing = false);
+        return;
+      }
+      final position = _scrollController.position;
+      final rowExtent =
+          (position.maxScrollExtent + position.viewportDimension) / count;
+      position.jumpTo(
+        ((index - 2) * rowExtent).clamp(0.0, position.maxScrollExtent),
+      );
+      _afterFrame(() {
+        if (!mounted) return;
+        final rowContext = _currentRowKey.currentContext;
+        if (rowContext == null && attemptsLeft > 1) {
+          _jumpTowardsCurrent(index, count, attemptsLeft - 1);
+          return;
+        }
+        if (rowContext != null) {
+          Scrollable.ensureVisible(rowContext, alignment: 0.2);
+        }
+        setState(() => _revealing = false);
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Selector<PlaybackStatusProvider, (int?, PlayingItem?)>(
@@ -225,6 +287,17 @@ class _QueueState extends State<Queue> {
             );
             final canMove = moveCapability is RequestCapabilityAvailable;
 
+            if (playlistProvider.items.isNotEmpty) {
+              _revealCurrent(
+                playlistProvider.items.indexWhere(
+                  (x) =>
+                      playbackStatusProvider.$1 == x.index &&
+                      playbackStatusProvider.$2 == x.item,
+                ),
+                playlistProvider.items.length,
+              );
+            }
+
             return playlistProvider.items.isEmpty
                 ? ListTile.selectable(
                     key: const Key("disabled"),
@@ -238,6 +311,7 @@ class _QueueState extends State<Queue> {
                       if (canMove)
                         ReorderableSliverList(
                           onReorder: onReorder,
+                          enabled: !_revealing,
                           delegate: ReorderableSliverChildBuilderDelegate((
                             BuildContext context,
                             int index,
@@ -246,12 +320,15 @@ class _QueueState extends State<Queue> {
                             final isCurrent =
                                 playbackStatusProvider.$1 == x.index &&
                                 playbackStatusProvider.$2 == x.item;
-                            return PlaylistQueueItem(
+                            final row = PlaylistQueueItem(
                               key: ValueKey(x.entry.item),
                               entry: x,
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
+                            return isCurrent && _revealing
+                                ? KeyedSubtree(key: _currentRowKey, child: row)
+                                : row;
                           }, childCount: playlistProvider.items.length),
                         )
                       else
@@ -262,12 +339,15 @@ class _QueueState extends State<Queue> {
                             final isCurrent =
                                 playbackStatusProvider.$1 == x.index &&
                                 playbackStatusProvider.$2 == x.item;
-                            return PlaylistQueueItem(
+                            final row = PlaylistQueueItem(
                               key: ValueKey(x.entry.item),
                               entry: x,
                               isCurrent: isCurrent,
                               onPlay: () => playlistProvider.playItem(x.index),
                             );
+                            return isCurrent && _revealing
+                                ? KeyedSubtree(key: _currentRowKey, child: row)
+                                : row;
                           },
                         ),
                     ],
