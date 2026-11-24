@@ -21,6 +21,18 @@ class _ImageProxy extends ImageProxy {
   void dispose() {}
 }
 
+class _ServingProxy extends ImageProxy {
+  _ServingProxy(this.images) : super(manager: ImageMemoryManager());
+  final Map<String, ui.Image> images;
+  @override
+  ui.Image? getCachedImage(String path, int size) => null;
+  @override
+  Future<ui.Image> requestImage(String path, int size) =>
+      Future.value(images[path]);
+  @override
+  void dispose() {}
+}
+
 Future<ui.Image> _image() async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
@@ -113,4 +125,68 @@ void main() {
     );
     expect(painter(3).shouldRepaint(painter(2)), isTrue);
   });
+
+  testWidgets(
+    'no two cells show the same cover over several rounds of flipping',
+    (tester) async {
+      // Four cells and six covers, so two covers are free to turn to.
+      final paths = ['a', 'b', 'c', 'd', 'e', 'f'];
+      await tester.runAsync(() async {
+        final images = {for (final path in paths) path: await _image()};
+        final pathOf = {
+          for (final entry in images.entries) entry.value: entry.key,
+        };
+        await tester.pumpWidget(
+          FluentApp(
+            home: Center(
+              child: SizedBox(
+                width: 100,
+                height: 100,
+                child: FastFlipCoverGrid(
+                  paths: paths,
+                  size: 100,
+                  name: 'card',
+                  colors: [Colors.red],
+                  speed: 50,
+                  imageProxy: _ServingProxy(images),
+                ),
+              ),
+            ),
+          ),
+        );
+        final painter =
+            tester
+                    .widget<CustomPaint>(
+                      find.descendant(
+                        of: find.byType(FastFlipCoverGrid),
+                        matching: find.byType(CustomPaint),
+                      ),
+                    )
+                    .painter!
+                as FlipGridPainter;
+        expect(painter.gridCount, 2);
+
+        // The timer and the flip run on the wall clock, so each round waits.
+        for (var round = 0; round < 6; round += 1) {
+          await Future<void>.delayed(const Duration(seconds: flipInterval + 1));
+          for (var frame = 0; frame < 10; frame += 1) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+            await tester.pump();
+          }
+          final shown = [for (final image in painter.images) pathOf[image]];
+          expect(shown, everyElement(isNotNull));
+          expect(
+            shown.toSet().length,
+            shown.length,
+            reason: 'after round $round the cells show $shown',
+          );
+        }
+        await tester.pumpWidget(const SizedBox());
+        for (final image in images.values) {
+          image.dispose();
+        }
+      });
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
