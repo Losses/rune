@@ -90,6 +90,9 @@ class FileDialogWindowState extends State<FileDialogWindow> {
   final _navigator = GlobalKey<NavigatorState>();
   BuildContext? _pageContext;
 
+  /// Hands the menus the dialog opens their routes.
+  final _flyoutRoutes = FlyoutRouteObserver();
+
   /// The navigation pane's width when its edge started being dragged.
   double _paneAtDragStart = 0;
 
@@ -513,6 +516,7 @@ class FileDialogWindowState extends State<FileDialogWindow> {
                           : constraints.minHeight,
                       child: Navigator(
                         key: _navigator,
+                        observers: [_flyoutRoutes],
                         onGenerateRoute: (settings) => PageRouteBuilder<void>(
                           settings: settings,
                           opaque: false,

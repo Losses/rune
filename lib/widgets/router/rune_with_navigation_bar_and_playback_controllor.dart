@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/routes.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/router/router_animation.dart';
 
 import '../../providers/visualizer_lab.dart';
@@ -35,6 +36,9 @@ final runeWithNavigationBarAndPlaybackControllorNavigatorKey =
 
 class RuneWithNavigationBarAndPlaybackControllorState
     extends State<RuneWithNavigationBarAndPlaybackControllor> {
+  /// Hands the menus shown on the library's pages their routes.
+  final _flyoutRoutes = FlyoutRouteObserver();
+
   @override
   void initState() {
     super.initState();
@@ -55,7 +59,7 @@ class RuneWithNavigationBarAndPlaybackControllorState
             key: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
             initialRoute: widget.routeName,
             onGenerateRoute: _onGenerateRoute,
-            observers: [routerAnimationObserver],
+            observers: [routerAnimationObserver, _flyoutRoutes],
           ),
         ),
       ),

@@ -121,7 +121,7 @@ Future<void> _pumpApp(WidgetTester tester, String initial) async {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         navigatorKey: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
-        navigatorObservers: [routerAnimationObserver],
+        navigatorObservers: [routerAnimationObserver, FlyoutRouteObserver()],
         onGenerateRoute: _route,
         initialRoute: '/library',
         // The flip animation of the titles draws in an overlay above the bar.

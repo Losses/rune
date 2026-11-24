@@ -4,41 +4,58 @@ import 'package:flutter/gestures.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'history.dart';
-import 'navigation.dart';
 import 'context_menu_route_entry.dart';
 
-/// A flyout a [RouterAwareFlyoutController] has open: its entry in the
-/// navigation history and the route it is shown on, which its own [settings]
-/// tell from any other route.
-class _OpenFlyout {
-  _OpenFlyout(this._navigator, RouteSettings? settings) : _given = settings;
+/// Hands each flyout of a [RouterAwareFlyoutController] the route it is shown
+/// on as the route is pushed, so the flyout can close its own route before it
+/// is built and after other routes are pushed over it.
+///
+/// Every navigator that shows these flyouts needs one. An observer watches one
+/// navigator at a time, so each navigator has its own.
+class FlyoutRouteObserver extends NavigatorObserver {
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final settings = route.settings;
+    if (settings is _FlyoutSettings && route is ModalRoute) {
+      settings.flyout._route = route;
+    }
+  }
+}
 
-  /// The navigator the flyout was asked to be shown on, if any.
-  final NavigatorState? _navigator;
+/// The settings a flyout's route is pushed with. They are the flyout's own, so
+/// they tell [FlyoutRouteObserver] which flyout the route belongs to.
+class _FlyoutSettings extends RouteSettings {
+  _FlyoutSettings(this.flyout, RouteSettings settings)
+    : super(name: settings.name, arguments: settings.arguments);
+
+  final _OpenFlyout flyout;
+}
+
+/// A flyout a [RouterAwareFlyoutController] has open: its entry in the
+/// navigation history and the route it is shown on.
+class _OpenFlyout {
+  _OpenFlyout(this._given);
 
   final RouteSettings? _given;
 
   late final entry = ContextMenuRouteEntry(name: 'flyout', pop: close);
 
-  late final RouteSettings settings =
-      _given ?? RouteSettings(name: 'flyout', arguments: entry);
+  late final RouteSettings settings = _FlyoutSettings(
+    this,
+    _given ?? RouteSettings(name: 'flyout', arguments: entry),
+  );
 
+  /// The route the flyout is shown on, from the moment it is pushed. A flyout
+  /// shown on a navigator without a [FlyoutRouteObserver] has none.
   ModalRoute<dynamic>? _route;
-
-  /// Whether the flyout was closed before its route could be found.
-  bool _closeWhenShown = false;
 
   /// Closes the flyout's own route if it is still open: with its exit
   /// transition when it is the top route, and at once from under the routes
   /// above it otherwise. A route already on its way out, or gone, is left
   /// alone, so the route under a closing flyout is never popped in its place.
   void close() {
-    final route = _route ??= _pushed();
-    if (route == null) {
-      _closeWhenShown = true;
-      return;
-    }
-    if (!route.isActive) return;
+    final route = _route;
+    if (route == null || !route.isActive) return;
     final navigator = route.navigator!;
     if (route.isCurrent) {
       navigator.pop();
@@ -46,63 +63,6 @@ class _OpenFlyout {
       navigator.removeRoute(route);
     }
   }
-
-  /// The flyout's route while it is pushed and not yet built, when nothing
-  /// was pushed over it since. A navigator tells its top route only to
-  /// [NavigatorState.popUntil], which pops nothing when it accepts the first
-  /// route it is asked about.
-  ModalRoute<dynamic>? _pushed() {
-    final asked = _navigator;
-    final navigators = [
-      if (asked != null) asked,
-      if ($hasLibraryNavigator) $state(),
-      if ($$hasRootNavigator) $$state(),
-    ];
-    for (final navigator in navigators) {
-      ModalRoute<dynamic>? top;
-      navigator.popUntil((route) {
-        if (route is ModalRoute && identical(route.settings, settings)) {
-          top = route;
-        }
-        return true;
-      });
-      if (top != null) return top;
-    }
-    return null;
-  }
-
-  void _shown(ModalRoute<dynamic> route) {
-    if (_route != null) return;
-    _route = route;
-    // The navigator does not change while it builds.
-    if (_closeWhenShown) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => close());
-    }
-  }
-}
-
-/// Tells [onRoute] the route its flyout is shown on. Only this widget depends
-/// on the route, so the flyout is not built again when the route changes.
-class _RouteProbe extends StatefulWidget {
-  const _RouteProbe({required this.onRoute, required this.child});
-
-  final void Function(ModalRoute<dynamic> route) onRoute;
-  final Widget child;
-
-  @override
-  State<_RouteProbe> createState() => _RouteProbeState();
-}
-
-class _RouteProbeState extends State<_RouteProbe> {
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (route != null) widget.onRoute(route);
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }
 
 /// A wrapper around [FlyoutController] that integrates with the application's
@@ -131,7 +91,9 @@ class RouterAwareFlyoutController {
   /// the controller can be gone by then. Nothing is shown in that case.
   ///
   /// The flyout's entry in the history closes the flyout's own route, and
-  /// leaves the history when the flyout is closed, however that happens.
+  /// leaves the history when the flyout is closed, however that happens. The
+  /// route comes from the [FlyoutRouteObserver] of the navigator the flyout is
+  /// shown on.
   Future<T?> showFlyout<T>({
     required WidgetBuilder builder,
     bool barrierDismissible = true,
@@ -155,24 +117,17 @@ class RouterAwareFlyoutController {
 
     // The entry is registered before the flyout is shown, so that a page
     // pushed meanwhile closes it.
-    final flyout = _OpenFlyout(navigatorKey, settings);
+    final flyout = _OpenFlyout(settings);
     _flyouts.add(flyout);
     $history.pushContextMenu(flyout.entry);
 
     try {
       return await _controller.showFlyout<T>(
         builder: (context) {
-          if (_disposed) {
-            // The owner can disappear before the flyout's first build. The
-            // route is still told, as a route pushed over it hides it from
-            // close.
-            scheduleMicrotask(flyout.close);
-            return _RouteProbe(
-              onRoute: flyout._shown,
-              child: const SizedBox.shrink(),
-            );
-          }
-          return _RouteProbe(onRoute: flyout._shown, child: builder(context));
+          // The owner can disappear before the flyout's first build, and its
+          // dispose has already asked for the route to be closed.
+          if (_disposed) return const SizedBox.shrink();
+          return builder(context);
         },
         barrierDismissible: barrierDismissible,
         dismissWithEsc: dismissWithEsc,

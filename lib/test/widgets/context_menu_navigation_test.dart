@@ -265,7 +265,11 @@ Future<void> _pumpApp(WidgetTester tester) async {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         navigatorKey: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
-        navigatorObservers: [routerAnimationObserver, _routes],
+        navigatorObservers: [
+          routerAnimationObserver,
+          FlyoutRouteObserver(),
+          _routes,
+        ],
         onGenerateRoute: _route,
         onGenerateInitialRoutes: (name) => [_route(RouteSettings(name: name))],
         initialRoute: '/library',

@@ -12,6 +12,7 @@ import '../../providers/playlist.dart';
 import '../../providers/request_capabilities.dart';
 import '../../providers/status.dart';
 import '../../utils/router/history.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../widgets/playback_controller/queue.dart';
 import '../../widgets/playback_controller/queue_button.dart';
@@ -69,6 +70,7 @@ void _testQueueDismissal(_Dismissal dismissal) {
         ],
         child: FluentApp(
           navigatorKey: runeWithNavigationBarAndPlaybackControllorNavigatorKey,
+          navigatorObservers: [FlyoutRouteObserver()],
           locale: const Locale('en'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
