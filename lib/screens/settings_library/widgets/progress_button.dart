@@ -19,7 +19,7 @@ class ProgressButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final child = Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.max,
+      mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           width: 16,
