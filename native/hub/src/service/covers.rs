@@ -596,6 +596,7 @@ mod tests {
         CoverCacheLimits, CoverSource, MAX_WAITING_SCHEDULED, ServiceCoverCache, cover_cache_root,
         delete_service_cover_cache, evict_cover_cache,
     };
+    use crate::test_wait::wait_until;
     use crate::utils::{Broadcaster, RinfRustSignal};
 
     /// A source that notes which covers it was asked for, in order, and finishes one only when
@@ -647,15 +648,34 @@ mod tests {
         }
     }
 
-    /// Waits for the condition, which the cache's tasks make true in time.
-    async fn until(mut condition: impl FnMut() -> bool) {
-        for _ in 0..500 {
-            if condition() {
-                return;
-            }
-            tokio_time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("the condition never held");
+    /// Waits until the cache's tasks make `condition` true.
+    async fn until(what: &str, mut condition: impl FnMut() -> bool) {
+        wait_until(what, || {
+            let holds = condition();
+            async move { Ok(holds.then_some(())) }
+        })
+        .await
+        .unwrap();
+    }
+
+    /// Whether `cover_id` waits in the download queue, and whether a request waits for it.
+    fn in_line(cache: &ServiceCoverCache, cover_id: &str) -> Option<bool> {
+        cache
+            .downloads
+            .lock()
+            .waiting
+            .iter()
+            .find(|waiting| waiting.cover_id == cover_id)
+            .map(|waiting| waiting.awaited.load(Ordering::SeqCst))
+    }
+
+    /// How many times a download took a place in the queue's line.
+    fn places_taken(cache: &ServiceCoverCache) -> u64 {
+        cache.downloads.lock().next_order
+    }
+
+    fn pending(cache: &ServiceCoverCache) -> usize {
+        cache.pending.lock().unwrap().len()
     }
 
     fn cache_in(root: &TempDir) -> Arc<ServiceCoverCache> {
@@ -670,7 +690,13 @@ mod tests {
         for index in 0..4 {
             cache.schedule(Arc::clone(source), format!("running-{index}"));
         }
-        until(|| source.started().len() == 4).await;
+        until("the four turns to be taken", || source.started().len() == 4).await;
+    }
+
+    /// Schedules `cover_id` and waits until it is in line.
+    async fn schedule_in_line(cache: &Arc<ServiceCoverCache>, source: &Arc<Gated>, cover_id: &str) {
+        cache.schedule(Arc::clone(source), cover_id.to_owned());
+        until(cover_id, || in_line(cache, cover_id) == Some(false)).await;
     }
 
     #[tokio::test]
@@ -680,16 +706,14 @@ mod tests {
         let source = Gated::new();
         fill_turns(&cache, &source).await;
         for index in 0..5 {
-            cache.schedule(Arc::clone(&source), format!("page-{index}"));
-            // Each is in line before the next is requested.
-            tokio_time::sleep(Duration::from_millis(20)).await;
+            schedule_in_line(&cache, &source, &format!("page-{index}")).await;
         }
         for (done, expected) in ["page-4", "page-3", "page-2", "page-1", "page-0"]
             .into_iter()
             .enumerate()
         {
             source.finish(1);
-            until(|| source.started().len() == 5 + done).await;
+            until(expected, || source.started().len() == 5 + done).await;
             assert_eq!(source.started().last().map(String::as_str), Some(expected));
         }
     }
@@ -700,26 +724,27 @@ mod tests {
         let cache = cache_in(&root);
         let source = Gated::new();
         fill_turns(&cache, &source).await;
-        cache.schedule(Arc::clone(&source), "scheduled-old".to_owned());
-        tokio_time::sleep(Duration::from_millis(20)).await;
+        schedule_in_line(&cache, &source, "scheduled-old").await;
         let playing = tokio::spawn({
             let (cache, source) = (cache.clone(), source.clone());
             async move { cache.ensure_cached(source, "playing").await }
         });
-        tokio_time::sleep(Duration::from_millis(20)).await;
-        cache.schedule(Arc::clone(&source), "scheduled-new".to_owned());
-        tokio_time::sleep(Duration::from_millis(20)).await;
+        until("playing", || in_line(&cache, "playing") == Some(true)).await;
+        schedule_in_line(&cache, &source, "scheduled-new").await;
         source.finish(1);
-        until(|| source.started().len() == 5).await;
+        until("the fifth download", || source.started().len() == 5).await;
         assert_eq!(source.started()[4], "playing");
         // A scheduled cover that a request then waits for is awaited from then on.
         let late = tokio::spawn({
             let (cache, source) = (cache.clone(), source.clone());
             async move { cache.ensure_cached(source, "scheduled-old").await }
         });
-        tokio_time::sleep(Duration::from_millis(20)).await;
+        until("scheduled-old awaited", || {
+            in_line(&cache, "scheduled-old") == Some(true)
+        })
+        .await;
         source.finish(1);
-        until(|| source.started().len() == 6).await;
+        until("the sixth download", || source.started().len() == 6).await;
         assert_eq!(source.started()[5], "scheduled-old");
         source.finish(100);
         assert!(playing.await.unwrap().unwrap().is_some());
@@ -732,16 +757,18 @@ mod tests {
         let cache = cache_in(&root);
         let source = Gated::new();
         fill_turns(&cache, &source).await;
-        let pending = || cache.pending.lock().unwrap().len();
-        for index in 0..MAX_WAITING_SCHEDULED + 3 {
+        let pages = MAX_WAITING_SCHEDULED + 3;
+        for index in 0..pages {
             cache.schedule(Arc::clone(&source), format!("page-{index}"));
         }
-        // Three give up their places and are no longer pending. Which they are depends on the
+        // Every page took a place in line, so every page was pending, and the three that came
+        // first gave their places up and are pending no more. Which they are depends on the
         // order the downloads reached the queue in, so only their number is known.
-        until(|| pending() == 4 + MAX_WAITING_SCHEDULED).await;
-        tokio_time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(pending(), 4 + MAX_WAITING_SCHEDULED);
-        let dropped: Vec<String> = (0..MAX_WAITING_SCHEDULED + 3)
+        until("every page in line and three dropped", || {
+            places_taken(&cache) == pages as u64 && pending(&cache) == 4 + MAX_WAITING_SCHEDULED
+        })
+        .await;
+        let dropped: Vec<String> = (0..pages)
             .map(|index| format!("page-{index}"))
             .filter(|id| !cache.pending.lock().unwrap().contains_key(id))
             .collect();
@@ -759,22 +786,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_awaited_cover_whose_wait_was_dropped_is_asked_again() {
+    async fn a_cover_a_request_waits_for_is_not_dropped_beyond_the_bound() {
         let root = TempDir::new().unwrap();
         let cache = cache_in(&root);
         let source = Gated::new();
         fill_turns(&cache, &source).await;
-        cache.schedule(Arc::clone(&source), "first".to_owned());
-        tokio_time::sleep(Duration::from_millis(20)).await;
-        for index in 0..MAX_WAITING_SCHEDULED {
-            cache.schedule(Arc::clone(&source), format!("page-{index}"));
-        }
-        // "first" was the oldest, so it was dropped. Asking for it waits for a download anyway.
-        until(|| !cache.pending.lock().unwrap().contains_key("first")).await;
+        schedule_in_line(&cache, &source, "first").await;
         let asked = tokio::spawn({
             let (cache, source) = (cache.clone(), source.clone());
             async move { cache.ensure_cached(source, "first").await }
         });
+        until("first awaited", || in_line(&cache, "first") == Some(true)).await;
+        let taken = places_taken(&cache);
+        // One more scheduled cover than the bound allows: the oldest scheduled one gives its
+        // place up, not the cover that was scheduled first but is waited for now.
+        let pages = MAX_WAITING_SCHEDULED + 1;
+        for index in 0..pages {
+            cache.schedule(Arc::clone(&source), format!("page-{index}"));
+        }
+        until("every page in line and one dropped", || {
+            places_taken(&cache) == taken + pages as u64
+                && pending(&cache) == 4 + 1 + MAX_WAITING_SCHEDULED
+        })
+        .await;
+        assert_eq!(in_line(&cache, "first"), Some(true));
         source.finish(10_000);
         assert!(asked.await.unwrap().unwrap().is_some());
     }
