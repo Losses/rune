@@ -86,6 +86,10 @@ pub(crate) trait HomeSource: Send + Sync {
     /// tracks, and the group is that sample.
     fn tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>>;
 
+    /// The `limit` newest tracks, newest first, chosen from every track rather than from the
+    /// ones `tracks` gives.
+    fn newest_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>>;
+
     /// The tracks the user likes.
     fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>>;
 
@@ -220,6 +224,12 @@ async fn group_entries(
         }
         LibraryHomeQuery::Playlists(mode) => {
             collection_entries(source, CollectionType::Playlist, "lib::playlist", mode).await
+        }
+        // The newest tracks are chosen before the group is cut, as the first ones reversed
+        // would leave out every track past them.
+        LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse) => {
+            let newest = source.newest_tracks(GROUP_LIMIT).await?;
+            track_entries(source, newest, LibraryHomeListMode::Forward).await
         }
         LibraryHomeQuery::Tracks(mode) => {
             // A local library lists tracks by name in the order they were added.
@@ -366,6 +376,10 @@ mod tests {
         }
 
         fn tracks(&self, _: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn newest_tracks(&self, _: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
             Box::pin(async { Ok(Vec::new()) })
         }
 

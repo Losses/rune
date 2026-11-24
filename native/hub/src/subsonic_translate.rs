@@ -2499,6 +2499,29 @@ impl HomeSource for SubsonicBinding {
         })
     }
 
+    fn newest_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async move {
+            // The server lists its newest albums, not its newest songs, so the newest tracks are
+            // those of the newest albums, each album's in its own order. An album holds a track
+            // at least, so `limit` albums are enough.
+            let mut songs = Vec::new();
+            let mut listed = HashSet::new();
+            for album in newest_albums(self, limit).await? {
+                if songs.len() >= limit {
+                    break;
+                }
+                let album_songs = detail_songs(self, DetailQuery::Album(album.id)).await?;
+                songs.extend(
+                    album_songs
+                        .into_iter()
+                        .filter(|song| listed.insert(song.id.clone())),
+                );
+            }
+            songs.truncate(limit);
+            song_tracks(self, songs)
+        })
+    }
+
     fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>> {
         Box::pin(async move {
             let songs = self
@@ -3302,6 +3325,18 @@ mod tests {
                     );
                 }
                 serde_json::json!({"searchResult3":search})
+            }
+            // A newer album holds one track of its own.
+            "getAlbum"
+                if query
+                    .get("id")
+                    .is_some_and(|id| id.starts_with("album-new-")) =>
+            {
+                let id = &query["id"];
+                serde_json::json!({"album":{
+                    "id":id,"name":id,"artist":"Artist","artistId":"artist-1",
+                    "song":[mock_song(&format!("{id}-track"))]
+                }})
             }
             "getAlbum" => {
                 // Out of order, and a later disc's first track has the lower track number.
@@ -5526,7 +5561,7 @@ mod tests {
             &ComplexQueryRequest {
                 queries: vec![ComplexQuery {
                     title: "Tracks".into(),
-                    query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
+                    query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
                 }],
                 call_id: None,
             },
@@ -5534,25 +5569,25 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        // The newest first: the sample is listed oldest first and reversed.
+        // The oldest first: the sample as the server lists it.
         let entries = &home.result[0].entries;
         assert_eq!(
             entries
                 .iter()
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),
-            ["song-4", "song-3", "song-2", "song-1"]
+            ["song-1", "song-2", "song-3", "song-4"]
         );
         let resolved = resolve_mix_query_request(
             &binding,
-            &resolve_queries(&binding, entries[1].queries.clone(), "song-3", &[]),
+            &resolve_queries(&binding, entries[1].queries.clone(), "song-2", &[]),
         )
         .await
         .unwrap()
         .unwrap();
         assert_eq!(
             keys(&resolved.playing_items),
-            ["song-3", "song-2", "song-1", "song-4"]
+            ["song-2", "song-3", "song-4", "song-1"]
         );
         assert_eq!(resolved.start_index, Some(0));
         // Ids no one gave, and repeats, name no track.
@@ -5565,14 +5600,14 @@ mod tests {
                     query("lib::track", "9999"),
                     query("lib::track", &entries[0].id.to_string()),
                 ],
-                "song-4",
+                "song-1",
                 &[],
             ),
         )
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(keys(&odd.playing_items), ["song-4"]);
+        assert_eq!(keys(&odd.playing_items), ["song-1"]);
     }
 
     #[tokio::test]
@@ -5909,6 +5944,36 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["song-2", "song-3", "song-4"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_newest_tracks_on_the_home_are_the_tracks_of_the_newest_albums() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.newer_albums.store(30, Ordering::SeqCst);
+        let home = complex_query_request(
+            &binding,
+            &ComplexQueryRequest {
+                queries: vec![ComplexQuery {
+                    title: "Tracks".into(),
+                    query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
+                }],
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let names: Vec<_> = home.result[0]
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        let newest: Vec<_> = (6..=30)
+            .rev()
+            .map(|n| format!("album-new-{n}-track"))
+            .collect();
+        assert_eq!(names, newest);
     }
 
     #[tokio::test]
