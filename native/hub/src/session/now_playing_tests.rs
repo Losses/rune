@@ -97,6 +97,25 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
     Ok(())
 }
 
+/// The system shows progress against the metadata it was last given, so the progress of an item
+/// not named yet waits for its name, which would otherwise go out against the item before. A stop
+/// names no item and goes out at once.
+#[test]
+fn the_progress_of_an_item_waits_for_its_name() {
+    use PlaybackState::{Paused, Playing, Stopped};
+
+    let item = PlayingItem::LibraryTrack {
+        library_id: Uuid::new_v4(),
+        track: "slow".to_owned(),
+    };
+    assert!(progress_goes_out(Some(&item), true, &Playing));
+    assert!(progress_goes_out(Some(&item), true, &Paused));
+    assert!(!progress_goes_out(Some(&item), false, &Playing));
+    assert!(!progress_goes_out(Some(&item), false, &Paused));
+    assert!(progress_goes_out(Some(&item), false, &Stopped));
+    assert!(progress_goes_out(None, false, &Stopped));
+}
+
 /// A service that names the track `slow` only after `delay`, and any other at once, and holds the
 /// names from then on.
 struct SlowService {

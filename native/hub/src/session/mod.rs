@@ -1208,7 +1208,9 @@ async fn handle_status_event(
         item_request,
         session_id,
     );
-    if let Some(manager) = controls {
+    if let Some(manager) = controls
+        && progress_goes_out(value.item.as_ref(), item_state.metadata_found, &value.state)
+    {
         let _ = update_media_controls_progress(manager.clone(), &report).await;
     }
     broadcaster.broadcast(&report);
@@ -1302,6 +1304,18 @@ async fn handle_status_event(
             }
         });
     }
+}
+
+/// Whether the progress of a status goes to the system's Now Playing, which shows it against the
+/// metadata it was last given. The progress of an item whose metadata was not found waits until it
+/// is, as when a slow service names its track late: it would go out against the item before. A
+/// stop names no item, so it goes out at once.
+fn progress_goes_out(
+    item: Option<&PlayingItem>,
+    metadata_found: bool,
+    state: &PlaybackState,
+) -> bool {
+    item.is_none() || metadata_found || *state == PlaybackState::Stopped
 }
 
 fn playing_item_ref(item: &PlayingItem) -> Option<PlayingItemRef> {
