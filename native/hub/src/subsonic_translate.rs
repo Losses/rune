@@ -345,9 +345,11 @@ pub(crate) async fn create_playlist_request(
             expected: "created Subsonic playlist".into(),
             actual: "no matching playlist returned".into(),
         })?;
+    let id = playlist_id(binding, &created.id)?;
+    playlist_entries_changed(binding);
     Ok(Some(CreatePlaylistResponse {
         playlist: Playlist {
-            id: playlist_id(binding, &created.id)?,
+            id,
             name: created.name,
             group: String::new(),
         },
@@ -365,6 +367,7 @@ pub(crate) async fn update_playlist_request(
         .update_playlist(&remote_id, Some(&request.name), &[], &[])
         .await
         .map_err(|error| subsonic_request_error(binding, error))?;
+    playlist_entries_changed(binding);
     Ok(Some(UpdatePlaylistResponse {
         playlist: Playlist {
             id: request.playlist_id,
@@ -385,6 +388,7 @@ pub(crate) async fn remove_playlist_request(
         .delete_playlist(&remote_id)
         .await
         .map_err(|error| subsonic_request_error(binding, error))?;
+    playlist_entries_changed(binding);
     Ok(Some(RemovePlaylistResponse {
         playlist_id: request.playlist_id,
         call_id: None,
@@ -444,10 +448,11 @@ pub(crate) async fn add_item_to_playlist_request(
     }))
 }
 
-/// Tells open listings that a playlist's entries moved, so they list it again rather than
-/// page or edit with occurrences of the old order. Subsonic names entries only by their order,
-/// so an occurrence is a position together with the fingerprint of the order it was listed in
-/// (see `positional_occurrences`).
+/// Tells open listings that the playlists or a playlist's entries changed, as a local library
+/// does: the playlists page shows the change, and a listing of the entries lists them again
+/// rather than page or edit with occurrences of the old order. Subsonic names entries only by
+/// their order, so an occurrence is a position together with the fingerprint of the order it
+/// was listed in (see `positional_occurrences`).
 fn playlist_entries_changed(binding: &SubsonicBinding) {
     binding
         .covers
@@ -5583,6 +5588,51 @@ mod tests {
         assert_eq!(tracks(second), ["song-3"]);
         assert_eq!(endpoint_count(&server, "search3"), reads);
         assert_eq!(endpoint_count(&server, "getRandomSongs"), 0);
+    }
+
+    #[tokio::test]
+    async fn subsonic_playlist_writes_announce_the_change() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        let announced = || server.broadcasts.load(Ordering::SeqCst);
+        let before = announced();
+        let created = create_playlist_request(
+            &binding,
+            &CreatePlaylistRequest {
+                name: "Fresh".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .playlist
+        .id;
+        assert_eq!(announced(), before + 1);
+        update_playlist_request(
+            &binding,
+            &UpdatePlaylistRequest {
+                playlist_id: created,
+                name: "Renamed".into(),
+                group: String::new(),
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(announced(), before + 2);
+        remove_playlist_request(
+            &binding,
+            &RemovePlaylistRequest {
+                playlist_id: created,
+                call_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(announced(), before + 3);
+        assert!(!playlist_ids(&binding).await.contains_key("Renamed"));
     }
 
     fn assert_secret_free(value: &str) {
