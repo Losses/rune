@@ -1,8 +1,9 @@
 use crate::{
     macros::RequestSlots,
     messages::{
-        PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
-        RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
+        LibraryContentChanged, PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef,
+        PlaylistItem, PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
+        SetRealtimeFFTEnabledRequest,
     },
     node::ReconnectConfig,
     service::{
@@ -10,6 +11,7 @@ use crate::{
         covers::{CoverSource, ServiceCoverCache, cover_cache_root},
         folder::prepare_service_library_folder,
         ids::RemoteIdMap,
+        lists::{KeptList, ListSpec, ServiceLists, lists_folder},
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
@@ -18,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -28,7 +30,7 @@ use anyhow::Result;
 use database::credentials::Credential;
 use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
-use futures::{SinkExt, StreamExt, future::BoxFuture};
+use futures::{FutureExt, SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
     RemoteAudioSource, UnavailableReason,
@@ -40,9 +42,13 @@ use subsonic::{
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
-use crate::subsonic_translate::jukebox_error_for_refresh;
+use crate::subsonic_translate::{
+    jukebox_error_for_refresh, read_albums_by_name, read_newest_albums, read_song_list,
+};
 use anyhow::Error;
 use reqwest::header;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::iter;
 use std::sync as std_sync;
 use subsonic::StreamError;
@@ -62,15 +68,41 @@ pub(crate) enum SubsonicIdKind {
 /// How many fetched songs a binding keeps at most.
 const MAX_FETCHED_SONGS: usize = 2000;
 
-/// How long a list read from the server is kept for paging and for the home.
-pub(crate) const LIST_TTL: Duration = Duration::from_secs(60);
+/// How long a list read from the server stays current. Past it, the kept list is still given, and
+/// read again in the background.
+const LIST_TTL: Duration = Duration::from_secs(60);
+
+/// The first songs of the song list, at most `mixes::MAX_COVER_POOL`, each once.
+const SONGS: ListSpec = ListSpec {
+    name: "songs",
+    max_age: LIST_TTL,
+};
+
+/// Every album, by name.
+const ALBUMS: ListSpec = ListSpec {
+    name: "albums",
+    max_age: LIST_TTL,
+};
+
+/// Every album, newest added first.
+const NEWEST_ALBUMS: ListSpec = ListSpec {
+    name: "newest-albums",
+    max_age: LIST_TTL,
+};
+
+/// Every artist, in the order the server lists them.
+const ARTISTS: ListSpec = ListSpec {
+    name: "artists",
+    max_age: LIST_TTL,
+};
 
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
     pub(crate) client: Arc<SubsonicClient>,
     pub(crate) probe: subsonic::SubsonicProbe,
-    pub(crate) catalog: Mutex<SubsonicCatalog>,
+    pub(crate) catalog: Arc<Mutex<SubsonicCatalog>>,
+    pub(crate) lists: SubsonicLists,
     pub(crate) covers: Arc<ServiceCoverCache>,
     jukebox_poll: Mutex<Option<CancellationToken>>,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
@@ -389,15 +421,143 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) artists: HashMap<i32, SubsonicArtist>,
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
-    pub(crate) artists_loaded: bool,
-    /// The ids of the artists in the order the server lists them, once they are loaded.
-    pub(crate) artist_order: Vec<i32>,
-    pub(crate) albums_loaded: bool,
-    /// The ids of the first songs of the whole song list, as read to keep only those with a
-    /// cover, and when.
-    pub(crate) song_pool: Option<(Instant, Arc<Vec<i32>>)>,
-    /// The ids of every album, oldest added first, and when they were read.
-    pub(crate) albums_by_addition: Option<(Instant, Arc<Vec<i32>>)>,
+}
+
+impl SubsonicCatalog {
+    fn keep_songs(&mut self, songs: &[SubsonicSong]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.songs,
+            SubsonicIdKind::Track,
+            songs,
+            |song| song.id.as_str(),
+        );
+    }
+
+    fn keep_albums(&mut self, albums: &[SubsonicAlbum]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.albums,
+            SubsonicIdKind::Album,
+            albums,
+            |album| album.id.as_str(),
+        );
+    }
+
+    fn keep_artists(&mut self, artists: &[SubsonicArtist]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.artists,
+            SubsonicIdKind::Artist,
+            artists,
+            |artist| artist.id.as_str(),
+        );
+    }
+}
+
+/// Keeps the items of a list read from the server, under the ids this library gives them, in
+/// place of what was kept of them. An item no id can be given to any more is left out here: the
+/// request that shows it numbers it, and tells of it.
+fn keep_read<T: Clone>(
+    ids: &mut RemoteIdMap<SubsonicIdKind>,
+    held: &mut HashMap<i32, T>,
+    kind: SubsonicIdKind,
+    items: &[T],
+    remote_id: fn(&T) -> &str,
+) {
+    for item in items {
+        if let Ok(id) = ids.intern(kind, remote_id(item)) {
+            held.insert(id, item.clone());
+        }
+    }
+}
+
+/// The lists a Subsonic library keeps, each read as the server lists it. A read keeps what it
+/// brings in the catalog too, in place of what was kept of the same items.
+pub(crate) struct SubsonicLists {
+    kept: ServiceLists,
+    pub(crate) songs: KeptList<Vec<SubsonicSong>, SubsonicError>,
+    pub(crate) albums: KeptList<Vec<SubsonicAlbum>, SubsonicError>,
+    pub(crate) newest_albums: KeptList<Vec<SubsonicAlbum>, SubsonicError>,
+    pub(crate) artists: KeptList<Vec<SubsonicArtist>, SubsonicError>,
+}
+
+/// Reads a list with the client.
+type ReadList<T> = fn(Arc<SubsonicClient>) -> BoxFuture<'static, Result<Vec<T>, SubsonicError>>;
+
+impl SubsonicLists {
+    fn new(
+        dir: PathBuf,
+        client: &Arc<SubsonicClient>,
+        catalog: &Arc<Mutex<SubsonicCatalog>>,
+        broadcaster: Arc<dyn Broadcaster>,
+    ) -> Self {
+        // A page that shows a list reads it again once a read brings another.
+        let kept = ServiceLists::new(dir, move || {
+            broadcaster.broadcast(&LibraryContentChanged {
+                path: String::new(),
+            });
+        });
+        Self {
+            songs: declare_list(
+                &kept,
+                SONGS,
+                (client, catalog),
+                |client| async move { read_song_list(&client).await }.boxed(),
+                SubsonicCatalog::keep_songs,
+            ),
+            albums: declare_list(
+                &kept,
+                ALBUMS,
+                (client, catalog),
+                |client| async move { read_albums_by_name(&client).await }.boxed(),
+                SubsonicCatalog::keep_albums,
+            ),
+            newest_albums: declare_list(
+                &kept,
+                NEWEST_ALBUMS,
+                (client, catalog),
+                |client| async move { read_newest_albums(&client, usize::MAX).await }.boxed(),
+                SubsonicCatalog::keep_albums,
+            ),
+            artists: declare_list(
+                &kept,
+                ARTISTS,
+                (client, catalog),
+                |client| async move { client.artists().await }.boxed(),
+                SubsonicCatalog::keep_artists,
+            ),
+            kept,
+        }
+    }
+}
+
+/// Declares the list `spec` names on `lists`, which `read` reads with the client, and whose items
+/// the catalog keeps with `keep`.
+fn declare_list<T>(
+    lists: &ServiceLists,
+    spec: ListSpec,
+    (client, catalog): (&Arc<SubsonicClient>, &Arc<Mutex<SubsonicCatalog>>),
+    read: ReadList<T>,
+    keep: fn(&mut SubsonicCatalog, &[T]),
+) -> KeptList<Vec<T>, SubsonicError>
+where
+    T: Serialize + DeserializeOwned + PartialEq + Send + Sync + 'static,
+{
+    let (client, catalog) = (Arc::clone(client), Arc::clone(catalog));
+    lists.declare(spec, move || {
+        let read = read(Arc::clone(&client));
+        let catalog = Arc::clone(&catalog);
+        async move {
+            let list = read.await?;
+            keep(
+                &mut catalog.lock().unwrap_or_else(PoisonError::into_inner),
+                &list,
+            );
+            Ok(list)
+        }
+        .boxed()
+    })
 }
 
 impl SubsonicBinding {
@@ -411,12 +571,20 @@ impl SubsonicBinding {
         visualizer: Arc<Visualizer>,
     ) -> Self {
         prepare_service_library_folder(&config_dir, library_id);
+        let client = Arc::new(client);
+        let catalog = Arc::new(Mutex::new(SubsonicCatalog::default()));
         Self {
             library_id,
             play_on_this_device,
-            client: Arc::new(client),
+            lists: SubsonicLists::new(
+                lists_folder(&config_dir, library_id),
+                &client,
+                &catalog,
+                Arc::clone(&broadcaster),
+            ),
+            client,
             probe,
-            catalog: Mutex::new(SubsonicCatalog::default()),
+            catalog,
             covers: Arc::new(ServiceCoverCache::new(
                 cover_cache_root(&config_dir, library_id),
                 broadcaster,
@@ -898,11 +1066,17 @@ impl ServiceBinding for SubsonicBinding {
         let Ok(password) = str::from_utf8(credential.secret.as_bytes()) else {
             return;
         };
+        // Another username is another account, whose lists the kept ones are not. A new
+        // password for the same account keeps them.
+        let other_account = self.client.user().as_deref() != Some(credential.username.as_str());
         self.client
             .replace_credentials(SubsonicCredentials::Password {
                 user: credential.username.clone(),
                 password: password.to_owned(),
             });
+        if other_account {
+            self.lists.kept.clear();
+        }
     }
 
     fn close(&self) {

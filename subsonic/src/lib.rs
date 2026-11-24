@@ -6,7 +6,7 @@ use discovery::endpoint::{EndpointUrl, HttpTransport};
 use rand::RngCore;
 use reqwest::header;
 use reqwest::{Client, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use url::Url;
@@ -48,7 +48,7 @@ impl fmt::Debug for SubsonicCredentials {
 
 /// Typed Subsonic failures. Transport errors drop their URL, which carries the
 /// authentication query parameters, but keep the cause.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum SubsonicError {
     #[error("Subsonic transport failed: {0}")]
     Transport(String),
@@ -167,6 +167,11 @@ impl SubsonicClient {
     /// Use a verified replacement for subsequent requests, including from existing players.
     pub fn replace_credentials(&self, credentials: SubsonicCredentials) {
         self.credentials.store(Arc::new(credentials));
+    }
+
+    /// Return the account name the requests are made for, when the credentials carry one.
+    pub fn user(&self) -> Option<String> {
+        self.credentials.load().user().map(str::to_owned)
     }
 
     pub fn from_endpoint(
@@ -916,7 +921,7 @@ fn random_salt() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubsonicArtist {
     pub id: String,
@@ -934,7 +939,7 @@ pub struct SubsonicArtistDetail {
     pub albums: Vec<SubsonicAlbum>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubsonicAlbum {
     pub id: String,
@@ -962,7 +967,7 @@ pub struct SubsonicAlbumDetail {
     pub songs: Vec<SubsonicSong>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubsonicSong {
     pub id: String,

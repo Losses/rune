@@ -1843,6 +1843,58 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
     Ok(())
 }
 
+/// A closed Subsonic library signed in to another account drops the lists it kept for the old
+/// one, and one signed in again to its own account keeps them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_closed_subsonic_library_signed_in_to_another_account_drops_its_kept_lists() -> Result<()>
+{
+    use crate::messages::{
+        CollectionType, FetchCollectionGroupSummaryRequest, ReplaceSubsonicCredentialRequest,
+    };
+    use crate::service::lists::lists_folder;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let ui = node.current_ui().await?;
+    dispatch_gui_request(
+        &ui,
+        &FetchCollectionGroupSummaryRequest {
+            call_id: None,
+            collection_type: CollectionType::Artist,
+        },
+    )
+    .await?
+    .context("the artist summary")?;
+    let kept = lists_folder(Path::new(&*node.config_path), library_id).join("artists.json");
+    wait_until("the kept artists", || {
+        let found = kept.is_file();
+        async move { Ok(found.then_some(())) }
+    })
+    .await?;
+    node.close_ui(&ui.main_token).await;
+
+    let sign_in = |username: &str| ReplaceSubsonicCredentialRequest {
+        record_id: library_id.to_string(),
+        username: username.into(),
+        password: "new-secret".into(),
+        call_id: None,
+    };
+    replace_subsonic_credential_on_node(&sign_in("alice"), &node).await?;
+    assert!(kept.is_file(), "a new password dropped the lists");
+    replace_subsonic_credential_on_node(&sign_in("bob"), &node).await?;
+    assert!(
+        !kept.exists(),
+        "another account kept the lists of the old one"
+    );
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn session_threads_stop_with_node() -> Result<()> {

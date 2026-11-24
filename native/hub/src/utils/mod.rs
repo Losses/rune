@@ -86,6 +86,7 @@ use crate::request_error::ExpectedRequestError;
 use crate::request_owner::Implementation;
 use crate::server::ServerManager;
 use crate::service::ServiceBinding;
+use crate::service::lists::delete_kept_lists;
 use crate::subsonic_binding::SubsonicBinding;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
@@ -1772,12 +1773,30 @@ pub(crate) async fn replace_subsonic_credential_on_node(
             username: request.username.clone(),
             secret: Secret::new(request.password.as_bytes().to_vec()),
         };
+        let previous = node
+            .credentials
+            .get(*credential)
+            .await
+            .ok()
+            .map(|previous| previous.username);
         node.credentials
             .replace(*credential, &verified)
             .await
             .map_err(|_| credential_failure(Kind::Storage))?;
-        if let Some(binding) = node.service_binding(record_id.0)? {
-            binding.renew_sign_in(&verified);
+        match node.service_binding(record_id.0)? {
+            Some(binding) => binding.renew_sign_in(&verified),
+            // Another username is another account, whose lists the closed library's kept ones
+            // are not. Where the old username cannot be read, they stay until a read replaces
+            // them.
+            None if previous.is_some_and(|previous| previous != verified.username) => {
+                let library_id = record.catalog_library_id().unwrap_or(record_id.0);
+                if let Err(error) =
+                    delete_kept_lists(Path::new(&*node.config_path), library_id).await
+                {
+                    log::warn!("Could not delete the lists of another account: {error}");
+                }
+            }
+            None => {}
         }
     }
     if let Err(error) = publish_library_records_changed(node).await {
