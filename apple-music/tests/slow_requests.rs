@@ -34,22 +34,24 @@ async fn slow_request_is_logged_without_query_or_tokens() {
     let server = FixtureServer::start().await;
     server.on(
         "GET",
-        "/v1/me/storefront",
-        Reply::fixture("storefront.json"),
+        "/v1/me/library/songs",
+        Reply::json(serde_json::json!({"data": []})),
     );
-    server.delay("GET", "/v1/me/storefront", Duration::from_millis(3200));
+    server.delay("GET", "/v1/me/library/songs", Duration::from_millis(3200));
     let c = client(&server, TestTokens::new());
 
-    c.user_storefront().await.unwrap();
+    c.library_songs_by_ids(&["i.private1".to_owned()], &[])
+        .await
+        .unwrap();
 
     let warnings = WARNINGS.lock().unwrap().clone();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     let line = &warnings[0];
-    assert!(line.contains("GET /v1/me/storefront took"), "{line}");
+    assert!(line.contains("GET /v1/me/library/songs took"), "{line}");
     assert!(line.contains("1 attempt(s)"), "{line}");
     assert!(
         !line.contains("dev-0") && !line.contains("user-0"),
         "{line}"
     );
-    assert!(!line.contains('?'), "{line}");
+    assert!(!line.contains('?') && !line.contains("private1"), "{line}");
 }

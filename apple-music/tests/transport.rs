@@ -38,7 +38,7 @@ async fn catalog_endpoint_sends_only_the_developer_token() {
         "/v1/catalog/us/songs",
         Reply::fixture("catalog_songs.json"),
     );
-    let c = client(&server, TestTokens::without_user());
+    let c = client(&server, TestTokens::new());
 
     c.catalog_songs(&["617154366".to_owned()]).await.unwrap();
 
@@ -457,7 +457,12 @@ async fn a_retry_after_of_zero_still_waits_the_base_delay() {
 async fn a_transport_error_does_not_carry_the_url() {
     let listener = net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    // The port stays ours, and each connection is closed without an HTTP answer.
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            drop(socket);
+        }
+    });
     let c = AppleMusicClient::builder(TestTokens::new())
         .base_url(base)
         .storefront("us")
