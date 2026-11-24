@@ -330,6 +330,14 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
     ) -> Result<(), DbErr> {
         Ok(())
     }
+    /// Prepare an existing local identity to receive a validated portable value.
+    async fn before_project_on(
+        _tx: &sea_orm::DatabaseTransaction,
+        _id: Uuid,
+        _value: &Self::Payload,
+    ) -> Result<(), DbErr> {
+        Ok(())
+    }
     /// Apply application projections after the selected row has changed.
     async fn after_project_on(
         _tx: &sea_orm::DatabaseTransaction,
@@ -769,6 +777,9 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
         if id.is_nil() {
             return Err(DbErr::Custom("nil source UUID".into()));
         }
+        if let Some(value) = value {
+            M::before_project_on(db, id, value).await?;
+        }
         let existing = Self::row_on(db, id).await?;
         let Some(value) = value else {
             if let Some(row) = &existing {
@@ -870,6 +881,7 @@ macro_rules! row_mapping {
             $(lists: { $($list:ident : $item:ty => { entity: $list_entity:ty, mapping: $list_mapping:ty, owner: $list_owner:expr $(,)? }),* $(,)? },)?
             $(effects: { $($effect:ident => { entity: $effect_entity:ty, mapping: $effect_mapping:ty, owner: $effect_owner:expr, derive: $derive:expr $(,)? }),* $(,)? },)?
             $(local_updates: $local_updates:expr,)?
+            $(before_project: { run: $before_project:expr, mutations: $before_mutations:expr },)?
             $(after_project: { run: $after_project:expr, reads: $after_reads:expr, mutations: $after_mutations:expr },)?
             $(references: { $($reference:ident => $target:literal),* $(,)? },)?
             $(limits: { $($bounded:ident => ($min:expr, $max:expr)),* $(,)? },)?
@@ -947,11 +959,21 @@ macro_rules! row_mapping {
                     budget.max_mutations += u64::from(<$effect_mapping as $crate::derived_effect::EffectMapping<$effect_entity>>::max_items()) * 2;
                 )*)?
                 $(
+                    budget.max_mutations += $before_mutations;
+                )?
+                $(
                     budget.max_reads += $after_reads;
                     budget.max_mutations += $after_mutations;
                 )?
                 budget
             }
+            $(async fn before_project_on(
+                tx: &sea_orm::DatabaseTransaction,
+                id: uuid::Uuid,
+                value: &Self::Payload,
+            ) -> Result<(), sea_orm::DbErr> {
+                ($before_project)(tx, id, value).await
+            })?
             $(async fn after_project_on(
                 tx: &sea_orm::DatabaseTransaction,
                 id: uuid::Uuid,

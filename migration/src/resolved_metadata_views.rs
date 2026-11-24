@@ -152,6 +152,13 @@ fn recording_aliases() -> SelectStatement {
         .and_where(column("chosen", "recording_id").ne(column("track", "recording_id")))
         .to_owned();
 
+    // A provider's private fallback follows its current match without moving its credits.
+    let providers = Query::select()
+        .columns(["fallback_id", "recording_id"].map(alias))
+        .from(catalog("recording_sources"))
+        .and_where(Expr::col(alias("fallback_id")).ne(Expr::col(alias("recording_id"))))
+        .to_owned();
+
     // Logical track recordings can also be superseded by verified file evidence.
     Query::select()
         .expr_as(column("previous", "id"), alias("source_id"))
@@ -167,6 +174,7 @@ fn recording_aliases() -> SelectStatement {
         .and_where(column("current", "id").ne(column("previous", "id")))
         .and_where(Expr::not_exists(conflicting))
         .union(UnionType::All, logical_tracks)
+        .union(UnionType::All, providers)
         .to_owned()
 }
 
@@ -329,11 +337,16 @@ fn live_summaries() -> SelectStatement {
 
 fn edition_matches() -> SelectStatement {
     // An edition key maps through confirmed evidence only when unambiguous.
+    let local_edition = exists_in(
+        catalog("albums"),
+        Expr::col(alias("id")).eq(column("confirmed", "edition_uuid")),
+    );
     let identified = Query::select()
-        .expr(Func::min(Expr::col(alias("album_id"))))
-        .column(alias("edition_uuid"))
-        .from(catalog("release_identity"))
-        .group_by_col(alias("edition_uuid"))
+        .expr(Func::min(column("confirmed", "album_id")))
+        .column((alias("confirmed"), alias("edition_uuid")))
+        .from_as(catalog("release_identity"), alias("confirmed"))
+        .and_where(Expr::not_exists(local_edition))
+        .group_by_col((alias("confirmed"), alias("edition_uuid")))
         .and_having(Expr::from(Func::count(Expr::val(1))).eq(1))
         .to_owned();
     let matching = Query::select()
@@ -535,12 +548,17 @@ fn current_album_titles() -> SelectStatement {
                 .eq(column("album", "id"))
                 .and(column(&overlay, "field").eq(field)),
         );
+        let scan: Expr = Expr::case(
+            column("dirty", "album_id").is_null(),
+            column("cached", field),
+        )
+        .finally(column("live", field))
+        .into();
         let value: Expr = if field == "title" {
             Func::coalesce([
                 column(&overlay, "value"),
                 column("album", "portable_title"),
-                column("live", field),
-                column("cached", field),
+                scan,
                 column("album", "directory_path"),
             ])
             .into()
@@ -549,11 +567,7 @@ fn current_album_titles() -> SelectStatement {
                 column(&overlay, "album_id").is_not_null(),
                 column(&overlay, "value"),
             )
-            .case(
-                column("live", "album_id").is_not_null(),
-                column("live", field),
-            )
-            .finally(column("cached", field))
+            .finally(scan)
             .into()
         };
         q.expr_as(value, alias(field));

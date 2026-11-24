@@ -176,8 +176,9 @@ fn write_wav_with_info(path: &std_path::Path, tags: &[(&[u8; 4], &str)]) -> Resu
 #[tokio::test]
 async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
     use database::actions::{index::index_audio_library, resolved_metadata::CreditScope};
+    use database::entities::{artists, media_file_artists};
     use sea_orm::{
-        ExprTrait,
+        ColumnTrait, ExprTrait,
         sea_query::{Alias, Order, Query},
     };
 
@@ -205,7 +206,58 @@ async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
     let store = library.record_store();
     let scanned = fixtures::scan_library(&FsIo::new(), &db, &actor_id, temp.path(), &store).await?;
     assert_eq!(scanned, artist_tags.len());
-    index_audio_library(&db, &actor_id, 50, None, &store).await?;
+
+    // Both entry points must link the expected artists to each individual file.
+    use artists::Column as Artist;
+    use media_file_artists::Column as Link;
+    use media_files::Column as File;
+    let memberships = Query::select()
+        .columns([File::FileName.as_column_ref(), Artist::Name.as_column_ref()])
+        .from(media_file_artists::Entity)
+        .inner_join(
+            media_files::Entity,
+            Expr::col(Link::TrackUuid.as_column_ref())
+                .eq(Expr::col(File::SourceUuid.as_column_ref())),
+        )
+        .inner_join(
+            artists::Entity,
+            Expr::col(Link::ArtistUuid.as_column_ref())
+                .eq(Expr::col(Artist::SourceUuid.as_column_ref())),
+        )
+        .order_by(File::FileName.as_column_ref(), Order::Asc)
+        .order_by(Artist::Name.as_column_ref(), Order::Asc)
+        .to_owned();
+    let expected_links = [
+        ("track-0.wav", "Alpha"),
+        ("track-0.wav", "Beta"),
+        ("track-1.wav", "Delta"),
+        ("track-1.wav", "Gamma"),
+        ("track-2.wav", "Epsilon"),
+        ("track-2.wav", "Zeta"),
+        ("track-3.wav", "Eta"),
+        ("track-3.wav", "Theta"),
+        ("track-4.wav", "Iota"),
+    ];
+    for reindex in [false, true] {
+        if reindex {
+            index_audio_library(&db, &actor_id, 50, None, &store).await?;
+        }
+        let rows = db.query_all(&memberships).await?;
+        let names = rows
+            .iter()
+            .map(|row| {
+                Ok((
+                    row.try_get::<String>("", "file_name")?,
+                    row.try_get::<String>("", "name")?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let links = names
+            .iter()
+            .map(|(file, artist)| (file.as_str(), artist.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(links, expected_links, "after reindex={reindex}");
+    }
 
     // The artist catalog and its browse projection expose the same names.
     let expected = [
@@ -402,16 +454,19 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
 }
 
 #[tokio::test]
-async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
+async fn oversized_tag_stays_in_catalog_without_exceeding_sync_limit() -> Result<()> {
+    use database::actions::metadata::get_metadata_summary_by_files;
+    use database::entities::media_metadata;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let temp = tempfile::tempdir()?;
     let root = temp.path();
+    let oversized_title = "t".repeat(16_385);
     for (name, title) in [
-        ("before.wav", "ordinary title".to_owned()),
-        ("oversized.wav", "t".repeat(16385)),
-        ("after.wav", "another title".to_owned()),
+        ("before.wav", "ordinary title"),
+        ("oversized.wav", oversized_title.as_str()),
+        ("after.wav", "another title"),
     ] {
-        write_tagged_wav(&root.join(name), &title)?;
+        write_tagged_wav(&root.join(name), title)?;
     }
     let fs = FsIo::new();
     let node = Uuid::new_v4();
@@ -434,15 +489,26 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
         },
         &library.record_store(),
     )
-    .await;
-    let saved = media_files::Entity::find().count(&db).await?;
-    eprintln!(
-        "DIAG rejected-tag result={result:?} saved={saved} progress={}",
-        progress.load(Ordering::Relaxed)
-    );
-    assert_eq!(saved, 2, "healthy neighboring files should be saved");
-    assert_eq!(result?, 2);
+    .await?;
+    assert_eq!(result, 3);
     assert_eq!(progress.load(Ordering::Relaxed), 3);
+
+    // Keep the complete title in the catalog while bounding the portable payload.
+    let files = media_files::Entity::find().all(&db).await?;
+    let summaries = get_metadata_summary_by_files(&db, files).await?;
+    let oversized = summaries
+        .iter()
+        .find(|file| file.file_name == "oversized.wav")
+        .context("missing file with oversized title")?;
+    assert_eq!(oversized.title, oversized_title);
+    assert_eq!(
+        media_metadata::Entity::find()
+            .filter(media_metadata::Column::FileId.eq(oversized.id))
+            .filter(media_metadata::Column::MetaKey.eq("track_title"))
+            .count(&db)
+            .await?,
+        0
+    );
     db.close().await?;
     Ok(())
 }

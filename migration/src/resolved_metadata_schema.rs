@@ -73,6 +73,7 @@ pub(super) async fn migrate_artists(manager: &SchemaManager<'_>) -> Result<(), D
         false,
     )
     .await?;
+    // The UUID conversion rebuilt this table without the old integer foreign keys.
     move_table(
         manager,
         "media_file_artists",
@@ -163,7 +164,8 @@ async fn copy_albums(manager: &SchemaManager<'_>, restore: bool) -> Result<(), D
     if restore {
         rows.and_where(col("portable_title").is_not_null());
     }
-    insert_selection(manager, target, &columns, rows).await
+    insert_selection(manager, target, &columns, rows).await?;
+    copy_sequence(manager, source, target).await
 }
 
 pub(super) async fn restore_artists(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
@@ -258,7 +260,48 @@ async fn copy_artists(
     if portable_only {
         rows.and_where(col("portable").eq(1));
     }
-    insert_selection(manager, target, columns, rows).await
+    insert_selection(manager, target, columns, rows).await?;
+    copy_sequence(manager, source, target).await
+}
+
+async fn copy_sequence(
+    manager: &SchemaManager<'_>,
+    source: &str,
+    target: &str,
+) -> Result<(), DbErr> {
+    let db = manager.get_connection();
+    let sequence = |table| {
+        Query::select()
+            .column(alias("seq"))
+            .from(alias("sqlite_sequence"))
+            .and_where(col("name").eq(table))
+            .to_owned()
+    };
+    let Some(row) = db.query_one(&sequence(source)).await? else {
+        return Ok(());
+    };
+    let seq: i64 = row.try_get("", "seq")?;
+
+    // Deleted high IDs still belong to earlier rows and must not be reassigned.
+    if db.query_one(&sequence(target)).await?.is_none() {
+        db.execute(
+            Query::insert()
+                .into_table(alias("sqlite_sequence"))
+                .columns([alias("name"), alias("seq")])
+                .values_panic([Expr::val(target), Expr::val(seq)]),
+        )
+        .await?;
+    } else {
+        db.execute(
+            Query::update()
+                .table(alias("sqlite_sequence"))
+                .value(alias("seq"), seq)
+                .and_where(col("name").eq(target))
+                .and_where(col("seq").lt(seq)),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn insert_selection(
@@ -484,6 +527,7 @@ fn tables() -> [TableCreateStatement; 29] {
             .col(text("provider").not_null())
             .col(text("resource_id").not_null())
             .col(text("recording_id").not_null())
+            .col(text("fallback_id").not_null().unique_key())
             .col(text("recording_mbid"))
             .col(text("recording_isrc"))
             .col(text("codec"))
@@ -502,6 +546,14 @@ fn tables() -> [TableCreateStatement; 29] {
                     .from(
                         alias("music_metadata_recording_sources"),
                         alias("recording_id"),
+                    )
+                    .to(alias("music_metadata_recordings"), alias("id")),
+            )
+            .foreign_key(
+                ForeignKey::create()
+                    .from(
+                        alias("music_metadata_recording_sources"),
+                        alias("fallback_id"),
                     )
                     .to(alias("music_metadata_recordings"), alias("id")),
             )
@@ -766,7 +818,8 @@ fn tables() -> [TableCreateStatement; 29] {
                     .is_not_null()
                     .add(col("disc_id").is_not_null())
                     .add(col("audio_id").is_not_null())
-                    .add(col("track_id").is_not_null().eq(1)),
+                    .add(col("track_id").is_not_null())
+                    .eq(1),
             )
             .check(
                 col("field")

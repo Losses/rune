@@ -92,6 +92,7 @@ catalog_entity!(recording_sources, "music_metadata_recording_sources", {
     #[sea_orm(primary_key, auto_increment = false)]
     resource_id: String,
     recording_id: String,
+    fallback_id: String,
     recording_mbid: Option<String>,
     recording_isrc: Option<String>,
     codec: Option<String>,

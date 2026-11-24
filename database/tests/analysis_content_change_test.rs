@@ -213,6 +213,7 @@ async fn migration_drops_legacy_analysis_without_a_current_source_identity() -> 
             matched_uuid.as_str(),
         ),
     ] {
+        let file_uuid = Uuid::new_v4();
         let content_hash = content_hash
             .map(|hash| format!("'{hash}'"))
             .unwrap_or_else(|| "NULL".into());
@@ -223,7 +224,7 @@ async fn migration_drops_legacy_analysis_without_a_current_source_identity() -> 
             "INSERT INTO media_files \
              (id,file_name,directory,extension,file_hash,last_modified,sample_rate,duration,\
               source_uuid,content_hash,content_size,local_available) \
-             VALUES({id},'f{id}.ogg','','ogg','{file_hash}','2020',44100,1,'file-{id}',\
+             VALUES({id},'f{id}.ogg','','ogg','{file_hash}','2020',44100,1,'{file_uuid}',\
               {content_hash},{content_size},1)"
         ))
         .await?;

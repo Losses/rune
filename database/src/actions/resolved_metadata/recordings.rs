@@ -70,6 +70,7 @@ pub async fn register_recording_source(
                 S::Provider,
                 S::ResourceId,
                 S::RecordingId,
+                S::FallbackId,
                 S::RecordingMbid,
                 S::RecordingIsrc,
             ])
@@ -77,6 +78,7 @@ pub async fn register_recording_source(
                 Expr::val(provider),
                 Expr::val(resource),
                 Expr::val(recording.to_string()),
+                Expr::val(fallback.to_string()),
                 Expr::val(identifiers.musicbrainz_id.map(|id| id.to_string())),
                 Expr::val(identifiers.isrc),
             ])?

@@ -2034,14 +2034,15 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
     let target = Path::new(&library.media_root).join(name);
     fs::copy(source, &target)?;
-    scan_audio_file(
+    // Keep the scanner's async state out of the enclosing handoff test's frame.
+    Box::pin(scan_audio_file(
         &library.fsio,
         &library.main_db,
         &f.global_params.node_id,
         Path::new(&library.media_root),
         &target,
         &library.library_sync.record_store(),
-    )
+    ))
     .await?;
     Ok(media_files::Entity::find()
         .filter(Column::FileName.eq(name))

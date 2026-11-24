@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, FromQueryResult},
-    sea_query::{InsertStatement, OnConflict, SelectStatement},
+    sea_query::{BinOper, InsertStatement, OnConflict, SelectStatement},
 };
 use uuid::Uuid;
 
@@ -36,6 +36,15 @@ struct TagRow {
     meta_value: String,
 }
 
+#[derive(FromQueryResult)]
+struct ConfirmedTagArtist {
+    scope: i32,
+    credited_as: String,
+    artist_id: Option<String>,
+}
+
+type TagArtistLinks = BTreeMap<(i32, String), Option<String>>;
+
 pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let db = manager.get_connection();
     import_album_identities(db).await?;
@@ -49,7 +58,7 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             break;
         };
         after = last.id;
-        import_files(db, files, true).await?;
+        import_files(db, files, true, BTreeMap::new()).await?;
     }
     cache_album_summaries(db).await?;
 
@@ -71,12 +80,20 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 /// Project a synchronized track into the catalog without overriding file evidence.
 pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> Result<(), DbErr> {
-    // Portable updates are only authoritative for files that have no local scan.
+    // A native scan is authoritative only for the version it actually read.
     let native = Query::select()
         .expr(Expr::val(1))
         .from_as(alias("music_metadata_audio"), alias("native"))
         .and_where(column("native", "file_id").eq(column("file", "id")))
         .and_where(column("native", "portable").eq(0))
+        .and_where(
+            column("native", "recording_content_hash")
+                .binary(BinOper::Is, column("file", "content_hash")),
+        )
+        .and_where(
+            column("native", "recording_content_size")
+                .binary(BinOper::Is, column("file", "content_size")),
+        )
         .to_owned();
     let query = files_after(0)
         .and_where(column("file", "source_uuid").eq(track.to_string()))
@@ -89,6 +106,25 @@ pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> R
     else {
         return Ok(());
     };
+
+    // Retain confirmed primary credits, including an explicitly cleared link.
+    let tag_credits = |column: &str| Expr::col(alias(column));
+    let confirmed = Query::select()
+        .columns(["scope", "credited_as", "artist_id"].map(alias))
+        .from(alias("music_metadata_credits"))
+        .and_where(tag_credits("file_id").eq(file.id))
+        .and_where(tag_credits("source_kind").eq("audio_tag"))
+        .and_where(tag_credits("source_provider").eq(""))
+        .and_where(tag_credits("role").eq("Primary Artist"))
+        .and_where(tag_credits("instrument").is_null())
+        .and_where(tag_credits("artist_confirmed").eq(1))
+        .to_owned();
+    let links = ConfirmedTagArtist::find_by_statement(db.get_database_backend().build(&confirmed))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| ((row.scope, row.credited_as), row.artist_id))
+        .collect();
 
     // Replace only source-tag credits. User and provider credits stay intact.
     let cleanup = Query::delete()
@@ -106,7 +142,7 @@ pub async fn project_portable_track(db: &impl ConnectionTrait, track: Uuid) -> R
         .to_owned();
     db.execute_raw(db.get_database_backend().build(&genres))
         .await?;
-    import_files(db, vec![file], false).await
+    import_files(db, vec![file], false, links).await
 }
 
 fn alias(name: &str) -> Alias {
@@ -233,6 +269,7 @@ async fn import_files(
     db: &impl ConnectionTrait,
     files: Vec<FileRow>,
     backfill_tracks: bool,
+    mut links: TagArtistLinks,
 ) -> Result<(), DbErr> {
     // Fetch source evidence in bounded pages and honor its original order.
     let query = Query::select()
@@ -259,7 +296,7 @@ async fn import_files(
     let mut batch = ImportBatch::new(backfill_tracks);
     for file in files {
         let tags = by_file.remove(&file.id).unwrap_or_default();
-        batch.push(file, &tags)?;
+        batch.push(file, &tags, &mut links)?;
     }
     for query in batch
         .statements
@@ -278,6 +315,8 @@ async fn import_files(
             "position",
             "credited_as",
             "role",
+            "artist_id",
+            "artist_confirmed",
             "source_kind",
             "source_provider",
         ],
@@ -321,7 +360,7 @@ async fn insert_chunks<const N: usize>(
 struct ImportBatch {
     statements: [InsertStatement; 6],
     tracks: Option<[InsertStatement; 2]>,
-    credits: Vec<[Expr; 7]>,
+    credits: Vec<[Expr; 9]>,
     genres: Vec<[Expr; 6]>,
 }
 
@@ -339,6 +378,9 @@ impl ImportBatch {
                         "id",
                         "disc_id",
                         "recording_id",
+                        "recording_mbid",
+                        "recording_isrc",
+                        "release_track_mbid",
                         "recording_content_hash",
                         "recording_content_size",
                         "title",
@@ -383,7 +425,12 @@ impl ImportBatch {
         }
     }
 
-    fn push(&mut self, file: FileRow, tags: &BTreeMap<String, Vec<String>>) -> Result<(), DbErr> {
+    fn push(
+        &mut self,
+        file: FileRow,
+        tags: &BTreeMap<String, Vec<String>>,
+        links: &mut TagArtistLinks,
+    ) -> Result<(), DbErr> {
         // Keep the old edition identity, even when media is unavailable.
         let source = |key: &str| {
             tags.get(key)
@@ -464,6 +511,9 @@ impl ImportBatch {
             Expr::val(audio.to_string()),
             Expr::val(disc.to_string()),
             Expr::val(recording.to_string()),
+            Expr::val(None::<String>),
+            Expr::val(None::<String>),
+            Expr::val(None::<String>),
             Expr::val(file.content_hash),
             Expr::val(file.content_size),
             Expr::val(title),
@@ -494,12 +544,16 @@ impl ImportBatch {
             for (position, name) in tags.get(key).into_iter().flatten().enumerate() {
                 let position = <i32 as TryFrom<usize>>::try_from(position)
                     .map_err(|error| DbErr::Custom(error.to_string()))?;
+                let confirmed = links.remove(&(scope, name.clone()));
+                let is_confirmed = confirmed.is_some();
                 self.credits.push([
                     Expr::val(file.id),
                     Expr::val(scope),
                     Expr::val(position),
                     Expr::val(name),
                     Expr::val("Primary Artist"),
+                    Expr::val(confirmed.flatten()),
+                    Expr::val(i32::from(is_confirmed)),
                     Expr::val("audio_tag"),
                     Expr::val(""),
                 ]);

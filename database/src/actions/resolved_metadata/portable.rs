@@ -19,8 +19,11 @@ use crate::actions::{
 };
 use crate::entities::{
     albums, artists, genres, media_file_albums, media_file_artists, media_file_genres, media_files,
-    music_metadata::album_evidence,
+    music_metadata::{album_evidence, credits},
 };
+use crate::sync::model::adopt_portable_artist;
+
+use super::CreditScope;
 
 pub(in crate::actions) async fn publish_track(
     txn: &DatabaseTransaction,
@@ -49,7 +52,7 @@ pub(in crate::actions) async fn publish_track(
 
     let artist_names = match resolved {
         Some(metadata) => metadata.artist_names().collect(),
-        None => artist::split_artists(&summary.artist).into_iter().collect(),
+        None => tag_artists(txn, file_id).await?,
     };
     process_artists(txn, &summary, artist_names, cancel_token, store).await?;
     process_album(txn, &summary).await?;
@@ -61,6 +64,30 @@ pub(in crate::actions) async fn publish_track(
     author_indexed_track_row(txn, store, file).await?;
     author_album_assignment(txn, store, &summary).await?;
     Ok(true)
+}
+
+async fn tag_artists(
+    txn: &DatabaseTransaction,
+    file_id: i32,
+) -> Result<collections::BTreeSet<String>> {
+    use credits::Column as C;
+    use sea_orm::QuerySelect;
+
+    // Match inline scanning by splitting each source credit independently.
+    let credits = credits::Entity::find()
+        .select_only()
+        .column(C::CreditedAs)
+        .filter(C::FileId.eq(file_id))
+        .filter(C::Scope.eq(CreditScope::Audio as i32))
+        .filter(C::Role.eq("Primary Artist"))
+        .filter(C::SourceKind.eq("audio_tag"))
+        .into_tuple::<String>()
+        .all(txn)
+        .await?;
+    Ok(credits
+        .iter()
+        .flat_map(|name| artist::split_artists(name))
+        .collect())
 }
 
 async fn author_album_assignment(
@@ -130,6 +157,7 @@ async fn process_artists(
         )
         .exec_without_returning(tx)
         .await?;
+        adopt_portable_artist(tx, id).await?;
         let row = artists::Entity::find()
             .filter(artists::Column::SourceUuid.eq(id.to_string()))
             .one(tx)

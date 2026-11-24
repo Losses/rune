@@ -207,11 +207,7 @@ async fn all_source_tables_have_hlc_uuid(
     }
     for table in indexed_tables {
         let old_index = format!("idx_{table}_hlc_uuid");
-        let new_index = if table == "artists" {
-            "idx_music_metadata_artists_source_uuid".to_owned()
-        } else {
-            format!("idx_{table}_source_uuid")
-        };
+        let new_index = format!("idx_{table}_source_uuid");
         if !schema.has_index(table, &old_index).await?
             || schema.has_index(table, &new_index).await?
         {

@@ -140,9 +140,10 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
         let path = root.path().join(format!("track{i}.ogg"));
         fs::copy(fixtures::audio_fixture(), &path)?;
         ids.push(scan_audio_file(&fs, &db, &node.to_string(), root.path(), &path, &store).await?);
-        if i < 6 {
-            fs::remove_file(path)?;
-        }
+    }
+    // Keep identical copies present during scanning so they cannot be treated as moves.
+    for i in 0..6 {
+        fs::remove_file(root.path().join(format!("track{i}.ogg")))?;
     }
     fixtures::cleanup_scan(
         &fs,

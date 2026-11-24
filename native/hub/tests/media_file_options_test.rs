@@ -104,6 +104,12 @@ async fn media_file_handler_reports_absence_and_real_metadata_as_optional_values
         })
         .exec(&db)
         .await?;
+        // Materialize the tag through the same catalog projection used for synced tracks.
+        let file = media_files::Entity::find_by_id(file_id)
+            .one(&db)
+            .await?
+            .unwrap();
+        migration::project_portable_track(&db, file.source_uuid.parse()?).await?;
     }
 
     let library = request_library(db, actor, dir.path().to_str().unwrap(), dir.path()).await?;

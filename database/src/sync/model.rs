@@ -210,6 +210,29 @@ fn search_documents(name: Option<&str>) -> Result<Vec<SearchDocument>, DbErr> {
         .map(|text| SearchDocument { text: Some(text) })
         .collect())
 }
+
+pub(crate) async fn adopt_portable_artist(tx: &DatabaseTransaction, id: Uuid) -> Result<(), DbErr> {
+    use music_metadata::artists::{Column, Entity};
+    use sea_orm::QueryFilter;
+
+    // A synchronized merge can create the target before its artist record arrives.
+    Entity::update_many()
+        .col_expr(Column::Portable, Expr::value(1))
+        .filter(Column::Id.eq(id.to_string()))
+        .filter(Column::Portable.eq(0))
+        .exec(tx)
+        .await?;
+    Ok(())
+}
+
+async fn adopt_projected_artist(
+    tx: &DatabaseTransaction,
+    id: Uuid,
+    _: &Artist,
+) -> Result<(), DbErr> {
+    adopt_portable_artist(tx, id).await
+}
+
 sync_orm::row_policies! {
     pub RuneModel,
     Collection,
@@ -276,6 +299,7 @@ sync_orm::row_policies! {
                             derive: |_: &RowView<artists::Entity>, value: Option<&Artist>| search_documents(value.map(|value| value.name.as_str())),
                         }
                     },
+                    before_project: { run: adopt_projected_artist, mutations: 1 },
                     limits: {
                         name => (0, 16384),
                         group => (0, 16384)
@@ -400,7 +424,7 @@ sync_orm::row_policies! {
                         };
                         Ok(vec![(media_files::Column::LocalAvailable, available.into())])
                     },
-                    after_project: { run: project_track_evidence, reads: 129, mutations: 8 },
+                    after_project: { run: project_track_evidence, reads: 257, mutations: 8 },
                     references: {
                         cover_art_id => "artworks"
                     },
@@ -508,7 +532,7 @@ sync_orm::row_policies! {
                         track_number: Option<i32> => media_file_albums::Column::TrackNumber
                     },
                     defaults: {},
-                    after_project: { run: project_track_evidence, reads: 129, mutations: 8 },
+                    after_project: { run: project_track_evidence, reads: 257, mutations: 8 },
                     references: {
                         track_id => "tracks",
                         album_id => "albums"

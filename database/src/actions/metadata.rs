@@ -191,7 +191,7 @@ pub async fn sync_file_descriptions(
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
     let mut work = descriptions.to_vec();
-    let failed =
+    let outcome =
         sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, force, None, store).await?;
     resolved_metadata::reconcile_releases(main_db, store, None).await?;
     for (original, result) in descriptions.iter_mut().zip(work) {
@@ -199,10 +199,16 @@ pub async fn sync_file_descriptions(
             *original = result;
         }
     }
-    if failed > 0 {
-        anyhow::bail!("Failed to save metadata for {failed} files");
+    if outcome.failed > 0 {
+        anyhow::bail!("Failed to save metadata for {} files", outcome.failed);
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct ScanOutcome {
+    saved: usize,
+    failed: usize,
 }
 
 async fn sync_file_descriptions_inner(
@@ -213,11 +219,10 @@ async fn sync_file_descriptions_inner(
     force: bool,
     scan: Option<&ScanOptions>,
     store: &crate::sync::SeaOrmSyncStore,
-) -> Result<usize> {
-    // Bound both prepared metadata memory and write-lock duration. File I/O is
-    // finished before opening each batch transaction; savepoints isolate bad files.
+) -> Result<ScanOutcome> {
+    // Read file contents before taking the write lock. Savepoints isolate bad files.
     const WRITE_BATCH_SIZE: usize = 16;
-    let mut failed = 0;
+    let mut outcome = ScanOutcome::default();
     let mut rejected = HashSet::new();
     for batch in descriptions.chunks_mut(WRITE_BATCH_SIZE) {
         let mut ready = Vec::new();
@@ -268,7 +273,7 @@ async fn sync_file_descriptions_inner(
                         )
                 })
             {
-                rejected.insert((description.directory.clone(), description.file_name.clone()));
+                // Keep the accepted description so a single-file scan can revisit its CUE.
                 continue;
             }
 
@@ -315,7 +320,7 @@ async fn sync_file_descriptions_inner(
                 Ok(value) => value,
                 Err(e) => {
                     error!("Failed to prepare {}: {e:#}", description.file_name);
-                    failed += 1;
+                    outcome.failed += 1;
                     rejected.insert((description.directory.clone(), description.file_name.clone()));
                     continue;
                 }
@@ -331,7 +336,7 @@ async fn sync_file_descriptions_inner(
                     "Local content does not match the catalog reference: {}",
                     description.file_name
                 );
-                failed += 1;
+                outcome.failed += 1;
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
@@ -379,16 +384,27 @@ async fn sync_file_descriptions_inner(
                 && (old.directory != description.directory
                     || old.file_name != description.file_name)
             {
-                current = media_files::Entity::find_by_id(old.id)
-                    .one(&batch_txn)
-                    .await?;
+                // A detached remote row has no former location to check.
+                let detached =
+                    !old.local_available && old.directory.is_empty() && old.file_name.is_empty();
+                let still_absent = description.lib_path.as_deref().is_some_and(|root| {
+                    matches!(
+                        fsio.exists(&root.join(&old.directory).join(&old.file_name)),
+                        Ok(false)
+                    )
+                });
+                if detached || still_absent {
+                    current = media_files::Entity::find_by_id(old.id)
+                        .one(&batch_txn)
+                        .await?;
+                }
             }
             if current != existing {
                 error!(
                     "File changed during metadata scan: {}",
                     description.file_name
                 );
-                failed += 1;
+                outcome.failed += 1;
                 rejected.insert((description.directory.clone(), description.file_name.clone()));
                 continue;
             }
@@ -461,6 +477,7 @@ async fn sync_file_descriptions_inner(
             match result {
                 Ok(()) => {
                     txn.commit().await?;
+                    outcome.saved += 1;
                 }
                 Err(e) => {
                     txn.rollback().await.with_context(|| {
@@ -474,7 +491,7 @@ async fn sync_file_descriptions_inner(
                             .rollback()
                             .await
                             .context("Failed to roll back cancelled metadata batch")?;
-                        return Ok(failed);
+                        return Ok(outcome);
                     }
                     error!("Failed to save {}: {e:#}", description.file_name);
                     if is_fatal_scan_error(&e) {
@@ -483,7 +500,7 @@ async fn sync_file_descriptions_inner(
                         })?;
                         return Err(e);
                     }
-                    failed += 1;
+                    outcome.failed += 1;
                     rejected.insert((description.directory.clone(), description.file_name.clone()));
                 }
             }
@@ -502,7 +519,7 @@ async fn sync_file_descriptions_inner(
             *description = None;
         }
     }
-    Ok(failed)
+    Ok(outcome)
 }
 
 async fn find_moved_file(
@@ -1070,6 +1087,7 @@ pub async fn scan_audio_file(
             warn!("Cannot index CUE layouts in {directory:?}: {error:#}");
         }
     }
+    resolved_metadata::reconcile_releases(main_db, store, None).await?;
     Ok(id)
 }
 
@@ -1214,7 +1232,7 @@ where
             continue;
         }
 
-        match sync_file_descriptions_inner(
+        let outcome = sync_file_descriptions_inner(
             fsio,
             main_db,
             node_id,
@@ -1224,19 +1242,11 @@ where
             store,
         )
         .await
-        .with_context(|| "Unable to describe files")
-        {
-            Ok(failed) => {
-                if failed > 0 {
-                    info!("Failed to scan {failed} files in this batch");
-                }
-                debug!(
-                    "Finished one batch with {} files to process",
-                    descriptions.iter().filter(|d| d.is_some()).count()
-                );
-            }
-            Err(e) => return Err(e),
-        };
+        .context("Unable to describe files")?;
+        if outcome.failed > 0 {
+            info!("Failed to scan {} files in this batch", outcome.failed);
+        }
+        debug!("Finished one batch with {} saved files", outcome.saved);
 
         if cancel_token
             .as_ref()
@@ -1245,7 +1255,7 @@ where
             return Ok(processed_files);
         }
         // Update the number of processed files
-        processed_files += descriptions.iter().filter(|d| d.is_some()).count();
+        processed_files += outcome.saved;
 
         // Call the progress callback with total files scanned
         progress_callback(total_files_scanned);
@@ -1340,7 +1350,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
 
     // Join summaries by the catalog file identity instead of reading the source-tag projection.
     use catalog_audio::Column as Audio;
-    let mut order: HashMap<i32, (Option<i32>, Option<i32>)> = catalog_audio::Entity::find()
+    let order: HashMap<i32, (Option<i32>, Option<i32>)> = catalog_audio::Entity::find()
         .select_only()
         .columns([Audio::FileId, Audio::DiscNumber, Audio::TrackNumber])
         .filter(Audio::FileId.is_in(file_ids.iter().copied()))
@@ -1350,7 +1360,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         .into_iter()
         .map(|(file, disc, track)| (file, (disc, track)))
         .collect();
-    let mut titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
+    let titles = resolved_metadata::overlays::summary_titles(db, &file_ids).await?;
 
     // Display the original primary credit spellings and the resolved list of genres.
     use catalog_credits::Column as Credit;
@@ -1364,7 +1374,7 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         .into_tuple::<(i32, String)>()
         .all(db)
         .await?;
-    let mut artist_names = names_by_file(artist_rows);
+    let artist_names = names_by_file(artist_rows);
 
     use catalog_values::Column as Value;
     let genre_rows = catalog_values::Entity::find()
@@ -1377,14 +1387,17 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
         .into_tuple::<(i32, String)>()
         .all(db)
         .await?;
-    let mut genres = names_by_file(genre_rows);
+    let genres = names_by_file(genre_rows);
 
     // Keep file paths, identity and download state on their owning file rows.
     let mut results = Vec::with_capacity(files.len());
     for file in files {
         let file_id = file.id;
-        let (title, album) = titles.remove(&file_id).unwrap_or_default();
-        let (disc, track) = order.remove(&file_id).unwrap_or_default();
+        let (title, album) = titles
+            .get(&file_id)
+            .map(|(title, album)| (title.as_ref(), album.as_ref()))
+            .unwrap_or_default();
+        let (disc, track) = order.get(&file_id).copied().unwrap_or_default();
         let track_number =
             track.and_then(|track| disc.unwrap_or(0).checked_mul(1000)?.checked_add(track));
 
@@ -1398,14 +1411,20 @@ pub async fn get_metadata_summary_by_files<C: sea_orm::ConnectionTrait>(
             id: file_id,
             directory: file.directory.clone(),
             file_name: file.file_name.clone(),
-            artist: artist_names.remove(&file_id).unwrap_or_default().join(", "),
-            album: album.unwrap_or_default(),
+            artist: artist_names
+                .get(&file_id)
+                .map_or_else(String::new, |names| names.join(", ")),
+            album: album.cloned().unwrap_or_default(),
             genre: genres
-                .remove(&file_id)
+                .get(&file_id)
+                .map(Vec::as_slice)
                 .unwrap_or_default()
                 .join("\\\\")
                 .to_uppercase(),
-            title: title.unwrap_or(file.file_name.clone()),
+            title: title
+                .filter(|title| !title.is_empty())
+                .cloned()
+                .unwrap_or_else(|| file.file_name.clone()),
             track_number,
             duration: file
                 .duration
