@@ -1,5 +1,6 @@
 //! The HTTP client: authentication, retries and concurrency limits.
 
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -110,6 +111,8 @@ pub(crate) enum Auth {
 
 struct Inner {
     base_url: String,
+    /// Whether tokens may be sent to `base_url`: HTTPS, or HTTP on this machine.
+    secure: bool,
     http: reqwest::Client,
     tokens: Arc<dyn TokenSource>,
     configured_storefront: Option<String>,
@@ -142,7 +145,9 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-    /// Overrides the API host, for example to point at a test server.
+    /// Overrides the API host, for example to point at a test server. Requests carry the
+    /// tokens, so a plain `http://` address is accepted only on this machine (`localhost` or a
+    /// loopback address); any other fails every request with [`Error::InsecureBaseUrl`].
     pub fn base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
         self
@@ -167,7 +172,9 @@ impl ClientBuilder {
         self
     }
 
-    /// Uses an existing `reqwest` client (proxy settings, timeouts, ...).
+    /// Uses an existing `reqwest` client (proxy settings, timeouts, ...). Requests carry the
+    /// Music User Token, which reqwest does not strip from a redirect to another host, so the
+    /// client should be built with `redirect::Policy::none()`.
     pub fn http_client(mut self, client: reqwest::Client) -> Self {
         self.http = Some(client);
         self
@@ -184,9 +191,11 @@ impl ClientBuilder {
                 .build()
                 .expect("an HTTP client with a timeout and no redirects always builds")
         });
+        let secure = tokens_may_be_sent_to(&self.base_url);
         AppleMusicClient {
             inner: Arc::new(Inner {
                 base_url: self.base_url.trim_end_matches('/').to_owned(),
+                secure,
                 http,
                 tokens: self.tokens,
                 configured_storefront: self.storefront.clone(),
@@ -198,6 +207,27 @@ impl ClientBuilder {
                 retry: self.retry,
             }),
         }
+    }
+}
+
+/// Whether tokens may go to `base_url`: HTTPS, or HTTP to this machine.
+fn tokens_may_be_sent_to(base_url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(base_url) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    match url.scheme() {
+        "https" => true,
+        "http" => {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<IpAddr>()
+                    .is_ok_and(|address| address.is_loopback())
+        }
+        _ => false,
     }
 }
 
@@ -303,6 +333,9 @@ impl AppleMusicClient {
         attempts: &mut Attempts,
     ) -> Result<Vec<u8>> {
         let inner = &*self.inner;
+        if !inner.secure {
+            return Err(Error::InsecureBaseUrl);
+        }
         let url = format!("{}{}", inner.base_url, target);
         let policy = &inner.retry;
 

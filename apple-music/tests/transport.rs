@@ -526,3 +526,28 @@ async fn a_one_off_rejection_with_tokens_that_cannot_refresh_is_absorbed() {
     assert_eq!(c.user_storefront().await.unwrap().id, "us");
     assert_eq!(server.seen().len(), 2);
 }
+
+#[tokio::test]
+async fn tokens_are_not_sent_to_a_plain_http_host_beyond_this_machine() {
+    let server = FixtureServer::start().await;
+    server.on(
+        "GET",
+        "/v1/me/storefront",
+        Reply::fixture("storefront.json"),
+    );
+    // The fixture server answers on a loopback address, which is allowed.
+    let remote = server.base_url.replace("127.0.0.1", "example.invalid");
+    for base in [
+        remote,
+        "http://192.0.2.1".to_owned(),
+        "ftp://localhost".to_owned(),
+    ] {
+        let c = AppleMusicClient::builder(TestTokens::new())
+            .base_url(base)
+            .storefront("us")
+            .build();
+        let error = c.user_storefront().await.unwrap_err();
+        assert!(matches!(error, Error::InsecureBaseUrl), "{error:?}");
+    }
+    assert!(server.seen().is_empty());
+}

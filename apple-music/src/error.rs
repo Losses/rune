@@ -71,6 +71,9 @@ pub enum Error {
     /// A `/v1/me/*` request needs a Music User Token but the token source has none.
     #[error("a music user token is required for this request")]
     MissingUserToken,
+    /// The API host is a plain-HTTP address that is not on this machine, so no token is sent.
+    #[error("refusing to send tokens to a plain HTTP host; the base URL must use https")]
+    InsecureBaseUrl,
     /// The token source failed to produce a token.
     #[error("token source failed: {0}")]
     Token(String),
@@ -109,6 +112,7 @@ impl Error {
                 errors: errors.clone(),
             },
             Self::MissingUserToken => Self::MissingUserToken,
+            Self::InsecureBaseUrl => Self::InsecureBaseUrl,
             Self::Token(message) => Self::Token(message.clone()),
             // Mapped like the transport error it stands for.
             Self::Http(e) => Self::Server {
