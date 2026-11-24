@@ -4695,8 +4695,9 @@ async fn change_or_delete_manifest(
         .map_err(|error| anyhow::anyhow!("replace the manifest: {error:?}"))
 }
 
-/// The sizes that the base cut decision compares: the stored manifest and the compressed candidate
-/// content that the manifest references. The content size counts each candidate chunk once.
+/// The sizes that the base cut decision compares: the stored manifest and the compressed content
+/// that the manifest references. The content size counts each chunk and context fragment once,
+/// the way the base exporter totals it.
 async fn base_sizes(store: &MemoryObjectStore, prefix: &str, head: &Head) -> Result<(u64, u64)> {
     let base = head.bases.last().context("the head has no base")?;
     let manifest_bytes = store
@@ -4707,7 +4708,13 @@ async fn base_sizes(store: &MemoryObjectStore, prefix: &str, head: &Head) -> Res
     let manifest = share::decode_manifest::<RuneModel>(&manifest_bytes, &base.base_id)?;
     let mut chunks = BTreeSet::new();
     for collection in manifest.collections.values() {
-        chunks.extend(collection.buckets.iter().map(|bucket| bucket.chunk.clone()));
+        chunks.extend(
+            collection
+                .buckets
+                .iter()
+                .map(|bucket| bucket.chunk.clone())
+                .chain(collection.context_fragments.iter().cloned()),
+        );
     }
     let mut content_gzip_bytes = 0_u64;
     for chunk in chunks {
