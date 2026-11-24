@@ -41,7 +41,7 @@ use http_request::sync::PageCursor;
 use playback::player;
 use playback::player::{
     LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
-    RemoteAudioSource, SubsonicItem,
+    RemoteAudioSource, ServiceItem,
 };
 use rand::rngs::OsRng;
 use reqwest::Client;
@@ -2556,7 +2556,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
                 .or_else(|_| registry.catalog(library_id))
                 .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
             if matches!(&record.protocol, ProtocolAdapter::SubsonicTranslate { .. }) {
-                Ok(LibraryTrackKey::Subsonic(track))
+                Ok(LibraryTrackKey::Service(track))
             } else {
                 Ok(LibraryTrackKey::Rune(
                     Uuid::parse_str(&track).context("Invalid Rune library track UUID")?,
@@ -2630,10 +2630,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         })
     }
 
-    fn resolve_subsonic(
-        &self,
-        item: SubsonicItem,
-    ) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+    fn resolve_service(&self, item: ServiceItem) -> BoxFuture<'static, Result<RemoteAudioSource>> {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;

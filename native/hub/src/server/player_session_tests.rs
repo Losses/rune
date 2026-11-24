@@ -124,7 +124,7 @@ use playback::{
     player::{
         AudioPlaybackNote, AudioSourceMode, LibraryItem, MockPlayer, Playable, PlaybackSource,
         PlaybackState as PlayerPlaybackState, PlayedThrough, PlayerStatus, PlayingItem, QueueEntry,
-        RemoteAudioError, SubsonicItem, UnavailableReason,
+        RemoteAudioError, ServiceItem, UnavailableReason,
     },
     strategies::AddMode,
 };
@@ -961,17 +961,17 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     assert_eq!(restored.queue_entries()[0].item, item);
     assert_eq!(
         restored.queue_entries()[0].item,
-        PlayingItem::from(SubsonicItem {
+        PlayingItem::from(ServiceItem {
             library_id: record.record_id.0,
-            track_id: "song-opaque".to_owned(),
+            track: "song-opaque".to_owned(),
         })
     );
     fixture.global_params.player.lock().await.stop();
     let binding = subsonic_binding_for_playback(&node, record.record_id.0).await?;
     let source = binding
-        .playback_source(SubsonicItem {
+        .playback_source(ServiceItem {
             library_id: record.record_id.0,
-            track_id: "song-opaque".to_owned(),
+            track: "song-opaque".to_owned(),
         })
         .await?;
     let ranged = source.request.get(Some((12, Some(23)))).await?;
@@ -9321,9 +9321,9 @@ fn session_snapshot_rejects_independent_files() {
 
 #[test]
 fn session_snapshot_rejects_subsonic_tracks_without_mutating_the_queue() {
-    let subsonic_track = SubsonicItem {
+    let subsonic_track = ServiceItem {
         library_id: Uuid::new_v4(),
-        track_id: "remote-track".to_owned(),
+        track: "remote-track".to_owned(),
     };
     let item = PlayingItem::from(subsonic_track.clone());
     let mut status = MockPlayer.get_status();

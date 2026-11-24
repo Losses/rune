@@ -263,9 +263,7 @@ impl SessionState {
 mod tests {
     use super::{HandoffBlock, SessionState, StoredInterruptedItem, StoredItem, Uuid};
     use playback::PlaybackMode;
-    use playback::player::{
-        HandoffBlockId, InterruptedItem, PlayingItem, QueueEntry, SubsonicItem,
-    };
+    use playback::player::{HandoffBlockId, InterruptedItem, PlayingItem, QueueEntry, ServiceItem};
     use std::fs;
     use std::slice;
 
@@ -290,9 +288,9 @@ mod tests {
 
     #[test]
     fn subsonic_queue_item_roundtrips_as_secret_free_identity() {
-        let item = PlayingItem::from(SubsonicItem {
+        let item = PlayingItem::from(ServiceItem {
             library_id: Uuid::new_v4(),
-            track_id: "remote-track-42".to_owned(),
+            track: "remote-track-42".to_owned(),
         });
         let stored = StoredItem::from(item.clone());
         let encoded = serde_json::to_string(&stored).unwrap();
@@ -336,9 +334,9 @@ mod tests {
             id: id.0,
             interrupted: StoredInterruptedItem::Nothing,
         });
-        let item = PlayingItem::from(SubsonicItem {
+        let item = PlayingItem::from(ServiceItem {
             library_id: Uuid::new_v4(),
-            track_id: "block-track".to_owned(),
+            track: "block-track".to_owned(),
         });
         let entry = QueueEntry {
             item: item.clone(),
@@ -353,9 +351,9 @@ mod tests {
     #[test]
     fn tagged_queue_and_interruption_record_roundtrip_together() {
         let id = HandoffBlockId(Uuid::new_v4());
-        let item = PlayingItem::from(SubsonicItem {
+        let item = PlayingItem::from(ServiceItem {
             library_id: Uuid::new_v4(),
-            track_id: "tagged-track".to_owned(),
+            track: "tagged-track".to_owned(),
         });
         let mut state = SessionState::default();
         state.update_queue(&[QueueEntry {

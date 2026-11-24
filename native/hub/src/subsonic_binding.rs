@@ -24,7 +24,7 @@ use database::playing_item::PlayingItemMetadataSummary;
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
-    RemoteAudioSource, SubsonicItem, UnavailableReason,
+    RemoteAudioSource, ServiceItem, UnavailableReason,
 };
 use subsonic::{SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicJukebox, SubsonicSong};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -1022,11 +1022,11 @@ impl SubsonicBinding {
 
     pub(crate) async fn playback_source(
         self: &Arc<Self>,
-        item: SubsonicItem,
+        item: ServiceItem,
     ) -> Result<RemoteAudioSource> {
         let song = self
             .client
-            .song(&item.track_id)
+            .song(&item.track)
             .await
             .map_err(subsonic_playback_error)?;
         let extension = song
@@ -1038,7 +1038,7 @@ impl SubsonicBinding {
         Ok(RemoteAudioSource {
             request: Arc::new(SubsonicAudioRequest {
                 client: Arc::clone(&self.client),
-                track_id: item.track_id,
+                track_id: item.track,
                 failure_reason: failure_reason.clone(),
             }),
             // The request capability owns the authenticated URL. This parse-only URL has no
