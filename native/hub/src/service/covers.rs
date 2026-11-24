@@ -10,7 +10,7 @@ use std::io;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::result;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 
@@ -67,9 +67,9 @@ pub(crate) struct ServiceCoverCache {
 /// A download in flight or waiting for its turn, which requests for the same cover join.
 struct Pending {
     receiver: watch::Receiver<Option<Fetched>>,
-    /// Whether a request that waits for the cover joined it, which puts it ahead of the
+    /// How many requests that wait for the cover joined it. While any do, it goes ahead of the
     /// downloads that nobody waits for.
-    awaited: Arc<AtomicBool>,
+    waiters: Arc<AtomicUsize>,
 }
 
 /// How a download ended, as the requests that joined it are told.
@@ -94,8 +94,15 @@ struct Waiting {
     /// Orders the waiting downloads by when they were requested, the newest having the highest.
     order: u64,
     cover_id: String,
-    awaited: Arc<AtomicBool>,
+    waiters: Arc<AtomicUsize>,
     grant: oneshot::Sender<Slot>,
+}
+
+impl Waiting {
+    /// Whether a request waits for the download.
+    fn awaited(&self) -> bool {
+        self.waiters.load(Ordering::SeqCst) > 0
+    }
 }
 
 #[derive(Default)]
@@ -114,7 +121,7 @@ impl QueueState {
     fn take_next(&mut self) -> Option<Waiting> {
         let index = (0..self.waiting.len()).max_by_key(|&index| {
             let waiting = &self.waiting[index];
-            let awaited = waiting.awaited.load(Ordering::SeqCst);
+            let awaited = waiting.awaited();
             let rank = if awaited {
                 u64::MAX - waiting.order
             } else {
@@ -133,7 +140,7 @@ impl QueueState {
                 .waiting
                 .iter()
                 .enumerate()
-                .filter(|(_, waiting)| !waiting.awaited.load(Ordering::SeqCst));
+                .filter(|(_, waiting)| !waiting.awaited());
             if scheduled.clone().count() <= MAX_WAITING_SCHEDULED {
                 return;
             }
@@ -171,6 +178,34 @@ enum Turn {
     Closed,
 }
 
+/// A request that waits for a cover, counted among the waiters of its download until it is
+/// dropped. Once the last one stops waiting, as one does that gives up, the download waits in
+/// line as a scheduled one again, within their bound.
+struct Waiter {
+    waiters: Arc<AtomicUsize>,
+    queue: Arc<DownloadQueue>,
+}
+
+impl Waiter {
+    /// Counts a request as waiting for a download, and says whether it is the only one.
+    fn join(waiters: &Arc<AtomicUsize>, queue: &Arc<DownloadQueue>) -> (Self, bool) {
+        let first = waiters.fetch_add(1, Ordering::SeqCst) == 0;
+        let waiter = Self {
+            waiters: Arc::clone(waiters),
+            queue: Arc::clone(queue),
+        };
+        (waiter, first)
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        if self.waiters.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.queue.lock().drop_oldest_scheduled();
+        }
+    }
+}
+
 impl DownloadQueue {
     fn new() -> Arc<Self> {
         Arc::new(Self {
@@ -183,7 +218,7 @@ impl DownloadQueue {
     }
 
     /// Asks for a turn: at once when one is free, else by waiting in line.
-    fn enter(self: &Arc<Self>, cover_id: &str, awaited: &Arc<AtomicBool>) -> Turn {
+    fn enter(self: &Arc<Self>, cover_id: &str, waiters: &Arc<AtomicUsize>) -> Turn {
         let mut state = self.lock();
         if state.closed {
             return Turn::Closed;
@@ -200,7 +235,7 @@ impl DownloadQueue {
         state.waiting.push(Waiting {
             order,
             cover_id: cover_id.to_owned(),
-            awaited: Arc::clone(awaited),
+            waiters: Arc::clone(waiters),
             grant,
         });
         state.drop_oldest_scheduled();
@@ -217,7 +252,7 @@ impl DownloadQueue {
             .waiting
             .iter_mut()
             .find(|waiting| waiting.cover_id == cover_id)
-            && (first_awaited || !waiting.awaited.load(Ordering::SeqCst))
+            && (first_awaited || !waiting.awaited())
         {
             waiting.order = order;
             state.next_order += 1;
@@ -371,8 +406,9 @@ impl ServiceCoverCache {
     }
 
     /// Starts downloading the cover of what plays now, which its status shows once the cover is
-    /// cached and which nothing asks for again. Like a cover a request waits for, it goes ahead of
-    /// the scheduled covers and is never dropped from the queue, so the status does get it.
+    /// cached and which nothing asks for again. It waits for the cover until the cover is cached,
+    /// so like a cover a request waits for, it goes ahead of the scheduled covers and is never
+    /// dropped from the queue, and the status does get it.
     pub(crate) fn schedule_playing<S: CoverSource>(
         self: &Arc<Self>,
         source: Arc<S>,
@@ -434,24 +470,31 @@ impl ServiceCoverCache {
             if let Some(path) = self.cached_path(cover_id).await? {
                 return Ok(Some(path));
             }
-            // Some when this request joined a download asked for before, saying whether it is the
-            // first request to await it.
-            let (mut receiver, joined) = {
+            // `joined` is Some when this request joined a download asked for before, saying
+            // whether it is the first request to await it. A request that waits stays counted
+            // among the download's waiters while `_waiter` lives.
+            let (mut receiver, joined, _waiter) = {
                 let mut pending = self
                     .pending
                     .lock()
                     .map_err(|_| anyhow::anyhow!("Service cover cache lock poisoned"))?;
                 if let Some(joined) = pending.get(cover_id) {
-                    let first_awaited = awaited && !joined.awaited.swap(true, Ordering::SeqCst);
-                    (joined.receiver.clone(), Some(first_awaited))
+                    let (waiter, first_awaited) = if awaited {
+                        let (waiter, first) = Waiter::join(&joined.waiters, &self.downloads);
+                        (Some(waiter), first)
+                    } else {
+                        (None, false)
+                    };
+                    (joined.receiver.clone(), Some(first_awaited), waiter)
                 } else {
                     let (sender, receiver) = watch::channel(None);
-                    let flag = Arc::new(AtomicBool::new(awaited));
+                    let waiters = Arc::new(AtomicUsize::new(0));
+                    let waiter = awaited.then(|| Waiter::join(&waiters, &self.downloads).0);
                     pending.insert(
                         cover_id.to_owned(),
                         Pending {
                             receiver: receiver.clone(),
-                            awaited: Arc::clone(&flag),
+                            waiters: Arc::clone(&waiters),
                         },
                     );
                     let cache = Arc::clone(self);
@@ -464,7 +507,7 @@ impl ServiceCoverCache {
                             cache: Arc::clone(&cache),
                             cover_id: id.clone(),
                         };
-                        let result = cache.fetch_uncached(fetch_source, &id, &flag).await;
+                        let result = cache.fetch_uncached(fetch_source, &id, &waiters).await;
                         drop(pending);
                         let _ = sender.send(Some(match result {
                             Ok(Finished::Done(path)) => Fetched::Done(Ok(path)),
@@ -472,7 +515,7 @@ impl ServiceCoverCache {
                             Err(error) => Fetched::Done(Err(Arc::new(error))),
                         }));
                     });
-                    (receiver, None)
+                    (receiver, None, waiter)
                 }
             };
             if let Some(first_awaited) = joined {
@@ -504,7 +547,7 @@ impl ServiceCoverCache {
         &self,
         source: Arc<S>,
         cover_id: &str,
-        awaited: &Arc<AtomicBool>,
+        waiters: &Arc<AtomicUsize>,
     ) -> Result<Finished> {
         // A request that missed the cache just before an earlier fetch for this cover stored
         // its file, and found no fetch in flight just after that fetch finished, starts this
@@ -512,7 +555,7 @@ impl ServiceCoverCache {
         if let Some(path) = self.cached_path(cover_id).await? {
             return Ok(Finished::Done(Some(path)));
         }
-        let slot = match self.downloads.enter(cover_id, awaited) {
+        let slot = match self.downloads.enter(cover_id, waiters) {
             Turn::Ready(slot) => slot,
             Turn::Closed => return Ok(Finished::Done(None)),
             Turn::Waiting(mut turn) => {
@@ -695,7 +738,7 @@ mod tests {
             .waiting
             .iter()
             .find(|waiting| waiting.cover_id == cover_id)
-            .map(|waiting| waiting.awaited.load(Ordering::SeqCst))
+            .map(|waiting| waiting.awaited())
     }
 
     /// How many times a download took a place in the queue's line.
@@ -710,7 +753,7 @@ mod tests {
             .lock()
             .waiting
             .iter()
-            .filter(|waiting| !waiting.awaited.load(Ordering::SeqCst))
+            .filter(|waiting| !waiting.awaited())
             .count()
     }
 
@@ -884,6 +927,39 @@ mod tests {
         assert_eq!(in_line(&cache, "first"), Some(true));
         source.finish(10_000);
         assert!(asked.await.unwrap().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_cover_whose_request_stopped_waiting_waits_as_a_scheduled_one() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        let asked = tokio::spawn({
+            let (cache, source) = (cache.clone(), source.clone());
+            async move { cache.ensure_cached(source, "asked").await }
+        });
+        until("asked awaited", || in_line(&cache, "asked") == Some(true)).await;
+        // The request gives up, as a color request does once its wait is over. The download
+        // keeps its place, but nothing waits for it any more.
+        asked.abort();
+        assert!(asked.await.unwrap_err().is_cancelled());
+        until("asked scheduled", || {
+            in_line(&cache, "asked") == Some(false)
+        })
+        .await;
+        // So it counts within the bound of the scheduled covers, as the oldest of them.
+        let taken = places_taken(&cache);
+        for index in 0..MAX_WAITING_SCHEDULED {
+            cache.schedule(Arc::clone(&source), format!("page-{index}"));
+        }
+        until("every page in line and the bound kept", || {
+            places_taken(&cache) == taken + MAX_WAITING_SCHEDULED as u64
+                && scheduled_in_line(&cache) == MAX_WAITING_SCHEDULED
+        })
+        .await;
+        assert_eq!(in_line(&cache, "asked"), None);
+        source.finish(10_000);
     }
 
     #[tokio::test]
