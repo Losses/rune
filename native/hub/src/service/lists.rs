@@ -59,6 +59,17 @@ pub(crate) async fn delete_kept_lists(config_dir: &Path, library_id: Uuid) -> io
     }
 }
 
+/// A value the service library `library_id` keeps beside its lists as `name`, such as what the
+/// last check of its service found, or `None` when it keeps none. It reads the file, so it
+/// blocks.
+pub(crate) fn kept_value<T: DeserializeOwned>(
+    config_dir: &Path,
+    library_id: Uuid,
+    name: &str,
+) -> Option<T> {
+    ListStore::new(lists_folder(config_dir, library_id)).load(name)
+}
+
 /// A list a binding keeps: the name of its file, and how long it stays current once read.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ListSpec {
@@ -139,6 +150,12 @@ impl ServiceLists {
             }
         });
         (self.changed)();
+    }
+
+    /// Keeps `value` beside the lists as `name`, soon. A clear deletes it with them.
+    pub(crate) fn keep<T: Serialize + Send + Sync + 'static>(&self, name: &str, value: T) {
+        self.store
+            .save(self.store.generation(), name, Arc::new(value));
     }
 }
 

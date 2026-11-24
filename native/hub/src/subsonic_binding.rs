@@ -11,13 +11,13 @@ use crate::{
         covers::{CoverSource, ServiceCoverCache, cover_cache_root},
         folder::prepare_service_library_folder,
         ids::RemoteIdMap,
-        lists::{KeptList, ListSpec, ServiceLists, lists_folder},
+        lists::{KeptList, ListSpec, ServiceLists, kept_value, lists_folder},
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
@@ -37,7 +37,7 @@ use playback::player::{
 };
 use subsonic::{
     SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicCredentials, SubsonicJukebox,
-    SubsonicSong,
+    SubsonicProbe, SubsonicSong,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
@@ -96,11 +96,19 @@ const ARTISTS: ListSpec = ListSpec {
     max_age: LIST_TTL,
 };
 
+/// The name the probe is kept beside the lists under.
+const PROBE: &str = "probe";
+
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
     pub(crate) client: Arc<SubsonicClient>,
-    pub(crate) probe: subsonic::SubsonicProbe,
+    /// What the last check of the server found. A library opened from what it kept checks the
+    /// server in the background, and the probe it gets replaces this one.
+    pub(crate) probe: Mutex<SubsonicProbe>,
+    /// Cancelled once the sign-in is renewed: what a check of the server found under the sign-in
+    /// before says nothing of the new one.
+    renewed: CancellationToken,
     pub(crate) catalog: Arc<Mutex<SubsonicCatalog>>,
     pub(crate) lists: SubsonicLists,
     pub(crate) covers: Arc<ServiceCoverCache>,
@@ -583,7 +591,8 @@ impl SubsonicBinding {
                 Arc::clone(&broadcaster),
             ),
             client,
-            probe,
+            probe: Mutex::new(probe),
+            renewed: CancellationToken::new(),
             catalog,
             covers: Arc::new(ServiceCoverCache::new(
                 cover_cache_root(&config_dir, library_id),
@@ -600,11 +609,64 @@ impl SubsonicBinding {
         }
     }
 
+    /// What the last check of the server of the library `library_id` found, kept when the
+    /// library was opened before. It reads the file, so it blocks.
+    pub(crate) fn kept_probe(config_dir: &Path, library_id: Uuid) -> Option<SubsonicProbe> {
+        kept_value(config_dir, library_id, PROBE)
+    }
+
+    /// What the last check of the server found: the roles of the account and what the server
+    /// declares.
+    pub(crate) fn probe(&self) -> SubsonicProbe {
+        self.probe
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Keeps the probe on disk, so the library opens from it next time.
+    pub(crate) fn keep_probe(&self) {
+        self.lists.kept.keep(PROBE, self.probe());
+    }
+
+    /// Takes what a check of the server found in place of the probe, and keeps it on disk. Says
+    /// whether it differs from the probe it replaces.
+    pub(crate) fn replace_probe(&self, probe: SubsonicProbe) -> bool {
+        let changed = {
+            let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+            let changed = *kept != probe;
+            *kept = probe.clone();
+            changed
+        };
+        self.lists.kept.keep(PROBE, probe);
+        changed
+    }
+
+    /// Cancelled once the sign-in is renewed, which makes what a check of the server under the
+    /// sign-in before found stale.
+    pub(crate) fn renewed(&self) -> CancellationToken {
+        self.renewed.clone()
+    }
+
+    /// Asks the UI for a new sign-in, as the server rejects the one the library keeps, which
+    /// `request` found.
+    pub(crate) fn ask_for_sign_in(&self, request: &str) {
+        self.covers.broadcaster.broadcast(&RequestFailedResponse {
+            request: request.into(),
+            call_id: None,
+            kind: RequestErrorKind::PermissionDenied,
+            detail: "Subsonic account is not authorized for this request".into(),
+            cause: Some(RequestFailureCause::ServiceSignInRequired {
+                record_id: self.library_id.to_string(),
+            }),
+        });
+    }
+
     pub(crate) fn start_jukebox_polling(self: &Arc<Self>) {
         if self.play_on_this_device {
             return;
         }
-        if !self.probe.roles.jukebox_role {
+        if !self.probe().roles.jukebox_role {
             return;
         }
         let Ok(mut poll) = self.jukebox_poll.lock() else {
@@ -713,7 +775,8 @@ impl SubsonicBinding {
     }
 
     fn start_visualizer_feed(self: &Arc<Self>) {
-        if !self.probe.supports_rune_visualizer_feed() {
+        let probe = self.probe();
+        if !probe.supports_rune_visualizer_feed() {
             return;
         }
         let Ok(mut feed) = self.visualizer_feed.lock() else {
@@ -729,7 +792,6 @@ impl SubsonicBinding {
             link: Arc::clone(&link),
         });
         let client = Arc::clone(&self.client);
-        let probe = self.probe.clone();
         let broadcaster = Arc::clone(&self.covers.broadcaster);
         let visualizer = Arc::clone(&self.visualizer);
         let binding = Arc::downgrade(self);
@@ -816,15 +878,7 @@ impl SubsonicBinding {
                     ..
                 }
             ) {
-                self.covers.broadcaster.broadcast(&RequestFailedResponse {
-                    request: "Subsonic scrobble".into(),
-                    call_id: None,
-                    kind: RequestErrorKind::PermissionDenied,
-                    detail: "Subsonic account is not authorized for this request".into(),
-                    cause: Some(RequestFailureCause::ServiceSignInRequired {
-                        record_id: self.library_id.to_string(),
-                    }),
-                });
+                self.ask_for_sign_in("Subsonic scrobble");
             }
         }
     }
@@ -939,7 +993,7 @@ impl ServiceBinding for SubsonicBinding {
     }
 
     fn slots(&self) -> RequestSlots {
-        RequestSlots::subsonic(&self.probe)
+        RequestSlots::subsonic(&self.probe())
     }
 
     fn service(&self) -> ServiceKind {
@@ -1074,6 +1128,7 @@ impl ServiceBinding for SubsonicBinding {
                 user: credential.username.clone(),
                 password: password.to_owned(),
             });
+        self.renewed.cancel();
         if other_account {
             self.lists.kept.clear();
         }
@@ -1086,7 +1141,7 @@ impl ServiceBinding for SubsonicBinding {
 
 impl ServicePlayer for SubsonicBinding {
     fn visualizer_inputs(&self) -> VisualizerInputs {
-        if !self.probe.supports_rune_visualizer_feed() {
+        if !self.probe().supports_rune_visualizer_feed() {
             return VisualizerInputs::None;
         }
         let lost = self.visualizer_feed.lock().is_ok_and(|feed| {

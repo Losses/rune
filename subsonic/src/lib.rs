@@ -119,14 +119,14 @@ impl From<i64> for SubsonicServerError {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SubsonicRoles {
     pub stream_role: bool,
     pub download_role: bool,
     pub jukebox_role: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SubsonicProbe {
     pub api_version: String,
     pub open_subsonic: bool,

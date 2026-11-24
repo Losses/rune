@@ -127,7 +127,7 @@ pub(crate) async fn get_lyric_request(
         .await
         .map_err(|error| subsonic_request_error(binding, error))?;
     let needs_extension = binding
-        .probe
+        .probe()
         .extensions
         .iter()
         .any(|(name, _)| name == "songLyrics");
@@ -4370,6 +4370,8 @@ mod tests {
 
         binding
             .probe
+            .get_mut()
+            .unwrap()
             .extensions
             .push(("songLyrics".into(), vec![1]));
         let lyrics = get_lyric_request(
@@ -4400,7 +4402,7 @@ mod tests {
         .unwrap();
         assert_eq!(lyrics.lines[0].start_time, 0);
         assert_eq!(lyrics.lines[0].sections[0].content, "extension plain text");
-        binding.probe.extensions.clear();
+        binding.probe.get_mut().unwrap().extensions.clear();
         let lyrics = get_lyric_request(
             &binding,
             &GetLyricByTrackIdRequest {
@@ -4781,7 +4783,7 @@ mod tests {
             mock_subsonic_mode(&root, false, SubsonicOpenMode::PlayOnThisDevice).await;
         let library = binding.library_id;
         assert_eq!(
-            ResolveMixQueryRequest::slot(&RequestSlots::subsonic(&binding.probe)),
+            ResolveMixQueryRequest::slot(&RequestSlots::subsonic(&binding.probe())),
             Slot::Translate
         );
 
@@ -5019,7 +5021,7 @@ mod tests {
             mock_subsonic_mode(&root, true, SubsonicOpenMode::RemoteControl).await;
         let library = binding.library_id;
         set_mock_jukebox(&server, &["track-a"], Some(0), false, 0);
-        let slots = RequestSlots::subsonic(&binding.probe);
+        let slots = RequestSlots::subsonic(&binding.probe());
         assert_eq!(ResolveMixQueryRequest::slot(&slots), Slot::Translate);
         assert_eq!(PlaylistRevisionRequest::slot(&slots), Slot::Translate);
         assert_eq!(LoadResolvedItemsRequest::slot(&slots), Slot::Translate);
@@ -5404,7 +5406,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let (binding, server) = mock_subsonic(&root, false).await;
         assert_eq!(
-            ComplexQueryRequest::slot(&RequestSlots::subsonic(&binding.probe)),
+            ComplexQueryRequest::slot(&RequestSlots::subsonic(&binding.probe())),
             Slot::Translate
         );
         server
@@ -6645,7 +6647,7 @@ mod tests {
     async fn no_role_keeps_player_calls_unsupported_and_makes_no_jukebox_request() {
         let root = TempDir::new().unwrap();
         let (binding, server) = mock_subsonic(&root, false).await;
-        let slots = RequestSlots::subsonic(&binding.probe);
+        let slots = RequestSlots::subsonic(&binding.probe());
         for slot in [
             PlayRequest::slot(&slots),
             PauseRequest::slot(&slots),
@@ -6837,7 +6839,7 @@ mod tests {
                 },
                 Client::new(),
             ),
-            binding.probe.clone(),
+            binding.probe(),
             root.path().to_path_buf(),
             binding.library_id,
             binding.play_on_this_device,

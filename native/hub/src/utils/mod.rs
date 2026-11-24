@@ -2068,6 +2068,12 @@ async fn open_subsonic_record(
                 anyhow::anyhow!("Could not create Subsonic client"),
             )
         })?;
+    let config_dir = Path::new(&*node.config_path);
+    // What the last check of the server found, when the library was opened before. It opens from
+    // that and from its kept lists without waiting for the server, which it checks in the
+    // background. Opened for the first time, it keeps nothing to show, so it waits for the probe
+    // as before, and fails as before when the server cannot be reached or rejects the sign-in.
+    let kept_probe = SubsonicBinding::kept_probe(config_dir, library_id);
     let mut credential = read_credential().await?;
     let (client, result, commit) = loop {
         let password = std::str::from_utf8(credential.secret.as_bytes())
@@ -2080,7 +2086,10 @@ async fn open_subsonic_record(
             },
             http.clone(),
         );
-        let result = timeout(Duration::from_secs(10), client.probe()).await;
+        let result = match &kept_probe {
+            Some(probe) => Ok(Ok(probe.clone())),
+            None => timeout(Duration::from_secs(10), client.probe()).await,
+        };
         let commit = node.subsonic_credential_commit.lock().await;
         let current = read_credential().await?;
         if credential.username == current.username
@@ -2125,12 +2134,15 @@ async fn open_subsonic_record(
     let binding = Arc::new(SubsonicBinding::new(
         client,
         probe,
-        Path::new(&*node.config_path).to_path_buf(),
+        config_dir.to_path_buf(),
         library_id,
         play_on_this_device,
         Arc::clone(&node.gui_broadcaster),
         Arc::clone(node.visualizer()),
     ));
+    if kept_probe.is_none() {
+        binding.keep_probe();
+    }
     // Like the local and remote paths, the opened library gets its own UI and GUI
     // listeners; attaching it releases the previous library's.
     let mut params = node
@@ -2140,12 +2152,60 @@ async fn open_subsonic_record(
     let params = Arc::new(params);
     node.attach_ui(&params).await;
     let generation = node
-        .set_open_service_catalog(Some(record_id), binding)
+        .set_open_service_catalog(
+            Some(record_id),
+            Arc::clone(&binding) as Arc<dyn ServiceBinding>,
+        )
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
     drop(commit);
     listen_local_gui(&params, &params.main_token);
+    if kept_probe.is_some() {
+        check_subsonic_server(node, &binding);
+    }
     Ok(generation)
+}
+
+/// Checks the server of a Subsonic library opened from what it kept, in the background. The
+/// probe the server gives replaces the kept one, and the UI hears the request slots it gives. A
+/// server that rejects the sign-in asks the UI for a new one, as a request it rejects does. A
+/// server that cannot be reached leaves the library as it is: the kept lists still show, and the
+/// requests that need the server fail as they do while it is down.
+fn check_subsonic_server(node: &Arc<NodeContext>, binding: &Arc<SubsonicBinding>) {
+    let node = Arc::downgrade(node);
+    let client = Arc::clone(&binding.client);
+    let renewed = binding.renewed();
+    let binding = Arc::downgrade(binding);
+    tokio::spawn(async move {
+        let probed = tokio::select! {
+            // A sign-in renewed meanwhile is the one the library keeps now, and what the server
+            // answers to the one before says nothing of it.
+            _ = renewed.cancelled() => return,
+            probed = timeout(Duration::from_secs(10), client.probe()) => probed,
+        };
+        let Some(binding) = binding.upgrade().filter(|_| !renewed.is_cancelled()) else {
+            return;
+        };
+        match probed {
+            Ok(Ok(probe)) => {
+                if binding.replace_probe(probe)
+                    && let Some(node) = node.upgrade()
+                    && let Err(error) = node.publish_capabilities()
+                {
+                    log::warn!("Could not publish the capabilities the server gives: {error:#}");
+                }
+            }
+            Ok(Err(SubsonicError::Server {
+                kind:
+                    SubsonicServerError::WrongCredentials
+                    | SubsonicServerError::NotAuthorized
+                    | SubsonicServerError::InvalidApiKey,
+                ..
+            })) => binding.ask_for_sign_in("Subsonic server check"),
+            Ok(Err(error)) => log::info!("Could not check the Subsonic server: {error}"),
+            Err(_) => log::info!("The Subsonic server did not answer its check in time"),
+        }
+    });
 }
 
 /// The binding of the service library `library_id`: the open one, or one made from its record
