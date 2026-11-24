@@ -95,8 +95,9 @@ use crate::{
     },
     messages::{
         CastLibraryState, CastPreflightRequest, CastResolvedItemsRequest, CastTarget,
-        GetMediaFilesCountRequest, ListControllersRequest, ListRenderersRequest,
-        LoadResolvedItemsRequest, MediaFile, PlayingItemRef, PlaylistRevisionRequest,
+        GetLikedRequest, GetLyricByTrackIdRequest, GetMediaFilesCountRequest,
+        GetPrimaryColorByTrackIdRequest, ListControllersRequest, ListRenderersRequest,
+        LoadResolvedItemsRequest, LyricContentLine, MediaFile, PlayingItemRef, PlaylistRevisionRequest,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
         RequestFailureCause, ResolveMixQueryRequest, ResolveMixQueryResponse,
         SessionSnapshotRequest, SwitchRequest, VolumeRequest,
@@ -151,6 +152,7 @@ struct SubsonicHubMock {
     supports_ranges: Arc<AtomicBool>,
     reject_credentials: bool,
     visualizer_covers: bool,
+    starred: Arc<AtomicBool>,
 }
 
 async fn subsonic_hub_mock(
@@ -188,6 +190,7 @@ async fn subsonic_hub_mock_with_covers(
         supports_ranges: supports_ranges.clone(),
         reject_credentials,
         visualizer_covers,
+        starred: Arc::new(AtomicBool::new(false)),
     };
     let app = Router::new()
         .route("/rest/{*action}", get(subsonic_hub_response))
@@ -203,6 +206,25 @@ async fn subsonic_hub_mock_with_covers(
         supports_ranges,
         task,
     )
+}
+
+/// A 2 by 2 bitmap of one color.
+fn red_bitmap() -> Vec<u8> {
+    let mut bytes = b"BM".to_vec();
+    bytes.extend(70_u32.to_le_bytes());
+    bytes.extend([0; 4]);
+    bytes.extend(54_u32.to_le_bytes());
+    bytes.extend(40_u32.to_le_bytes());
+    bytes.extend(2_i32.to_le_bytes());
+    bytes.extend(2_i32.to_le_bytes());
+    bytes.extend(1_u16.to_le_bytes());
+    bytes.extend(24_u16.to_le_bytes());
+    bytes.extend([0; 24]);
+    for _ in 0..2 {
+        // Two pixels in blue, green, red order, and the row padded to four bytes.
+        bytes.extend([30, 30, 200, 30, 30, 200, 0, 0]);
+    }
+    bytes
 }
 
 async fn unreachable_http_endpoint() -> Result<(String, JoinHandle<()>)> {
@@ -229,6 +251,10 @@ async fn subsonic_hub_response(
             "scrobble id={} submission={}",
             query.get("id").map(String::as_str).unwrap_or_default(),
             query.get("submission").map(String::as_str).unwrap_or_default(),
+        ),
+        "star" | "unstar" => format!(
+            "{action} id={}",
+            query.get("id").map(String::as_str).unwrap_or_default()
         ),
         _ => action.clone(),
     };
@@ -278,6 +304,10 @@ async fn subsonic_hub_response(
         };
     }
     if action == "getCoverArt" {
+        // One cover is a real image, whose color the hub can read.
+        if query.get("id").map(String::as_str) == Some("cover-color") {
+            return (StatusCode::OK, red_bitmap()).into_response();
+        }
         return (StatusCode::OK, b"mock-cover-bytes".to_vec()).into_response();
     }
     let body = match action.as_str() {
@@ -337,9 +367,26 @@ async fn subsonic_hub_response(
             // The album's later disc shares its cover; every other id is the searched song.
             let (id, title) = match query.get("id").map(String::as_str) {
                 Some("song-later") => ("song-later", "Later disc"),
+                Some("song-color") => ("song-color", "Colored"),
                 _ => ("song-opaque", "Song title"),
             };
-            json!({ "subsonic-response": { "status": "ok", "song": { "id": id, "title": title, "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": state.visualizer_covers.then(|| "cover-playing".to_owned()), "duration": 90, "track": 4 } } })
+            let cover = if id == "song-color" {
+                Some("cover-color".to_owned())
+            } else {
+                state.visualizer_covers.then(|| "cover-playing".to_owned())
+            };
+            let starred = state
+                .starred
+                .load(Ordering::SeqCst)
+                .then_some("2026-01-01T00:00:00Z");
+            json!({ "subsonic-response": { "status": "ok", "song": { "id": id, "title": title, "artist": "Artist", "album": "Album", "artistId": "artist-opaque", "albumId": "album-opaque", "coverArt": cover, "starred": starred, "duration": 90, "track": 4 } } })
+        }
+        "star" | "unstar" => {
+            state.starred.store(action == "star", Ordering::SeqCst);
+            json!({ "subsonic-response": { "status": "ok" } })
+        }
+        "getLyrics" => {
+            json!({ "subsonic-response": { "status": "ok", "lyrics": { "artist": "Artist", "title": "Song title", "value": "[00:01.00]First line\n[00:02.00]Second line" } } })
         }
         "scrobble" => json!({ "subsonic-response": { "status": "ok" } }),
         "getArtist" => {
@@ -13333,6 +13380,357 @@ async fn played_service_track_leaves_local_statistics_alone() -> Result<()> {
     server.abort();
     node.shutdown().await?;
     Ok(())
+}
+
+/// Registers the Subsonic server at `endpoint` as a library, without opening it.
+async fn register_subsonic_here(node: &Arc<NodeContext>, endpoint: String) -> Result<Uuid> {
+    let record = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        node,
+    )
+    .await?
+    .record
+    .context("registered Subsonic library")?;
+    Ok(Uuid::parse_str(&record.record_id)?)
+}
+
+/// Opens the registered library `record_id` in the UI.
+async fn open_registered_here(node: &Arc<NodeContext>, record_id: Uuid) -> Result<()> {
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record_id.to_string(),
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        ))),
+    )
+    .await?;
+    Ok(())
+}
+
+fn service_item(library_id: Uuid, track: &str) -> PlayingItemRef {
+    PlayingItemRef::LibraryTrack {
+        library_id: library_id.to_string(),
+        track: track.into(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn liked_state_goes_to_the_library_that_owns_the_item() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let local_id = session_audio(&fixture, "liked-local.ogg").await?;
+    let local_track = PlayingItemRef::from(library_track_for_id(&fixture, local_id).await?);
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+    let service_track = service_item(record_id, "song-opaque");
+    let stars = || {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| call.starts_with("star") || call.starts_with("unstar"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    // The local library is open, and the service's track is liked in its own library.
+    let liked = dispatch_gui_request(
+        &fixture.global_params,
+        &SetLikedRequest {
+            item: Some(service_track.clone()),
+            liked: true,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("service liked")?;
+    assert!(liked.liked);
+    assert_eq!(stars(), ["star id=song-opaque"]);
+    let state = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            item: Some(service_track.clone()),
+            call_id: None,
+        },
+    )
+    .await?
+    .context("service liked state")?;
+    assert!(state.liked);
+
+    // A local track stays with its local library.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &SetLikedRequest {
+            item: Some(local_track.clone()),
+            liked: true,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("local liked")?;
+    let state = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            item: Some(local_track.clone()),
+            call_id: None,
+        },
+    )
+    .await?
+    .context("local liked state")?;
+    assert!(state.liked);
+    assert_eq!(stars(), ["star id=song-opaque"]);
+
+    // While the service library is open, the local track is still the local library's, and
+    // the service's track still the service's.
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    dispatch_gui_request(
+        &ui,
+        &SetLikedRequest {
+            item: Some(local_track.clone()),
+            liked: false,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("local unliked")?;
+    let state = dispatch_gui_request(
+        &ui,
+        &GetLikedRequest {
+            item: Some(local_track),
+            call_id: None,
+        },
+    )
+    .await?
+    .context("local unliked state")?;
+    assert!(!state.liked);
+    assert_eq!(stars(), ["star id=song-opaque"]);
+    dispatch_gui_request(
+        &ui,
+        &SetLikedRequest {
+            item: Some(service_track),
+            liked: false,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("service unliked")?;
+    assert_eq!(stars(), ["star id=song-opaque", "unstar id=song-opaque"]);
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lyrics_of_a_service_track_come_from_its_library_while_a_local_library_is_open()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let local_id = session_audio(&fixture, "lyrics-local.ogg").await?;
+    let local_track = PlayingItemRef::from(library_track_for_id(&fixture, local_id).await?);
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+    let lyric_requests = || {
+        calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| *call == "getLyrics")
+            .count()
+    };
+    let lyrics_of = |params: Arc<GlobalParams>, item: PlayingItemRef| async move {
+        dispatch_gui_request(
+            &params,
+            &GetLyricByTrackIdRequest {
+                item: Some(item),
+                call_id: None,
+            },
+        )
+        .await?
+        .context("lyrics")
+    };
+    let contents = |lines: &[LyricContentLine]| {
+        lines
+            .iter()
+            .flat_map(|line| line.sections.iter().map(|section| section.content.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    // The local library is open, and the service's track gets the lyrics its server has.
+    let lyrics = lyrics_of(
+        fixture.global_params.clone(),
+        service_item(record_id, "song-opaque"),
+    )
+    .await?;
+    assert_eq!(contents(&lyrics.lines), ["First line", "Second line"]);
+    assert_eq!(lyric_requests(), 1);
+
+    // A local track's lyrics are read from its file, and no server is asked.
+    let local = lyrics_of(fixture.global_params.clone(), local_track.clone()).await?;
+    assert!(local.lines.is_empty());
+    assert_eq!(lyric_requests(), 1);
+
+    // The same holds once the service library is the one open.
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    let lyrics = lyrics_of(ui.clone(), service_item(record_id, "song-opaque")).await?;
+    assert_eq!(contents(&lyrics.lines), ["First line", "Second line"]);
+    assert_eq!(lyric_requests(), 2);
+    let local = lyrics_of(ui, local_track).await?;
+    assert!(local.lines.is_empty());
+    assert_eq!(lyric_requests(), 2);
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_color_of_a_service_track_comes_from_its_cover_while_a_local_library_is_open()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+    let color_of = |params: Arc<GlobalParams>, track: &'static str| async move {
+        dispatch_gui_request(
+            &params,
+            &GetPrimaryColorByTrackIdRequest {
+                item: Some(service_item(record_id, track)),
+                call_id: None,
+            },
+        )
+        .await?
+        .context("primary color")
+        .map(|response| response.primary_color)
+    };
+    let expected = metadata::cover_art::get_primary_color(&red_bitmap());
+    assert!(expected.is_some());
+
+    assert_eq!(
+        color_of(fixture.global_params.clone(), "song-color").await?,
+        expected
+    );
+    // A track without a cover has no color.
+    assert_eq!(
+        color_of(fixture.global_params.clone(), "song-opaque").await?,
+        None
+    );
+
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    assert_eq!(color_of(ui, "song-color").await?, expected);
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_about_an_item_of_a_library_without_its_credential_asks_for_a_sign_in()
+-> Result<()> {
+    use crate::request_error::request_failure_cause;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record_id = register_subsonic_here(&node, endpoint).await?;
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    let ProtocolAdapter::SubsonicTranslate { credential, .. } =
+        registry.record(LibraryRecordId(record_id))?.protocol.clone()
+    else {
+        anyhow::bail!("expected a Subsonic record");
+    };
+    node.credentials.remove(credential).await?;
+
+    let error = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLikedRequest {
+            item: Some(service_item(record_id, "song-opaque")),
+            call_id: None,
+        },
+    )
+    .await
+    .err()
+    .context("a like asked of a library whose credential is gone")?;
+    assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+    assert_eq!(
+        request_failure_cause(&error),
+        Some(RequestFailureCause::ServiceSignInRequired {
+            record_id: record_id.to_string(),
+        })
+    );
+
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_ui_hears_what_a_service_track_supports_before_the_status_that_names_it() -> Result<()>
+{
+    use crate::messages::{PlayingItemCapabilities, RequestCapability};
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let session_id = node.session()?.session_id().await.to_string();
+    let item = play_subsonic_track_here(&fixture, library_id, "song-opaque").await?;
+    wait_until("the track named by a status", || async {
+        Ok((!statuses_for(&signals, &session_id, &item).is_empty()).then_some(()))
+    })
+    .await?;
+
+    let recorded = signals.0.lock().unwrap().clone();
+    let position = |name: &str, matches: &dyn Fn(&[u8]) -> bool| {
+        recorded
+            .iter()
+            .position(|(signal, payload)| signal == name && matches(payload))
+    };
+    let declared = position("PlayingItemCapabilities", &|payload| {
+        rinf::deserialize::<PlayingItemCapabilities>(payload)
+            .is_ok_and(|capabilities| capabilities.item.as_ref() == Some(&item))
+    })
+    .context("the declaration for the track")?;
+    let named = position("PlaybackStatus", &|payload| {
+        rinf::deserialize::<PlaybackStatus>(payload)
+            .is_ok_and(|status| status.item_request.as_ref() == Some(&item))
+    })
+    .context("the status naming the track")?;
+    assert!(declared < named);
+    let capabilities = recorded[declared].clone();
+    let capabilities = rinf::deserialize::<PlayingItemCapabilities>(&capabilities.1)?;
+    // What the Subsonic library declares for its items: all of them are answered.
+    assert_eq!(
+        [
+            capabilities.set_liked_request,
+            capabilities.get_liked_request,
+            capabilities.get_lyric_by_track_id_request,
+            capabilities.get_primary_color_by_track_id_request,
+        ],
+        [RequestCapability::Available; 4]
+    );
+
+    server.abort();
+    node.shutdown().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
