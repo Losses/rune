@@ -218,7 +218,9 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
             return const Center(child: ProgressRing());
-          } else if (snapshot.hasError) {
+          } else if (snapshot.hasError && data.items.isEmpty) {
+            // Only with nothing on screen: a reload whose summary fails keeps
+            // its items.
             return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {
             return ContextMenuWrapper(

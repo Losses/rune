@@ -64,7 +64,9 @@ class BandScreenState extends State<BandScreen> {
             return const Center(
               child: ProgressRing(),
             );
-          } else if (snapshot.hasError) {
+          } else if (snapshot.hasError && data.items.isEmpty) {
+            // Only with nothing on screen: a reload whose summary fails keeps
+            // its items.
             return Center(child: Text(requestErrorText(S.of(context), snapshot.error!)));
           } else {
             final List<InternalCollection> flattenItems =
