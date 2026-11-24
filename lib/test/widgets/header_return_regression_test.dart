@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../main.dart' show cafeMode;
+import '../../providers/linux_custom_window_controls.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/router_path.dart';
 import '../../screens/search/widgets/collection_search_item.dart';
@@ -100,6 +101,9 @@ Future<void> _pumpApp(WidgetTester tester, String initial) async {
           create: (_) => ResponsiveProvider(sizes, () async => null),
         ),
         ChangeNotifierProvider<RouterPathProvider>.value(value: $router),
+        ChangeNotifierProvider<LinuxCustomWindowControlsProvider>.value(
+          value: LinuxCustomWindowControlsProvider(),
+        ),
       ],
       child: FluentApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
