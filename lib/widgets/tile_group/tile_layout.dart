@@ -46,21 +46,32 @@ import 'package:flutter/painting.dart';
 // inside a column rows go top to bottom. With strip 2 (one medium tile) medium tiles fill the
 // group row by row.
 
+/// How many cells a tile covers.
+///
+/// Sizes below 1 are treated as 1 by [layoutTiles] and by the start groups.
 class TileSpan {
+  /// A tile of [columns] by [rows] cells; [newColumn] makes it start a new strip.
   const TileSpan(this.columns, this.rows, {this.newColumn = false});
 
   /// Size in cells.
   final int columns;
+
+  /// Size in cells, see [columns].
   final int rows;
 
   /// Start a new strip (column with strip 1) before this tile.
   final bool newColumn;
 }
 
+/// The top left cell of a placed tile.
 class TilePlacement {
+  /// A tile whose top left cell is at [column], [row], counted from 0.
   const TilePlacement(this.column, this.row);
 
+  /// Column of the top left cell.
   final int column;
+
+  /// Row of the top left cell.
   final int row;
 
   @override
@@ -74,13 +85,16 @@ class TilePlacement {
   String toString() => '($column, $row)';
 }
 
+/// The result of [layoutTiles].
 class TileLayout {
+  /// A layout of [placements] that uses [columns] by [rows] cells.
   const TileLayout({
     required this.placements,
     required this.columns,
     required this.rows,
   });
 
+  /// One placement per span, in the order of the spans.
   final List<TilePlacement> placements;
 
   /// Columns in use, the width of the group in cells.
