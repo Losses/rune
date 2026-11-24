@@ -45,6 +45,11 @@ impl<K: Copy + Eq + Hash + Debug> RemoteIdMap<K> {
         Ok(id)
     }
 
+    /// The id given to `remote_id`, if there is one.
+    pub(crate) fn lookup(&self, kind: K, remote_id: &str) -> Option<i32> {
+        self.forward.get(&kind)?.get(remote_id).copied()
+    }
+
     pub(crate) fn resolve(&self, kind: K, id: i32) -> Result<&str> {
         self.reverse
             .get(&kind)
@@ -77,6 +82,8 @@ mod tests {
         assert_eq!(ids.intern(Kind::Artist, "artist-opaque").unwrap(), artist);
         assert_eq!(ids.intern(Kind::Album, "album-opaque").unwrap(), 1);
         assert_eq!(ids.resolve(Kind::Artist, artist).unwrap(), "artist-opaque");
+        assert_eq!(ids.lookup(Kind::Artist, "artist-opaque"), Some(artist));
+        assert_eq!(ids.lookup(Kind::Track, "artist-opaque"), None);
         let error = ids.resolve(Kind::Track, 999).unwrap_err();
         assert!(error.downcast_ref::<ExpectedRequestError>().is_some());
     }
