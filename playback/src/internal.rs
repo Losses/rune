@@ -987,9 +987,10 @@ pub(crate) struct PlayerInternal {
     host_revision: u64,
     // Hosts that said they cannot play, and why, until they say they can.
     hosts_unable: HashMap<String, UnavailableReason>,
-    // The tracks marked unavailable because their host said it cannot play, with that host and
-    // the mark, so that they become available again once it can.
-    host_refused: HashMap<PlayingItem, (String, UnavailableReason)>,
+    // The tracks marked unavailable because their host said it cannot play, with that host, so
+    // that they become available again once it can. A track leaves it once its mark goes, or
+    // once another cause marks it.
+    host_refused: HashMap<PlayingItem, String>,
     // The last question about a track of the host's run.
     host_run_request: u64,
     // How many tracks after the current hosted one its host holds at most: the run limit of the
@@ -1183,13 +1184,13 @@ impl PlayerInternal {
                                 self.load_at(Some(index), pending.play, mapped, pending.restore_position)?;
                                 continue;
                             }
+                            let mut refused_by = None;
                             let result = match *result {
                                 Ok(LoadedSource::Hosted(track)) => match self.check_host(&track) {
                                     Ok(()) => Ok(LoadedSource::Hosted(track)),
                                     Err(error) => {
                                         if self.hosts_unable.contains_key(&track.host) {
-                                            let mark = UnavailableReason::classify(&error);
-                                            self.host_refused.insert(item.clone(), (track.host, mark));
+                                            refused_by = Some(track.host);
                                         }
                                         Err(error)
                                     }
@@ -1229,7 +1230,7 @@ impl PlayerInternal {
                                     error!("Failed to load track: {e:?}");
                                     self.restore_position = None;
                                     let reason = UnavailableReason::classify(&e);
-                                    self.unavailable.insert(item.clone(), reason);
+                                    self.mark_unavailable(&item, reason, refused_by);
                                     self.event_sender.send(PlayerEvent::Unavailable(item, reason))?;
                                     self.complete_load_completions(Err(PlayerCommandError::SourceUnavailable));
                                     // Advance from the failed load, including when no track has loaded yet.
@@ -2797,10 +2798,30 @@ impl PlayerInternal {
         None
     }
 
+    // Marks `item` unavailable. `refused_by` names the host whose saying that it cannot play is
+    // the cause, so that the mark goes once that host can play. A mark of any other cause stays
+    // then, even where it replaces such a mark.
+    fn mark_unavailable(
+        &mut self,
+        item: &PlayingItem,
+        reason: UnavailableReason,
+        refused_by: Option<String>,
+    ) {
+        self.unavailable.insert(item.clone(), reason);
+        match refused_by {
+            Some(host) => self.host_refused.insert(item.clone(), host),
+            None => self.host_refused.remove(item),
+        };
+    }
+
     fn clear_unavailable(&mut self, item: Option<PlayingItem>) -> Result<()> {
         let changed = match &item {
-            Some(item) => self.unavailable.remove(item).is_some(),
+            Some(item) => {
+                self.host_refused.remove(item);
+                self.unavailable.remove(item).is_some()
+            }
             None => {
+                self.host_refused.clear();
                 let changed = !self.unavailable.is_empty();
                 self.unavailable.clear();
                 changed
@@ -2858,7 +2879,7 @@ impl PlayerInternal {
                     let item = id.context("failed stream has no current item")?;
                     let failed_index = index.context("failed stream has no current index")?;
                     self.stop()?;
-                    self.unavailable.insert(item.clone(), reason);
+                    self.mark_unavailable(&item, reason, None);
                     self.event_sender
                         .send(PlayerEvent::Unavailable(item, reason))?;
                     if let Some(next) = self.find_available_after(failed_index) {
@@ -3326,7 +3347,7 @@ impl PlayerInternal {
         }
         if hosted.recovered {
             warn!("Host {} lost its track again", hosted.track.host);
-            return self.hosted_failed(UnavailableReason::SourceUnreachable);
+            return self.hosted_failed(UnavailableReason::SourceUnreachable, None);
         }
         hosted.recovered = true;
         self.hand_over_again();
@@ -3721,20 +3742,16 @@ impl PlayerInternal {
         since.elapsed() >= limit
     }
 
-    // The host can play again, so the tracks it refused are no longer unavailable for that. A
-    // track whose mark changed since keeps it.
+    // The host can play again, so the tracks it refused are no longer unavailable for that.
     fn clear_host_refusals(&mut self, host: &str) -> Result<()> {
         let refused = self
             .host_refused
             .iter()
-            .filter(|(_, (by, _))| by == host)
-            .map(|(item, mark)| (item.clone(), mark.1))
+            .filter(|(_, by)| by.as_str() == host)
+            .map(|(item, _)| item.clone())
             .collect::<Vec<_>>();
-        for (item, mark) in refused {
-            self.host_refused.remove(&item);
-            if self.unavailable.get(&item) == Some(&mark) {
-                self.clear_unavailable(Some(item))?;
-            }
+        for item in refused {
+            self.clear_unavailable(Some(item))?;
         }
         Ok(())
     }
@@ -3752,7 +3769,7 @@ impl PlayerInternal {
             "Host {} did not report on its track in time",
             hosted.track.host
         );
-        self.hosted_failed(UnavailableReason::SourceUnreachable)?;
+        self.hosted_failed(UnavailableReason::SourceUnreachable, None)?;
         Ok(true)
     }
 
@@ -3840,10 +3857,7 @@ impl PlayerInternal {
                         warn!("Host {host} cannot play: {reason:?}");
                         self.hosts_unable.insert(host.clone(), reason);
                         if current {
-                            if let Some(item) = self.current_item.clone() {
-                                self.host_refused.insert(item, (host, reason));
-                            }
-                            return self.hosted_failed(reason);
+                            return self.hosted_failed(reason, Some(host));
                         }
                     }
                     None => {
@@ -3931,7 +3945,7 @@ impl PlayerInternal {
                 };
                 if hosted.is_current(revision, index) {
                     warn!("Host {host} failed to play its track: {reason:?}");
-                    return self.hosted_failed(reason.into());
+                    return self.hosted_failed(reason.into(), None);
                 }
                 // The host failed a track it holds after the current one, and does not move on
                 // to it. That track and those after it leave the host's queue, from the tail, and
@@ -4016,7 +4030,12 @@ impl PlayerInternal {
 
     // The host cannot play the current track. It is marked unavailable and playback moves on, as
     // after a stream that fails. While another track loads, that track takes over instead.
-    fn hosted_failed(&mut self, reason: UnavailableReason) -> Result<()> {
+    // `refused_by` is the host, when the cause is that it said it cannot play.
+    fn hosted_failed(
+        &mut self,
+        reason: UnavailableReason,
+        refused_by: Option<String>,
+    ) -> Result<()> {
         let (Some(item), Some(failed_index)) =
             (self.current_item.clone(), self.current_playlist_index())
         else {
@@ -4033,7 +4052,7 @@ impl PlayerInternal {
         } else {
             self.stop()?;
         }
-        self.unavailable.insert(item.clone(), reason);
+        self.mark_unavailable(&item, reason, refused_by);
         self.event_sender
             .send(PlayerEvent::Unavailable(item, reason))?;
         if loading {

@@ -310,11 +310,13 @@ impl Drop for Dropped {
 
 // Tracks of `hosted_library` are hosted, and the others are local tracks of `local`. Of
 // the hosted tracks, keys that start with "other-" belong to another host, "stream-" are
-// streamed, "error-" cannot be resolved, and "slow-" take a while.
+// streamed, "error-" cannot be resolved, and "slow-" take a while. While `down` is set, the
+// service cannot be reached, and none of its tracks can be resolved.
 struct MixedResolver {
     local: Arc<DelayedResolver>,
     hosted_library: Uuid,
     slow: Arc<Slow>,
+    down: Arc<AtomicBool>,
     // The cancellation of the streams the resolver handed out, which it sends on.
     streams: mpsc::UnboundedSender<CancellationToken>,
     // Told when the resolver fails on a key.
@@ -346,6 +348,9 @@ impl PlaybackSourceResolver for MixedResolver {
 
     fn resolve_service(&self, item: ServiceItem) -> BoxFuture<'static, Result<ServiceTarget>> {
         let key = item.track;
+        if self.down.load(Ordering::SeqCst) {
+            return Box::pin(async { Err(RemoteAudioError::LibraryUnavailable.into()) });
+        }
         if key.starts_with("error-") {
             let failed = self.failed.clone();
             return Box::pin(async move {
@@ -398,6 +403,7 @@ struct Fixture {
     started: Arc<Notify>,
     release: Arc<Notify>,
     slow: Arc<Slow>,
+    down: Arc<AtomicBool>,
     streams: mpsc::UnboundedReceiver<CancellationToken>,
     failed: Arc<Notify>,
     wav_path: PathBuf,
@@ -483,6 +489,7 @@ fn engine_with_host(samples: u32, blocked: &[i32]) -> (PlayerInternal, Fixture) 
     );
     let hosted_library = Uuid::new_v4();
     let slow = Arc::new(Slow::default());
+    let down = Arc::new(AtomicBool::new(false));
     let (stream_sender, streams) = mpsc::unbounded_channel();
     let failed = Arc::new(Notify::new());
     let host = FakeHost::new();
@@ -499,6 +506,7 @@ fn engine_with_host(samples: u32, blocked: &[i32]) -> (PlayerInternal, Fixture) 
             local,
             hosted_library,
             slow: slow.clone(),
+            down: down.clone(),
             streams: stream_sender,
             failed: failed.clone(),
         })))),
@@ -515,6 +523,7 @@ fn engine_with_host(samples: u32, blocked: &[i32]) -> (PlayerInternal, Fixture) 
         started,
         release,
         slow,
+        down,
         streams,
         failed,
         wav_path,
@@ -1306,6 +1315,49 @@ async fn a_track_its_host_could_not_play_stays_unavailable_when_the_host_comes_u
         expect_unavailable(&mut f.events, &hosted).await?;
         expect_playing(&mut f.events, &track).await?;
         assert_eq!(f.host.take(1).await?, vec![released(2)]);
+
+        f.report(ready(HOST, true, true))?;
+        let seen = f.settle().await?;
+        assert!(
+            !any(&seen, |event| matches!(
+                event,
+                PlayerEvent::UnavailableCleared(_)
+            )),
+            "{seen:?}"
+        );
+        Ok(())
+    })
+    .await
+}
+
+// A track its host refused, which fails for another cause with the same mark when it is tried
+// again while the host still cannot play, keeps that mark once the host can.
+#[tokio::test]
+async fn a_refused_track_that_fails_for_another_cause_stays_unavailable_when_its_host_can_play()
+-> Result<()> {
+    let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[]);
+    with_engine(internal, f, async |f| {
+        let (hosted, track) = (f.hosted("1440"), f.local(0));
+        start_first(f, &[hosted.clone(), track.clone()], None).await?;
+        f.report(ready(HOST, true, false))?;
+        assert_eq!(
+            expect_unavailable(&mut f.events, &hosted).await?,
+            UnavailableReason::LibraryUnavailable
+        );
+        expect_playing(&mut f.events, &track).await?;
+        assert_eq!(f.host.take(1).await?, vec![released(2)]);
+
+        // The listener tries it again while its service cannot be reached either.
+        f.down.store(true, Ordering::SeqCst);
+        f.send(PlayerCommand::LoadAtPosition {
+            index: 0,
+            position: Duration::ZERO,
+            play: true,
+        })?;
+        assert_eq!(
+            expect_unavailable(&mut f.events, &hosted).await?,
+            UnavailableReason::LibraryUnavailable
+        );
 
         f.report(ready(HOST, true, true))?;
         let seen = f.settle().await?;
@@ -3229,6 +3281,7 @@ fn hosted_player(
         local,
         hosted_library,
         slow: Arc::default(),
+        down: Arc::default(),
         streams: mpsc::unbounded_channel().0,
         failed: Arc::default(),
     }));
