@@ -1732,6 +1732,7 @@
   "libraryOpenDalUnreachable": "Controlla l’indirizzo del server e la connessione di rete.",
   "libraryOpenDalNotFolder": "Controlla che la cartella scelta esista e sia accessibile.",
   "libraryOpenDalReadOnly": "Scegli una cartella scrivibile per conservare l’indice multimediale nella cartella condivisa.",
+  "libraryShareIdentityChanged": "La raccolta condivisa in questa posizione è cambiata. La sincronizzazione non può continuare con l'identità precedente.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Connettiti a un server musicale Subsonic.",
   "playOnThisDevice": "Riproduci su questo dispositivo",

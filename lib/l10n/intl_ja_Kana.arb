@@ -1732,6 +1732,7 @@
   "libraryOpenDalUnreachable": "サーバーノアドレストネットワークセツゾクヲカクニンシテクダサイ。",
   "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。",
   "libraryOpenDalReadOnly": "きょうゆうフォルダーにインデックスをストアするには、かきこみできるフォルダーをえらんでください。",
+  "libraryShareIdentityChanged": "コノキョウユウライブラリーガイチニヘンコウサレマシタ。ドウキハマエノアイデンティティーデツヅケルコトガデキマセン。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic オンガクサーバーに セツゾクします。",
   "playOnThisDevice": "このデバイスで サイセイ",

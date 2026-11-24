@@ -1745,6 +1745,7 @@
   "libraryOpenDalUnreachable": "Check the server address and network connection.",
   "libraryOpenDalNotFolder": "Check that the selected folder exists and is accessible.",
   "libraryOpenDalReadOnly": "Choose a writable folder to keep the index in the share.",
+  "libraryShareIdentityChanged": "The shared library at this location has changed. Sync cannot continue with the previous identity.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Connect to a Subsonic music server.",
   "playOnThisDevice": "Play on This Device",

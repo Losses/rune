@@ -4,7 +4,7 @@ import '../l10n/app_localizations.dart';
 /// The message for a library whose share sync stopped.
 String shareSyncFailureMessage(AppLocalizations s, ShareSyncFailure failure) =>
     switch (failure) {
-      ShareSyncFailure.shareChanged => s.libraryInvalidSource,
+      ShareSyncFailure.shareChanged => s.libraryShareIdentityChanged,
       ShareSyncFailure.readOnlyShare => s.libraryOpenDalReadOnly,
       ShareSyncFailure.credentialsRejected =>
         s.libraryOpenDalAuthenticationRejected,
