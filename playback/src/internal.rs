@@ -976,6 +976,9 @@ pub(crate) struct PlayerInternal {
     host_revision: u64,
     // Hosts that said they cannot play, and why, until they say they can.
     hosts_unable: HashMap<String, UnavailableReason>,
+    // The tracks marked unavailable because their host said it cannot play, with that host and
+    // the mark, so that they become available again once it can.
+    host_refused: HashMap<PlayingItem, (String, UnavailableReason)>,
     // The last question about a track of the host's run.
     host_run_request: u64,
     // How many tracks after the current hosted one its host holds at most: the run limit of the
@@ -1043,6 +1046,7 @@ impl PlayerInternal {
             hosted: None,
             host_revision: 0,
             hosts_unable: HashMap::new(),
+            host_refused: HashMap::new(),
             host_run_request: 0,
             host_run_limit: RUN_LIMIT,
         }
@@ -1166,9 +1170,16 @@ impl PlayerInternal {
                                 continue;
                             }
                             let result = match *result {
-                                Ok(LoadedSource::Hosted(track)) => {
-                                    self.check_host(&track).map(|()| LoadedSource::Hosted(track))
-                                }
+                                Ok(LoadedSource::Hosted(track)) => match self.check_host(&track) {
+                                    Ok(()) => Ok(LoadedSource::Hosted(track)),
+                                    Err(error) => {
+                                        if self.hosts_unable.contains_key(&track.host) {
+                                            let mark = UnavailableReason::classify(&error);
+                                            self.host_refused.insert(item.clone(), (track.host, mark));
+                                        }
+                                        Err(error)
+                                    }
+                                },
                                 result => result,
                             };
                             match result {
@@ -3687,6 +3698,24 @@ impl PlayerInternal {
         since.elapsed() >= limit
     }
 
+    // The host can play again, so the tracks it refused are no longer unavailable for that. A
+    // track whose mark changed since keeps it.
+    fn clear_host_refusals(&mut self, host: &str) -> Result<()> {
+        let refused = self
+            .host_refused
+            .iter()
+            .filter(|(_, (by, _))| by == host)
+            .map(|(item, mark)| (item.clone(), mark.1))
+            .collect::<Vec<_>>();
+        for (item, mark) in refused {
+            self.host_refused.remove(&item);
+            if self.unavailable.get(&item) == Some(&mark) {
+                self.clear_unavailable(Some(item))?;
+            }
+        }
+        Ok(())
+    }
+
     // Fails the current hosted track when its host went quiet for too long. Returns whether it did.
     fn fail_overdue_host(&mut self) -> Result<bool> {
         let Some(hosted) = self
@@ -3786,13 +3815,17 @@ impl PlayerInternal {
                 match refusal {
                     Some(reason) => {
                         warn!("Host {host} cannot play: {reason:?}");
-                        self.hosts_unable.insert(host, reason);
+                        self.hosts_unable.insert(host.clone(), reason);
                         if current {
+                            if let Some(item) = self.current_item.clone() {
+                                self.host_refused.insert(item, (host, reason));
+                            }
                             return self.hosted_failed(reason);
                         }
                     }
                     None => {
                         self.hosts_unable.remove(&host);
+                        self.clear_host_refusals(&host)?;
                         // A host that comes up again lost what it held.
                         if current {
                             self.hand_over_again();

@@ -1236,6 +1236,60 @@ async fn a_host_that_cannot_play_fails_its_tracks_until_it_can() -> Result<()> {
 }
 
 #[tokio::test]
+async fn the_tracks_a_host_refused_are_available_again_once_it_can_play() -> Result<()> {
+    let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[]);
+    with_engine(internal, f, async |f| {
+        let (first, second, track) = (f.hosted("1440"), f.hosted("1441"), f.local(0));
+        let queue = [first.clone(), second.clone(), track.clone()];
+        start_first(f, &queue, Some("1441")).await?;
+        f.report(ready(HOST, true, false))?;
+        expect_unavailable(&mut f.events, &first).await?;
+        expect_unavailable(&mut f.events, &second).await?;
+        expect_playing(&mut f.events, &track).await?;
+        assert_eq!(f.host.take(1).await?, vec![released(3)]);
+
+        f.report(ready(HOST, true, true))?;
+        let seen = f.settle().await?;
+        for refused in [&first, &second] {
+            assert!(
+                any(&seen, |event| matches!(
+                    event,
+                    PlayerEvent::UnavailableCleared(Some(item)) if item == refused
+                )),
+                "{seen:?}"
+            );
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn a_track_its_host_could_not_play_stays_unavailable_when_the_host_comes_up() -> Result<()> {
+    let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[]);
+    with_engine(internal, f, async |f| {
+        let (hosted, track) = (f.hosted("1440"), f.local(0));
+        start_first(f, &[hosted.clone(), track.clone()], None).await?;
+        f.report(failed(1, HostFailure::Unplayable))?;
+        expect_unavailable(&mut f.events, &hosted).await?;
+        expect_playing(&mut f.events, &track).await?;
+        assert_eq!(f.host.take(1).await?, vec![released(2)]);
+
+        f.report(ready(HOST, true, true))?;
+        let seen = f.settle().await?;
+        assert!(
+            !any(&seen, |event| matches!(
+                event,
+                PlayerEvent::UnavailableCleared(_)
+            )),
+            "{seen:?}"
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
 async fn a_host_without_authorization_fails_its_tracks_as_access_revoked() -> Result<()> {
     let (internal, f) = hosted_engine(LONG_TRACK_SAMPLES, &[]);
     with_engine(internal, f, async |f| {
