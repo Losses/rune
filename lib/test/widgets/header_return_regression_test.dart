@@ -248,6 +248,10 @@ void main() {
       expect(tester.takeException(), isNull);
       expect($router.path, '/artists');
       expect($history.history.map((e) => e.name), ['/library', '/artists']);
+      // The router and the history change before the navigator does, so the
+      // page on screen is what shows the detail route was really replaced.
+      expect(find.text('/artists'), findsOneWidget);
+      expect(find.text('/artists/detail'), findsNothing);
     },
   );
 }
