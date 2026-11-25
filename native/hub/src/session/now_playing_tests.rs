@@ -1,5 +1,8 @@
 use super::*;
-use crate::{server::utils::device::RunMode, test_wait::wait_until, utils::RinfRustSignal};
+use crate::{
+    request_owner::CurrentPlayer, server::utils::device::RunMode, test_wait::wait_until,
+    utils::RinfRustSignal,
+};
 use database::library_registry::ServiceKind;
 use playback::pcm_tap::PcmTap;
 use playback::player::{
@@ -451,6 +454,8 @@ struct ScriptedPlayer {
     reports: SimpleSender<PlayerStatus>,
     status: std::sync::Mutex<PlayerStatus>,
     reported_on_barrier: std::sync::Mutex<Vec<PlayerStatus>>,
+    /// What it reports right after it answered a barrier, as a player that moved on just then.
+    reported_after_barrier: std::sync::Mutex<Vec<PlayerStatus>>,
 }
 
 impl ScriptedPlayer {
@@ -459,6 +464,7 @@ impl ScriptedPlayer {
             reports: SimpleChannel::unbounded().0,
             status: std::sync::Mutex::new(MockPlayer.get_status()),
             reported_on_barrier: std::sync::Mutex::new(Vec::new()),
+            reported_after_barrier: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -548,7 +554,12 @@ impl Playable for ScriptedPlayer {
         for status in queued {
             self.report(status);
         }
-        Box::pin(ready(self.get_status()))
+        let answer = self.get_status();
+        let later = std::mem::take(&mut *self.reported_after_barrier.lock().unwrap());
+        for status in later {
+            self.report(status);
+        }
+        Box::pin(ready(answer))
     }
     fn get_playlist(&self) -> Vec<PlayingItem> {
         let playlist = self.get_status().playlist;
@@ -937,4 +948,81 @@ async fn what_the_item_supports_is_told_once_it_can_be() -> Result<()> {
     assert_eq!(told.0.lock().unwrap().len(), 1);
     node.shutdown().await?;
     Ok(())
+}
+
+/// Keeps whether the UI was told, each time, that a platform host plays the track.
+#[derive(Default)]
+struct ToldHosts(std::sync::Mutex<Vec<bool>>);
+
+impl Broadcaster for ToldHosts {
+    fn broadcast(&self, signal: &dyn RinfRustSignal) {
+        if let Some(changed) = signal
+            .as_any()
+            .downcast_ref::<crate::messages::PlayerHostChanged>()
+        {
+            self.0.lock().unwrap().push(changed.hosted);
+        }
+    }
+}
+
+/// The session shows again with what the player reported last. A stop the player reported after
+/// it answered the barrier is not undone by the answer, so the volume control does not go back
+/// to the host of a track that is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_report_after_the_barrier_answered_is_what_the_session_shows_again_with() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    crate::test_node::disable_sync_listener(dir.path())?;
+    let path = dir.path().to_string_lossy();
+    let told = Arc::new(ToldHosts::default());
+    let player = Arc::new(Mutex::new(ScriptedPlayer::new()));
+    let played: Arc<Mutex<dyn Playable>> = player.clone();
+    let node = NodeContext::with_reconnect_config(
+        &path,
+        &path,
+        told.clone(),
+        false,
+        RunMode::App,
+        crate::node::ReconnectConfig::default(),
+        Box::new(move |real| {
+            real.terminate();
+            played
+        }),
+        Arc::new(Visualizer::new()),
+    )
+    .await?;
+    let hosted_told = |hosted: bool| {
+        let told = told.clone();
+        move || {
+            let last = told.0.lock().unwrap().last().copied();
+            async move { Ok((last == Some(hosted)).then_some(())) }
+        }
+    };
+    let item = PlayingItem::IndependentFile("hosted".to_owned());
+    player.lock().await.report(PlayerStatus {
+        path: Some(PathBuf::from("hosted://host/key")),
+        state: PlaybackState::Paused,
+        ..ScriptedSession::playing(&item, Duration::ZERO)
+    });
+    wait_until("the host told", hosted_told(true)).await?;
+
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away.clone())
+        .await?;
+    wait_until("the host left", hosted_told(false)).await?;
+    // The player stops just after it answers the barrier of the way back.
+    *player.lock().await.reported_after_barrier.lock().unwrap() = vec![PlayerStatus {
+        item: None,
+        index: None,
+        path: None,
+        state: PlaybackState::Stopped,
+        playlist: Vec::new(),
+        ..ScriptedSession::playing(&item, Duration::ZERO)
+    }];
+    node.transition_current_player(away, CurrentPlayer::Local)
+        .await?;
+    assert_eq!(told.0.lock().unwrap().last(), Some(&false));
+    node.shutdown().await
 }

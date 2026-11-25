@@ -689,6 +689,9 @@ impl PlayerSession {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
                         last_status = Some(value.clone());
+                        // A report handled after the barrier answered says at least as much as the
+                        // answer, so the session shows again without noting the answer over it.
+                        answered = None;
                         note_local_track(&node, &value);
                         handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
