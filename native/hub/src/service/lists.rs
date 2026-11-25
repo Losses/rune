@@ -101,6 +101,9 @@ type Reading<T, E> = Shared<BoxFuture<'static, Result<Arc<T>, E>>>;
 /// Hears that what the lists hold changed.
 type Changed = Arc<dyn Fn() + Send + Sync>;
 
+/// Takes a list a read brought, once the list keeps it.
+type Take<T> = Box<dyn Fn(&T) + Send + Sync>;
+
 /// A list that can be forgotten, whatever it holds.
 trait Forget: Send + Sync {
     /// Forgets the list, which belongs to the store's `generation` from now on.
@@ -131,11 +134,14 @@ impl ServiceLists {
         }
     }
 
-    /// Declares the list `spec` names, which `read` reads from the service.
+    /// Declares the list `spec` names, which `read` reads from the service. `kept` takes each
+    /// list a read brings once the list keeps it, under the list's lock, so it never takes one a
+    /// clear made stale; it must not block.
     pub(crate) fn declare<T, E>(
         &self,
         spec: ListSpec,
         read: impl Fn() -> BoxFuture<'static, Result<T, E>> + Send + Sync + 'static,
+        kept: impl Fn(&T) + Send + Sync + 'static,
     ) -> KeptList<T, E>
     where
         T: Serialize + DeserializeOwned + PartialEq + Send + Sync + 'static,
@@ -144,6 +150,7 @@ impl ServiceLists {
         let list = Arc::new(Inner {
             spec,
             read: Arc::new(read),
+            take: Box::new(kept),
             store: self.store.clone(),
             changed: Arc::clone(&self.changed),
             restored: OnceCell::new(),
@@ -187,6 +194,7 @@ pub(crate) struct KeptList<T, E>(Arc<Inner<T, E>>);
 struct Inner<T, E> {
     spec: ListSpec,
     read: Read<T, E>,
+    take: Take<T>,
     store: ListStore,
     changed: Changed,
     /// Set once the list kept on disk was read, or found missing.
@@ -356,6 +364,7 @@ where
                         value: Arc::clone(list),
                         read_at: Some(now),
                     });
+                    (self.take)(list);
                     changed
                 }
                 Err(error) => {
@@ -475,7 +484,7 @@ mod tests {
 
     fn declare(lists: &ServiceLists, service: &Arc<Service>) -> KeptList<u32, String> {
         let service = Arc::clone(service);
-        lists.declare(NUMBERS, move || service.read())
+        lists.declare(NUMBERS, move || service.read(), |_| {})
     }
 
     fn kept_in(root: &TempDir) -> ServiceLists {

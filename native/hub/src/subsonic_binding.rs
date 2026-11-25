@@ -455,6 +455,14 @@ impl SubsonicCatalog {
         );
     }
 
+    /// Forgets what the server told of the items, which another account may not be let see. The
+    /// ids stay, so an id the UI holds names the same item, which the server is asked about.
+    fn forget_metadata(&mut self) {
+        self.artists.clear();
+        self.albums.clear();
+        self.songs.clear();
+    }
+
     fn keep_artists(&mut self, artists: &[SubsonicArtist]) {
         keep_read(
             &mut self.ids,
@@ -545,7 +553,7 @@ impl SubsonicLists {
 }
 
 /// Declares the list `spec` names on `lists`, which `read` reads with the client, and whose items
-/// the catalog keeps with `keep`.
+/// the catalog keeps with `keep` once the list keeps them.
 fn declare_list<T>(
     lists: &ServiceLists,
     spec: ListSpec,
@@ -557,19 +565,17 @@ where
     T: Serialize + DeserializeOwned + PartialEq + Send + Sync + 'static,
 {
     let (client, catalog) = (Arc::clone(client), Arc::clone(catalog));
-    lists.declare(spec, move || {
-        let read = read(Arc::clone(&client));
-        let catalog = Arc::clone(&catalog);
-        async move {
-            let list = read.await?;
+    lists.declare(
+        spec,
+        move || read(Arc::clone(&client)),
+        // Only a list the list keeps, so never one read for the account signed in before.
+        move |list: &Vec<T>| {
             keep(
                 &mut catalog.lock().unwrap_or_else(PoisonError::into_inner),
-                &list,
-            );
-            Ok(list)
-        }
-        .boxed()
-    })
+                list,
+            )
+        },
+    )
 }
 
 impl SubsonicBinding {
@@ -1192,7 +1198,16 @@ impl ServiceBinding for SubsonicBinding {
             self.renewed.cancel();
         }
         if other_account {
+            // The lists first, so no read of the account before keeps what it brings after.
             self.lists.kept.clear(Some(&credential.username));
+            self.catalog
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .forget_metadata();
+            self.fetched_songs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear();
         }
     }
 

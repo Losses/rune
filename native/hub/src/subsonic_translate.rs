@@ -7057,4 +7057,48 @@ mod tests {
         // The page that added no album ends the list.
         assert_eq!(endpoint_count(&server, "getAlbumList2"), 2);
     }
+
+    #[tokio::test]
+    async fn another_account_asks_the_server_for_an_artist_the_first_one_listed() {
+        use crate::service::ServiceBinding;
+        use database::credentials::{Credential, Secret};
+
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        fetch_collection_group_summary_request(
+            &binding,
+            &FetchCollectionGroupSummaryRequest {
+                call_id: None,
+                collection_type: CollectionType::Artist,
+            },
+        )
+        .await
+        .unwrap();
+        let artist = binding
+            .catalog
+            .lock()
+            .unwrap()
+            .ids
+            .lookup(SubsonicIdKind::Artist, "artist-1")
+            .unwrap();
+        let fetch = FetchCollectionByIdsRequest {
+            call_id: None,
+            collection_type: CollectionType::Artist,
+            bake_cover_arts: false,
+            ids: vec![artist],
+        };
+        fetch_collection_by_ids_request(&binding, &fetch)
+            .await
+            .unwrap();
+        assert_eq!(endpoint_count(&server, "getArtist"), 0);
+
+        // What the server told the first account is not the next one's to see: the id the UI
+        // holds still names the artist, and the server is asked about it.
+        binding.renew_sign_in(&Credential {
+            username: "bob".into(),
+            secret: Secret::new(b"password".to_vec()),
+        });
+        let _ = fetch_collection_by_ids_request(&binding, &fetch).await;
+        assert_eq!(endpoint_count(&server, "getArtist"), 1);
+    }
 }
