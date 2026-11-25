@@ -96,9 +96,9 @@ pub(crate) async fn delete_service_library_folder(
 }
 
 /// Deletes the folders the service libraries removed before left on this device, which hold
-/// nothing but their records (see `delete_service_library_folder`): those of the libraries that
-/// `known` does not name. A reset of the app deletes them with the libraries it removes. A folder
-/// that holds more than records is left as it is.
+/// their records (see `delete_service_library_folder`): those of the libraries that `known` does
+/// not name. A reset of the app deletes them with the libraries it removes, with anything a
+/// removal could not delete beside the records.
 pub(crate) async fn delete_left_service_library_folders(
     config_dir: &Path,
     known: HashSet<Uuid>,
@@ -108,16 +108,9 @@ pub(crate) async fn delete_left_service_library_folders(
         .await
         .map_err(io::Error::other)?;
     for removed in left {
-        let folder = service_library_folder(config_dir, removed);
-        let records = device_records_folder(config_dir, removed);
-        let mut entries = tokio_fs::read_dir(&folder).await?;
-        let mut only_records = true;
-        while let Some(entry) = entries.next_entry().await? {
-            only_records &= entry.path() == records;
-        }
-        if only_records {
-            remove_if_there(tokio_fs::remove_dir_all(folder).await)?;
-        }
+        remove_if_there(
+            tokio_fs::remove_dir_all(service_library_folder(config_dir, removed)).await,
+        )?;
     }
     Ok(())
 }
@@ -287,18 +280,22 @@ mod tests {
     #[tokio::test]
     async fn a_reset_deletes_the_records_removed_libraries_left_and_nothing_else() {
         let root = TempDir::new().unwrap();
-        let (left, known, more) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        for library_id in [left, known, more] {
+        let (left, known, partly) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        for library_id in [left, known, partly] {
             write_records(root.path(), library_id, "kept");
         }
-        // A folder that holds more than records is not what a removal left.
-        fs::create_dir_all(cover_cache_root(root.path(), more)).unwrap();
+        // A removal that could not delete everything left covers beside the records; a library
+        // still registered keeps its covers.
+        for library_id in [partly, known] {
+            fs::create_dir_all(cover_cache_root(root.path(), library_id)).unwrap();
+        }
         delete_left_service_library_folders(root.path(), HashSet::from([known]))
             .await
             .unwrap();
         assert!(!service_library_folder(root.path(), left).exists());
+        assert!(!service_library_folder(root.path(), partly).exists());
         assert_eq!(read_records(root.path(), known).as_deref(), Some("kept"));
-        assert_eq!(read_records(root.path(), more).as_deref(), Some("kept"));
+        assert!(cover_cache_root(root.path(), known).is_dir());
         // With nothing left, there is nothing to do.
         delete_left_service_library_folders(root.path(), HashSet::from([known]))
             .await
