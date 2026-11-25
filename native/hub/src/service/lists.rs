@@ -332,7 +332,7 @@ where
         background: bool,
         read: &Result<Arc<T>, E>,
     ) {
-        let (new, changed) = {
+        let changed = {
             let mut state = lock(&self.state);
             if state.epoch != epoch {
                 return;
@@ -341,25 +341,27 @@ where
             match read {
                 Ok(list) => {
                     state.failed = None;
-                    // A list the same as the kept one is on disk already.
-                    let new = state.kept.as_ref().is_none_or(|kept| *kept.value != **list);
-                    let changed = new && state.kept.is_some();
+                    let changed = state
+                        .kept
+                        .as_ref()
+                        .is_some_and(|kept| *kept.value != **list);
                     state.kept = Some(Kept {
                         value: Arc::clone(list),
                         read_at: Some(now),
                     });
-                    (new, changed)
+                    changed
                 }
                 Err(error) => {
                     if background {
                         log::info!("Could not read the {} again: {error}", self.spec.name);
                         state.failed = Some(now);
                     }
-                    (false, false)
+                    false
                 }
             }
         };
-        if new && let Ok(list) = read {
+        // Written also when it is the list kept already, whose write may have failed.
+        if let Ok(list) = read {
             self.store
                 .save(generation, self.spec.name, Arc::clone(list));
         }
@@ -385,6 +387,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -393,11 +396,15 @@ mod tests {
     use futures::future::{BoxFuture, Shared};
     use tempfile::TempDir;
     use tokio::sync::Semaphore;
+    use tokio::time as tokio_time;
 
     use super::{KeptList, ListSpec, RETRY_AFTER, ServiceLists};
     use crate::test_wait::wait_until;
 
     const AGE: Duration = Duration::from_secs(60);
+
+    /// Longer than the store waits before it writes, so a write it was to make is made.
+    const AFTER_A_WRITE: Duration = Duration::from_secs(3);
 
     const NUMBERS: ListSpec = ListSpec {
         name: "numbers",
@@ -638,6 +645,26 @@ mod tests {
         let list = declare(&lists, &service);
         assert_eq!(*list.get(start).await.unwrap(), 1);
         kept_becomes(&list, start, 5).await;
+    }
+
+    #[tokio::test]
+    async fn a_list_whose_write_failed_is_written_again_by_the_next_read() {
+        let root = TempDir::new().unwrap();
+        // A file where the folder of the lists goes fails every write, as a full disk does.
+        let dir = root.path().join("lists");
+        fs::write(&dir, b"").unwrap();
+        let lists = ServiceLists::new(dir.clone(), || {});
+        let service = Service::new(1);
+        let list = declare(&lists, &service);
+        let start = Instant::now();
+        assert_eq!(*list.get(start).await.unwrap(), 1);
+        tokio_time::sleep(AFTER_A_WRITE).await;
+
+        // Once the disk takes writes again, the same list read again is written.
+        fs::remove_file(&dir).unwrap();
+        assert_eq!(*list.current(start).await.unwrap(), 1);
+        tokio_time::sleep(AFTER_A_WRITE).await;
+        assert!(dir.join("numbers.json").is_file());
     }
 
     #[tokio::test]
