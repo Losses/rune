@@ -3081,14 +3081,6 @@ impl Heard {
             .count()
     }
 
-    fn heard(&self, name: &str) -> bool {
-        self.0
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(heard, _)| heard == name)
-    }
-
     /// Every message named `name` that decodes as `T`, with its place among all heard.
     fn placed<T: serde::de::DeserializeOwned>(&self, name: &str) -> Vec<(usize, T)> {
         self.0
@@ -3152,13 +3144,19 @@ async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire
     let broadcaster = &host.fixture.global_params.broadcaster;
     broadcaster.broadcast(&task(host.record.0.to_string()));
     broadcaster.broadcast(&task(local_record.clone()));
+    // A content change the test alone sends marks the end; the host may tell of others.
+    const MARKER: &str = "marker";
     broadcaster.broadcast(&LibraryContentChanged {
-        path: String::new(),
+        path: MARKER.into(),
     });
     // Events reach the controller in the order they were sent, so once the last has arrived
     // the first would have.
     wait_until("the content change to arrive", || async {
-        Ok(heard.heard("LibraryContentChanged").then_some(()))
+        let changes = heard.placed::<LibraryContentChanged>("LibraryContentChanged");
+        Ok(changes
+            .iter()
+            .any(|(_, changed)| changed.path == MARKER)
+            .then_some(()))
     })
     .await?;
     assert_eq!(heard.task_records(), vec![local_record]);
