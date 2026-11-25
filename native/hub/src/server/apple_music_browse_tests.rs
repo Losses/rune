@@ -9003,6 +9003,26 @@ async fn a_reset_deletes_them_and_stores_without_account_ids_go_by_the_ids_they_
     apple.finish().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reset_deletes_the_records_a_library_removed_before_left() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    make_rune_playlist(&apple, "Mine", "Mood").await?;
+    let first = apple.record;
+    remove_apple(&apple, first, false).await?;
+    assert!(records_of(&apple, first).is_dir());
+    // Another account's library takes nothing over; a reset removes it, and what the first left.
+    apple.fake.other_account.store(true, Ordering::SeqCst);
+    let apple = add_apple_again(apple).await?;
+    let other = apple.record;
+    assert!(records_of(&apple, first).is_dir());
+    remove_apple(&apple, other, true).await?;
+    for record in [first, other] {
+        assert!(!records_of(&apple, record).parent().context("folder")?.exists());
+    }
+    apple.finish().await
+}
+
 // What Rune's playlists, mixes and likes add to the library ---------------------------------
 
 /// Every album of the Albums page, by name, with its id.

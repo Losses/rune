@@ -19,7 +19,10 @@ use crate::{
         SetLibraryBackgroundSyncResponse, SetOnlineLyricsRequest, SetOnlineLyricsResponse,
     },
     node::NodeContext,
-    service::{folder::delete_service_library_folder, looks_up_lyrics_online, online_lyrics},
+    service::{
+        folder::{delete_left_service_library_folders, delete_service_library_folder},
+        looks_up_lyrics_online, online_lyrics,
+    },
     utils::{GlobalParams, ParamsExtractor, held_service_binding},
 };
 
@@ -265,10 +268,38 @@ impl Signal for RemoveLibraryRecordRequest {
         {
             warn!("Could not delete the folder of service library {library_id}: {error}");
         }
+        // A reset also deletes what the user made in Rune in the service libraries removed
+        // before, which outlived their library records.
+        if request.delete_device_data {
+            delete_left_device_data(config).await;
+        }
         // The item playing here may belong to the library that went away.
         node.item_capabilities_changed();
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse { call_id: None }))
+    }
+}
+
+/// Deletes the records the service libraries removed before left, those of no library the
+/// registry in `config` still holds. What cannot be deleted is only logged, as the removal that
+/// asked for it is done.
+async fn delete_left_device_data(config: &Path) {
+    let registry = match LibraryRegistry::load(config) {
+        Ok(registry) => registry,
+        Err(error) => {
+            warn!("Could not read the library registry to delete the records left: {error:#}");
+            return;
+        }
+    };
+    let known = registry
+        .libraries
+        .iter()
+        .chain(registry.invalid_records().map(|(record, _)| record))
+        .flat_map(|record| [Some(record.record_id.0), record.catalog_library_id()])
+        .flatten()
+        .collect();
+    if let Err(error) = delete_left_service_library_folders(config, known).await {
+        warn!("Could not delete the records removed service libraries left: {error}");
     }
 }
 

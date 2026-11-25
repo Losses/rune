@@ -67,7 +67,8 @@ pub(crate) fn prepare_service_library_folder(config_dir: &Path, library_id: Uuid
 /// its folder with everything it read from its service, and the covers it kept before it had a
 /// folder, when they were never moved. Its records folder stays when `keep_records` says so, as
 /// what the user made in Rune outlives the record; then only the records folder is left in the
-/// library's folder. A reset of the app deletes it too.
+/// library's folder. A reset of the app deletes it too (see
+/// `delete_left_service_library_folders`).
 pub(crate) async fn delete_service_library_folder(
     config_dir: &Path,
     library_id: Uuid,
@@ -92,6 +93,33 @@ pub(crate) async fn delete_service_library_folder(
         remove_if_there(tokio_fs::remove_dir_all(folder).await)?;
     }
     remove_if_there(tokio_fs::remove_dir_all(old_covers_folder(config_dir, library_id)).await)
+}
+
+/// Deletes the folders the service libraries removed before left on this device, which hold
+/// nothing but their records (see `delete_service_library_folder`): those of the libraries that
+/// `known` does not name. A reset of the app deletes them with the libraries it removes. A folder
+/// that holds more than records is left as it is.
+pub(crate) async fn delete_left_service_library_folders(
+    config_dir: &Path,
+    known: HashSet<Uuid>,
+) -> io::Result<()> {
+    let root = config_dir.to_owned();
+    let left = tokio::task::spawn_blocking(move || left_device_records(&root, Uuid::nil(), &known))
+        .await
+        .map_err(io::Error::other)?;
+    for removed in left {
+        let folder = service_library_folder(config_dir, removed);
+        let records = device_records_folder(config_dir, removed);
+        let mut entries = tokio_fs::read_dir(&folder).await?;
+        let mut only_records = true;
+        while let Some(entry) = entries.next_entry().await? {
+            only_records &= entry.path() == records;
+        }
+        if only_records {
+            remove_if_there(tokio_fs::remove_dir_all(folder).await)?;
+        }
+    }
+    Ok(())
 }
 
 /// A removal that found nothing to remove is no failure.
@@ -187,8 +215,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        delete_service_library_folder, has_device_records, left_device_records, old_covers_folder,
-        prepare_service_library_folder, service_library_folder, take_over_device_records,
+        delete_left_service_library_folders, delete_service_library_folder, has_device_records,
+        left_device_records, old_covers_folder, prepare_service_library_folder,
+        service_library_folder, take_over_device_records,
     };
     use crate::service::covers::cover_cache_root;
     use crate::service::device_records::device_records_folder;
@@ -253,6 +282,27 @@ mod tests {
         prepare_service_library_folder(root.path(), library_id);
         assert_eq!(fs::read(covers.join("cover.img")).unwrap(), b"new");
         assert_eq!(fs::read(old.join("cover.img")).unwrap(), b"old");
+    }
+
+    #[tokio::test]
+    async fn a_reset_deletes_the_records_removed_libraries_left_and_nothing_else() {
+        let root = TempDir::new().unwrap();
+        let (left, known, more) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        for library_id in [left, known, more] {
+            write_records(root.path(), library_id, "kept");
+        }
+        // A folder that holds more than records is not what a removal left.
+        fs::create_dir_all(cover_cache_root(root.path(), more)).unwrap();
+        delete_left_service_library_folders(root.path(), HashSet::from([known]))
+            .await
+            .unwrap();
+        assert!(!service_library_folder(root.path(), left).exists());
+        assert_eq!(read_records(root.path(), known).as_deref(), Some("kept"));
+        assert_eq!(read_records(root.path(), more).as_deref(), Some("kept"));
+        // With nothing left, there is nothing to do.
+        delete_left_service_library_folders(root.path(), HashSet::from([known]))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
