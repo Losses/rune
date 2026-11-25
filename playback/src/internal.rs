@@ -1265,7 +1265,13 @@ impl PlayerInternal {
                                     error!("Failed to load track: {e:?}");
                                     self.restore_position = None;
                                     let reason = UnavailableReason::classify(&e);
-                                    let answered = !self.active_load_completions.is_empty();
+                                    // Discarded completions (restore at startup) count as
+                                    // unanswered: nobody waits on them, so their failure must
+                                    // still reach the listeners.
+                                    let answered = self
+                                        .active_load_completions
+                                        .iter()
+                                        .any(|completion| !completion.response.is_closed());
                                     self.event_sender.send(PlayerEvent::Log(InternalLog {
                                         domain: "playback".into(),
                                         error: format!("failed to load the track: {e:#}"),

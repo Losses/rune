@@ -6340,21 +6340,20 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
     )
     .await?;
     peer_step("B broadcast the playback failure as a typed request failure", async {
-        let failures: Vec<RequestFailedResponse> = b_signals
-            .0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(name, _)| name == "RequestFailedResponse")
-            .filter_map(|(_, payload)| rinf::deserialize::<RequestFailedResponse>(payload).ok())
-            .collect();
-        let failure = failures
-            .iter()
-            .find(|failure| failure.request == "Playback")
-            .context(format!(
-                "no typed playback failure reached the listeners among {} request failures",
-                failures.len()
-            ))?;
+        // The log row is written before the broadcast, so the row being present does not mean
+        // the broadcast has landed yet: poll for it instead of reading once.
+        let failure = wait_until("the typed playback failure broadcast", || async {
+            let failure = b_signals
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(name, _)| name == "RequestFailedResponse")
+                .filter_map(|(_, payload)| rinf::deserialize::<RequestFailedResponse>(payload).ok())
+                .find(|failure| failure.request == "Playback");
+            Ok(failure)
+        })
+        .await?;
         anyhow::ensure!(
             failure.kind == RequestErrorKind::PermissionDenied,
             "access revocation surfaced as {:?}, not permission denied",

@@ -290,10 +290,13 @@ impl DownloadStatus {
     pub(super) fn failure_error(&self) -> Option<io::Error> {
         let failure = self.error.lock();
         let original = failure.as_ref()?.clone();
-        Some(io::Error::new(
-            original.kind(),
-            SharedFailure { original },
-        ))
+        // `read_to_end` and `read_exact` retry `Interrupted`, so a terminal failure must never
+        // carry that kind — a cancelled download would spin forever instead of failing the read.
+        let kind = match original.kind() {
+            io::ErrorKind::Interrupted => io::ErrorKind::Other,
+            kind => kind,
+        };
+        Some(io::Error::new(kind, SharedFailure { original }))
     }
 
     fn is_failed(&self) -> bool {
