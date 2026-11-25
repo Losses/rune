@@ -67,6 +67,8 @@ struct TrackEvidence {
     title: String,
     title_key: String,
     mbid: Option<String>,
+    recording: Uuid,
+    anonymous: bool,
 }
 
 impl TrackEvidence {
@@ -79,6 +81,13 @@ impl TrackEvidence {
             title: row.try_get("", "title")?,
             title_key: row.try_get("", "track_title_key")?,
             mbid: row.try_get("", "release_track_mbid")?,
+            recording: uuid(row, "recording_id")?,
+            anonymous: row
+                .try_get::<Option<String>>("", "recording_mbid")?
+                .is_none()
+                && row
+                    .try_get::<Option<String>>("", "recording_isrc")?
+                    .is_none(),
         })
     }
 
@@ -155,6 +164,9 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
                         A::Title,
                         A::TrackTitleKey,
                         A::ReleaseTrackMbid,
+                        A::RecordingId,
+                        A::RecordingMbid,
+                        A::RecordingIsrc,
                     ]
                     .map(|c| c.as_column_ref()),
                 )
@@ -232,7 +244,33 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
             .iter()
             .find(|row| row.mbid.is_some())
             .unwrap_or(&group[0]);
-        put_track(db, *id, disc, display.number, &display.title).await?;
+        let fallback = track_fallback(*id);
+        let recording = group
+            .iter()
+            .find(|row| row.anonymous)
+            .map_or(fallback, |row| {
+                // The frozen import uses the track UUID so it can stream variants in any order.
+                if row.recording == fallback {
+                    fallback
+                } else {
+                    super::recording_identity::audio_fallback(row.audio)
+                }
+            });
+        put_track(db, *id, disc, recording, display.number, &display.title).await?;
+
+        // Whole-file variants without identifiers share their release track's fallback.
+        let unassigned = group
+            .iter()
+            .filter(|row| row.anonymous && row.recording != recording);
+        for row in unassigned {
+            db.execute(
+                Query::update()
+                    .table(orm_audio::Entity)
+                    .value(A::RecordingId, Expr::val(recording.to_string()))
+                    .and_where(A::FileId.eq(row.file)),
+            )
+            .await?;
+        }
         for row in group {
             if row.current != Some(*id) {
                 bind_asset(db, *id, row.file, 0, None).await?;
@@ -354,14 +392,18 @@ pub(super) async fn duration_rows(
         .await?)
 }
 
+fn track_fallback(track: Uuid) -> Uuid {
+    Uuid::new_v5(&track, b"release-track-recording")
+}
+
 async fn put_track(
     db: &impl ConnectionTrait,
     id: Uuid,
     disc: Uuid,
+    recording: Uuid,
     track: Option<u32>,
     title: &str,
 ) -> Result<()> {
-    let recording = Uuid::new_v5(&id, b"release-track-recording");
     super::recording_identity::ensure_exists(db, recording).await?;
     use orm_release_tracks::Column as T;
     let excluded = Alias::new("excluded");
@@ -370,7 +412,8 @@ async fn put_track(
             BinOper::IsNot,
             Expr::col((excluded.clone(), T::TrackNumber)),
         )
-        .or(column(T::Title).ne(Expr::col((excluded, T::Title))));
+        .or(column(T::Title).ne(Expr::col((excluded.clone(), T::Title))))
+        .or(column(T::RecordingId).ne(Expr::col((excluded, T::RecordingId))));
     db.execute(
         Query::insert()
             .into_table(orm_release_tracks::Entity)
@@ -384,7 +427,7 @@ async fn put_track(
             ])?
             .on_conflict(
                 OnConflict::column(T::Id)
-                    .update_columns([T::TrackNumber, T::Title])
+                    .update_columns([T::RecordingId, T::TrackNumber, T::Title])
                     .action_and_where(changed)
                     .to_owned(),
             ),
@@ -480,6 +523,19 @@ pub(super) async fn write_layout(
     // Segment identity is independent of its mutable title and range.
     let mut ids = BTreeMap::new();
     if !segments.is_empty() {
+        // A disc image is independent of the recordings represented by its segments.
+        use orm_audio::Column as A;
+        let recording = super::recording_identity::audio_fallback(audio_id);
+        super::recording_identity::ensure_exists(tx, recording).await?;
+        tx.execute(
+            Query::update()
+                .table(orm_audio::Entity)
+                .value(A::RecordingId, Expr::val(recording.to_string()))
+                .and_where(A::FileId.eq(file))
+                .and_where(A::RecordingMbid.is_null())
+                .and_where(A::RecordingIsrc.is_null()),
+        )
+        .await?;
         tx.execute(
             Query::insert()
                 .into_table(orm_audio_layouts::Entity)
@@ -496,6 +552,7 @@ pub(super) async fn write_layout(
                 tx,
                 id,
                 disc,
+                track_fallback(id),
                 Some(segment.track_number),
                 segment.title.trim(),
             )

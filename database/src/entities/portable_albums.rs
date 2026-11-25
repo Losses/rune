@@ -1,4 +1,4 @@
-//! Portable album identity and public handle stored on the edition row.
+//! Synchronized album identities and their original numeric IDs.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

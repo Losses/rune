@@ -16,6 +16,7 @@ pub use recordings::{
 };
 mod release_group;
 pub(super) mod summary;
+pub(crate) mod synced;
 mod tracks;
 pub use tracks::{disc_track_ids, release_track_metadata};
 
@@ -89,7 +90,6 @@ const AUDIO_COLUMNS: &[&[&str]] = &[
         "track_title_key",
         "duration_ms",
         "import_date",
-        "portable",
     ],
     columns::COMMON,
     columns::AUDIO,
@@ -162,13 +162,13 @@ pub(super) fn scalar(query: SelectStatement) -> Expr {
 }
 
 pub(super) async fn contains(db: &impl ConnectionTrait, file_id: i32) -> Result<bool> {
+    use crate::entities::music_metadata::native_audio;
     Ok(db
         .query_one(
             Query::select()
                 .expr(Expr::val(1))
-                .from(orm_audio::Entity)
-                .and_where(Expr::col(orm_audio::Column::FileId).eq(Expr::val(file_id)))
-                .and_where(orm_audio::Column::Portable.eq(0)),
+                .from(native_audio::Entity)
+                .and_where(native_audio::Column::FileId.eq(file_id)),
         )
         .await?
         .is_some())
@@ -256,7 +256,6 @@ async fn store_on(
         tracks::title_key(&audio.title).into(),
         columns::bind_duration(audio.base.duration_ms)?,
         jiff::Timestamp::now().to_string().into(),
-        0.into(),
     ];
     columns::bind_common(&audio.base, &mut values)?;
     columns::bind_audio(audio, &mut values)?;
@@ -303,6 +302,15 @@ async fn store_on(
         DISC_COLUMNS,
         values,
     )?)
+    .await?;
+    use crate::entities::music_metadata::native_audio;
+    db.execute(
+        Query::insert()
+            .into_table(native_audio::Entity)
+            .columns([native_audio::Column::FileId])
+            .values_panic([Expr::val(file_id)])
+            .on_conflict(OnConflict::new().do_nothing().to_owned()),
+    )
     .await?;
     release_group::store(db, file_id, album_id, keys).await?;
     release_group::queue(db, &scope).await?;
@@ -368,7 +376,7 @@ pub(crate) async fn project_synced_track(
     recording_identity::invalidate_stale_file(db, &key)
         .await
         .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
-    if let Some(file) = migration::project_portable_track(db, track).await? {
+    if let Some(file) = synced::project(db, track).await? {
         lifecycle::finish_portable_projection(db, file, previous)
             .await
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;

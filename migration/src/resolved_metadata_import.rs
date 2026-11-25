@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use sea_orm_migration::{
     prelude::*,
     sea_orm::{ConnectionTrait, FromQueryResult},
-    sea_query::{BinOper, InsertStatement, OnConflict, SelectStatement},
+    sea_query::{InsertStatement, OnConflict, SelectStatement},
 };
 use uuid::Uuid;
 
@@ -48,7 +48,7 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             break;
         };
         after = last.id;
-        import_files(db, files, true).await?;
+        import_files(db, files).await?;
     }
     seed_catalog_state(db).await?;
 
@@ -66,59 +66,6 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     db.execute_raw(db.get_database_backend().build(&invalidate))
         .await?;
     Ok(())
-}
-
-/// Project a synchronized track into the catalog without overriding file evidence.
-pub async fn project_portable_track(
-    db: &impl ConnectionTrait,
-    track: Uuid,
-) -> Result<Option<i32>, DbErr> {
-    // A native scan is authoritative only for the version it actually read.
-    let native = Query::select()
-        .expr(Expr::val(1))
-        .from_as(alias("music_metadata_audio"), alias("native"))
-        .and_where(column("native", "file_id").eq(column("file", "id")))
-        .and_where(column("native", "portable").eq(0))
-        .and_where(
-            column("native", "recording_content_hash")
-                .binary(BinOper::Is, column("file", "content_hash")),
-        )
-        .and_where(
-            column("native", "recording_content_size")
-                .binary(BinOper::Is, column("file", "content_size")),
-        )
-        .to_owned();
-    let query = files_after(0)
-        .and_where(column("file", "source_uuid").eq(track.to_string()))
-        .and_where(column("file", "local_available").eq(false))
-        .and_where(Expr::not_exists(native))
-        .to_owned();
-    let Some(file) = FileRow::find_by_statement(db.get_database_backend().build(&query))
-        .one(db)
-        .await?
-    else {
-        return Ok(None);
-    };
-
-    // Replace source-tag contributions while preserving independently supplied evidence.
-    let cleanup = Query::delete()
-        .from_table(alias("music_metadata_credits"))
-        .and_where(Expr::col(alias("file_id")).eq(file.id))
-        .and_where(Expr::col(alias("source_kind")).eq("audio_tag"))
-        .to_owned();
-    db.execute_raw(db.get_database_backend().build(&cleanup))
-        .await?;
-    let genres = Query::delete()
-        .from_table(alias("music_metadata_values"))
-        .and_where(Expr::col(alias("file_id")).eq(file.id))
-        .and_where(Expr::col(alias("scope")).eq(2))
-        .and_where(Expr::col(alias("field")).eq("genres"))
-        .to_owned();
-    db.execute_raw(db.get_database_backend().build(&genres))
-        .await?;
-    let id = file.id;
-    import_files(db, vec![file], false).await?;
-    Ok(Some(id))
 }
 
 fn alias(name: &str) -> Alias {
@@ -149,13 +96,19 @@ fn replace_file_fields(table: &str, columns: &[&str]) -> InsertStatement {
 
 async fn seed_catalog_state(db: &impl ConnectionTrait) -> Result<(), DbErr> {
     // Record handles in insertion order so existing integer navigation remains stable.
-    let handles = Query::select()
+    let mut handles = Query::select()
         .expr(Expr::val("album"))
         .column(alias("id"))
         .from(alias("music_metadata_albums"))
         .and_where(Expr::col(alias("id")).is_not_null())
-        .order_by(alias("legacy_id"), Order::Asc)
         .to_owned();
+    let editions = Query::select()
+        .expr(Expr::val("album"))
+        .column(alias("id"))
+        .from(alias("music_metadata_editions"))
+        .and_where(Expr::col(alias("id")).is_not_null())
+        .to_owned();
+    handles.union(sea_orm_migration::sea_query::UnionType::Distinct, editions);
     let mut target = insert("music_metadata_browse_handles", &["kind", "source_uuid"]);
     target
         .select_from(handles)
@@ -221,11 +174,7 @@ fn files_after(after: i32) -> SelectStatement {
         .to_owned()
 }
 
-async fn import_files(
-    db: &impl ConnectionTrait,
-    files: Vec<FileRow>,
-    backfill_tracks: bool,
-) -> Result<(), DbErr> {
+async fn import_files(db: &impl ConnectionTrait, files: Vec<FileRow>) -> Result<(), DbErr> {
     // Fetch source evidence in bounded pages and honor its original order.
     let query = Query::select()
         .columns(["file_id", "meta_key", "meta_value"].map(alias))
@@ -248,16 +197,12 @@ async fn import_files(
     }
 
     // Insert parents first, then the normalized fields that refer to them.
-    let mut batch = ImportBatch::new(backfill_tracks);
+    let mut batch = ImportBatch::new();
     for file in files {
         let tags = by_file.remove(&file.id).unwrap_or_default();
         batch.push(file, &tags)?;
     }
-    for query in batch
-        .statements
-        .into_iter()
-        .chain(batch.tracks.into_iter().flatten())
-    {
+    for query in batch.statements.into_iter().chain(batch.tracks) {
         db.execute_raw(db.get_database_backend().build(&query))
             .await?;
     }
@@ -313,16 +258,19 @@ async fn insert_chunks<const N: usize>(
 
 struct ImportBatch {
     statements: [InsertStatement; 6],
-    tracks: Option<[InsertStatement; 2]>,
+    tracks: [InsertStatement; 2],
     credits: Vec<[Expr; 8]>,
     genres: Vec<[Expr; 6]>,
 }
 
 impl ImportBatch {
-    fn new(backfill_tracks: bool) -> Self {
+    fn new() -> Self {
         Self {
             statements: [
-                insert("music_metadata_albums", &["id", "directory_path"]),
+                insert(
+                    "music_metadata_editions",
+                    &["id", "directory_path", "managed_key"],
+                ),
                 insert("music_metadata_discs", &["id", "album_id", "disc_number"]),
                 insert("music_metadata_recordings", &["id"]),
                 replace_file_fields(
@@ -344,7 +292,6 @@ impl ImportBatch {
                         "duration_ms",
                         "import_date",
                         "sample_rate",
-                        "portable",
                     ],
                 ),
                 replace_file_fields(
@@ -362,18 +309,16 @@ impl ImportBatch {
                     &["file_id", "title_priority", "directory_path"],
                 ),
             ],
-            tracks: backfill_tracks.then(|| {
-                [
-                    insert(
-                        "music_metadata_release_tracks",
-                        &["id", "disc_id", "recording_id", "track_number", "title"],
-                    ),
-                    insert(
-                        "music_metadata_track_assets",
-                        &["track_id", "file_id", "start_ms"],
-                    ),
-                ]
-            }),
+            tracks: [
+                insert(
+                    "music_metadata_release_tracks",
+                    &["id", "disc_id", "recording_id", "track_number", "title"],
+                ),
+                insert(
+                    "music_metadata_track_assets",
+                    &["track_id", "file_id", "start_ms"],
+                ),
+            ],
             credits: Vec::new(),
             genres: Vec::new(),
         }
@@ -405,7 +350,17 @@ impl ImportBatch {
         let (disc_number, track_number) = positions(&file, tags);
         let medium = disc_number.unwrap_or(1);
         let disc = Uuid::new_v5(&album, &medium.to_be_bytes());
-        let recording = Uuid::new_v5(&audio, b"recording");
+        let title_key = title
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let slot = track_number.map_or_else(
+            || format!("file:{audio}"),
+            |number| format!("slot:{number}:{title_key}"),
+        );
+        let track = Uuid::new_v5(&disc, slot.as_bytes());
+        let recording = Uuid::new_v5(&track, b"release-track-recording");
 
         // Preserve the portable file UUID and the exact legacy album membership.
         let [
@@ -419,6 +374,7 @@ impl ImportBatch {
         albums.values_panic([
             Expr::val(album.to_string()),
             Expr::val(file.directory.clone()),
+            Expr::val(file.album_uuid.as_ref().map(|id| format!("source:{id}"))),
         ]);
         discs.values_panic([
             Expr::val(disc.to_string()),
@@ -426,24 +382,13 @@ impl ImportBatch {
             Expr::val(medium),
         ]);
         recordings.values_panic([Expr::val(recording.to_string())]);
-        let title_key = title
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase();
-        if let Some([tracks, assets]) = &mut self.tracks {
-            // Whole-file tracks use the same edition slot UUID as runtime reconciliation.
-            let slot = track_number.map_or_else(
-                || format!("file:{audio}"),
-                |number| format!("slot:{number}:{title_key}"),
-            );
-            let track = Uuid::new_v5(&disc, slot.as_bytes());
-            let track_recording = Uuid::new_v5(&track, b"release-track-recording").to_string();
-            recordings.values_panic([Expr::val(track_recording.clone())]);
+        {
+            let [tracks, assets] = &mut self.tracks;
+            // Whole-file tracks and their encodings share a recording.
             tracks.values_panic([
                 Expr::val(track.to_string()),
                 Expr::val(disc.to_string()),
-                Expr::val(track_recording),
+                Expr::val(recording.to_string()),
                 Expr::val(track_number),
                 Expr::val(title),
             ]);
@@ -454,7 +399,7 @@ impl ImportBatch {
             ]);
         }
 
-        // Both initial migration and subsequent sync updates retain the per-file evidence.
+        // Copy the file evidence and its legacy content identity.
         files.values_panic([
             Expr::val(file.id),
             Expr::val(audio.to_string()),
@@ -472,7 +417,6 @@ impl ImportBatch {
             Expr::val((file.duration.max(0.0) * 1000.0).round() as i64),
             Expr::val(file.last_modified),
             Expr::val(file.sample_rate),
-            Expr::val(1),
         ]);
 
         // Keep source spellings in credits independently of the indexed artist links.

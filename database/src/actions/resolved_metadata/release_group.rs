@@ -31,6 +31,7 @@ use crate::entities::{
 };
 
 use super::column;
+use super::lifecycle::BrowseKind;
 
 const TITLE: &str = "title";
 const ARTIST: &str = "artist";
@@ -388,7 +389,7 @@ async fn create_album(
             ]),
     )
     .await?;
-    super::lifecycle::allocate_handle(db, "album", &id.to_string()).await?;
+    super::lifecycle::allocate_handle(db, BrowseKind::Album, &id.to_string()).await?;
     Ok(id)
 }
 

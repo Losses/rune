@@ -22,7 +22,6 @@ use crate::entities::{
     music_metadata::{album_evidence, credits},
     portable_albums, portable_artists, track_album_sources,
 };
-use crate::sync::model::adopt_portable_artist;
 
 use super::CreditScope;
 
@@ -158,7 +157,6 @@ async fn process_artists(
         )
         .exec_without_returning(tx)
         .await?;
-        adopt_portable_artist(tx, id).await?;
         let row = portable_artists::Entity::find()
             .filter(portable_artists::Column::SourceUuid.eq(id.to_string()))
             .one(tx)
@@ -258,11 +256,7 @@ async fn process_album(tx: &DatabaseTransaction, summary: &MetadataSummary) -> R
     })
     .on_conflict(
         OnConflict::column(portable_albums::Column::SourceUuid)
-            .update_columns([
-                portable_albums::Column::Name,
-                portable_albums::Column::Group,
-            ])
-            .action_and_where(portable_albums::Column::Name.is_null())
+            .do_nothing()
             .to_owned(),
     )
     .exec_without_returning(tx)

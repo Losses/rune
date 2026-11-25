@@ -6,7 +6,7 @@ use anyhow::Result;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, ExprTrait, FromQueryResult,
     QueryFilter, QueryOrder, QuerySelect, Set,
-    sea_query::{Expr, Func, OnConflict, Order, Query, TableRef},
+    sea_query::{Expr, Func, OnConflict, Order, Query, TableRef, UnionType},
 };
 use uuid::Uuid;
 
@@ -14,6 +14,8 @@ use crate::entities::music_metadata::{
     album_evidence, album_summaries, albums, audio, dirty_summaries, discs, release_identity,
     release_tracks, track_release_keys,
 };
+
+use crate::entities::portable_albums;
 
 use super::{column, queries::subquery, query_models};
 
@@ -187,14 +189,13 @@ pub(in crate::actions) const TITLES: &str = "album_titles";
 pub(in crate::actions) fn titles() -> TableRef {
     use album_summaries::Column as S;
     use albums::Column as A;
-    let rows = Query::select()
-        .columns([A::Id, A::LegacyId, A::PortableTitle].map(|c| c.as_column_ref()))
+    use portable_albums::Column as P;
+    let mut rows = Query::select()
+        .column(A::Id.as_column_ref())
+        .expr_as(column(P::Id), "legacy_id")
+        .expr_as(column(P::Name), "portable_title")
         .expr_as(
-            Func::coalesce([
-                column(A::PortableTitle),
-                column(S::Title),
-                column(A::DirectoryPath),
-            ]),
+            Func::coalesce([column(P::Name), column(S::Title), column(A::DirectoryPath)]),
             "title",
         )
         .expr_as(
@@ -203,10 +204,28 @@ pub(in crate::actions) fn titles() -> TableRef {
         )
         .from(albums::Entity)
         .left_join(
+            portable_albums::Entity,
+            column(P::SourceUuid).eq(column(A::Id)),
+        )
+        .left_join(
             album_summaries::Entity,
             column(S::AlbumId).eq(column(A::Id)),
         )
         .to_owned();
+
+    // A synchronized album remains browsable even before any track has arrived.
+    let edition = Query::select()
+        .column(A::Id)
+        .from(albums::Entity)
+        .and_where(column(A::Id).eq(column(P::SourceUuid)))
+        .to_owned();
+    let empty = Query::select()
+        .columns([P::SourceUuid, P::Id, P::Name, P::Name].map(|c| c.as_column_ref()))
+        .expr(Expr::val(0))
+        .from(portable_albums::Entity)
+        .and_where(Expr::not_exists(edition))
+        .to_owned();
+    rows.union(UnionType::All, empty);
     subquery(rows, TITLES)
 }
 
@@ -216,20 +235,23 @@ pub(in crate::actions) async fn track_titles(
 ) -> Result<HashMap<i32, (String, Option<String>)>> {
     use album_evidence::Column as E;
     use album_summaries::Column as S;
-    use albums::Column as R;
     use audio::Column as A;
     use discs::Column as D;
+    use portable_albums::Column as P;
     let mut found = HashMap::new();
     for files in files.chunks(400) {
         let rows = Query::select()
             .columns([A::FileId, A::Title].map(|c| c.as_column_ref()))
             .expr_as(
-                Func::coalesce([column(R::PortableTitle), column(S::Title), column(E::Title)]),
+                Func::coalesce([column(P::Name), column(S::Title), column(E::Title)]),
                 "album_title",
             )
             .from(audio::Entity)
             .inner_join(discs::Entity, column(D::Id).eq(column(A::DiscId)))
-            .inner_join(albums::Entity, column(R::Id).eq(column(D::AlbumId)))
+            .left_join(
+                portable_albums::Entity,
+                column(P::SourceUuid).eq(column(D::AlbumId)),
+            )
             .left_join(
                 album_summaries::Entity,
                 column(S::AlbumId).eq(column(D::AlbumId)),

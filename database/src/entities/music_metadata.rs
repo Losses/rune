@@ -19,12 +19,9 @@ macro_rules! catalog_entity {
     };
 }
 
-catalog_entity!(albums, "music_metadata_albums", {
+catalog_entity!(albums, "music_metadata_editions", {
     #[sea_orm(primary_key, auto_increment = false)]
     id: String,
-    legacy_id: i32,
-    portable_title: Option<String>,
-    portable_group: Option<String>,
     directory_path: String,
     managed_key: Option<String>,
     directory_scope: String,
@@ -89,7 +86,6 @@ catalog_entity!(recording_sources, "music_metadata_recording_sources", {
 catalog_entity!(audio, "music_metadata_audio", {
     #[sea_orm(primary_key, auto_increment = false)]
     file_id: i32,
-    portable: i32,
     id: String,
     disc_id: String,
     recording_id: String,
@@ -192,15 +188,12 @@ catalog_entity!(track_assets, "music_metadata_track_assets", {
     end_ms: Option<i64>,
 });
 
-catalog_entity!(artists, "music_metadata_artists", {
+catalog_entity!(artists, "music_metadata_identified_artists", {
     #[sea_orm(primary_key, auto_increment = false, column_name = "source_uuid")]
     id: String,
-    #[sea_orm(column_name = "id")]
-    legacy_id: i32,
     name: String,
     group: String,
     musicbrainz_id: Option<String>,
-    portable: i32,
 });
 
 catalog_entity!(album_evidence, "music_metadata_album_evidence", {
@@ -359,4 +352,9 @@ catalog_entity!(details, "music_metadata_details", {
     artwork: Option<String>,
     links: Option<String>,
     provenance: Option<String>,
+});
+
+catalog_entity!(native_audio, "music_metadata_native_audio", {
+    #[sea_orm(primary_key, auto_increment = false)]
+    file_id: i32,
 });

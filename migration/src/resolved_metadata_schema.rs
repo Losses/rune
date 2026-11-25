@@ -18,7 +18,7 @@ pub(super) async fn install(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     for index in [
         "CREATE INDEX music_metadata_album_summary_title ON music_metadata_album_summaries(title COLLATE NOCASE, album_id);",
         "CREATE INDEX music_metadata_audio_disc_tracks ON music_metadata_audio(disc_id, (track_number IS NULL), track_number, file_id);",
-        "CREATE INDEX music_metadata_artist_name ON music_metadata_artists(name COLLATE NOCASE, source_uuid);",
+        "CREATE INDEX music_metadata_artist_name ON music_metadata_identified_artists(name COLLATE NOCASE, source_uuid);",
         "CREATE INDEX music_metadata_credits_lookup ON music_metadata_credits(scope, role, credited_as COLLATE NOCASE, file_id);",
         "CREATE INDEX music_metadata_values_lookup ON music_metadata_values(scope, field, qualifier, value COLLATE NOCASE, file_id);",
     ] {
@@ -63,14 +63,7 @@ pub(super) async fn move_table(
 
 pub(super) async fn migrate_artists(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let columns = artist_columns(manager, "artists", "music_metadata_artists").await?;
-    copy_artists(
-        manager,
-        "artists",
-        "music_metadata_artists",
-        &columns,
-        false,
-    )
-    .await?;
+    copy_artists(manager, "artists", "music_metadata_artists", &columns).await?;
     // The UUID conversion rebuilt this table without the old integer foreign keys.
     move_table(
         manager,
@@ -146,7 +139,7 @@ async fn copy_albums(manager: &SchemaManager<'_>, restore: bool) -> Result<(), D
     let mut fields = ALBUM_FIELDS.to_vec();
     append_retired_columns(manager, source, target, |name| fields.push((name, name))).await?;
 
-    // Keep the saved handles and sync fields on the same row as the edition.
+    // Preserve the numeric handles and UUIDs of the synchronized album rows.
     let mut rows = Query::select();
     let mut columns = Vec::new();
     for (old, current) in fields {
@@ -159,9 +152,6 @@ async fn copy_albums(manager: &SchemaManager<'_>, restore: bool) -> Result<(), D
         columns.push(to);
     }
     rows.from(alias(source));
-    if restore {
-        rows.and_where(col("portable_title").is_not_null());
-    }
     insert_selection(manager, target, &columns, rows).await?;
     copy_sequence(manager, source, target).await
 }
@@ -180,7 +170,7 @@ pub(super) async fn restore_artists(manager: &SchemaManager<'_>) -> Result<(), D
         )
         .await?;
     let columns = artist_columns(manager, "music_metadata_artists", "artists").await?;
-    copy_artists(manager, "music_metadata_artists", "artists", &columns, true).await?;
+    copy_artists(manager, "music_metadata_artists", "artists", &columns).await?;
     for (name, unique) in [("p2_artist_uuid", true), ("idx_artists_source_uuid", false)] {
         let mut index = Index::create();
         index
@@ -250,14 +240,10 @@ async fn copy_artists(
     source: &str,
     target: &str,
     columns: &[&str],
-    portable_only: bool,
 ) -> Result<(), DbErr> {
     let mut rows = Query::select();
     rows.columns(columns.iter().map(|name| alias(name)))
         .from(alias(source));
-    if portable_only {
-        rows.and_where(col("portable").eq(1));
-    }
     insert_selection(manager, target, columns, rows).await?;
     copy_sequence(manager, source, target).await
 }
@@ -342,29 +328,27 @@ fn real(name: &str) -> ColumnDef {
 }
 
 // SeaQuery has no SQLite WITHOUT ROWID option. Its table suffix preserves the existing layout.
-fn tables() -> [TableCreateStatement; 23] {
+fn tables() -> [TableCreateStatement; 26] {
     [
         Table::create()
             .table(alias("music_metadata_albums"))
             .col(integer("legacy_id").primary_key().auto_increment())
             .col(text("id").not_null())
-            .col(text("portable_title").unique_key())
-            .col(text("portable_group"))
+            .col(text("portable_title").not_null().unique_key())
+            .col(text("portable_group").not_null())
+            .to_owned(),
+        Table::create()
+            .table(alias("music_metadata_editions"))
+            .col(text("id").primary_key().not_null())
             .col(text("directory_path").not_null().default(""))
             .col(text("managed_key"))
-            .col(
-                text("directory_scope").generated(
-                    Expr::case(
-                        col("portable_title").is_not_null(),
-                        Expr::val("portable:").binary(BinOper::Custom("||"), col("id")),
-                    )
-                    .finally(Func::coalesce([
-                        Expr::val("managed:").binary(BinOper::Custom("||"), col("managed_key")),
-                        col("directory_path"),
-                    ])),
-                    false,
-                ),
-            )
+            .col(text("directory_scope").generated(
+                Func::coalesce([
+                    Expr::val("managed:").binary(BinOper::Custom("||"), col("managed_key")),
+                    col("directory_path"),
+                ]),
+                false,
+            ))
             .col(
                 integer("needs_review")
                     .check(col("needs_review").is_in([0, 1]))
@@ -380,7 +364,7 @@ fn tables() -> [TableCreateStatement; 23] {
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_release_identity"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
+                    .to(alias("music_metadata_editions"), alias("id"))
                     .on_delete(ForeignKeyAction::Cascade),
             )
             .extra("WITHOUT ROWID")
@@ -408,7 +392,7 @@ fn tables() -> [TableCreateStatement; 23] {
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_album_summaries"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
+                    .to(alias("music_metadata_editions"), alias("id"))
                     .on_delete(ForeignKeyAction::Cascade),
             )
             .extra("WITHOUT ROWID")
@@ -419,7 +403,7 @@ fn tables() -> [TableCreateStatement; 23] {
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_dirty_summaries"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id"))
+                    .to(alias("music_metadata_editions"), alias("id"))
                     .on_delete(ForeignKeyAction::Cascade),
             )
             .extra("WITHOUT ROWID")
@@ -436,7 +420,7 @@ fn tables() -> [TableCreateStatement; 23] {
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_discs"), alias("album_id"))
-                    .to(alias("music_metadata_albums"), alias("id")),
+                    .to(alias("music_metadata_editions"), alias("id")),
             )
             .index(
                 Index::create()
@@ -500,12 +484,6 @@ fn tables() -> [TableCreateStatement; 23] {
         Table::create()
             .table(alias("music_metadata_audio"))
             .col(integer("file_id").primary_key())
-            .col(
-                integer("portable")
-                    .not_null()
-                    .default(0)
-                    .check(col("portable").is_in([0, 1])),
-            )
             .col(text("id").not_null().unique_key())
             .col(text("disc_id").not_null())
             .col(text("recording_id").not_null())
@@ -665,19 +643,29 @@ fn tables() -> [TableCreateStatement; 23] {
             )
             .extra("WITHOUT ROWID")
             .to_owned(),
-        // Portable name identities and identified artists share one catalog.
+        Table::create()
+            .table(alias("music_metadata_native_audio"))
+            .col(integer("file_id").primary_key())
+            .foreign_key(
+                ForeignKey::create()
+                    .from(alias("music_metadata_native_audio"), alias("file_id"))
+                    .to(alias("music_metadata_audio"), alias("file_id"))
+                    .on_delete(ForeignKeyAction::Cascade),
+            )
+            .to_owned(),
+        // Synced names and local MusicBrainz identifications have independent lifetimes.
         Table::create()
             .table(alias("music_metadata_artists"))
             .col(integer("id").primary_key().auto_increment())
             .col(text("source_uuid").not_null())
             .col(text("name").not_null())
             .col(text("group").not_null().default("#"))
-            .col(
-                integer("portable")
-                    .not_null()
-                    .default(1)
-                    .check(col("portable").is_in([0, 1])),
-            )
+            .to_owned(),
+        Table::create()
+            .table(alias("music_metadata_identified_artists"))
+            .col(text("source_uuid").primary_key().not_null())
+            .col(text("name").not_null())
+            .col(text("group").not_null())
             .col(text("musicbrainz_id").unique_key())
             .to_owned(),
         // Keep each track's scalar evidence so removals and rescans can resolve the next candidate.
@@ -787,7 +775,7 @@ fn tables() -> [TableCreateStatement; 23] {
                         alias("music_metadata_track_release_keys"),
                         alias("album_id"),
                     )
-                    .to(alias("music_metadata_albums"), alias("id"))
+                    .to(alias("music_metadata_editions"), alias("id"))
                     .on_delete(ForeignKeyAction::Cascade),
             )
             .primary_key(Index::create().col(alias("file_id")).col(alias("field")))
@@ -829,7 +817,10 @@ fn tables() -> [TableCreateStatement; 23] {
             .foreign_key(
                 ForeignKey::create()
                     .from(alias("music_metadata_credits"), alias("artist_id"))
-                    .to(alias("music_metadata_artists"), alias("source_uuid"))
+                    .to(
+                        alias("music_metadata_identified_artists"),
+                        alias("source_uuid"),
+                    )
                     .on_delete(ForeignKeyAction::SetNull),
             )
             .primary_key(
@@ -873,7 +864,10 @@ fn tables() -> [TableCreateStatement; 23] {
                         alias("music_metadata_recording_credits"),
                         alias("artist_id"),
                     )
-                    .to(alias("music_metadata_artists"), alias("source_uuid"))
+                    .to(
+                        alias("music_metadata_identified_artists"),
+                        alias("source_uuid"),
+                    )
                     .on_delete(ForeignKeyAction::SetNull),
             )
             .primary_key(
@@ -976,7 +970,7 @@ fn indexes() -> [IndexCreateStatement; 22] {
             .to_owned(),
         Index::create()
             .name("music_metadata_album_directory")
-            .table(alias("music_metadata_albums"))
+            .table(alias("music_metadata_editions"))
             .col(alias("directory_scope"))
             .col(alias("id"))
             .to_owned(),

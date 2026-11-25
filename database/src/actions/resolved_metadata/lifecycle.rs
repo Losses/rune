@@ -11,13 +11,15 @@ use crate::entities::music_metadata::{
 };
 
 use super::column;
+pub(crate) use crate::actions::browse::Kind as BrowseKind;
 
 pub(crate) async fn allocate_handle(
     db: &impl ConnectionTrait,
-    kind: &str,
+    kind: BrowseKind,
     id: &str,
 ) -> Result<(), DbErr> {
     use browse_handles::Column as H;
+    let kind = kind.label();
     let existing = Query::select()
         .column(H::Id)
         .from(browse_handles::Entity)
@@ -114,7 +116,7 @@ pub(super) async fn finish_portable_projection(
     let album: String = row.try_get("", "album_id")?;
     let current: String = row.try_get("", "disc_id")?;
     audio_layouts::Entity::delete_by_id(file).exec(db).await?;
-    allocate_handle(db, "album", &album).await?;
+    allocate_handle(db, BrowseKind::Album, &album).await?;
     if let Some(old) = previous.as_deref().filter(|old| *old != current) {
         // A partial sync can finish before the next browse. Retire empty parents now.
         finish_disc(db, old).await?;
@@ -163,7 +165,6 @@ pub(super) async fn finish_disc(db: &impl ConnectionTrait, disc: &str) -> Result
             .and_where(D::AlbumId.eq(&album))
             .to_owned();
         albums::Entity::delete_by_id(album.clone())
-            .filter(A::PortableTitle.is_null())
             .filter(Expr::not_exists(remaining))
             .exec(db)
             .await?;

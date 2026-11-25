@@ -2,15 +2,17 @@
 
 use crate::actions::{
     file::validate_digest,
-    resolved_metadata::{lifecycle::allocate_handle, project_synced_track},
+    resolved_metadata::{
+        lifecycle::{BrowseKind, allocate_handle},
+        project_synced_track, synced,
+    },
 };
 use crate::entities::*;
 use migration::catalog_identity::{self, ParentKind};
 use rust_decimal::Decimal;
 use sea_orm::sea_query;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseTransaction, DbErr, EntityTrait, ExprTrait, Value,
-    sea_query::Expr,
+    ColumnTrait, Condition, DatabaseTransaction, DbErr, EntityTrait, Value, sea_query::Expr,
 };
 use serde::{Deserialize, Serialize};
 use sync_orm::row_policy::{BinaryValue, FieldCodec, RowView};
@@ -130,7 +132,7 @@ async fn project_track_evidence<E: EntityTrait, T>(
 }
 
 sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for source_tags::Entity {
-    max_items: 128,
+    max_items: synced::TAG_LIMIT as u32,
     owners: [source_tags::Column::FileId], constants: {},
     key: id: Uuid => source_tags::Column::SourceUuid,
     fields: {
@@ -140,7 +142,7 @@ sync_orm::owned_list_mapping! { pub struct MetadataTag, MetadataMap for source_t
     },
     defaults: {},
     order: position => source_tags::Column::Position,
-    limits: { position => (0, 127), key => (0, 256), value => (0, 16384) },
+    limits: { position => (0, synced::TAG_LIMIT as i128 - 1), key => (0, 256), value => (0, synced::TAG_BYTES as i128) },
 } }
 sync_orm::owned_list_mapping! { pub struct MixClause, MixClauseMap for mix_queries::Entity {
     max_items: 128,
@@ -211,28 +213,6 @@ fn search_documents(name: Option<&str>) -> Result<Vec<SearchDocument>, DbErr> {
         .collect())
 }
 
-pub(crate) async fn adopt_portable_artist(tx: &DatabaseTransaction, id: Uuid) -> Result<(), DbErr> {
-    use music_metadata::artists::{Column, Entity};
-    use sea_orm::QueryFilter;
-
-    // A tagged identifier can be resolved before its portable artist record arrives.
-    Entity::update_many()
-        .col_expr(Column::Portable, Expr::value(1))
-        .filter(Column::Id.eq(id.to_string()))
-        .filter(Column::Portable.eq(0))
-        .exec(tx)
-        .await?;
-    Ok(())
-}
-
-async fn adopt_projected_artist(
-    tx: &DatabaseTransaction,
-    id: Uuid,
-    _: &Artist,
-) -> Result<(), DbErr> {
-    adopt_portable_artist(tx, id).await
-}
-
 async fn allocate_album_handle(
     tx: &DatabaseTransaction,
     id: Uuid,
@@ -240,7 +220,7 @@ async fn allocate_album_handle(
     value: Option<&Album>,
 ) -> Result<(), DbErr> {
     if value.is_some() {
-        allocate_handle(tx, "album", &id.to_string()).await?;
+        allocate_handle(tx, BrowseKind::Album, &id.to_string()).await?;
     }
     Ok(())
 }
@@ -252,7 +232,7 @@ async fn allocate_artist_handle(
     value: Option<&Artist>,
 ) -> Result<(), DbErr> {
     if value.is_some() {
-        allocate_handle(tx, "artist", &id.to_string()).await?;
+        allocate_handle(tx, BrowseKind::Artist, &id.to_string()).await?;
     }
     Ok(())
 }
@@ -276,11 +256,6 @@ sync_orm::row_policies! {
                         group: String => portable_albums::Column::Group
                     },
                     defaults: {},
-                    source_filter: Condition::all().add(portable_albums::Column::Name.is_not_null()),
-                    clear_on_remove: {
-                        portable_albums::Column::Name => None::<String>,
-                        portable_albums::Column::Group => None::<String>
-                    },
                     effects: {
                         search => {
                             entity: search_index::Entity,
@@ -313,7 +288,6 @@ sync_orm::row_policies! {
                         group: String => portable_artists::Column::Group
                     },
                     defaults: {},
-                    source_filter: Condition::all().add(Expr::col(sea_query::Alias::new("portable")).eq(1)),
                     effects: {
                         search => {
                             entity: search_index::Entity,
@@ -324,7 +298,6 @@ sync_orm::row_policies! {
                             derive: |_: &RowView<portable_artists::Entity>, value: Option<&Artist>| search_documents(value.map(|value| value.name.as_str())),
                         }
                     },
-                    before_project: { run: adopt_projected_artist, mutations: 1 },
                     after_project: { run: allocate_artist_handle, reads: 1, mutations: 1 },
                     limits: {
                         name => (0, 16384),
@@ -450,7 +423,7 @@ sync_orm::row_policies! {
                         };
                         Ok(vec![(media_files::Column::LocalAvailable, available.into())])
                     },
-                    after_project: { run: project_track_evidence, reads: 261, mutations: 16 },
+                    after_project: { run: project_track_evidence, reads: synced::READ_LIMIT, mutations: synced::MUTATION_LIMIT },
                     references: {
                         cover_art_id => "artworks"
                     },
@@ -558,7 +531,7 @@ sync_orm::row_policies! {
                         track_number: Option<i32> => track_album_sources::Column::TrackNumber
                     },
                     defaults: {},
-                    after_project: { run: project_track_evidence, reads: 261, mutations: 16 },
+                    after_project: { run: project_track_evidence, reads: synced::READ_LIMIT, mutations: synced::MUTATION_LIMIT },
                     references: {
                         track_id => "tracks",
                         album_id => "albums"

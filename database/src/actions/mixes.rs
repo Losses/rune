@@ -33,8 +33,8 @@ use crate::entities::{
 
 use super::resolved_metadata::{column, nocase};
 use crate::entities::music_metadata::{
-    artists as catalog_artists, audio as catalog_audio, audio as verified, credits, discs,
-    recording_credits, release_tracks, track_assets, values as catalog_values,
+    audio as catalog_audio, audio as verified, credits, discs, recording_credits, release_tracks,
+    track_assets, values as catalog_values,
 };
 
 use super::analysis::get_centralized_analysis_result;
@@ -661,15 +661,14 @@ fn catalog_track_number() -> Expr {
 
 fn album_alias_condition(ids: Vec<i32>) -> Expr {
     // Resolve older public album IDs to catalog tracks using their portable identities.
-    use crate::entities::music_metadata::albums as editions;
+    use crate::entities::portable_albums as editions;
     use catalog_audio::Column as Audio;
     use editions::Column as Edition;
     use track_album_sources::Column as Link;
     let uuids = Query::select()
-        .column(Edition::Id)
+        .column(Edition::SourceUuid)
         .from(editions::Entity)
-        .and_where(Edition::LegacyId.is_in(ids))
-        .and_where(Edition::PortableTitle.is_not_null())
+        .and_where(Edition::Id.is_in(ids))
         .to_owned();
     let linked = Query::select()
         .column(Link::TrackUuid)
@@ -749,12 +748,11 @@ fn labeled_albums(name: &str) -> SelectStatement {
 }
 
 fn artist_condition(ids: Vec<i32>) -> SimpleExpr {
-    use catalog_artists::Column as A;
+    use crate::entities::portable_artists as artists;
     let targets = Query::select()
-        .column(A::Id)
-        .from(catalog_artists::Entity)
-        .and_where(A::LegacyId.is_in(ids))
-        .and_where(A::Portable.eq(1))
+        .column(artists::Column::SourceUuid)
+        .from(artists::Entity)
+        .and_where(artists::Column::Id.is_in(ids))
         .to_owned();
     artist_tracks_condition(targets)
 }
