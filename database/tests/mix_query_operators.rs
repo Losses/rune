@@ -27,6 +27,8 @@ fn sample_parameter(operator: MixOperator) -> &'static str {
         ParameterKind::Number | ParameterKind::Limit => "7",
         ParameterKind::Reference(_) => "3",
         ParameterKind::Directory => "/music",
+        ParameterKind::Text => "Example",
+        ParameterKind::Uuid => "4eb9390a-9065-44e6-bcd0-972f2446f462",
     }
 }
 

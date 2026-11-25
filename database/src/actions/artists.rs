@@ -1,30 +1,16 @@
-use std::collections::HashSet;
+use crate::entities::portable_artists;
 
-use anyhow::Result;
-use async_trait::async_trait;
-use sea_orm::prelude::*;
-
-use crate::actions::collection::{CollectionQuery, CollectionQueryType};
-use crate::collection_query;
-use crate::connection::MainDbConnection;
-use crate::entities::{artists, media_file_artists};
-
+use super::browse::resolved_browse_query;
 use super::utils::CollectionDefinition;
 
-impl CollectionDefinition for artists::Entity {
+impl CollectionDefinition for portable_artists::Entity {
     fn group_column() -> Self::Column {
-        artists::Column::Group
+        portable_artists::Column::Group
     }
 
     fn id_column() -> Self::Column {
-        artists::Column::Id
+        portable_artists::Column::Id
     }
 }
 
-collection_query!(
-    artists,
-    CollectionQueryType::Artist,
-    "lib::artist".to_owned(),
-    media_file_artists,
-    ArtistUuid
-);
+resolved_browse_query!(portable_artists::Model, Artist);

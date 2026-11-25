@@ -98,8 +98,9 @@ mod tests {
         collection::CollectionQueryType,
         search::{add_term, search_for},
     };
+    use database::entities::{portable_albums as albums, portable_artists as artists};
     use migration::{Migrator, MigratorTrait};
-    use sea_orm::Database;
+    use sea_orm::{Database, EntityTrait, Set};
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -125,13 +126,33 @@ mod tests {
         ];
 
         for (index, (_, collection_type)) in fields.iter().enumerate() {
-            add_term(
-                &db,
-                collection_type.clone(),
-                index as i32 + 1,
-                &format!("field-fixture-{index}"),
-            )
-            .await?;
+            let id = index as i32 + 1;
+            let term = format!("field-fixture-{index}");
+            // Catalog-backed search resolves artist and album hits to existing rows.
+            match collection_type {
+                CollectionQueryType::Artist => {
+                    artists::Entity::insert(artists::ActiveModel {
+                        id: Set(id),
+                        name: Set(term.clone()),
+                        group: Set("F".into()),
+                        source_uuid: Set(Uuid::new_v4().to_string()),
+                    })
+                    .exec(&db)
+                    .await?;
+                }
+                CollectionQueryType::Album => {
+                    albums::Entity::insert(albums::ActiveModel {
+                        id: Set(id),
+                        name: Set(term.clone()),
+                        group: Set("F".into()),
+                        source_uuid: Set(Uuid::new_v4().to_string()),
+                    })
+                    .exec(&db)
+                    .await?;
+                }
+                _ => {}
+            }
+            add_term(&db, collection_type.clone(), id, &term).await?;
         }
 
         for (index, (field, collection_type)) in fields.into_iter().enumerate() {

@@ -128,7 +128,7 @@ async fn every_pre_release_library_keeps_its_rows() {
             strings(
                 &db,
                 "SELECT f.file_name || ':' || m.meta_key || '=' || m.meta_value \
-                 FROM media_metadata m JOIN media_files f ON f.id = m.file_id \
+                 FROM music_metadata_source_tags m JOIN media_files f ON f.id = m.file_id \
                  ORDER BY m.id"
             )
             .await,
@@ -170,8 +170,8 @@ async fn every_pre_release_library_keeps_its_rows() {
                 strings(
                     &db,
                     "SELECT f.file_name || ':' || a.name || ':' || a.\"group\" \
-                     FROM media_file_artists l \
-                     JOIN artists a ON a.source_uuid = l.artist_uuid \
+                     FROM music_metadata_audio_artists l \
+                     JOIN music_metadata_artists a ON a.source_uuid = l.artist_uuid \
                      JOIN media_files f ON f.source_uuid = l.track_uuid"
                 )
                 .await,
@@ -181,9 +181,9 @@ async fn every_pre_release_library_keeps_its_rows() {
             assert_eq!(
                 strings(
                     &db,
-                    "SELECT f.file_name || ':' || a.name || ':' || a.\"group\" \
-                     FROM media_file_albums l \
-                     JOIN albums a ON a.source_uuid = l.album_uuid \
+                    "SELECT f.file_name || ':' || a.portable_title || ':' || a.portable_group \
+                     FROM music_metadata_track_album_sources l \
+                     JOIN music_metadata_albums a ON a.id = l.album_uuid \
                      JOIN media_files f ON f.source_uuid = l.track_uuid"
                 )
                 .await,

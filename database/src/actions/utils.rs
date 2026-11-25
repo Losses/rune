@@ -28,6 +28,10 @@ pub fn generate_group_name(x: &str) -> String {
 pub trait CollectionDefinition: EntityTrait {
     fn group_column() -> Self::Column;
     fn id_column() -> Self::Column;
+
+    fn visible() -> sea_orm::Condition {
+        sea_orm::Condition::all()
+    }
 }
 
 #[macro_export]

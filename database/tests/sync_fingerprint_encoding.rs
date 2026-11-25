@@ -12,7 +12,7 @@ use database::{
 };
 use migration::{Migrator, MigratorTrait, SchemaManager, catalog_identity};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, EntityTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter,
     sea_query::{Alias, Expr, ExprTrait, Query, Table},
 };
@@ -321,10 +321,6 @@ struct Schema1Library {
 impl Schema1Library {
     async fn new(namespace: Uuid, actor: Uuid) -> Result<Self> {
         let db = support::fixtures::memory_database(actor).await?;
-        Self::on(db, namespace, actor).await
-    }
-
-    async fn on(db: DatabaseConnection, namespace: Uuid, actor: Uuid) -> Result<Self> {
         let replica =
             CausalReplica::<Schema1Model>::create_empty(db.clone(), namespace, actor).await?;
         let endpoint = CausalEndpoint::with_projection(replica, Arc::new(Schema1Projection));
@@ -379,14 +375,7 @@ async fn schema_1_upgrade_preserves_remote_accepted_statistics_and_forwards_them
     let actor_unaccepted = Uuid::new_v4();
     let track_id = Uuid::new_v4();
 
-    let db = Database::connect("sqlite::memory:").await?;
-    let _ = migration::initialize_node_id(actor_a.to_string());
-    let prior = Migrator::migrations()
-        .iter()
-        .position(|m| m.name() == "m20261124_000040_create_sync_export_cursors")
-        .expect("export cursor migration must be registered");
-    Migrator::up(&db, Some(u32::try_from(prior)?)).await?;
-    let a = Schema1Library::on(db, namespace, actor_a).await?;
+    let a = Schema1Library::new(namespace, actor_a).await?;
     let b = Schema1Library::new(namespace, actor_b).await?;
 
     a.endpoint
@@ -458,6 +447,14 @@ async fn schema_1_upgrade_preserves_remote_accepted_statistics_and_forwards_them
 
     // Device B is unavailable while A upgrades and syncs to C.
     drop(b);
+
+    // The fixture projects into the current catalog. Roll the schema back after seeding it.
+    let migrations = Migrator::migrations();
+    let prior = migrations
+        .iter()
+        .position(|m| m.name() == "m20261124_000040_create_sync_export_cursors")
+        .expect("export cursor migration must be registered");
+    Migrator::down(&a.db, Some(u32::try_from(migrations.len() - prior)?)).await?;
 
     // Model a library that synced statistics before export cursors existed.
     a.db.execute(

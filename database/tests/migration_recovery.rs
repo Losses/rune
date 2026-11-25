@@ -236,11 +236,17 @@ async fn verify_upgraded_library(
         "media_files.change_token must exist after upgrade"
     );
 
-    // Migration 37: all 18 tables renamed hlc_uuid -> source_uuid.
-    for table in SOURCE_TABLES {
+    // Each source keeps its UUID through the later source-tag table move.
+    for &table in SOURCE_TABLES {
+        let table = current_source_table(table);
+        let uuid_column = if table == "music_metadata_albums" {
+            "id"
+        } else {
+            "source_uuid"
+        };
         assert!(
-            schema.has_column(table, "source_uuid").await?,
-            "{table}.source_uuid missing after upgrade"
+            schema.has_column(table, uuid_column).await?,
+            "{table}.{uuid_column} missing after upgrade"
         );
         assert!(
             !schema.has_column(table, "hlc_uuid").await?,
@@ -250,8 +256,13 @@ async fn verify_upgraded_library(
 
     // All idx_*_hlc_uuid indexes were replaced with idx_*_source_uuid.
     for table in indexed_tables {
-        let new_index = format!("idx_{table}_source_uuid");
+        let new_index = match table.as_ref() {
+            "artists" => "idx_music_metadata_artists_source_uuid".to_owned(),
+            "albums" => "music_metadata_album_uuid".to_owned(),
+            _ => format!("idx_{table}_source_uuid"),
+        };
         let old_index = format!("idx_{table}_hlc_uuid");
+        let table = current_source_table(table);
         assert!(
             schema.has_index(table, &new_index).await?,
             "expected index {new_index} on {table}"
@@ -277,17 +288,22 @@ async fn verify_upgraded_library(
     // Seeded rows and UUIDs are preserved verbatim.
     for (table, id, expected_uuid) in [
         ("media_files", 204, FILE_UUID),
-        ("albums", 10, ALBUM_UUID),
-        ("artists", 20, ARTIST_UUID),
+        ("music_metadata_albums", 10, ALBUM_UUID),
+        ("music_metadata_artists", 20, ARTIST_UUID),
         ("playlists", 30, PLAYLIST_UUID),
         ("mixes", 40, MIX_UUID),
         ("media_file_stats", 50, STAT_UUID),
         ("media_file_likes", 60, LIKE_UUID),
     ] {
+        let (uuid, handle) = if table == "music_metadata_albums" {
+            ("id", "legacy_id")
+        } else {
+            ("source_uuid", "id")
+        };
         let row = db
             .query_one_raw(Statement::from_string(
                 DbBackend::Sqlite,
-                format!("SELECT source_uuid FROM {table} WHERE id = {id}"),
+                format!("SELECT {uuid} AS source_uuid FROM {table} WHERE {handle} = {id}"),
             ))
             .await?
             .with_context(|| format!("missing preserved row {id} in {table}"))?;
@@ -331,6 +347,17 @@ async fn verify_upgraded_library(
     assert_eq!(recorded_versions, expected_versions);
 
     Ok(())
+}
+
+fn current_source_table(table: &str) -> &str {
+    match table {
+        "media_metadata" => "music_metadata_source_tags",
+        "artists" => "music_metadata_artists",
+        "albums" => "music_metadata_albums",
+        "media_file_albums" => "music_metadata_track_album_sources",
+        "media_file_artists" => "music_metadata_audio_artists",
+        _ => table,
+    }
 }
 
 #[tokio::test]

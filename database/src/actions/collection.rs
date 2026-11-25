@@ -184,6 +184,7 @@ macro_rules! collection_query {
 
             // Step 1: Fetch entities belonging to the specified groups
             let entities: Vec<$item_entity::Model> = $item_entity::Entity::find()
+                .filter(<$item_entity::Entity>::visible())
                 .filter($item_entity::Column::Group.is_in(groups.clone()))
                 .order_by_asc(<$item_entity::Column>::Name)
                 .all(db)
@@ -246,11 +247,12 @@ macro_rules! collection_query {
                 main_db: &MainDbConnection,
             ) -> Result<Vec<(String, i32)>> {
                 use anyhow::Context;
-                use sea_orm::QuerySelect;
+                use sea_orm::{QueryFilter, QuerySelect};
 
                 let group_column = <$item_entity::Entity>::group_column();
 
                 let results = $item_entity::Entity::find()
+                    .filter(<$item_entity::Entity>::visible())
                     .select_only()
                     .column::<$item_entity::Column>(group_column)
                     .column_as(<$item_entity::Entity>::id_column().count(), "count")
@@ -289,24 +291,24 @@ macro_rules! collection_query {
             ) -> Result<Vec<Self>> {
                 use anyhow::Context;
                 use sea_orm::{
-                    FromQueryResult, Order, QueryOrder, QuerySelect, QueryTrait, sea_query::Func,
-                    sea_query::SimpleExpr,
+                    FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+                    sea_query::Func, sea_query::SimpleExpr,
                 };
                 use $crate::actions::collection::CollectionQueryListMode;
 
+                let visible =
+                    $item_entity::Entity::find().filter(<$item_entity::Entity>::visible());
                 match mode {
                     CollectionQueryListMode::Name => {
-                        $item_entity::Entity::find()
+                        visible
                             .order_by_asc(<$item_entity::Column>::Name)
                             .limit(limit)
                             .all(main_db)
                             .await
                     }
-                    CollectionQueryListMode::Forward => {
-                        $item_entity::Entity::find().limit(limit).all(main_db).await
-                    }
+                    CollectionQueryListMode::Forward => visible.limit(limit).all(main_db).await,
                     CollectionQueryListMode::Reverse => {
-                        $item_entity::Entity::find()
+                        visible
                             .order_by_desc(<$item_entity::Column>::Id)
                             .limit(limit)
                             .all(main_db)
@@ -314,7 +316,7 @@ macro_rules! collection_query {
                     }
                     CollectionQueryListMode::Random => {
                         let mut query: sea_orm::sea_query::SelectStatement =
-                            $item_entity::Entity::find().as_query().to_owned();
+                            visible.as_query().to_owned();
 
                         let select = query
                             .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)

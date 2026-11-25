@@ -2,25 +2,26 @@
 
 pub mod prelude;
 
-pub mod albums;
-pub mod artists;
+pub mod audio_artists;
 pub mod genres;
 pub mod log;
 pub mod media_analysis;
 pub mod media_cover_art;
-pub mod media_file_albums;
-pub mod media_file_artists;
 pub mod media_file_fingerprint;
 pub mod media_file_genres;
 pub mod media_file_playlists;
 pub mod media_file_similarity;
 pub mod media_file_stats;
 pub mod media_files;
-pub mod media_metadata;
 pub mod mix_queries;
 pub mod mixes;
+pub(crate) mod music_metadata;
 pub mod playlists;
+pub mod portable_albums;
+pub mod portable_artists;
 pub mod search_index;
+pub mod source_tags;
+pub mod track_album_sources;
 
 pub mod media_file_likes;
 pub mod sync_download_jobs;

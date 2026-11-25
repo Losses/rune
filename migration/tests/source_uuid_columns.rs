@@ -5,13 +5,13 @@ use sea_orm_migration::{
 };
 
 const SOURCE_TABLES: &[&str] = &[
-    "albums",
-    "artists",
+    "music_metadata_albums",
+    "music_metadata_artists",
     "genres",
     "media_analysis",
     "media_cover_art",
-    "media_file_albums",
-    "media_file_artists",
+    "music_metadata_track_album_sources",
+    "music_metadata_audio_artists",
     "media_file_fingerprint",
     "media_file_genres",
     "media_file_likes",
@@ -19,7 +19,7 @@ const SOURCE_TABLES: &[&str] = &[
     "media_file_similarity",
     "media_file_stats",
     "media_files",
-    "media_metadata",
+    "music_metadata_source_tags",
     "mix_queries",
     "mixes",
     "playlists",
@@ -164,15 +164,29 @@ async fn count(db: &DatabaseConnection, sql: &str) -> i64 {
 async fn assert_upgrade_contract(db: &DatabaseConnection, populated: &Populated, alpha: bool) {
     let schema = SchemaManager::new(db);
     for table in SOURCE_TABLES {
+        let uuid_column = if *table == "music_metadata_albums" {
+            "id"
+        } else {
+            "source_uuid"
+        };
         assert!(
-            schema.has_column(table, "source_uuid").await.unwrap(),
-            "{table}.source_uuid"
+            schema.has_column(table, uuid_column).await.unwrap(),
+            "{table}.{uuid_column}"
         );
         assert!(
             !schema.has_column(table, "hlc_uuid").await.unwrap(),
             "{table}.hlc_uuid"
         );
-        let keeps_bookkeeping = alpha && ALPHA_TABLES.contains(table);
+        let keeps_bookkeeping = alpha
+            && (ALPHA_TABLES.contains(table)
+                || matches!(
+                    *table,
+                    "music_metadata_source_tags"
+                        | "music_metadata_artists"
+                        | "music_metadata_audio_artists"
+                        | "music_metadata_albums"
+                        | "music_metadata_track_album_sources"
+                ));
         // Retired columns stay absent from current schemas. An alpha database
         // keeps the six defaults on tables that existed then; later tables never
         // had them, and current code neither reads nor writes either set.
@@ -307,9 +321,14 @@ async fn fresh_database_has_source_uuid_columns() {
     Migrator::up(&db, None).await.unwrap();
     let schema = SchemaManager::new(&db);
     for table in SOURCE_TABLES {
+        let uuid_column = if *table == "music_metadata_albums" {
+            "id"
+        } else {
+            "source_uuid"
+        };
         assert!(
-            schema.has_column(table, "source_uuid").await.unwrap(),
-            "{table}"
+            schema.has_column(table, uuid_column).await.unwrap(),
+            "{table}.{uuid_column}"
         );
         assert!(
             !schema.has_column(table, "hlc_uuid").await.unwrap(),

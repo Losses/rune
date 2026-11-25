@@ -28,6 +28,9 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 use sync_orm::causal_progress;
 use uuid::Uuid;
 
+#[path = "scan_diagnostic/upgrade.rs"]
+mod upgrade;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires RUNE_SCAN_ROOT; reads real audio, writes only a temporary database"]
 async fn scan_real_library() -> Result<()> {
@@ -131,6 +134,10 @@ async fn scan_real_library() -> Result<()> {
 }
 
 fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
+    write_wav_with_info(path, &[(b"INAM", title)])
+}
+
+fn write_wav_with_info(path: &std_path::Path, tags: &[(&[u8; 4], &str)]) -> Result<()> {
     fn chunk(output: &mut Vec<u8>, id: &[u8; 4], value: &[u8]) {
         output.extend(id);
         output.extend((value.len() as u32).to_le_bytes());
@@ -139,6 +146,8 @@ fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
             output.push(0);
         }
     }
+
+    // Describe the silent audio as 16-bit mono PCM.
     let mut body = b"WAVE".to_vec();
     let mut format = Vec::new();
     format.extend(1u16.to_le_bytes()); // PCM
@@ -148,16 +157,144 @@ fn write_tagged_wav(path: &std_path::Path, title: &str) -> Result<()> {
     format.extend(2u16.to_le_bytes());
     format.extend(16u16.to_le_bytes());
     chunk(&mut body, b"fmt ", &format);
+
+    // RIFF INFO values are NUL-terminated strings.
     let mut info = b"INFO".to_vec();
-    let mut title = title.as_bytes().to_vec();
-    title.push(0);
-    chunk(&mut info, b"INAM", &title);
+    for &(id, value) in tags {
+        let mut value = value.as_bytes().to_vec();
+        value.push(0);
+        chunk(&mut info, id, &value);
+    }
     chunk(&mut body, b"LIST", &info);
     chunk(&mut body, b"data", &vec![0; 8820]);
+
+    // Wrap the chunks in the outer RIFF container.
     let mut file = b"RIFF".to_vec();
     file.extend((body.len() as u32).to_le_bytes());
     file.extend(body);
     fs::write(path, file)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
+    use database::actions::{index::index_audio_library, resolved_metadata::CreditScope};
+    use database::entities::{audio_artists as media_file_artists, portable_artists as artists};
+    use sea_orm::{
+        ColumnTrait, ExprTrait,
+        sea_query::{Alias, Order, Query},
+    };
+
+    // Write one ARTIST tag per audio file, as it appears on disk.
+    let mut artist_tags = [
+        "Alpha feat. Beta",
+        "Gamma & Delta",
+        "Epsilon, Zeta",
+        "Eta / Theta",
+        "Iota",
+    ];
+    let temp = tempfile::tempdir()?;
+    for (index, artist) in artist_tags.iter().enumerate() {
+        write_wav_with_info(
+            &temp.path().join(format!("track-{index}.wav")),
+            &[(b"IART", artist)],
+        )?;
+    }
+
+    // Use the library's normal scan and index entry points.
+    let actor = Uuid::new_v4();
+    let actor_id = actor.to_string();
+    let db = fixtures::memory_database(actor).await?;
+    let library = fixtures::open_library(db.clone(), actor, None).await?;
+    let store = library.record_store();
+    let scanned = fixtures::scan_library(&FsIo::new(), &db, &actor_id, temp.path(), &store).await?;
+    assert_eq!(scanned, artist_tags.len());
+
+    // Both entry points must link the expected artists to each individual file.
+    use artists::Column as Artist;
+    use media_file_artists::Column as Link;
+    use media_files::Column as File;
+    let memberships = Query::select()
+        .columns([File::FileName.as_column_ref(), Artist::Name.as_column_ref()])
+        .from(media_file_artists::Entity)
+        .inner_join(
+            media_files::Entity,
+            Expr::col(Link::TrackUuid.as_column_ref())
+                .eq(Expr::col(File::SourceUuid.as_column_ref())),
+        )
+        .inner_join(
+            artists::Entity,
+            Expr::col(Link::ArtistUuid.as_column_ref())
+                .eq(Expr::col(Artist::SourceUuid.as_column_ref())),
+        )
+        .order_by(File::FileName.as_column_ref(), Order::Asc)
+        .order_by(Artist::Name.as_column_ref(), Order::Asc)
+        .to_owned();
+    let expected_links = [
+        ("track-0.wav", "Alpha"),
+        ("track-0.wav", "Beta"),
+        ("track-1.wav", "Delta"),
+        ("track-1.wav", "Gamma"),
+        ("track-2.wav", "Epsilon"),
+        ("track-2.wav", "Zeta"),
+        ("track-3.wav", "Eta"),
+        ("track-3.wav", "Theta"),
+        ("track-4.wav", "Iota"),
+    ];
+    for reindex in [false, true] {
+        if reindex {
+            index_audio_library(&db, &actor_id, 50, None, &store).await?;
+        }
+        let rows = db.query_all(&memberships).await?;
+        let names = rows
+            .iter()
+            .map(|row| {
+                Ok((
+                    row.try_get::<String>("", "file_name")?,
+                    row.try_get::<String>("", "name")?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let links = names
+            .iter()
+            .map(|(file, artist)| (file.as_str(), artist.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(links, expected_links, "after reindex={reindex}");
+        upgrade::assert_recordings(&db, artist_tags.len() as u64).await?;
+    }
+
+    // The artist catalog and its browse projection expose the same names.
+    let expected = [
+        "Alpha", "Beta", "Delta", "Epsilon", "Eta", "Gamma", "Iota", "Theta", "Zeta",
+    ];
+    use database::actions::collection::{CollectionQuery, CollectionQueryListMode};
+    let mut names = artists::Model::list(&db, 100, CollectionQueryListMode::Forward)
+        .await?
+        .into_iter()
+        .map(|row| row.name)
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    assert_eq!(names, expected);
+
+    // Structured credits retain the exact tag values used for attribution.
+    artist_tags.sort_unstable();
+    let credited_rows = db
+        .query_all(
+            Query::select()
+                .column(Alias::new("credited_as"))
+                .from(Alias::new("music_metadata_credits"))
+                .and_where(Expr::col(Alias::new("scope")).eq(CreditScope::Audio as i32))
+                .and_where(Expr::col(Alias::new("role")).eq("Primary Artist"))
+                .order_by(Alias::new("credited_as"), Order::Asc),
+        )
+        .await?;
+
+    // Check the full list so missing or extra credits also fail the regression.
+    let credited_names = credited_rows
+        .iter()
+        .map(|row| row.try_get::<String>("", "credited_as"))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(credited_names, artist_tags);
     Ok(())
 }
 
@@ -314,16 +451,19 @@ async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> 
 }
 
 #[tokio::test]
-async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
+async fn oversized_tag_stays_in_catalog_without_exceeding_sync_limit() -> Result<()> {
+    use database::actions::metadata::get_metadata_summary_by_files;
+    use database::entities::source_tags as media_metadata;
     use std::sync::atomic::{AtomicUsize, Ordering};
     let temp = tempfile::tempdir()?;
     let root = temp.path();
+    let oversized_title = "t".repeat(16_385);
     for (name, title) in [
-        ("before.wav", "ordinary title".to_owned()),
-        ("oversized.wav", "t".repeat(16385)),
-        ("after.wav", "another title".to_owned()),
+        ("before.wav", "ordinary title"),
+        ("oversized.wav", oversized_title.as_str()),
+        ("after.wav", "another title"),
     ] {
-        write_tagged_wav(&root.join(name), &title)?;
+        write_tagged_wav(&root.join(name), title)?;
     }
     let fs = FsIo::new();
     let node = Uuid::new_v4();
@@ -346,15 +486,26 @@ async fn oversized_tag_does_not_abort_library_scan() -> Result<()> {
         },
         &library.record_store(),
     )
-    .await;
-    let saved = media_files::Entity::find().count(&db).await?;
-    eprintln!(
-        "DIAG rejected-tag result={result:?} saved={saved} progress={}",
-        progress.load(Ordering::Relaxed)
-    );
-    assert_eq!(saved, 2, "healthy neighboring files should be saved");
-    assert_eq!(result?, 2);
+    .await?;
+    assert_eq!(result, 3);
     assert_eq!(progress.load(Ordering::Relaxed), 3);
+
+    // Keep the complete title in the catalog while bounding the portable payload.
+    let files = media_files::Entity::find().all(&db).await?;
+    let summaries = get_metadata_summary_by_files(&db, files).await?;
+    let oversized = summaries
+        .iter()
+        .find(|file| file.file_name == "oversized.wav")
+        .context("missing file with oversized title")?;
+    assert_eq!(oversized.title, oversized_title);
+    assert_eq!(
+        media_metadata::Entity::find()
+            .filter(media_metadata::Column::FileId.eq(oversized.id))
+            .filter(media_metadata::Column::MetaKey.eq("track_title"))
+            .count(&db)
+            .await?,
+        0
+    );
     db.close().await?;
     Ok(())
 }

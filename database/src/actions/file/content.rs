@@ -3,7 +3,10 @@ use crate::sync::model::BlobRef;
 use anyhow::{Context, Result, ensure};
 use blake3::Hasher;
 use fsio::{FsIo, OpenMode};
-use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ExprTrait,
+    sea_query::{Expr, Query},
+};
 use std::collections;
 use std::collections::HashSet;
 use std::path::Component;
@@ -14,6 +17,7 @@ use std::{
 use tokio::task;
 use uuid::Uuid;
 
+use crate::actions::resolved_metadata::queries::verified_audio;
 /// Maximum accepted audio object size (8 GiB).
 pub const MAX_BLOB_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Reserved application-managed content; ordinary library scans do not author it.
@@ -137,10 +141,13 @@ pub fn blob_path_for_track(
 
 use super::access::materialized_path;
 use crate::{
+    actions::resolved_metadata,
     entities::{media_files, sync_download_jobs},
     sync::SeaOrmSyncStore,
 };
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, TransactionTrait,
+};
 
 pub async fn catalog_track(
     db: &DatabaseConnection,
@@ -277,12 +284,30 @@ pub async fn attach_download(
         .context("download escapes library root")?;
     #[cfg(target_os = "android")]
     let relative = path.strip_prefix(root)?;
-    let hash_fsio = fsio.clone();
-    let hash_path = path.to_owned();
-    let actual = task::spawn_blocking(move || hash_file(&hash_fsio, &hash_path))
-        .await
-        .context("download verification task failed")??;
-    ensure!(&actual == blob, "download digest or size mismatch");
+    let expected = blob.clone();
+    let reader = fsio.clone();
+    let download = path.to_owned();
+    let cache = root.join(MANAGED_AUDIO_DIRECTORY);
+    let resolved = task::spawn_blocking(move || -> Result<_> {
+        ensure!(
+            hash_file(&reader, &download)? == expected,
+            "download digest or size mismatch"
+        );
+        let metadata = reader
+            .canonicalize(&download)
+            .map_err(anyhow::Error::from)
+            .and_then(|node| metadata::resolve::read_managed_audio(&reader, &node, &cache));
+        match metadata {
+            Ok(metadata) if metadata.audio.sample_rate.is_some() => Ok(Some(metadata)),
+            Ok(_) => Ok(None),
+            Err(error) => {
+                log::warn!("Cannot read metadata for downloaded track {track_id}: {error:#}");
+                Ok(None)
+            }
+        }
+    })
+    .await
+    .context("download verification task failed")??;
     ensure!(
         relative
             .components()
@@ -317,32 +342,96 @@ pub async fn attach_download(
         .filter(sync_download_jobs::Column::Digest.eq(&blob.digest))
         .one(&tx)
         .await?;
-    let Some(job) = job else {
+    if let Some(job) = &job {
         ensure!(
-            row.local_available && row.directory == directory && row.file_name == name,
+            job.directory == directory
+                && job.file_name == name
+                && job.size == i64::try_from(blob.size)?,
+            "download job mismatch"
+        );
+        media_files::Entity::update_many()
+            .col_expr(media_files::Column::Directory, Expr::value(directory))
+            .col_expr(media_files::Column::FileName, Expr::value(name))
+            .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
+            .filter(media_files::Column::Id.eq(row.id))
+            .exec(&tx)
+            .await?;
+    } else {
+        ensure!(
+            row.local_available
+                && Path::new(&row.directory) == Path::new(&directory)
+                && row.file_name == name,
             "missing download job"
         );
-        tx.commit().await?;
-        return Ok(());
-    };
-    ensure!(
-        job.directory == directory
-            && job.file_name == name
-            && job.size == i64::try_from(blob.size)?,
-        "download job mismatch"
-    );
-    media_files::Entity::update_many()
-        .col_expr(media_files::Column::Directory, Expr::value(directory))
-        .col_expr(media_files::Column::FileName, Expr::value(name))
-        .col_expr(media_files::Column::LocalAvailable, Expr::value(true))
-        .filter(media_files::Column::Id.eq(row.id))
-        .exec(&tx)
-        .await?;
-    sync_download_jobs::Entity::delete_by_id(job.id)
-        .exec(&tx)
-        .await?;
+    }
+
+    // A verified download keeps the catalog track's identity and uses the scanner's index writer.
+    if let Some(resolved) = resolved {
+        resolved_metadata::store_download(&tx, &row, &resolved).await?;
+    }
+    if let Some(job) = job {
+        sync_download_jobs::Entity::delete_by_id(job.id)
+            .exec(&tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(())
+}
+
+/// Backfill an already attached cache file when its current bytes have no rich index.
+pub(in crate::actions) async fn index_cached_download(
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    fsio: &FsIo,
+    description: &metadata::describe::FileDescription,
+) -> Result<()> {
+    let Some(root) = description.lib_path.as_deref() else {
+        return Ok(());
+    };
+    // Download records use filesystem separators, while scan descriptions use slashes.
+    let native_directory = description
+        .rel_path
+        .parent()
+        .and_then(Path::to_str)
+        .unwrap_or_default();
+    use crate::entities::music_metadata::audio as indexed;
+    use media_files::Column as C;
+    let existing = Query::select()
+        .column(indexed::Column::FileId)
+        .from(verified_audio())
+        .and_where(
+            Expr::col(indexed::Column::FileId.as_column_ref()).eq(Expr::col(C::Id.as_column_ref())),
+        )
+        .to_owned();
+    let row = media_files::Entity::find()
+        .select_only()
+        .columns([C::SourceUuid, C::ContentHash, C::ContentSize])
+        .filter(C::Directory.is_in([native_directory, description.directory.as_str()]))
+        .filter(C::FileName.eq(&description.file_name))
+        .filter(C::LocalAvailable.eq(true))
+        .filter(C::ContentHash.is_not_null())
+        .filter(C::ContentSize.is_not_null())
+        .filter(Expr::not_exists(existing))
+        .into_tuple::<(String, String, i64)>()
+        .one(db)
+        .await?;
+    let Some((track, digest, size)) = row else {
+        return Ok(());
+    };
+    let blob = BlobRef {
+        digest,
+        size: u64::try_from(size)?,
+    };
+    attach_download(
+        db,
+        store,
+        fsio,
+        root,
+        track.parse()?,
+        &blob,
+        &description.raw_node.path,
+    )
+    .await
 }
 
 #[cfg(test)]

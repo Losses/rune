@@ -62,8 +62,8 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
         .filter(media_files::Column::Id.eq(local))
         .exec(&db)
         .await?;
-    let previous = media_metadata::Entity::find()
-        .order_by_asc(media_metadata::Column::SourceUuid)
+    let previous = source_tags::Entity::find()
+        .order_by_asc(source_tags::Column::SourceUuid)
         .all(&db)
         .await?;
     let mut swapped = vec![second, first, custom];
@@ -73,8 +73,8 @@ async fn repeated_tags_reorder_without_replacing_source_rows_or_local_file_state
     let payload = support::metadata_track(swapped);
     RuneModel::project(&db, &key, Some(&payload)).await?;
     assert_eq!(RuneModel::encode_on(&db, &key).await?, Some(payload));
-    let after = media_metadata::Entity::find()
-        .order_by_asc(media_metadata::Column::SourceUuid)
+    let after = source_tags::Entity::find()
+        .order_by_asc(source_tags::Column::SourceUuid)
         .all(&db)
         .await?;
     assert_eq!(
@@ -102,7 +102,7 @@ async fn reference_arrival_and_parent_removal_leave_membership_untouched() -> Re
         track_number: Some(7),
     });
     RuneModel::project(&db, &membership, Some(&payload)).await?;
-    let before = media_file_albums::Entity::find().one(&db).await?.unwrap();
+    let before = track_album_sources::Entity::find().one(&db).await?.unwrap();
     assert!(
         RuneModel::missing_references_on(&db, &payload, 1)
             .await
@@ -136,7 +136,7 @@ async fn reference_arrival_and_parent_removal_leave_membership_untouched() -> Re
     );
     RuneModel::project(&db, &key(Collection::Albums, album_id), None).await?;
     assert_eq!(
-        media_file_albums::Entity::find().one(&db).await?.unwrap(),
+        track_album_sources::Entity::find().one(&db).await?.unwrap(),
         before
     );
     assert_eq!(
@@ -296,7 +296,7 @@ async fn source_scan_and_declared_effect_failure_are_transactional() -> Result<(
     assert_eq!(page.records.len(), 1);
     assert_eq!(page.records[0].payload, payload);
     tx.commit().await?;
-    db.execute_unprepared("CREATE TRIGGER reject_tag BEFORE UPDATE ON media_metadata BEGIN SELECT RAISE(ABORT, 'test fault'); END").await?;
+    db.execute_unprepared("CREATE TRIGGER reject_tag BEFORE UPDATE ON music_metadata_source_tags BEGIN SELECT RAISE(ABORT, 'test fault'); END").await?;
     let Payload::Track(mut changed) = payload.clone() else {
         panic!()
     };

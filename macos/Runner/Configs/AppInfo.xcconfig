@@ -6,6 +6,7 @@
 
 // The application's name. By default this is also the title of the Flutter window.
 PRODUCT_NAME = Rune
+OTHER_LDFLAGS = $(inherited) -lc++
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = ci.not.player

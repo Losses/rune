@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "media_metadata")]
+#[sea_orm(table_name = "music_metadata_source_tags")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,

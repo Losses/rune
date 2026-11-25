@@ -118,7 +118,6 @@ use database::credentials::{Credential, CredentialRef, Secret};
 use database::entities::media_cover_art;
 use database::entities::media_file_stats;
 use database::entities::media_files;
-use database::entities::media_metadata;
 use database::playing_item::MediaFileHandle;
 use discovery::access_policy::PeerIdentity;
 use migration::catalog_identity::artwork;
@@ -2477,14 +2476,15 @@ async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
     let target = Path::new(&library.media_root).join(name);
     fs::copy(source, &target)?;
-    scan_audio_file(
+    // Keep the scanner's async state out of the enclosing handoff test's frame.
+    Box::pin(scan_audio_file(
         &library.fsio,
         &library.main_db,
         &f.global_params.node_id,
         Path::new(&library.media_root),
         &target,
         &library.library_sync.record_store(),
-    )
+    ))
     .await?;
     Ok(media_files::Entity::find()
         .filter(Column::FileName.eq(name))
@@ -5093,24 +5093,6 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
     Ok(())
 }
 
-async fn set_session_title(f: &Fixture, id: i32, title: &str) -> Result<()> {
-    media_metadata::Entity::delete_many()
-        .filter(media_metadata::Column::FileId.eq(id))
-        .exec(&*f.global_params.test_library().main_db)
-        .await?;
-    media_metadata::Entity::insert(media_metadata::ActiveModel {
-        file_id: Set(id),
-        position: Set(0),
-        meta_key: Set("track_title".into()),
-        meta_value: Set(title.into()),
-        source_uuid: Set(Uuid::new_v4().to_string()),
-        ..Default::default()
-    })
-    .exec(&*f.global_params.test_library().main_db)
-    .await?;
-    Ok(())
-}
-
 async fn playlist_update_with_titles(
     signals: &RecordedSignals,
     titles: &[&str],
@@ -5152,13 +5134,11 @@ async fn session_f2_batches_playlist_metadata_per_library_in_queue_order() -> Re
         signals.clone(),
     )
     .await?;
-    let a1 = session_audio(&a, "f2-a1.ogg").await?;
-    let a2 = session_audio(&a, "f2-a2.ogg").await?;
+    // The scanner resolves the titles from numbered filenames in each library.
+    let a1 = session_audio(&a, "01 - A1.ogg").await?;
+    let a2 = session_audio(&a, "02 - A2.ogg").await?;
     let b = fixture_open_local_library(&a, bdir.path()).await?;
-    let b1 = session_audio(&b, "f2-b1.ogg").await?;
-    set_session_title(&a, a1, "A1").await?;
-    set_session_title(&b, b1, "B1").await?;
-    set_session_title(&a, a2, "A2").await?;
+    let b1 = session_audio(&b, "01 - B1.ogg").await?;
 
     let queue = vec![
         PlayingItem::from(library_track_for_id(&a, a1).await?),

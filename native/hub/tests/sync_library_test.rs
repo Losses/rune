@@ -16,7 +16,7 @@ use database::{
         search::{add_term, search_for},
         stats::{get_liked, increase_played_through, set_liked},
     },
-    entities::{artists, media_file_artists, media_files},
+    entities::{audio_artists as media_file_artists, media_files, portable_artists as artists},
     sync::{
         LibrarySyncStore,
         model::{
@@ -111,7 +111,7 @@ async fn parent(
     Ok(match kind {
         Collection::Artists => insert!(artists, ParentKind::Artist),
         Collection::Genres => insert!(genres, ParentKind::Genre),
-        Collection::Albums => insert!(albums, ParentKind::Album),
+        Collection::Albums => insert!(portable_albums, ParentKind::Album),
         _ => anyhow::bail!("unsupported fixture parent"),
     })
 }
@@ -166,12 +166,12 @@ async fn member(
             .await?;
         }
         Collection::Albums => {
-            let uuid = albums::Entity::find_by_id(parent_id)
+            let uuid = portable_albums::Entity::find_by_id(parent_id)
                 .one(db)
                 .await?
                 .unwrap()
                 .source_uuid;
-            media_file_albums::Entity::insert(media_file_albums::ActiveModel {
+            track_album_sources::Entity::insert(track_album_sources::ActiveModel {
                 source_uuid: Set(track.clone()),
                 track_uuid: Set(track),
                 album_uuid: Set(uuid),
@@ -186,7 +186,7 @@ async fn member(
     Ok(())
 }
 async fn title(db: &sea_orm::DatabaseConnection, id: i32, value: &str) -> Result<()> {
-    media_metadata::Entity::insert(media_metadata::ActiveModel {
+    source_tags::Entity::insert(source_tags::ActiveModel {
         file_id: Set(id),
         source_uuid: Set(Uuid::new_v4().to_string()),
         position: Set(0),
@@ -315,10 +315,17 @@ async fn albums_and_relationships_project_after_track_arrival() -> Result<()> {
         &target,
     )
     .await?;
-    let link = media_file_albums::Entity::find().one(&db2).await?.unwrap();
+    let link = track_album_sources::Entity::find()
+        .one(&db2)
+        .await?
+        .unwrap();
     assert_eq!(link.track_uuid, track.to_string());
     assert_eq!(link.track_number, Some(3));
-    let album = link.find_related(albums::Entity).one(&db2).await?.unwrap();
+    let album = link
+        .find_related(portable_albums::Entity)
+        .one(&db2)
+        .await?
+        .unwrap();
     assert_eq!(album.name, "Album");
     Ok(())
 }
@@ -812,7 +819,7 @@ async fn metadata_only_tracks_are_browsable_and_materialize_in_place() -> Result
     let (track, blob, _) = catalog_track(&db2, id).await?.unwrap();
     let artist = artists::Entity::find().one(&db2).await?.unwrap();
     let genre = genres::Entity::find().one(&db2).await?.unwrap();
-    let album = albums::Entity::find().one(&db2).await?.unwrap();
+    let album = portable_albums::Entity::find().one(&db2).await?.unwrap();
     let recommend = RecommendationDbConnection::new();
     for (op, filter) in [
         ("lib::artist", artist.id),
@@ -918,9 +925,9 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
         tx.commit().await?;
     }
     transfer(&a, &b).await?;
-    let row = media_metadata::Entity::find()
-        .filter(media_metadata::Column::FileId.eq(77))
-        .filter(media_metadata::Column::MetaKey.eq("track_title"))
+    let row = source_tags::Entity::find()
+        .filter(source_tags::Column::FileId.eq(77))
+        .filter(source_tags::Column::MetaKey.eq("track_title"))
         .one(&db2)
         .await?
         .unwrap();
@@ -938,13 +945,10 @@ async fn remote_metadata_edits_project_onto_existing_audio_without_feedback() ->
             .name,
         "Edited Artist"
     );
-    media_metadata::Entity::update_many()
-        .col_expr(
-            media_metadata::Column::MetaValue,
-            Expr::value("Second title"),
-        )
-        .filter(media_metadata::Column::FileId.eq(10))
-        .filter(media_metadata::Column::MetaKey.eq("track_title"))
+    source_tags::Entity::update_many()
+        .col_expr(source_tags::Column::MetaValue, Expr::value("Second title"))
+        .filter(source_tags::Column::FileId.eq(10))
+        .filter(source_tags::Column::MetaKey.eq("track_title"))
         .exec(&db1)
         .await?;
     {

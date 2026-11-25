@@ -3,7 +3,7 @@ use database::actions::metadata::MissingHostFilePolicy;
 use database::test_fixtures::causal_library as support;
 use database::{
     actions::index::index_audio_library,
-    entities::{albums, media_file_albums},
+    entities::{portable_albums as albums, track_album_sources as media_file_albums},
     sync::model::*,
 };
 use fsio::FsIo;

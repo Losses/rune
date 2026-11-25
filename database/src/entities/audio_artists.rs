@@ -3,11 +3,11 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::artists::{Column as ArtistsColumn, Entity as ArtistsEntity};
 use super::media_files::{Column as MediaFilesColumn, Entity as MediaFilesEntity};
+use super::portable_artists::{Column as ArtistsColumn, Entity as ArtistsEntity};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "media_file_artists")]
+#[sea_orm(table_name = "music_metadata_audio_artists")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
@@ -33,7 +33,7 @@ pub enum Relation {
     MediaFiles,
 }
 
-impl Related<super::artists::Entity> for Entity {
+impl Related<super::portable_artists::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Artists.def()
     }

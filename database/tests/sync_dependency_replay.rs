@@ -1,7 +1,7 @@
 use support::fixtures;
 
 use anyhow::Result;
-use database::entities::{artists, media_files};
+use database::entities::{media_files, portable_artists as artists};
 use database::test_fixtures::causal_library as support;
 use database::{
     actions::{
@@ -9,7 +9,7 @@ use database::{
         stats::get_liked,
     },
     connection::RecommendationDbConnection,
-    entities::{media_file_artists, media_file_playlists, mix_queries, mixes},
+    entities::{audio_artists as media_file_artists, media_file_playlists, mix_queries, mixes},
     sync::model::*,
 };
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};

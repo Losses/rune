@@ -6,9 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use symphonia::core::codecs::CODEC_TYPE_NULL;
 
-use ::analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 use ::fsio::{FsIo, FsNode, OpenMode};
 
 use media_compute::checksum::MediaCrc;
@@ -76,27 +74,22 @@ impl FileDescription {
         self.codec_information = Some(info);
         Ok(info)
     }
+
+    /// Reuse the stream properties collected while reading the track's tags.
+    pub fn set_codec_information(&mut self, sample_rate: u32, duration: f64) {
+        self.codec_information = Some((sample_rate, duration));
+    }
 }
 
 pub fn get_codec_information_from_node(fsio: &FsIo, fs_node: &FsNode) -> Result<(u32, f64)> {
-    let full_path = match fs_node.path.to_str() {
-        Some(full_path) => full_path,
-        _none => bail!("Failed to convert file path while getting codec information"),
-    };
-
-    let format = get_format(fsio, full_path)
-        .with_context(|| format!("No supported format found: {full_path}"))?;
-
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .with_context(|| "No supported audio tracks")?;
-
-    let codec_information = get_codec_information(track)
-        .with_context(|| format!("Failed to get codec information: {full_path}"))?;
-
-    Ok(codec_information)
+    let snapshot = crate::taglib::read_file(fsio, &fs_node.path, crate::taglib::ReadFields::Tags)?;
+    let rate = snapshot
+        .sample_rate
+        .context("Audio stream has no sample rate")?;
+    Ok((
+        rate,
+        snapshot.duration_ms.unwrap_or_default() as f64 / 1000.0,
+    ))
 }
 
 const CHUNK_SIZE: usize = 1024 * 400;

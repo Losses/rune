@@ -25,7 +25,7 @@ use ::http_request::{Bytes, ClientConfig};
 use ::metadata::{
     cover_art::extract_cover_art_from_stream, streaming::get_metadata_and_codec_from_stream,
 };
-use ::playback::{player::PlayingItem, stream_utils::create_stream_media_source_from_url};
+use ::playback::{player::PlayingItem, stream_utils::create_stream_from_url};
 
 use super::{MediaFileHandle, PlayingFileMetadataProvider, PlayingItemMetadataSummary};
 
@@ -201,8 +201,8 @@ async fn get_summary_for_online_file(
     item: &PlayingItem,
     url: &str,
 ) -> Result<PlayingItemMetadataSummary> {
-    let source = create_stream_media_source_from_url(url).await?;
-    let mime_type = ""; // Let symphonia detect
+    let source = create_stream_from_url(url).await?;
+    let mime_type = ""; // Let TagLib detect the format.
     let (metadata, duration) = get_metadata_and_codec_from_stream(source, mime_type).await?;
 
     let mut summary = PlayingItemMetadataSummary {
@@ -216,10 +216,16 @@ async fn get_summary_for_online_file(
 
     for (key, value) in metadata {
         match key.to_lowercase().as_str() {
-            "title" => summary.title = value,
+            "track_title" => summary.title = value,
             "artist" => summary.artist = value,
             "album" => summary.album = value,
-            "track" => summary.track_number = value.parse().unwrap_or(0),
+            "track_number" => {
+                summary.track_number = value
+                    .split('/')
+                    .next()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0)
+            }
             _ => {}
         }
     }
@@ -317,7 +323,7 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
                             .await
                             .map(|bytes| bytes.to_vec())
                     } else {
-                        let source = create_stream_media_source_from_url(&url_clone).await?;
+                        let source = create_stream_from_url(&url_clone).await?;
                         extract_cover_art_from_stream(source, "")
                             .await
                             .map(|cover_art| cover_art.data)

@@ -1934,6 +1934,7 @@ dependencies = [
  "futures",
  "http-request",
  "hyper",
+ "jiff",
  "log",
  "metadata",
  "migration",
@@ -4249,32 +4250,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lofty"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8bc4717ff10833a623b009e9254ae8667c7a59edc3cfb01c37aeeef4b6d54a7"
-dependencies = [
- "byteorder",
- "data-encoding",
- "flate2",
- "lofty_attr",
- "log",
- "ogg_pager",
- "paste",
-]
-
-[[package]]
-name = "lofty_attr"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28bd4b9d8a5af74808932492521cdd272019b056f75fcc70056bd2c09fceb550"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4436,21 +4411,21 @@ dependencies = [
 name = "metadata"
 version = "0.1.0"
 dependencies = [
- "analysis",
  "anyhow",
+ "cmake",
  "fsio",
- "fsio_media_source",
  "futures",
  "image",
+ "jiff",
  "lazy_static",
- "lofty",
  "log",
  "media-compute",
  "palette_extract",
  "regex",
- "symphonia",
+ "serde",
  "thiserror 1.0.65",
  "tokio",
+ "uuid",
  "walkdir",
 ]
 
@@ -5201,15 +5176,6 @@ name = "ogg"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6951b4e8bf21c8193da321bcce9c9dd2e13c858fe078bf9054a288b419ae5d6e"
-dependencies = [
- "byteorder",
-]
-
-[[package]]
-name = "ogg_pager"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87b0bef808533c5890ab77279538212efdbbbd9aa4ef1ccdfcfbf77a42f7e6fa"
 dependencies = [
  "byteorder",
 ]

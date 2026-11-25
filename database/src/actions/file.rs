@@ -11,6 +11,7 @@ pub use access::{
     materialized_path, remote_required_ids, resolve_local_id,
 };
 pub(crate) use content::canonical_download_path;
+pub(super) use content::index_cached_download;
 pub use content::{
     MANAGED_AUDIO_DIRECTORY, MAX_BLOB_BYTES, attach_download, blob_path, blob_path_for_track,
     cached_blob_path, catalog_track, hash_file, is_managed_directory, local_audio_path,
@@ -25,8 +26,7 @@ use uuid::Uuid;
 
 use crate::actions::{collection::CollectionQueryType, search::remove_term};
 use crate::entities::{
-    media_file_albums, media_file_artists, media_file_fingerprint, media_file_genres,
-    media_metadata,
+    audio_artists, media_file_fingerprint, media_file_genres, source_tags, track_album_sources,
 };
 use crate::sync::SeaOrmSyncStore;
 use crate::sync::model::{Collection, ObjectKey};
@@ -299,21 +299,21 @@ pub async fn remove_track(
         .await?
         .ok_or(ExpectedError::NotFound { what: "track" })?;
     let track = file.source_uuid.as_str();
-    remove_track_links::<media_file_albums::Entity>(
+    remove_track_links::<track_album_sources::Entity>(
         tx,
         store,
         Collection::TrackAlbums,
-        media_file_albums::Column::TrackUuid,
-        media_file_albums::Column::SourceUuid,
+        track_album_sources::Column::TrackUuid,
+        track_album_sources::Column::SourceUuid,
         track,
     )
     .await?;
-    remove_track_links::<media_file_artists::Entity>(
+    remove_track_links::<audio_artists::Entity>(
         tx,
         store,
         Collection::FileArtists,
-        media_file_artists::Column::TrackUuid,
-        media_file_artists::Column::SourceUuid,
+        audio_artists::Column::TrackUuid,
+        audio_artists::Column::SourceUuid,
         track,
     )
     .await?;
@@ -335,11 +335,12 @@ pub async fn remove_track(
         track,
     )
     .await?;
-    media_metadata::Entity::delete_many()
-        .filter(media_metadata::Column::FileId.eq(file_id))
+    source_tags::Entity::delete_many()
+        .filter(source_tags::Column::FileId.eq(file_id))
         .exec(tx)
         .await?;
     media_files::Entity::delete_by_id(file_id).exec(tx).await?;
+    super::resolved_metadata::reconcile_recordings(tx).await?;
     remove_term(tx, CollectionQueryType::Track, file_id).await?;
     author_removal(tx, store, Collection::Tracks, track).await
 }

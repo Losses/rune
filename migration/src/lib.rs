@@ -2,6 +2,7 @@ use once_cell::sync::OnceCell;
 use sea_orm_migration::sea_orm as sea_orm_migration_sea_orm;
 use std::future;
 pub mod catalog_identity;
+mod resolved_metadata_import;
 pub use sea_orm_migration::prelude::*;
 
 static NODE_ID: OnceCell<String> = OnceCell::new();
@@ -54,6 +55,7 @@ mod m20261112_000037_rename_source_uuid;
 mod m20261122_000038_add_analysis_source_identity;
 mod m20261123_000039_settle_pre_release_tables;
 mod m20261124_000040_create_sync_export_cursors;
+mod m20261124_000041_add_resolved_music_metadata;
 mod retired;
 #[cfg(feature = "test-fixtures")]
 pub mod test_fixtures;
@@ -165,6 +167,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261112_000037_rename_source_uuid::Migration),
             Box::new(m20261122_000038_add_analysis_source_identity::Migration),
             Box::new(m20261124_000040_create_sync_export_cursors::Migration),
+            Box::new(m20261124_000041_add_resolved_music_metadata::Migration),
         ]
     }
 }

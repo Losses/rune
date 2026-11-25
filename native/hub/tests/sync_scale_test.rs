@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use database::entities::{media_files, media_metadata};
+use database::entities::{media_files, source_tags as media_metadata};
 use database::sync::model::{Collection, ObjectKey, Payload};
 use database::test_fixtures::causal_library as support;
 use http_request::sync::router;

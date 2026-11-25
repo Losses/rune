@@ -12,7 +12,10 @@ use ::database::{
         CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
     },
     connection::{MainDbConnection, RecommendationDbConnection},
-    entities::{albums, artists, genres, mix_queries, mixes, playlists},
+    entities::{
+        genres, mix_queries, mixes, playlists, portable_albums as albums,
+        portable_artists as artists,
+    },
 };
 use ::fsio::FsIo;
 use uuid::Uuid;

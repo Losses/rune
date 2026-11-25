@@ -7,7 +7,9 @@ use database::{
         file::{blob_path_for_track, catalog_track, hash_file, is_materialized},
     },
     connection::{RecommendationDbConnection, initialize_db},
-    entities::{albums, media_files, sync_download_jobs, sync_download_jobs::Column},
+    entities::{
+        media_files, portable_albums as albums, sync_download_jobs, sync_download_jobs::Column,
+    },
     sync::model::RuneModel,
 };
 use http_request::sync as http_request_sync;

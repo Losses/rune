@@ -1,13 +1,16 @@
 use database::test_fixtures::fixtures;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use database::{
     connection::RecommendationDbConnection,
-    entities::{media_cover_art, media_files, media_metadata},
+    entities::{media_cover_art, media_files},
     library_registry::{
         CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, ProtocolAdapter,
     },
-    sync::LibrarySyncStore,
+    sync::{
+        LibrarySyncStore,
+        model::{Collection, MetadataTag, ObjectKey, Payload, RuneModel},
+    },
 };
 use fsio::FsIo;
 use hub::{
@@ -94,16 +97,26 @@ async fn media_file_handler_reports_absence_and_real_metadata_as_optional_values
         .await?;
     }
     for (file_id, track_number) in [(2, "7"), (3, "0")] {
-        media_metadata::Entity::insert(media_metadata::ActiveModel {
-            file_id: Set(file_id),
-            position: Set(0),
-            meta_key: Set("track_number".into()),
-            meta_value: Set(track_number.into()),
-            source_uuid: Set(Uuid::new_v4().to_string()),
-            ..Default::default()
-        })
-        .exec(&db)
-        .await?;
+        let file = media_files::Entity::find_by_id(file_id)
+            .one(&db)
+            .await?
+            .context("missing fixture file")?;
+        let key = ObjectKey {
+            collection: Collection::Tracks,
+            id: file.source_uuid.parse()?,
+        };
+        let Some(Payload::Track(mut track)) = RuneModel::encode_on(&db, &key).await? else {
+            anyhow::bail!("missing fixture track {file_id}");
+        };
+
+        // Store the tag and materialize it through the normal sync projection.
+        track.metadata.push(MetadataTag {
+            id: Uuid::new_v4(),
+            position: 0,
+            key: "track_number".into(),
+            value: track_number.into(),
+        });
+        RuneModel::project(&db, &key, Some(&Payload::Track(track))).await?;
     }
 
     let library = request_library(db, actor, dir.path().to_str().unwrap(), dir.path()).await?;

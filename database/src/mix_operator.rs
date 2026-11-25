@@ -9,7 +9,11 @@
 pub enum MixOperator {
     LibAll,
     LibArtist,
+    LibArtistId,
     LibAlbum,
+    LibRelease,
+    LibAlbumArtist,
+    LibLabel,
     LibGenre,
     LibPlaylist,
     LibTrack,
@@ -42,6 +46,8 @@ pub enum ParameterKind {
     Reference(MixTarget),
     /// A directory path of this device.
     Directory,
+    Text,
+    Uuid,
 }
 
 /// The collections a mix clause can point at.
@@ -73,10 +79,14 @@ impl MixTarget {
 pub struct UnknownOperator(pub String);
 
 impl MixOperator {
-    pub const ALL: [MixOperator; 20] = [
+    pub const ALL: [MixOperator; 24] = [
         Self::LibAll,
         Self::LibArtist,
+        Self::LibArtistId,
         Self::LibAlbum,
+        Self::LibRelease,
+        Self::LibAlbumArtist,
+        Self::LibLabel,
         Self::LibGenre,
         Self::LibPlaylist,
         Self::LibTrack,
@@ -101,7 +111,11 @@ impl MixOperator {
         match self {
             Self::LibAll => "lib::all",
             Self::LibArtist => "lib::artist",
+            Self::LibArtistId => "lib::artist_id",
             Self::LibAlbum => "lib::album",
+            Self::LibRelease => "lib::release",
+            Self::LibAlbumArtist => "lib::album_artist",
+            Self::LibLabel => "lib::label",
             Self::LibGenre => "lib::genre",
             Self::LibPlaylist => "lib::playlist",
             Self::LibTrack => "lib::track",
@@ -134,6 +148,8 @@ impl MixOperator {
         match self {
             Self::LibArtist => ParameterKind::Reference(MixTarget::Artists),
             Self::LibAlbum => ParameterKind::Reference(MixTarget::Albums),
+            Self::LibRelease | Self::LibArtistId => ParameterKind::Uuid,
+            Self::LibAlbumArtist | Self::LibLabel => ParameterKind::Text,
             Self::LibGenre => ParameterKind::Reference(MixTarget::Genres),
             Self::LibPlaylist => ParameterKind::Reference(MixTarget::Playlists),
             Self::LibTrack => ParameterKind::Reference(MixTarget::Tracks),

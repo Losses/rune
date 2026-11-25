@@ -1,6 +1,7 @@
 pub mod albums;
 pub mod analysis;
 pub mod artists;
+mod browse;
 pub mod collection;
 pub mod cover_art;
 pub mod directory;
@@ -15,6 +16,7 @@ pub mod metadata;
 pub mod mixes;
 pub mod playlists;
 pub mod recommendation;
+pub mod resolved_metadata;
 pub mod search;
 pub mod stats;
 pub mod utils;

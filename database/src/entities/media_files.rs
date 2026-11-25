@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 
 use super::media_cover_art::{Column as MediaCoverArtColumn, Entity as MediaCoverArtEntity};
 
+use super::audio_artists::Entity as MediaFileArtistsEntity;
 use super::media_analysis::Entity as MediaAnalysisEntity;
-use super::media_file_albums::Entity as MediaFileAlbumsEntity;
-use super::media_file_artists::Entity as MediaFileArtistsEntity;
 use super::media_file_playlists::Entity as MediaFilePlaylistsEntity;
 use super::media_file_stats::Entity as MediaFileStatsEntity;
-use super::media_metadata::Entity as MediaMetadataEntity;
+use super::source_tags::Entity as MediaMetadataEntity;
+use super::track_album_sources::Entity as MediaFileAlbumsEntity;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "media_files")]
@@ -72,13 +72,13 @@ impl Related<super::media_cover_art::Entity> for Entity {
     }
 }
 
-impl Related<super::media_file_albums::Entity> for Entity {
+impl Related<super::track_album_sources::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaFileAlbums.def()
     }
 }
 
-impl Related<super::media_file_artists::Entity> for Entity {
+impl Related<super::audio_artists::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaFileArtists.def()
     }
@@ -96,7 +96,7 @@ impl Related<super::media_file_stats::Entity> for Entity {
     }
 }
 
-impl Related<super::media_metadata::Entity> for Entity {
+impl Related<super::source_tags::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaMetadata.def()
     }

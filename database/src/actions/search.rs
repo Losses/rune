@@ -163,5 +163,21 @@ pub async fn search_for(
         }
     }
 
+    for (collection, kind) in [
+        (CollectionQueryType::Album, super::browse::Kind::Album),
+        (CollectionQueryType::Artist, super::browse::Kind::Artist),
+    ] {
+        if search_fields
+            .as_ref()
+            .is_some_and(|fields| !fields.contains(&collection))
+        {
+            continue;
+        }
+        let legacy = results.remove(&collection).unwrap_or_default();
+        let ids = super::browse::resolve_search(main_db, kind, query_str, &legacy, n).await?;
+        if !ids.is_empty() {
+            results.insert(collection, ids);
+        }
+    }
     Ok(results)
 }

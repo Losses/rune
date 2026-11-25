@@ -1,10 +1,14 @@
 use fsio::{FsIo, FsNode};
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     vec::IntoIter,
 };
 
 fn is_audio_file(entry: &FsNode) -> bool {
+    if !entry.is_file {
+        return false;
+    }
     if let Some(ext) = entry.path.extension() {
         matches!(
             ext.to_str().unwrap_or("").to_lowercase().as_str(),
@@ -15,34 +19,89 @@ fn is_audio_file(entry: &FsNode) -> bool {
     }
 }
 
-/// The audio files under `path`, and the entries left out because their path
-/// is not valid Unicode.
-fn scan_audio_files<P: AsRef<Path>>(
-    fsio: &FsIo,
-    path: &P,
-) -> Result<(Vec<FsNode>, Vec<PathBuf>), fsio::FileIoError> {
-    let walk = fsio.walk_dir(path.as_ref(), true)?;
+struct ScanEntries {
+    files: Vec<FsNode>,
+    skipped: Vec<PathBuf>,
+    cues: Vec<PathBuf>,
+}
 
-    Ok((
-        walk.nodes.into_iter().filter(is_audio_file).collect(),
-        walk.skipped,
-    ))
+fn scan_audio_files(fsio: &FsIo, root: &Path) -> Result<ScanEntries, fsio::FileIoError> {
+    let walk = fsio.walk_dir(root, true)?;
+    let mut candidates = Vec::new();
+    let mut cues = Vec::new();
+    for node in walk.nodes {
+        if is_audio_file(&node) {
+            candidates.push(node);
+        } else if is_cue_file(&node) {
+            cues.push(node.path);
+        }
+    }
+    let albums: HashSet<_> = candidates
+        .iter()
+        .map(|entry| {
+            crate::resolve::folder_layout(&entry.path, root)
+                .0
+                .to_owned()
+        })
+        .collect();
+
+    // Treat files below an album's immediate SCANS directory as attachments.
+    Ok(ScanEntries {
+        files: candidates
+            .into_iter()
+            .filter(|entry| {
+                !entry
+                    .path
+                    .ancestors()
+                    .skip(1)
+                    .take_while(|directory| *directory != root)
+                    .any(|directory| {
+                        directory
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(|name| name.trim().eq_ignore_ascii_case("SCANS"))
+                            && directory
+                                .parent()
+                                .is_some_and(|parent| albums.contains(parent))
+                    })
+            })
+            .collect(),
+        skipped: walk.skipped,
+        cues,
+    })
+}
+
+/// Recognize audio layout sidecars in a filesystem listing.
+pub fn is_cue_file(node: &FsNode) -> bool {
+    node.is_file
+        && node
+            .path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("cue"))
 }
 
 pub struct AudioScanner {
     root_path: PathBuf,
     iterator: IntoIter<FsNode>,
     skipped: Vec<PathBuf>,
+    cues: Vec<PathBuf>,
     ended: bool,
 }
 
 impl AudioScanner {
     pub fn new<P: AsRef<Path>>(fsio: &FsIo, path: &P) -> Result<Self, fsio::FileIoError> {
-        let (files, skipped) = scan_audio_files(fsio, path)?;
+        let root = path.as_ref();
+        let ScanEntries {
+            files,
+            skipped,
+            cues,
+        } = scan_audio_files(fsio, root)?;
         Ok(AudioScanner {
-            root_path: path.as_ref().to_path_buf(),
+            root_path: root.to_path_buf(),
             iterator: files.into_iter(),
             skipped,
+            cues,
             ended: false,
         })
     }
@@ -51,6 +110,11 @@ impl AudioScanner {
     /// valid Unicode. A skipped directory stands for everything inside it.
     pub fn skipped(&self) -> &[PathBuf] {
         &self.skipped
+    }
+
+    /// Sidecar paths found during the same walk as the audio files.
+    pub fn take_cue_files(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.cues)
     }
 
     pub fn read_files(&mut self, count: usize) -> Vec<FsNode> {

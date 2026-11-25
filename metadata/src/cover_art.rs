@@ -3,19 +3,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use image::{GenericImageView, ImageBuffer, Pixel};
-use lofty::file::TaggedFileExt;
 use palette_extract::{Color, get_palette_rgb};
 
 use ::fsio::FsIo;
-use symphonia::core::{
-    formats::FormatOptions,
-    io::{MediaSource, MediaSourceStream},
-    meta::MetadataOptions,
-    probe::Hint,
-};
 
 use crate::crc::media_crc32;
-use symphonia::default as symphonia_default;
+use crate::taglib::{self, ReadFields};
 
 pub struct CoverArt {
     pub crc: String,
@@ -84,23 +77,9 @@ pub fn extract_cover_art_binary_checked<P: AsRef<Path>>(
     lib_path: Option<&Path>,
     file_path: &P,
 ) -> Result<Option<CoverArt>> {
-    let canonical = fsio.canonicalize_path(file_path.as_ref())?;
-    let tagged = lofty::read_from_path(canonical)?;
-    if let Some(picture) = tagged
-        .primary_tag()
-        .or_else(|| tagged.first_tag())
-        .and_then(|tag| tag.pictures().first())
-    {
-        let data = picture.data().to_vec();
-        anyhow::ensure!(!data.is_empty(), "empty embedded artwork");
-        let rgb = decode_image(&data)?;
-        let crc = media_crc32(&rgb, 0, 0, rgb.len());
-        anyhow::ensure!(crc != 0, "invalid embedded artwork CRC");
-        return Ok(Some(CoverArt {
-            crc: format!("{crc:08x}"),
-            data,
-            primary_color: color_to_int(&get_palette_rgb(&rgb)[0]),
-        }));
+    let snapshot = taglib::read_file(fsio, file_path.as_ref(), ReadFields::Pictures)?;
+    if let Some(picture) = snapshot.pictures.into_iter().next() {
+        return cover_from_bytes(picture.data).map(Some);
     }
     match lib_path {
         Some(root) => fallback_to_external_cover(fsio, file_path.as_ref(), root),
@@ -109,48 +88,32 @@ pub fn extract_cover_art_binary_checked<P: AsRef<Path>>(
 }
 
 pub async fn extract_cover_art_from_stream(
-    source: Box<dyn MediaSource>,
-    mime_type: &str,
+    source: impl std::io::Read + std::io::Seek + Send + 'static,
+    hint: &str,
 ) -> Result<CoverArt> {
-    let mss = MediaSourceStream::new(source, Default::default());
-    let mut hint = Hint::new();
-    hint.with_extension(mime_type);
+    let hint = hint.to_owned();
+    let snapshot =
+        tokio::task::spawn_blocking(move || taglib::read(source, &hint, ReadFields::Pictures))
+            .await
+            .context("TagLib stream reader failed")??;
+    let picture = snapshot
+        .pictures
+        .into_iter()
+        .next()
+        .context("No cover art found in stream")?;
+    cover_from_bytes(picture.data)
+}
 
-    let meta_opts: MetadataOptions = Default::default();
-    let fmt_opts: FormatOptions = Default::default();
-
-    let probed = symphonia_default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)
-        .context("Failed to probe media source")?;
-
-    let mut format = probed.format;
-
-    if let Some(metadata) = format.metadata().current()
-        && let Some(visual) = metadata.visuals().first()
-    {
-        let cover_data = visual.data.to_vec();
-        if cover_data.is_empty() {
-            return Err(anyhow::anyhow!("Empty cover art data in stream"));
-        }
-
-        let rgb_sequence = decode_image(&cover_data)?;
-
-        // Calculate the CRC
-        let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
-        if crc == 0 {
-            return Err(anyhow::anyhow!("Invalid CRC for cover art"));
-        }
-        let primary_color = get_palette_rgb(&rgb_sequence)[0];
-        let crc_string = format!("{crc:08x}");
-
-        return Ok(CoverArt {
-            crc: crc_string,
-            data: cover_data,
-            primary_color: color_to_int(&primary_color),
-        });
-    }
-
-    Err(anyhow::anyhow!("No cover art found in stream"))
+fn cover_from_bytes(data: Vec<u8>) -> Result<CoverArt> {
+    anyhow::ensure!(!data.is_empty(), "empty artwork");
+    let rgb = decode_image(&data)?;
+    let crc = media_crc32(&rgb, 0, 0, rgb.len());
+    anyhow::ensure!(crc != 0, "invalid artwork CRC");
+    Ok(CoverArt {
+        crc: format!("{crc:08x}"),
+        data,
+        primary_color: color_to_int(&get_palette_rgb(&rgb)[0]),
+    })
 }
 
 fn fallback_to_external_cover(
@@ -220,21 +183,7 @@ fn fallback_to_external_cover(
 }
 
 fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Result<CoverArt> {
-    let cover_data = fsio.read(cover_path)?;
-    anyhow::ensure!(!cover_data.is_empty(), "empty external artwork");
-    let rgb_sequence = decode_image(&cover_data)?;
-
-    // Calculate the CRC
-    let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
-    let primary_color = get_palette_rgb(&rgb_sequence)[0];
-
-    anyhow::ensure!(crc != 0, "invalid external artwork CRC");
-    let crc_string = format!("{crc:08x}");
-    Ok(CoverArt {
-        crc: crc_string,
-        data: cover_data,
-        primary_color: color_to_int(&primary_color),
-    })
+    cover_from_bytes(fsio.read(cover_path)?)
 }
 
 #[cfg(test)]

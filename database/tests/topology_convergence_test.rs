@@ -386,7 +386,7 @@ async fn sqlite_scenario(shape: usize, seed: u64) -> Result<()> {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].track_uuid, entries[1].track_uuid);
         assert_ne!(entries[0].source_uuid, entries[1].source_uuid);
-        let album = media_file_albums::Entity::find()
+        let album = track_album_sources::Entity::find()
             .one(&local.db)
             .await?
             .context("album link missing")?;

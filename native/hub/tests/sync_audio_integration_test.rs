@@ -18,7 +18,8 @@ use database::{
     },
     connection::RecommendationDbConnection,
     entities::{
-        albums, artists, media_cover_art, media_file_artists, media_file_playlists, media_files,
+        audio_artists as media_file_artists, media_cover_art, media_file_playlists, media_files,
+        portable_albums as albums, portable_artists as artists,
     },
     sync::model::author_source_on,
 };

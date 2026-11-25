@@ -325,6 +325,15 @@ pub trait RowMapping<E: EntityTrait>: Send + Sync {
     ) -> Result<(), DbErr> {
         Ok(())
     }
+    /// Apply application projections after the selected row has changed.
+    async fn after_project_on(
+        _tx: &sea_orm::DatabaseTransaction,
+        _id: Uuid,
+        _before: Option<&RowView<E>>,
+        _value: Option<&Self::Payload>,
+    ) -> Result<(), DbErr> {
+        Ok(())
+    }
     fn local_updates(
         _before: Option<&RowView<E>>,
         _value: &Self::Payload,
@@ -764,6 +773,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
                     .filter(M::uuid_column().eq(id.to_string()))
                     .exec(db)
                     .await?;
+                M::after_project_on(db, id, Some(row), None).await?;
             }
             return Ok(());
         };
@@ -812,6 +822,7 @@ impl<E: EntityTrait, M: RowMapping<E>> RowPolicy<E, M> {
             .await?
             .ok_or_else(|| DbErr::Custom("source row missing after projection".into()))?;
         M::project_children_on(db, &row, Some(value)).await?;
+        M::after_project_on(db, id, existing.as_ref(), Some(value)).await?;
         Ok(())
     }
 }
@@ -831,6 +842,7 @@ macro_rules! row_mapping {
             $(lists: { $($list:ident : $item:ty => { entity: $list_entity:ty, mapping: $list_mapping:ty, owner: $list_owner:expr $(,)? }),* $(,)? },)?
             $(effects: { $($effect:ident => { entity: $effect_entity:ty, mapping: $effect_mapping:ty, owner: $effect_owner:expr, derive: $derive:expr $(,)? }),* $(,)? },)?
             $(local_updates: $local_updates:expr,)?
+            $(after_project: { run: $after_project:expr, reads: $after_reads:expr, mutations: $after_mutations:expr },)?
             $(references: { $($reference:ident => $target:literal),* $(,)? },)?
             $(limits: { $($bounded:ident => ($min:expr, $max:expr)),* $(,)? },)?
             $(owner: { field: $owner:ident, allow_removal: $allow_removal:expr },)?
@@ -903,8 +915,20 @@ macro_rules! row_mapping {
                     budget.max_reads += u64::from(<$effect_mapping as $crate::derived_effect::EffectMapping<$effect_entity>>::max_items()) + 1;
                     budget.max_mutations += u64::from(<$effect_mapping as $crate::derived_effect::EffectMapping<$effect_entity>>::max_items()) * 2;
                 )*)?
+                $(
+                    budget.max_reads += $after_reads;
+                    budget.max_mutations += $after_mutations;
+                )?
                 budget
             }
+            $(async fn after_project_on(
+                tx: &sea_orm::DatabaseTransaction,
+                id: uuid::Uuid,
+                before: Option<&$crate::row_policy::RowView<$entity>>,
+                value: Option<&Self::Payload>,
+            ) -> Result<(), sea_orm::DbErr> {
+                ($after_project)(tx, id, before, value).await
+            })?
             async fn hydrate_on<C: sea_orm::ConnectionTrait>(
                 db: &C, row: &$crate::row_policy::RowView<$entity>, value: &mut Self::Payload,
             ) -> Result<u64, sea_orm::DbErr> {
