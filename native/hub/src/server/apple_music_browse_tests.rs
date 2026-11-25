@@ -5947,6 +5947,54 @@ async fn a_sign_out_while_a_sign_in_is_checked_stands() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sign_out_while_the_library_is_registered_again_stands() -> Result<()> {
+    use crate::messages::{
+        RegisterServiceLibraryRequest, ServiceSignIn, SignOutServiceLibraryRequest,
+        StreamingService,
+    };
+    use crate::utils::{register_service_library_on_node, sign_out_service_library_on_node};
+
+    const CHECK: &str = "/v1/me/storefront";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let register = RegisterServiceLibraryRequest {
+        service: StreamingService::AppleMusic,
+        alias: "Apple Music".into(),
+        sign_in: ServiceSignIn::Platform {
+            user_token: APPLE_OTHER_TOKEN.into(),
+            developer_token: Some(DEVELOPER_TOKEN.into()),
+        },
+        call_id: None,
+    };
+    // Apple holds its answer to the check of the sign-in until the sign-out is done.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some((CHECK.into(), release.clone()));
+    let checks = apple.fake.count(CHECK);
+    let registered = register_service_library_on_node(&register, &apple.node);
+    let sign_out = async {
+        fake_asked(&apple, CHECK, checks + 1).await?;
+        sign_out_service_library_on_node(
+            &SignOutServiceLibraryRequest {
+                record_id: apple.record.0.to_string(),
+                call_id: None,
+            },
+            &apple.node,
+        )
+        .await?;
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (registered, signed_out) = tokio::join!(registered, sign_out);
+    signed_out?;
+    assert!(registered.is_err());
+    assert!(!apple.binding.is_signed_in());
+    // Registered again after it, the library signs in.
+    register_service_library_on_node(&register, &apple.node).await?;
+    assert!(apple.binding.is_signed_in());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_ui_is_told_when_an_apple_library_signs_out_and_in_again() -> Result<()> {
     use crate::messages::{
         ListLibraryRecordsRequest, ServiceSignIn, SignInServiceLibraryRequest,

@@ -1973,6 +1973,18 @@ pub(crate) async fn register_service_library_on_node(
             "The record is not a streaming service's",
         ));
     };
+    // A sign-out of the library registered already that comes while its service checks the
+    // sign-in stands (see `sign_in_service_record`).
+    let registered = LibraryRegistry::load(Path::new(&*node.config_path))
+        .ok()
+        .and_then(|registry| {
+            registry
+                .libraries
+                .iter()
+                .find(|record| record.protocol.service() == Some(service))
+                .map(|record| record.record_id)
+        })
+        .map(|record_id| (record_id, node.services.sign_outs(record_id)));
     let sign_in = verified_service_sign_in(node, service, &request.sign_in).await?;
     let new_record = LibraryRecord {
         record_id: LibraryRecordId(Uuid::new_v4()),
@@ -2006,7 +2018,10 @@ pub(crate) async fn register_service_library_on_node(
             format!("Could not write library storage: {error:#}"),
         )
     })?;
-    let signed_in = sign_in_service_record(node, record.record_id, sign_in, None).await;
+    let sign_outs = registered
+        .filter(|(record_id, _)| !created && *record_id == record.record_id)
+        .map(|(_, sign_outs)| sign_outs);
+    let signed_in = sign_in_service_record(node, record.record_id, sign_in, sign_outs).await;
     // A record written here changes the list even when its sign-in then fails. A sign-in that
     // worked has told the list itself.
     if created
