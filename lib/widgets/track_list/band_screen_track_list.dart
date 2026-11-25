@@ -30,6 +30,10 @@ class BandScreenTrackList extends StatelessWidget {
   /// Lists the tracks again, after a scan started from the empty list.
   final VoidCallback reloadData;
 
+  /// Drawn as the list's first item, scrolling away with the tracks. A list
+  /// with no tracks then shows only the header.
+  final Widget? header;
+
   const BandScreenTrackList({
     super.key,
     required this.totalCount,
@@ -37,6 +41,7 @@ class BandScreenTrackList extends StatelessWidget {
     required this.queries,
     required this.mode,
     required this.reloadData,
+    this.header,
   });
 
   @override
@@ -69,7 +74,7 @@ class BandScreenTrackList extends StatelessWidget {
     bool hasRecommendation,
     ScrollController? scrollController,
   ) {
-    if (totalCount == 0) {
+    if (totalCount == 0 && header == null) {
       return Center(
         child: NoItems(
           title: S.of(context).noTracksFound,
@@ -85,8 +90,10 @@ class BandScreenTrackList extends StatelessWidget {
           : Axis.horizontal,
       controller: scrollController,
       padding: getScrollContainerPadding(context),
-      itemCount: totalCount,
-      itemBuilder: (context, index) {
+      itemCount: totalCount + (header == null ? 0 : 1),
+      itemBuilder: (context, position) {
+        if (header != null && position == 0) return header!;
+        final index = header == null ? position : position - 1;
         final item = getItem(index);
 
         // A track that has not loaded leaves its place blank.

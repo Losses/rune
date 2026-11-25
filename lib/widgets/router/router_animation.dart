@@ -7,6 +7,23 @@ import 'utils/transition_calculatior.dart';
 final RouteObserver<ModalRoute<void>> routerAnimationObserver =
     RouteObserver<ModalRoute<void>>();
 
+/// Where the box of [context] rests in [ancestor], as if the transition of the
+/// page it is on had ended: the transition only paints the page moved, faded
+/// and scaled. Null outside a page.
+Offset? restingPositionInPage(BuildContext context, RenderObject ancestor) {
+  final page = context.findAncestorStateOfType<_RouterAnimationState>();
+  if (page == null) return null;
+  // The box around the transition, and the page inside it.
+  final outer = page.context.findRenderObject();
+  final inner = page._content.currentContext?.findRenderObject();
+  final box = context.findRenderObject();
+  if (outer is! RenderBox || inner is! RenderBox || box is! RenderBox) {
+    return null;
+  }
+  return outer.localToGlobal(Offset.zero, ancestor: ancestor) +
+      box.localToGlobal(Offset.zero, ancestor: inner);
+}
+
 class RouterAnimation extends StatefulWidget {
   const RouterAnimation(
     this.child, {
@@ -35,6 +52,9 @@ class _RouterAnimationState extends State<RouterAnimation>
   // The transition this page last played, to tell a new one from the same.
   RouterTransitionParameter? _animatedWith;
   bool _subscribed = false;
+
+  // The page inside the transition, for [restingPositionInPage].
+  final GlobalKey _content = GlobalKey();
 
   @override
   void initState() {
@@ -148,6 +168,9 @@ class _RouterAnimationState extends State<RouterAnimation>
   Widget build(BuildContext context) {
     FluentLocalizations.of(context);
 
-    return _applyAnimation(widget.child, relation);
+    return _applyAnimation(
+      KeyedSubtree(key: _content, child: widget.child),
+      relation,
+    );
   }
 }

@@ -20,6 +20,7 @@ import '../../providers/responsive_providers.dart';
 import '../../providers/library_open_state.dart';
 import '../../providers/request_capabilities.dart';
 import '../../utils/l10n.dart';
+import '../../utils/query_list.dart';
 
 import '../build_query.dart';
 import '../api/request_failure.dart';
@@ -614,3 +615,57 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         : null,
   );
 }
+
+/// Opens the menu of an item that is a list of [queries], as a release section
+/// of an artist. It has the actions of a collection's menu that need no
+/// collection to be named: start playing, add to queue and start roaming.
+void openQueryListContextMenu(
+  Offset localPosition,
+  BuildContext context,
+  GlobalKey contextAttachKey,
+  RouterAwareFlyoutController contextController,
+  QueryList queries,
+) {
+  final targetContext = contextAttachKey.currentContext;
+  if (targetContext == null) return;
+  final box = targetContext.findRenderObject() as RenderBox;
+  final position = box.localToGlobal(
+    localPosition,
+    ancestor: Navigator.of(context).context.findRenderObject(),
+  );
+
+  final r = Provider.of<ResponsiveProvider>(context, listen: false);
+  final isDock = r.smallerOrEqualTo(DeviceType.dock, false);
+  final isBand = r.smallerOrEqualTo(DeviceType.band, false);
+
+  contextController.showFlyout(
+    position: position,
+    builder: (context) => isDock || isBand
+        ? buildBandScreenQueryListContextMenu(context, queries, isBand)
+        : buildLargeScreenQueryListContextMenu(context, queries),
+  );
+}
+
+MenuFlyout buildLargeScreenQueryListContextMenu(
+  BuildContext context,
+  QueryList queries,
+) => MenuFlyout(
+  items: _largeScreenPlayItems(
+    context,
+    play: () => startPlayingQueries(queries),
+    queue: () => addQueriesToQueue(queries),
+    roam: () => startRoamingQueries(context, queries),
+  ),
+);
+
+FlyoutContent buildBandScreenQueryListContextMenu(
+  BuildContext context,
+  QueryList queries,
+  bool isBand,
+) => _bandScreenPlayMenu(
+  context,
+  isBand,
+  play: () => startPlayingQueries(queries),
+  queue: () => addQueriesToQueue(queries),
+  roam: () => startRoamingQueries(context, queries),
+);

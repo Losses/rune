@@ -89,6 +89,7 @@ class CollectionDataProvider with ChangeNotifier {
   static const _pageSize = 3;
   final CollectionType collectionType;
   final _cache = CollectionCache();
+  final bool _useCache;
 
   late final StreamSubscription _contentSubscription;
   int _generation = 0;
@@ -121,7 +122,10 @@ class CollectionDataProvider with ChangeNotifier {
   /// - [loadSummary] loads a type's summary, in place of
   ///   [fetchCollectionPageSummary];
   /// - [loadPage] loads the page of a type at a page size and cursor, and
-  ///   whether it is the last, in place of [fetchCollectionPagePage].
+  ///   whether it is the last, in place of [fetchCollectionPagePage];
+  /// - [useCache] is false for a provider whose pages are not the type's
+  ///   own, so that they neither read nor fill the type's shared cache, and
+  ///   a reload leaves it alone.
   CollectionDataProvider({
     required this.collectionType,
     Stream<void>? contentChanged,
@@ -133,7 +137,9 @@ class CollectionDataProvider with ChangeNotifier {
       int,
     )?
     loadPage,
-  }) : _loadSummary = loadSummary ?? fetchCollectionPageSummary,
+    bool useCache = true,
+  }) : _useCache = useCache,
+       _loadSummary = loadSummary ?? fetchCollectionPageSummary,
        _pageLoader = loadPage ?? fetchCollectionPagePage {
     final changes =
         contentChanged ??
@@ -167,7 +173,8 @@ class CollectionDataProvider with ChangeNotifier {
   int cursor = 0;
 
   Future<List<Group<InternalCollection>>> _fetchSummaryWithCache() async {
-    final cachedSummary = _cache.getSummary(collectionType);
+    final cachedSummary =
+        _useCache ? _cache.getSummary(collectionType) : null;
     if (cachedSummary != null) {
       return cachedSummary;
     }
@@ -175,7 +182,8 @@ class CollectionDataProvider with ChangeNotifier {
     final generation = _generation;
     final cacheGeneration = _cache.generation;
     final data = await _loadSummary(collectionType);
-    if (generation == _generation &&
+    if (_useCache &&
+        generation == _generation &&
         cacheGeneration == _cache.generation &&
         !_disposed) {
       _cache.cacheSummary(collectionType, data);
@@ -184,7 +192,8 @@ class CollectionDataProvider with ChangeNotifier {
   }
 
   Future<(List<Group<InternalCollection>>, bool)> _fetchPage(int cursor) async {
-    final cachedPage = _cache.getPage(collectionType, cursor);
+    final cachedPage =
+        _useCache ? _cache.getPage(collectionType, cursor) : null;
     if (cachedPage != null) {
       return (cachedPage, cachedPage.length < _pageSize);
     }
@@ -196,7 +205,8 @@ class CollectionDataProvider with ChangeNotifier {
       _pageSize,
       cursor,
     );
-    if (generation == _generation &&
+    if (_useCache &&
+        generation == _generation &&
         cacheGeneration == _cache.generation &&
         !_disposed) {
       _cache.cachePage(collectionType, cursor, newItems);
@@ -225,6 +235,16 @@ class CollectionDataProvider with ChangeNotifier {
     return data;
   }
 
+  /// Adds the groups of a fetched page to [groups], the ones listed so far.
+  /// A provider whose pages continue one group gives it more items instead.
+  @protected
+  void appendGroups(
+    List<Group<InternalCollection>> groups,
+    List<Group<InternalCollection>> page,
+  ) {
+    groups.addAll(page);
+  }
+
   Future<void> fetchData() {
     if (_disposed) return Future.value();
     // Appending while a reload runs, or to the items a failed reload left,
@@ -249,7 +269,7 @@ class CollectionDataProvider with ChangeNotifier {
     try {
       final (newItems, newIsLastPage) = await _fetchPage(page);
       if (_disposed || generation != _generation) return;
-      items.addAll(newItems);
+      appendGroups(items, newItems);
       cursor = page + 1;
       isLastPage = newIsLastPage;
     } catch (error) {
@@ -297,7 +317,7 @@ class CollectionDataProvider with ChangeNotifier {
     // page instead.
     if (_pageRequest != null) _pageRequested = true;
     _pageRequest = null;
-    _cache.clearType(collectionType);
+    if (_useCache) _cache.clearType(collectionType);
     summary = _fetchSummaryWithCache();
     pageError = null;
     notifyListeners();
@@ -316,7 +336,7 @@ class CollectionDataProvider with ChangeNotifier {
       while (!last && fetched < max(cursor + (_pageRequested ? 1 : 0), 1)) {
         final (newItems, newIsLastPage) = await _fetchPage(fetched);
         if (_disposed || generation != _generation) return;
-        fresh.addAll(newItems);
+        appendGroups(fresh, newItems);
         fetched += 1;
         last = newIsLastPage;
       }

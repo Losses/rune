@@ -35,7 +35,7 @@ class TurntileGroup<T> extends StatelessWidget {
     this.groupTitle,
     required this.items,
     required this.itemBuilder,
-    this.gapSize = 4,
+    this.gapSize = defaultGapSize,
     this.onTitleTap,
     this.gridLayoutVariation = TurntileGroupGridLayoutVariation.list,
     this.tileSpanBuilder,
@@ -43,7 +43,12 @@ class TurntileGroup<T> extends StatelessWidget {
   });
 
   static const double _listCellSize = 40;
-  static const double _tileCellSize = 88;
+
+  /// The cell of the tile variation, in logical pixels.
+  static const double tileCellSize = 88;
+
+  /// The gap between items unless [gapSize] says otherwise.
+  static const double defaultGapSize = 4;
 
   /// The height the group takes in a vertical list [width] wide, padding
   /// included. It lets a list scroll to a group it has not built yet.
@@ -102,7 +107,7 @@ class TurntileGroup<T> extends StatelessWidget {
 
   TurntileGroupItemsTile<T> _tileItems() {
     return TurntileGroupItemsTile<T>(
-      cellSize: _tileCellSize,
+      cellSize: tileCellSize,
       gapSize: gapSize,
       items: items,
       groupIndex: groupIndex,

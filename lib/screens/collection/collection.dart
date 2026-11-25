@@ -13,16 +13,24 @@ import 'utils/collection_data_provider.dart';
 
 class CollectionPage extends StatefulWidget {
   final CollectionType collectionType;
-  const CollectionPage({super.key, required this.collectionType});
+
+  /// Feeds the page instead of the collections of [collectionType].
+  final CollectionDataProvider Function()? createProvider;
+
+  const CollectionPage({
+    super.key,
+    required this.collectionType,
+    this.createProvider,
+  });
 
   @override
   State<CollectionPage> createState() => _CollectionPageState();
 }
 
 class _CollectionPageState extends State<CollectionPage> {
-  late CollectionDataProvider collectionData = CollectionDataProvider(
-    collectionType: widget.collectionType,
-  );
+  late CollectionDataProvider collectionData =
+      widget.createProvider?.call() ??
+      CollectionDataProvider(collectionType: widget.collectionType);
 
   @override
   void dispose() {

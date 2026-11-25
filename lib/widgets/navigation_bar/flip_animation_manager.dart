@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/logger.dart';
+import '../router/router_animation.dart';
 
 import './flip_text.dart';
 import './flip_text_animation.dart';
@@ -22,7 +23,10 @@ class FlipAnimationManager extends StatefulWidget {
 }
 
 class FlipAnimationManagerState extends State<FlipAnimationManager> {
-  final Map<String, GlobalKey> _registeredKeys = {};
+  // The texts that hold each key, the newest last, which is the one that
+  // flies. A page opened over another with the same key holds it while it is
+  // open, and the page under it holds it again once it closes.
+  final Map<String, List<GlobalKey>> _holders = {};
   final Map<String, FlipTextPositions> _cachedPositions = {};
   final Map<String, FlipTextStyles> _cachedStyles = {};
   final List<OverlayEntry> _overlayEntries = [];
@@ -86,23 +90,33 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     }
   }
 
+  GlobalKey? _holder(String key) => _holders[key]?.lastOrNull;
+
   void registerKey(String key, GlobalKey globalKey) {
-    _registeredKeys[key] = globalKey;
+    final holders = _holders.putIfAbsent(key, () => []);
+    holders.remove(globalKey);
+    holders.add(globalKey);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       cachePositionWithKey(key);
     });
   }
 
-  void unregisterKey(String key) {
-    _registeredKeys.remove(key);
+  /// Forgets the text [globalKey] under [key]. When it was the one that flies,
+  /// where it was is forgotten too, so that no flight starts or ends there.
+  void unregisterKey(String key, GlobalKey globalKey) {
+    final holders = _holders[key];
+    if (holders == null) return;
+    final held = holders.lastOrNull == globalKey;
+    holders.remove(globalKey);
+    if (holders.isEmpty) _holders.remove(key);
+    if (held) _cachedPositions.remove(key);
   }
 
   void cachePositionWithKey(String key) {
-    if (_registeredKeys.containsKey(key)) {
-      final globalKey = _registeredKeys[key];
-
-      final styles = getPosition(key, globalKey!);
+    final globalKey = _holder(key);
+    if (globalKey != null) {
+      final styles = getPosition(key, globalKey);
 
       if (styles != null) {
         _cachedPositions[key] = styles;
@@ -125,34 +139,48 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     _overlayEntries.clear();
   }
 
-  void _setVisibility(String key, bool visible) {
-    if (_registeredKeys.containsKey(key)) {
-      final globalKey = _registeredKeys[key];
-      final context = globalKey?.currentContext;
-      if (context != null && context.mounted) {
-        final state = context.findAncestorStateOfType<FlipTextState>();
-        state?.setVisibility(visible);
-      }
+  void _setVisibility(GlobalKey holder, bool visible) {
+    final context = holder.currentContext;
+    if (context != null && context.mounted) {
+      final state = context.findAncestorStateOfType<FlipTextState>();
+      state?.setVisibility(visible);
     }
   }
 
   Future<bool> flipAnimation(String fromKey, String toKey) async {
     _stopAllAnimations(); // Stop all ongoing animations
 
+    // Where the texts are as the page changes: a text that leaves with the
+    // old page is gone, and its place forgotten, after the frame.
     cachePositionWithKey(fromKey);
     cachePositionWithKey(toKey);
+    final fromBefore = _cachedPositions[fromKey];
+    final toBefore = _cachedPositions[toKey];
 
-    _setVisibility(fromKey, false);
-    _setVisibility(toKey, false);
+    // The texts hidden while the copy flies, to show again after it.
+    final hidden = <GlobalKey>{};
+    void hide(String key) {
+      final holder = _holder(key);
+      if (holder == null) return;
+      hidden.add(holder);
+      _setVisibility(holder, false);
+    }
+
+    void showHidden() {
+      for (final holder in hidden) {
+        _setVisibility(holder, true);
+      }
+      hidden.clear();
+    }
+
+    hide(fromKey);
+    hide(toKey);
 
     final completer = Completer<bool>();
     var cancelled = false;
     _cancelAnimation = () {
       cancelled = true;
-      if (!_disposing) {
-        _setVisibility(fromKey, true);
-        _setVisibility(toKey, true);
-      }
+      if (!_disposing) showHidden();
       if (!completer.isCompleted) completer.complete(false);
     };
 
@@ -161,20 +189,20 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       cachePositionWithKey(fromKey);
       cachePositionWithKey(toKey);
 
-      final fromPosition = _cachedPositions[fromKey];
-      final toPosition = _cachedPositions[toKey];
+      final fromPosition = _cachedPositions[fromKey] ?? fromBefore;
+      final toPosition = _cachedPositions[toKey] ?? toBefore;
       final fromStyles = _cachedStyles[fromKey];
       final toStyles = _cachedStyles[toKey];
 
-      if (fromPosition == null && toPosition != null) {
-        _setVisibility(toKey, false);
-      } else if (fromPosition != null && toPosition == null) {
-        _setVisibility(fromKey, false);
-      } else {
-        // Hide elements before starting animation
-        _setVisibility(fromKey, false);
-        _setVisibility(toKey, false);
+      // The texts that hold the keys now are the ones that fly. One hidden
+      // before the page changed that holds neither any more shows again.
+      final holders = {_holder(fromKey), _holder(toKey)};
+      for (final holder in hidden.where((x) => !holders.contains(x))) {
+        _setVisibility(holder, true);
       }
+      hidden.retainWhere(holders.contains);
+      hide(fromKey);
+      hide(toKey);
 
       if (fromPosition == null ||
           toPosition == null ||
@@ -205,13 +233,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
           onAnimationComplete: () {
             overlayEntry.remove();
             _overlayEntries.remove(overlayEntry);
-            // Show elements after animation ends if they are still mounted
-            if (fromPosition.context.mounted) {
-              _setVisibility(fromKey, true);
-            }
-            if (toPosition.context.mounted) {
-              _setVisibility(toKey, true);
-            }
+            // Show the texts again, those still mounted.
+            showHidden();
             _cancelAnimation = null;
             if (!completer.isCompleted) completer.complete(true);
           },
@@ -253,7 +276,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     final box = context.findRenderObject() as RenderBox;
     final overlay = Overlay.of(this.context, rootOverlay: true);
     final overlayBox = overlay.context.findRenderObject() as RenderBox;
-    final position = box.localToGlobal(Offset.zero, ancestor: overlayBox);
+    // A text on a page is where it rests, not where the page's transition
+    // paints it for now: the copy flies there and the text shows there.
+    final position =
+        restingPositionInPage(context, overlayBox) ??
+        box.localToGlobal(Offset.zero, ancestor: overlayBox);
 
     return FlipTextPositions(context: context, position: position);
   }

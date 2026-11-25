@@ -139,23 +139,36 @@ bool requestAvailable(
 /// Whether the open library answers a request that belongs to the library, not
 /// to the device. The answer comes from the latest snapshot of the record open
 /// here, as a renderer this device plays on sends snapshots of another record.
-/// Until the open record has sent one, the request counts as answered. While
-/// this device remote-controls a library, the snapshot is the one of that
-/// library.
+/// Until the open record has sent one, the request counts as answered, or as
+/// [whenUnknown] says. While this device remote-controls a library, the
+/// snapshot is the one of that library.
 bool _libraryAnswers(
   BuildContext context,
   RequestCapability Function(RequestCapabilities snapshot) select, {
   bool listen = false,
+  bool whenUnknown = true,
 }) {
   final capabilities = requestCapabilitiesOf(context, listen: listen);
-  if (capabilities == null) return true;
+  if (capabilities == null) return whenUnknown;
   final state = Provider.of<LibraryOpenStateProvider?>(context, listen: listen);
   final open = state?.openRecord;
   final snapshot = state != null && !state.isRemoteControl && open != null
       ? capabilities.snapshotOf(open.recordId)
       : capabilities.snapshot;
-  return snapshot == null || select(snapshot) is RequestCapabilityAvailable;
+  if (snapshot == null) return whenUnknown;
+  return select(snapshot) is RequestCapabilityAvailable;
 }
+
+/// Whether the open library builds an artist page, which only some libraries
+/// do. Without a capability provider, or until the open record has sent a
+/// snapshot, it counts as not built.
+bool canOpenArtistPage(BuildContext context, {bool listen = false}) =>
+    _libraryAnswers(
+      context,
+      (p) => p.fetchArtistPageRequest,
+      listen: listen,
+      whenUnknown: false,
+    );
 
 /// Whether the open library has analysis data to roam by, which the library of
 /// a streaming service does not.

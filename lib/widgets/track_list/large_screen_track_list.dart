@@ -12,8 +12,22 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../ax_reveal/ax_reveal.dart';
 import '../navigation_bar/page_content_frame.dart';
 import '../start_screen/managed_start_screen_item.dart';
+import '../start_screen/stacked_layout.dart';
 
 import 'large_screen_track_list_item.dart';
+
+/// The height of a tile of the large track list, and how many times narrower
+/// than wide it is.
+const double largeTrackListCellSize = 64;
+const double largeTrackListRatio = 1 / 4;
+
+/// The width of one tile of the large track list.
+const double largeTrackListTileWidth =
+    largeTrackListCellSize / largeTrackListRatio;
+
+/// The padding the list adds to the right of its last column, over what a
+/// scrolling list takes from its page.
+const double largeTrackListRightPlus = 12;
 
 class LargeScreenTrackList extends StatelessWidget {
   final int totalCount;
@@ -23,6 +37,11 @@ class LargeScreenTrackList extends StatelessWidget {
   /// Lists the tracks again, after a scan started from the empty list.
   final VoidCallback reloadData;
 
+  /// Set when the list is the child of a [StartGroupStackedLayout], which
+  /// already pads its child. The list then adds no padding above and none to
+  /// the left of its first column.
+  final bool underTitle;
+
   const LargeScreenTrackList({
     super.key,
     required this.totalCount,
@@ -30,6 +49,7 @@ class LargeScreenTrackList extends StatelessWidget {
     required this.queries,
     required this.mode,
     required this.reloadData,
+    this.underTitle = false,
   });
 
   @override
@@ -37,17 +57,19 @@ class LargeScreenTrackList extends StatelessWidget {
     final isAlbumQuery = QueryList.computeIsAlbumQuery(queries);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: underTitle
+          ? const EdgeInsets.only(bottom: 12)
+          : const EdgeInsets.symmetric(vertical: 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
           const double gapSize = 8;
-          const double cellSize = 64;
+          const double cellSize = largeTrackListCellSize;
 
           final int rows = (constraints.maxHeight / (cellSize + gapSize))
               .floor();
           final double finalHeight = rows * (cellSize + gapSize) - gapSize;
 
-          const ratio = 1 / 4;
+          const ratio = largeTrackListRatio;
 
           final hasRecommendation = queriesHasRecommendation(queries);
 
@@ -75,8 +97,8 @@ class LargeScreenTrackList extends StatelessWidget {
                 child: GridView.builder(
                   padding: getScrollContainerPadding(
                     context,
-                    leftPlus: 12,
-                    rightPlus: 12,
+                    leftPlus: underTitle ? 0 : 12,
+                    rightPlus: largeTrackListRightPlus,
                   ),
                   scrollDirection: Axis.horizontal,
                   controller: scrollController,
@@ -114,6 +136,7 @@ class LargeScreenTrackList extends StatelessWidget {
                             isAlbumQuery: isAlbumQuery,
                             position: index,
                             reloadData: () {},
+                            solidBackground: underTitle,
                           ),
                         ),
                       ),
