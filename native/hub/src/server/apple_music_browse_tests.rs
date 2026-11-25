@@ -9613,6 +9613,37 @@ async fn a_catalog_playlist_a_mix_names_holds_its_songs_as_apple_changes_them() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_a_read_before_a_sign_out_asked_for_is_read_again_after_it() -> Result<()> {
+    const SONGS: &str = "/v1/catalog/it/songs";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    add_song(&apple, mine.id, "catalog:900", None).await?;
+    // The library reads the song in the background, and Apple holds the answer.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some((SONGS.into(), release.clone()));
+    let reads = apple.fake.count(SONGS);
+    all_tracks(&apple).await?;
+    fake_asked(&apple, SONGS, reads + 1).await?;
+    // The account signs out and in again meanwhile, and the library is listed under it.
+    apple.binding.sign_out();
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).context("tokens")?);
+    all_tracks(&apple).await?;
+    // What the read begun before brings is not kept, so the song is read again once it ends,
+    // with nothing listed meanwhile.
+    release.notify_one();
+    fake_asked(&apple, SONGS, reads + 2).await?;
+    wait_until("the song to be listed", || async {
+        let titles = all_tracks(&apple).await?.0;
+        Ok(titles.contains(&"Dawn Chorus".to_owned()).then_some(()))
+    })
+    .await?;
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_background_read_keeps_a_newer_read_of_a_playlist_a_mix_names() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;

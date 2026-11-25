@@ -940,14 +940,23 @@ fn read_in_background(binding: &AppleMusicBinding, unread: Unread) {
         if added {
             binding.content_changed();
         }
-        // What was named while this read ran and the last build lacks.
-        let next = binding
-            .held
-            .state()
-            .built
-            .as_ref()
-            .map(|built| built.unread.not_in(&unread))
-            .unwrap_or_default();
+        // What was named while this read ran and the last build lacks. After a sign-out, what
+        // this read brought was not taken in, so everything the last build lacks is read.
+        let next = {
+            let state = binding.held.state();
+            let signed_out = state.generation != generation;
+            state
+                .built
+                .as_ref()
+                .map(|built| {
+                    if signed_out {
+                        built.unread.clone()
+                    } else {
+                        built.unread.not_in(&unread)
+                    }
+                })
+                .unwrap_or_default()
+        };
         if !next.is_empty() {
             read_in_background(&binding, next);
         }
