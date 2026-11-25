@@ -25,7 +25,8 @@ pub enum CapabilityReason {
 /// One field per request in the catalogue (`native/requests`), named after it.
 /// rinf only reads structs written out in source, so this one is kept by hand;
 /// `capability_snapshot` builds it from the catalogue, so a missing or extra
-/// field fails to compile.
+/// field fails to compile. Paired devices read it by position, so a request added later goes
+/// at the end and never in the middle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RustSignal)]
 pub struct RequestCapabilities {
     pub record_id: Option<String>,
@@ -186,6 +187,25 @@ pub struct RequestCapabilities {
     pub fetch_file_dialog_thumbnail_request: RequestCapability,
     pub create_file_dialog_folder_request: RequestCapability,
     pub rename_file_dialog_entry_request: RequestCapability,
+    pub fetch_artist_page_request: RequestCapability,
+    pub fetch_artist_section_albums_request: RequestCapability,
+}
+
+impl RequestCapabilities {
+    /// Reads a snapshot a paired device sent. A device of protocol 2.0 ends it before the
+    /// fields 2.1 appended, so those are read as refused for a device too old to answer them.
+    /// A device of 2.0 reads a newer snapshot, which is longer, as far as its own fields go.
+    pub(crate) fn from_peer(payload: &[u8]) -> anyhow::Result<Self> {
+        rinf::deserialize(payload).or_else(|error| {
+            let too_old = RequestCapability::Disabled {
+                reason: CapabilityReason::PeerTooOld,
+            };
+            // `fetch_artist_page_request` and `fetch_artist_section_albums_request`.
+            let mut padded = payload.to_vec();
+            padded.extend(rinf::serialize(&(too_old, too_old))?);
+            rinf::deserialize(&padded).map_err(|_| error.into())
+        })
+    }
 }
 
 impl From<Slot> for RequestCapability {
@@ -233,3 +253,46 @@ pub struct PlayingItemCapabilities {
 }
 
 crate::implement_rinf_rust_signal_trait!(PlayingItemCapabilities);
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::{CapabilityReason, RequestCapabilities, RequestCapability};
+
+    #[test]
+    fn a_snapshot_from_a_device_of_protocol_2_0_reads_the_artist_requests_as_too_old() -> Result<()>
+    {
+        // A snapshot with every request available: more fields than it has, the rest unread.
+        let mut payload = rinf::serialize(&(Some("record".to_owned()), 3_u64, None::<String>))?;
+        for _ in 0..1000 {
+            payload.extend(rinf::serialize(&RequestCapability::Available)?);
+        }
+        let current: RequestCapabilities = rinf::deserialize(&payload)?;
+        let full = rinf::serialize(&current)?;
+        // A device of 2.0 sends the same snapshot without the fields 2.1 appended.
+        let appended = rinf::serialize(&(
+            current.fetch_artist_page_request,
+            current.fetch_artist_section_albums_request,
+        ))?;
+        let old = &full[..full.len() - appended.len()];
+
+        let read = RequestCapabilities::from_peer(old)?;
+        let too_old = RequestCapability::Disabled {
+            reason: CapabilityReason::PeerTooOld,
+        };
+        assert_eq!(read.fetch_artist_page_request, too_old);
+        assert_eq!(read.fetch_artist_section_albums_request, too_old);
+        assert_eq!(
+            RequestCapabilities {
+                fetch_artist_page_request: RequestCapability::Available,
+                fetch_artist_section_albums_request: RequestCapability::Available,
+                ..read
+            },
+            current
+        );
+        // A snapshot of this version reads as it is.
+        assert_eq!(RequestCapabilities::from_peer(&full)?, current);
+        Ok(())
+    }
+}

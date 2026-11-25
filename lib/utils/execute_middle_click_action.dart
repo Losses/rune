@@ -25,7 +25,31 @@ Future<void> executeMiddleClickAction(
   BuildContext context,
   CollectionType collectionType,
   int id,
-) async {
+) => _runMiddleClickAction(
+  context,
+  play: () => startPlaying(collectionType, id),
+  queue: () => addToQueue(collectionType, id),
+  roam: () => startRoaming(context, collectionType, id),
+);
+
+/// The middle click of an item that is a list of queries, as a release section
+/// of an artist.
+Future<void> executeQueryListMiddleClickAction(
+  BuildContext context,
+  QueryList queries,
+) => _runMiddleClickAction(
+  context,
+  play: () => startPlayingQueries(queries),
+  queue: () => addQueriesToQueue(queries),
+  roam: () => startRoamingQueries(context, queries),
+);
+
+Future<void> _runMiddleClickAction(
+  BuildContext context, {
+  required Future<void> Function() play,
+  required Future<void> Function() queue,
+  required Future<void> Function() roam,
+}) async {
   String middleClickAction =
       await SettingsManager().getValue<String>(kMiddleClickActionKey) ??
       "StartPlaying";
@@ -40,16 +64,16 @@ Future<void> executeMiddleClickAction(
   try {
     switch (middleClickAction) {
       case "StartPlaying":
-        await startPlaying(collectionType, id);
+        await play();
         break;
       case "AddToQueue":
-        await addToQueue(collectionType, id);
+        await queue();
         break;
       case "StartRoaming":
-        await startRoaming(context, collectionType, id);
+        await roam();
         break;
       default:
-        await startPlaying(collectionType, id);
+        await play();
     }
   } on RequestFailure catch (error) {
     if (context.mounted) {
@@ -67,7 +91,17 @@ Future<void> startPlaying(
   int id, [
   List<int> fallbackFileIds = const [],
 ]) async {
-  final queries = await _buildCollectionQueries(collectionType, id);
+  await startPlayingQueries(
+    await _buildCollectionQueries(collectionType, id),
+    fallbackFileIds,
+  );
+}
+
+/// Starts playing what [queries] resolve to.
+Future<void> startPlayingQueries(
+  QueryList queries, [
+  List<int> fallbackFileIds = const [],
+]) async {
   await operatePlaybackWithMixQuery(
     queries: queries,
     playbackMode: null,
@@ -176,7 +210,17 @@ Future<void> addToQueue(
   int id, [
   List<int> fallbackFileIds = const [],
 ]) async {
-  final queries = QueryList(await buildQuery(collectionType, id));
+  await addQueriesToQueue(
+    QueryList(await buildQuery(collectionType, id)),
+    fallbackFileIds,
+  );
+}
+
+/// Adds what [queries] resolve to to the queue.
+Future<void> addQueriesToQueue(
+  QueryList queries, [
+  List<int> fallbackFileIds = const [],
+]) async {
   await operatePlaybackWithMixQuery(
     queries: queries,
     playbackMode: null,
@@ -194,15 +238,24 @@ Future<void> startRoaming(
   int id, [
   List<int> fallbackFileIds = const [],
 ]) async {
-  final queries = QueryList(
-    withRecommend(await buildQuery(collectionType, id)),
-  );
+  final queries = QueryList(await buildQuery(collectionType, id));
 
   if (!context.mounted) return;
 
+  await startRoamingQueries(context, queries, fallbackFileIds);
+}
+
+/// Starts roaming from what [queries] resolve to.
+Future<void> startRoamingQueries(
+  BuildContext context,
+  QueryList queries, [
+  List<int> fallbackFileIds = const [],
+]) async {
+  final roaming = QueryList(withRecommend(queries));
+
   await safeOperatePlaybackWithMixQuery(
     context: context,
-    queries: queries,
+    queries: roaming,
     playbackMode: null,
     hintPosition: -1,
     initialPlaybackId: null,

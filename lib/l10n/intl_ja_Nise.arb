@@ -1810,5 +1810,12 @@
   "fileDialogItems": "項目",
   "addingToPlaylist": "再生一覧表追加中",
   "addingToPlaylistPreparing": "準備中",
-  "addingToPlaylistProgress": "{added} / {total}"
+  "addingToPlaylistProgress": "{added} / {total}",
+  "releases": "発表作品",
+  "artistSectionCompilations": "編集歌集",
+  "artistSectionLive": "生演奏",
+  "artistSectionAppearsOn": "参加作品",
+  "artistSectionSinglesAndEps": "単曲・EP",
+  "artistSectionLatestRelease": "最新作",
+  "artistSectionEssentialAlbums": "必聴歌集"
 }

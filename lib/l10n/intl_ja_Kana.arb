@@ -1810,5 +1810,12 @@
   "fileDialogItems": "アイテム",
   "addingToPlaylist": "プレイリストにアドしています",
   "addingToPlaylistPreparing": "プレパレーション",
-  "addingToPlaylistProgress": "{added} オブ {total}"
+  "addingToPlaylistProgress": "{added} オブ {total}",
+  "releases": "リリースズ",
+  "artistSectionCompilations": "コンピレーションズ",
+  "artistSectionLive": "ライブ",
+  "artistSectionAppearsOn": "アピアーズオン",
+  "artistSectionSinglesAndEps": "シングルズアンドイーピーズ",
+  "artistSectionLatestRelease": "レイテストリリース",
+  "artistSectionEssentialAlbums": "エッセンシャルアルバムズ"
 }

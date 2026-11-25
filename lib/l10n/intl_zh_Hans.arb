@@ -1818,5 +1818,12 @@
         "type": "int"
       }
     }
-  }
+  },
+  "releases": "发行作品",
+  "artistSectionCompilations": "合辑",
+  "artistSectionLive": "现场",
+  "artistSectionAppearsOn": "参与作品",
+  "artistSectionSinglesAndEps": "单曲与 EP",
+  "artistSectionLatestRelease": "最新发行",
+  "artistSectionEssentialAlbums": "必听专辑"
 }

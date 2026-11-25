@@ -20,6 +20,12 @@ class SmallScreenTrackList extends StatefulWidget {
   /// Lists the tracks again, after a scan started from the empty list.
   final VoidCallback reloadData;
 
+  /// Drawn as the list's first item, scrolling away with the tracks. It gets
+  /// the width inside the list's own padding and pads itself, as a group of
+  /// the turntile screen does, so the tracks are padded by 16 on both sides
+  /// as the header is. A list with no tracks then shows only the header.
+  final Widget? header;
+
   const SmallScreenTrackList({
     super.key,
     required this.totalCount,
@@ -27,6 +33,7 @@ class SmallScreenTrackList extends StatefulWidget {
     required this.queries,
     required this.mode,
     required this.reloadData,
+    this.header,
   });
 
   @override
@@ -46,7 +53,7 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
   Widget build(BuildContext context) {
     final hasRecommendation = queriesHasRecommendation(widget.queries);
 
-    if (widget.totalCount == 0) {
+    if (widget.totalCount == 0 && widget.header == null) {
       return Center(
         child: NoItems(
           title: S.of(context).noTracksFound,
@@ -56,24 +63,26 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
       );
     }
 
+    final header = widget.header;
+
     return Scrollbar(
       controller: _scrollController,
       thumbVisibility: true,
       child: ListView.builder(
         controller: _scrollController,
-        padding: getScrollContainerPadding(
-          context,
-          leftPlus: 16,
-          rightPlus: 16,
-        ),
-        itemCount: widget.totalCount,
-        itemBuilder: (context, index) {
+        padding: header == null
+            ? getScrollContainerPadding(context, leftPlus: 16, rightPlus: 16)
+            : getScrollContainerPadding(context),
+        itemCount: widget.totalCount + (header == null ? 0 : 1),
+        itemBuilder: (context, position) {
+          if (header != null && position == 0) return header;
+          final index = header == null ? position : position - 1;
           final item = widget.getItem(index);
 
           // A track that has not loaded leaves its row blank.
           if (item == null) return const SizedBox(height: 64);
 
-          return ManagedTurntileScreenItem(
+          final tile = ManagedTurntileScreenItem(
             groupId: 0,
             row: index,
             column: 1,
@@ -90,6 +99,12 @@ class _SmallScreenTrackListState extends State<SmallScreenTrackList> {
               ),
             ),
           );
+          return header == null
+              ? tile
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: tile,
+                );
         },
       ),
     );

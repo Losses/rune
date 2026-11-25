@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/kept_clear.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/history.dart';
+import '../../utils/router/route_entry.dart';
 import '../../utils/navigation/header_parent.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
@@ -37,8 +38,11 @@ class NavigationBar extends StatefulWidget {
 }
 
 class NavigationBarState extends State<NavigationBar> {
-  // The parent the header showed in the last build.
+  // The parent the header showed in the last build, the page of history it
+  // named if it named one, and the page shown.
   String? _shownParentPath;
+  RouteEntry? _shownOpener;
+  RouteEntry? _shownPage;
 
   @override
   void didUpdateWidget(covariant NavigationBar oldWidget) {
@@ -55,14 +59,21 @@ class NavigationBarState extends State<NavigationBar> {
       final currentItem = navigationQuery.getItem(currentPath, false);
 
       if (previousItem != null && currentItem != null) {
-        if (headerParent(currentPath, $history, false)?.path == previousPath) {
+        // A title that names a page of history names that page and no other
+        // with its path: an artist opened over an album titled with another
+        // artist is no return to that one, and closing it opens no album.
+        final opener = headerOpener(currentPath, $history, false);
+        if (headerParent(currentPath, $history, false)?.path == previousPath &&
+            (opener == null || identical(opener, _shownPage))) {
           // parent to child
           playFlipAnimation(
             context,
             'child:$previousPath',
             'title:$previousPath',
           );
-        } else if (_shownParentPath == currentPath) {
+        } else if (_shownParentPath == currentPath &&
+            (_shownOpener == null ||
+                identical($history.currentPage, _shownOpener))) {
           // child to parent
           playFlipAnimation(
             context,
@@ -77,6 +88,15 @@ class NavigationBarState extends State<NavigationBar> {
   void _onRouteSelected(NavigationItem route) {
     final currentPath = $router.path;
     if (route.path == currentPath) return;
+
+    // A link the header made for the page shown, such as one to another
+    // section of an artist, opens as it says. A link to a page of the
+    // navigation replaces this page with it.
+    final onTap = route.onTap;
+    if (onTap != null && navigationQuery.getItem(route.path, false) == null) {
+      onTap(context);
+      return;
+    }
 
     $replace(route.path);
   }
@@ -117,13 +137,13 @@ class NavigationBarState extends State<NavigationBar> {
       builder: (context, isZune) {
         final path = Provider.of<RouterPathProvider>(context).path;
 
-        final item = navigationQuery.getItem(path, isZune);
+        final row = headerRow(path, $history, isZune);
+        final item = row.current;
         final parent = headerParent(path, $history, isZune);
         _shownParentPath = parent?.path;
-        final slibings = navigationQuery
-            .getSiblings(path, isZune)
-            ?.where((x) => !x.hidden)
-            .toList();
+        _shownOpener = headerOpener(path, $history, isZune);
+        _shownPage = $history.currentPage;
+        final slibings = row.links?.where((x) => !x.hidden).toList();
 
         final titleFlipKey = 'title:${parent?.path}';
 
@@ -192,7 +212,9 @@ class NavigationBarState extends State<NavigationBar> {
                         : 0;
 
                     return SlibingLink(
-                      key: ValueKey('${parent?.path}/${route.path}'),
+                      key: ValueKey(
+                        '${parent?.path}/${route.linkKey ?? route.path}',
+                      ),
                       route: route,
                       isSelected: route == item,
                       delay: delay,

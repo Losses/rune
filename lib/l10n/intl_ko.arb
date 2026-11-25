@@ -1810,5 +1810,12 @@
   "fileDialogItems": "항목",
   "addingToPlaylist": "재생 목록에 추가 중",
   "addingToPlaylistPreparing": "준비 중",
-  "addingToPlaylistProgress": "{added} / {total}"
+  "addingToPlaylistProgress": "{added} / {total}",
+  "releases": "릴리스",
+  "artistSectionCompilations": "컴필레이션",
+  "artistSectionLive": "라이브",
+  "artistSectionAppearsOn": "참여 작품",
+  "artistSectionSinglesAndEps": "싱글 및 EP",
+  "artistSectionLatestRelease": "최신 릴리스",
+  "artistSectionEssentialAlbums": "필수 앨범"
 }

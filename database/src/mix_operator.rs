@@ -21,6 +21,10 @@ pub enum MixOperator {
     LibQueue,
     LibDirectoryDeep,
     LibDirectoryShallow,
+    /// The songs of the releases one section of an artist's page holds.
+    LibArtistSection,
+    /// The songs an artist's page lists as the artist's tracks.
+    LibArtistTracks,
     SortTrackNumber,
     SortLastModified,
     SortDuration,
@@ -48,6 +52,61 @@ pub enum ParameterKind {
     Directory,
     Text,
     Uuid,
+    /// An artist's number and one of its page's sections, as `<artist>:<section>`.
+    ArtistSection,
+}
+
+/// A section of an artist's page that holds releases.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ArtistSection {
+    Albums,
+    /// No page has this section, as EPs are listed with the singles. It is read from old
+    /// queries, which list nothing.
+    Eps,
+    Singles,
+    Compilations,
+    Live,
+    AppearsOn,
+    /// The artist's newest release. Only a streaming service names one: a local library's
+    /// page has none.
+    LatestRelease,
+    /// The albums a streaming service picks as the artist's essential ones. A local library's
+    /// page has none.
+    EssentialAlbums,
+}
+
+impl ArtistSection {
+    pub const ALL: [ArtistSection; 8] = [
+        Self::Albums,
+        Self::Eps,
+        Self::Singles,
+        Self::Compilations,
+        Self::Live,
+        Self::AppearsOn,
+        Self::LatestRelease,
+        Self::EssentialAlbums,
+    ];
+
+    /// The section as the syntax writes it, in lower snake case.
+    pub fn syntax(self) -> &'static str {
+        match self {
+            Self::Albums => "albums",
+            Self::Eps => "eps",
+            Self::Singles => "singles",
+            Self::Compilations => "compilations",
+            Self::Live => "live",
+            Self::AppearsOn => "appears_on",
+            Self::LatestRelease => "latest_release",
+            Self::EssentialAlbums => "essential_albums",
+        }
+    }
+
+    /// Reads a section written in the syntax.
+    pub fn from_syntax(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|section| section.syntax() == text)
+    }
 }
 
 /// The collections a mix clause can point at.
@@ -79,7 +138,7 @@ impl MixTarget {
 pub struct UnknownOperator(pub String);
 
 impl MixOperator {
-    pub const ALL: [MixOperator; 24] = [
+    pub const ALL: [MixOperator; 26] = [
         Self::LibAll,
         Self::LibArtist,
         Self::LibArtistId,
@@ -94,6 +153,8 @@ impl MixOperator {
         Self::LibQueue,
         Self::LibDirectoryDeep,
         Self::LibDirectoryShallow,
+        Self::LibArtistSection,
+        Self::LibArtistTracks,
         Self::SortTrackNumber,
         Self::SortLastModified,
         Self::SortDuration,
@@ -123,6 +184,8 @@ impl MixOperator {
             Self::LibQueue => "lib::queue",
             Self::LibDirectoryDeep => "lib::directory.deep",
             Self::LibDirectoryShallow => "lib::directory.shallow",
+            Self::LibArtistSection => "lib::artist_section",
+            Self::LibArtistTracks => "lib::artist_tracks",
             Self::SortTrackNumber => "sort::track_number",
             Self::SortLastModified => "sort::last_modified",
             Self::SortDuration => "sort::duration",
@@ -154,6 +217,7 @@ impl MixOperator {
             Self::LibPlaylist => ParameterKind::Reference(MixTarget::Playlists),
             Self::LibTrack => ParameterKind::Reference(MixTarget::Tracks),
             Self::LibDirectoryDeep | Self::LibDirectoryShallow => ParameterKind::Directory,
+            Self::LibArtistSection => ParameterKind::ArtistSection,
             Self::LibAll
             | Self::LibQueue
             | Self::SortTrackNumber
@@ -164,6 +228,7 @@ impl MixOperator {
             | Self::FilterLiked
             | Self::FilterWithCoverArt
             | Self::FilterAnalyzed => ParameterKind::Flag,
+            Self::LibArtistTracks => ParameterKind::Reference(MixTarget::Artists),
             Self::LibRandom | Self::PipeRecommend => ParameterKind::Number,
             Self::PipeLimit => ParameterKind::Limit,
         }
@@ -173,6 +238,7 @@ impl MixOperator {
     pub fn target_collection(self) -> Option<MixTarget> {
         match self.parameter_kind() {
             ParameterKind::Reference(collection) => Some(collection),
+            ParameterKind::ArtistSection => Some(MixTarget::Artists),
             _ => None,
         }
     }
@@ -195,6 +261,15 @@ mod tests {
         for (index, name) in names.iter().enumerate() {
             assert!(!names[..index].contains(name), "{name} is written twice");
         }
+    }
+
+    #[test]
+    fn sections_round_trip_through_their_syntax() {
+        for section in ArtistSection::ALL {
+            assert_eq!(ArtistSection::from_syntax(section.syntax()), Some(section));
+        }
+        assert_eq!(ArtistSection::from_syntax("Albums"), None);
+        assert_eq!(ArtistSection::from_syntax("appears-on"), None);
     }
 
     #[test]

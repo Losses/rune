@@ -1312,6 +1312,27 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::Library,
             routing: RequestRouting::OpenLibrary,
         },
+        // Artist
+        RequestResponse {
+            request: "FetchArtistPageRequest".to_string(),
+            response: Some("FetchArtistPageResponse".to_string()),
+            scope: RequestScope::Library,
+            access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: Some(1),
+            receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "FetchArtistSectionAlbumsRequest".to_string(),
+            response: Some("FetchArtistSectionAlbumsResponse".to_string()),
+            scope: RequestScope::Library,
+            access: RequestAccess::ConnectionView,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: Some(1),
+            receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
+        },
         // Directory
         RequestResponse {
             request: "FetchDirectoryTreeRequest".to_string(),

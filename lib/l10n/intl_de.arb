@@ -1808,5 +1808,12 @@
   "fileDialogItems": "Elemente",
   "addingToPlaylist": "Wird zur Wiedergabeliste hinzugefügt",
   "addingToPlaylistPreparing": "Wird vorbereitet",
-  "addingToPlaylistProgress": "{added} von {total}"
+  "addingToPlaylistProgress": "{added} von {total}",
+  "releases": "Veröffentlichungen",
+  "artistSectionCompilations": "Compilations",
+  "artistSectionLive": "Live",
+  "artistSectionAppearsOn": "Erscheint auf",
+  "artistSectionSinglesAndEps": "Singles & EPs",
+  "artistSectionLatestRelease": "Neueste Veröffentlichung",
+  "artistSectionEssentialAlbums": "Essenzielle Alben"
 }

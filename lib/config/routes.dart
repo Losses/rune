@@ -2,6 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/query_list.dart';
 import '../utils/router/query_tracks_parameter.dart';
+import '../utils/router/artist_section_parameter.dart';
+import '../screens/artist/artist_detail.dart';
+import '../screens/artist/artist_section_albums_provider.dart';
 
 import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;
@@ -32,12 +35,32 @@ final Map<String, WidgetBuilder> routes = {
       throw "Invalid router parameters";
     }
 
+    return artistDetailPage(context, arguments);
+  },
+  '/artists/section': (context) {
+    final arguments = getArtistSectionParameter();
+    if (arguments is! ArtistSectionParameter) {
+      throw "Invalid router parameters";
+    }
+
     return query_tracks.QueryTracksPage(
-      queries: QueryList(
-        [("lib::artist", arguments.id.toString())],
-      ),
-      title: arguments.title,
+      queries: arguments.queries,
+      title: null,
       mode: null,
+    );
+  },
+  '/artists/albums': (context) {
+    final arguments = getArtistSectionParameter();
+    if (arguments is! ArtistSectionParameter) {
+      throw "Invalid router parameters";
+    }
+
+    return collections.CollectionPage(
+      collectionType: CollectionType.album,
+      createProvider: () => ArtistSectionAlbumsProvider(
+        queries: arguments.queries,
+        title: arguments.title,
+      ),
     );
   },
   '/albums': (context) => const collections.CollectionPage(

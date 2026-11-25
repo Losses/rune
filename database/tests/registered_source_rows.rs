@@ -373,3 +373,39 @@ async fn adding_a_mix_selection_preserves_unbound_directories_and_clause_groups(
     assert!(executable_queries_on(&db, &id.to_string()).await.is_err());
     Ok(())
 }
+
+#[test]
+fn a_synced_mix_holds_no_list_of_an_artists_page() {
+    let mix_with = |operator: &str, parameter: &str, target: Option<Uuid>| {
+        Some(Payload::Mix(Mix {
+            name: "Mix".into(),
+            group: String::new(),
+            mode: None,
+            scriptlet_mode: false,
+            locked: false,
+            queries: vec![MixClause {
+                id: Uuid::new_v4(),
+                position: 0,
+                operator: operator.into(),
+                parameter: parameter.into(),
+                target_uuid: target,
+                group: 0,
+            }],
+        }))
+    };
+    let validate = |value: Option<Payload>| {
+        RuneModel::validate_revision(
+            &key(Collection::Mixes, Uuid::new_v4()),
+            &value,
+            &p::Revision {
+                counter: 1,
+                actor: Uuid::new_v4(),
+            },
+        )
+    };
+    let artist = Some(Uuid::new_v4());
+    assert!(validate(mix_with("lib::artist", "", artist)).is_ok());
+    assert!(validate(mix_with("lib::artist_tracks", "", artist)).is_err());
+    assert!(validate(mix_with("lib::artist_section", "1:albums", None)).is_err());
+    assert!(validate(mix_with("lib::artist_section", "", artist)).is_err());
+}

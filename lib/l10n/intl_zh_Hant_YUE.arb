@@ -1808,5 +1808,12 @@
   "fileDialogItems": "項目",
   "addingToPlaylist": "加入緊播放列表",
   "addingToPlaylistPreparing": "準備緊",
-  "addingToPlaylistProgress": "{added} / {total}"
+  "addingToPlaylistProgress": "{added} / {total}",
+  "releases": "發行作品",
+  "artistSectionCompilations": "合輯",
+  "artistSectionLive": "現場",
+  "artistSectionAppearsOn": "參與作品",
+  "artistSectionSinglesAndEps": "單曲同 EP",
+  "artistSectionLatestRelease": "最新發行",
+  "artistSectionEssentialAlbums": "必聽專輯"
 }

@@ -29,6 +29,7 @@ fn sample_parameter(operator: MixOperator) -> &'static str {
         ParameterKind::Directory => "/music",
         ParameterKind::Text => "Example",
         ParameterKind::Uuid => "4eb9390a-9065-44e6-bcd0-972f2446f462",
+        ParameterKind::ArtistSection => "3:appears_on",
     }
 }
 
@@ -369,4 +370,27 @@ async fn seeded_random_mix_pages_without_duplicates_or_drops() -> Result<()> {
     assert_eq!(paged.iter().copied().collect::<HashSet<_>>().len(), 150);
     assert_eq!(paged, single_shot);
     Ok(())
+}
+
+#[test]
+fn artist_page_operators_read_their_parameters_whole() {
+    use database::mix_operator::ArtistSection;
+    assert_eq!(
+        QueryOperator::parse("lib::artist_section", "12:eps").unwrap(),
+        QueryOperator::LibArtistSection(12, ArtistSection::Eps)
+    );
+    assert_eq!(
+        QueryOperator::parse("lib::artist_tracks", "12").unwrap(),
+        QueryOperator::LibArtistTracks(12)
+    );
+    for parameter in ["12", "12:", "x:eps", "12:Eps", "12:appears-on"] {
+        assert_eq!(
+            QueryOperator::parse("lib::artist_section", parameter),
+            Err(QueryParseError::InvalidParameter {
+                operator: MixOperator::LibArtistSection,
+                parameter: parameter.into(),
+            }),
+            "{parameter}"
+        );
+    }
 }

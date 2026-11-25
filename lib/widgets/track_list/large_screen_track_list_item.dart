@@ -27,6 +27,12 @@ class LargeScreenTrackListItem extends StatefulWidget {
   final int position;
   final void Function()? reloadData;
 
+  /// Set when the tile lies over something it must hide, such as the title of
+  /// a group it overlaps. The button then sits on the window's solid
+  /// background colour, so its own fill and states look as they do on a plain
+  /// window and nothing shows through.
+  final bool solidBackground;
+
   const LargeScreenTrackListItem({
     super.key,
     required this.index,
@@ -38,6 +44,7 @@ class LargeScreenTrackListItem extends StatefulWidget {
     required this.isAlbumQuery,
     required this.position,
     required this.reloadData,
+    this.solidBackground = false,
   });
 
   @override
@@ -87,8 +94,20 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
         );
       },
       child: Button(
-        style: const ButtonStyle(
-          padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
+        style: ButtonStyle(
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(0)),
+          // The button's own fill in each state, laid over the window's solid
+          // background colour.
+          backgroundColor: widget.solidBackground
+              ? WidgetStateProperty.resolveWith(
+                  (states) => Color.alphaBlend(
+                    ButtonThemeData.buttonColor(context, states),
+                    FluentTheme.of(
+                      context,
+                    ).resources.solidBackgroundFillColorBase,
+                  ),
+                )
+              : null,
         ),
         onPressed: widget.item.canPlay
             ? () async {

@@ -9,6 +9,11 @@ class NavigationItem {
   final List<NavigationItem>? children;
   final List<SingleActivator>? shortcuts;
 
+  /// Tells the item's link in the header's row from the others, and keeps it
+  /// from one page to the next, where [path] cannot: a link to a section of an
+  /// artist has the page's path while its section is shown.
+  final String? linkKey;
+
   NavigationItem(
     this.titleBuilder,
     this.path, {
@@ -17,6 +22,7 @@ class NavigationItem {
     this.children = const [],
     this.zuneOnly = false,
     this.shortcuts,
+    this.linkKey,
   });
 
   @override

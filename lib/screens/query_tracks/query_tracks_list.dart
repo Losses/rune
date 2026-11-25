@@ -20,6 +20,7 @@ import '../../widgets/track_list/large_screen_track_list.dart';
 import '../../widgets/track_list/small_screen_track_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/start_screen/stacked_layout.dart';
 import '../../providers/responsive_providers.dart';
 
 /// Loads one page of a mix query. The production loader is [queryMixTracks].
@@ -55,6 +56,20 @@ class QueryTrackListView extends StatefulWidget {
   /// list without the native hub.
   final PlaylistPageLoader loadPlaylistPage;
 
+  /// The layout to draw the tracks in instead of the one the window size
+  /// picks, for a page that decides on its own.
+  final DeviceType? layout;
+
+  /// Set when the list is the child of a [StartGroupStackedLayout], which
+  /// already pads its child. The large list then adds no padding above or to
+  /// the left of its first column.
+  final bool underTitle;
+
+  /// Drawn as the first item of the small and the band lists, scrolling away
+  /// with the tracks. It stays while the tracks load. The large list has no
+  /// header.
+  final Widget? header;
+
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
@@ -63,6 +78,9 @@ class QueryTrackListView extends StatefulWidget {
     this.contentChanged,
     this.loadMixPage = queryMixTracks,
     this.loadPlaylistPage = fetchPlaylistOccurrences,
+    this.layout,
+    this.underTitle = false,
+    this.header,
   });
 
   @override
@@ -450,7 +468,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     if (_failure != null) {
       return Center(child: Text(requestErrorText(S.of(context), _failure!)));
     }
-    if (!_isInitialized) {
+    if (!_isInitialized && widget.header == null) {
       return const Center(child: ProgressRing());
     }
 
@@ -462,7 +480,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         DeviceType.zune,
         DeviceType.tv,
       ],
-      builder: (context, activeBreakpoint) {
+      builder: (context, detected) {
+        final activeBreakpoint = widget.layout ?? detected;
         if (activeBreakpoint == DeviceType.belt) {
           return BeltContainer(
             child: BandScreenTrackList(
@@ -471,6 +490,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
               queries: widget.queries,
               mode: widget.mode,
               reloadData: _restartListing,
+              header: widget.header,
             ),
           );
         }
@@ -483,6 +503,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             queries: widget.queries,
             mode: widget.mode,
             reloadData: _restartListing,
+            header: widget.header,
           );
         }
 
@@ -493,6 +514,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             queries: widget.queries,
             mode: widget.mode,
             reloadData: _restartListing,
+            header: widget.header,
           );
         }
 
@@ -502,6 +524,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           queries: widget.queries,
           mode: widget.mode,
           reloadData: _restartListing,
+          underTitle: widget.underTitle,
         );
       },
     );

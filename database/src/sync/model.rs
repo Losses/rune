@@ -168,13 +168,20 @@ fn validate_mix_clause(value: &MixClause) -> Result<(), DbErr> {
     use crate::mix_operator::{MixOperator, ParameterKind};
     let operator = MixOperator::from_syntax(&value.operator)
         .map_err(|error| DbErr::Custom(error.to_string()))?;
+    // A mix holds no list of an artist's page, see `actions::mixes`.
+    let artist_page = matches!(
+        operator,
+        MixOperator::LibArtistSection | MixOperator::LibArtistTracks
+    );
     let valid = match operator.parameter_kind() {
+        _ if artist_page => false,
         ParameterKind::Reference(_) => value.target_uuid.is_some() && value.parameter.is_empty(),
         ParameterKind::Directory => value.target_uuid.is_none() && value.parameter.is_empty(),
         ParameterKind::Uuid => {
             value.target_uuid.is_none() && value.parameter.parse::<Uuid>().is_ok()
         }
         ParameterKind::Text => value.target_uuid.is_none() && !value.parameter.trim().is_empty(),
+        ParameterKind::ArtistSection => false,
         ParameterKind::Flag => {
             value.target_uuid.is_none() && matches!(value.parameter.as_str(), "true" | "false")
         }

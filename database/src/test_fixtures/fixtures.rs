@@ -140,3 +140,50 @@ pub async fn initialized_memory(actor: Uuid) -> Result<DatabaseConnection> {
     initialize_db(&db, &actor.to_string()).await?;
     Ok(db)
 }
+
+/// Writes a FLAC file `seconds` long with the Vorbis comments `tags`, given as `(key, value)`.
+/// It holds no audio frames: its length is the one its stream information gives, which the
+/// scanner reads as it reads any FLAC file's.
+pub fn write_tagged_flac(path: &Path, seconds: u32, tags: &[(&str, &str)]) -> Result<()> {
+    const SAMPLE_RATE: u64 = 44_100;
+    fn block(output: &mut Vec<u8>, kind: u8, last: bool, body: &[u8]) -> Result<()> {
+        let length = u32::try_from(body.len())?;
+        anyhow::ensure!(length < 1 << 24, "a FLAC metadata block is too long");
+        output.push(kind | if last { 0x80 } else { 0 });
+        output.extend(&length.to_be_bytes()[1..]);
+        output.extend(body);
+        Ok(())
+    }
+
+    // Stream information: block sizes, unknown frame sizes, then the sample rate, the
+    // channels less one (mono), the bits per sample less one (16 bits) and the total samples
+    // in 64 bits, and an empty checksum.
+    let mut info = Vec::new();
+    info.extend(4096u16.to_be_bytes());
+    info.extend(4096u16.to_be_bytes());
+    info.extend([0; 6]);
+    let samples = SAMPLE_RATE * u64::from(seconds);
+    info.extend(((SAMPLE_RATE << 44) | (15 << 36) | samples).to_be_bytes());
+    info.extend([0; 16]);
+
+    // Vorbis comments keep their lengths in little-endian order.
+    let mut comments = Vec::new();
+    let vendor = b"rune test fixture";
+    comments.extend(u32::try_from(vendor.len())?.to_le_bytes());
+    comments.extend(vendor);
+    comments.extend(u32::try_from(tags.len())?.to_le_bytes());
+    for (key, value) in tags {
+        let comment = format!("{key}={value}");
+        comments.extend(u32::try_from(comment.len())?.to_le_bytes());
+        comments.extend(comment.as_bytes());
+    }
+
+    let mut file = b"fLaC".to_vec();
+    block(&mut file, 0, false, &info)?;
+    block(&mut file, 4, true, &comments)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, file)?;
+    Ok(())
+}

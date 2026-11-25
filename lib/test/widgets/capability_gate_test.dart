@@ -189,6 +189,8 @@ RequestCapabilities snapshot({
     fetchFileDialogThumbnailRequest: capability,
     createFileDialogFolderRequest: capability,
     renameFileDialogEntryRequest: capability,
+    fetchArtistPageRequest: capability,
+    fetchArtistSectionAlbumsRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,
@@ -418,6 +420,71 @@ void main() {
         );
       },
     );
+  });
+
+  group('the artist page', () {
+    const local = LibraryRecordSummary(
+      recordId: 'local-record',
+      alias: 'Music',
+      kind: LibraryRecordKindSummaryLocal(
+        libraryId: 'library-id',
+        path: '/music',
+      ),
+    );
+
+    Future<String> gate(
+      WidgetTester tester, {
+      String? recordId,
+      bool built = true,
+      bool withOpenRecord = true,
+    }) async {
+      final provider = RequestCapabilitiesProvider(
+        changes: const Stream.empty(),
+        initial: snapshot().copyWith(
+          recordId: () => recordId,
+          fetchArtistPageRequest: built
+              ? const RequestCapabilityAvailable()
+              : const RequestCapabilityHidden(),
+        ),
+      );
+      addTearDown(provider.dispose);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<LibraryOpenStateProvider>(
+          create: (_) => _LibraryOpenStateProvider(
+            openRecord: withOpenRecord ? local : null,
+          ),
+          child: capabilityProbe(
+            provider,
+            (context) => 'page: ${canOpenArtistPage(context)}',
+          ),
+        ),
+      );
+      return tester.widget<Text>(find.byType(Text)).data!;
+    }
+
+    testWidgets('is built where the snapshot of the open library says so', (
+      tester,
+    ) async {
+      expect(await gate(tester, recordId: 'local-record'), 'page: true');
+      expect(
+        await gate(tester, recordId: 'local-record', built: false),
+        'page: false',
+      );
+    });
+
+    testWidgets('is not built for a snapshot of another record', (
+      tester,
+    ) async {
+      // This device plays on a renderer whose library builds artist pages.
+      expect(await gate(tester, recordId: 'renderer-record'), 'page: false');
+    });
+
+    testWidgets('is not built without a capability provider', (tester) async {
+      await tester.pumpWidget(
+        capabilityProbe(null, (context) => '${canOpenArtistPage(context)}'),
+      );
+      expect(find.text('false'), findsOneWidget);
+    });
   });
 
   testWidgets('every capability reason has its own text', (tester) async {

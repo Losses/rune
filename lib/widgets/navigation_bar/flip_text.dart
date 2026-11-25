@@ -82,7 +82,7 @@ class FlipTextState extends State<FlipText> {
 
   @override
   void dispose() {
-    _flipAnimation?.unregisterKey(widget.flipKey);
+    _flipAnimation?.unregisterKey(widget.flipKey, _globalKey);
     super.dispose();
   }
 

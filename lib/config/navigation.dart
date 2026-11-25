@@ -42,9 +42,23 @@ final List<NavigationItem> navigationItems = [
             ],
             children: [
               NavigationItem(
+                // Above the pages of its sections the header names the artist,
+                // see headerParent.
                 (context) => S.of(context).artistQuery,
                 '/artists/detail',
                 hidden: true,
+                children: [
+                  NavigationItem(
+                    (context) => S.of(context).artistQuery,
+                    '/artists/section',
+                    hidden: true,
+                  ),
+                  NavigationItem(
+                    (context) => S.of(context).artistQuery,
+                    '/artists/albums',
+                    hidden: true,
+                  ),
+                ],
               ),
             ],
           ),

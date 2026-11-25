@@ -2073,5 +2073,33 @@
         "type": "int"
       }
     }
+  },
+  "releases": "Releases",
+  "@releases": {
+    "description": "The heading above the release tiles of an artist's page."
+  },
+  "artistSectionCompilations": "Compilations",
+  "@artistSectionCompilations": {
+    "description": "The name of the tile on an artist's page that opens the compilations the artist is on."
+  },
+  "artistSectionLive": "Live",
+  "@artistSectionLive": {
+    "description": "The name of the tile on an artist's page that opens the artist's live albums."
+  },
+  "artistSectionAppearsOn": "Appears On",
+  "@artistSectionAppearsOn": {
+    "description": "The name of the tile on an artist's page that opens the releases of other artists the artist appears on."
+  },
+  "artistSectionSinglesAndEps": "Singles & EPs",
+  "@artistSectionSinglesAndEps": {
+    "description": "The name of the tile on an artist's page that opens the artist's singles and EPs together, when the library gives the section no name."
+  },
+  "artistSectionLatestRelease": "Latest Release",
+  "@artistSectionLatestRelease": {
+    "description": "The name of the tile on an artist's page that opens the artist's newest release, when the library gives the section no name."
+  },
+  "artistSectionEssentialAlbums": "Essential Albums",
+  "@artistSectionEssentialAlbums": {
+    "description": "The name of the tile on an artist's page that opens the albums picked as the artist's essential ones, when the library gives the section no name."
   }
 }
