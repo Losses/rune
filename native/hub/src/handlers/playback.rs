@@ -311,6 +311,25 @@ fn edit_playlist(
     )
 }
 
+/// Whether an edit starts playback, mirroring the player's reading of it: an explicit load
+/// that plays, or a PlayNext insertion with no load on a player that has nothing current,
+/// which the player starts on its own. The ownership the edit's initiator takes over the
+/// playback it starts depends on this answer, so the idle case must not read as idle editing:
+/// the player checks its cursor, nothing current or stopped, and the status here exposes both.
+fn edit_starts_playback(player: &dyn Playable, edit: &PlaylistEdit) -> bool {
+    if edit.load.as_ref().is_some_and(|load| load.play) {
+        return true;
+    }
+    if edit.load.is_some()
+        || edit.tracks.is_empty()
+        || edit.placement != PlaylistPlacement::PlayNext
+    {
+        return false;
+    }
+    let status = player.get_status();
+    status.state == PlayerPlaybackState::Stopped || status.index.is_none()
+}
+
 /// Convert many items to requests, acquiring each library and querying it once.
 pub async fn playing_item_requests(
     items: &[PlayingItem],
@@ -1096,7 +1115,7 @@ impl Signal for LoadResolvedItemsRequest {
                                     play: request.play,
                                 },
                             );
-                            let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                            let starts_playback = edit_starts_playback(player, &edit);
                             let completion =
                                 Some(player.command_with_completion(PlayerCommand::EditPlaylist(
                                     edit, None,
@@ -1224,7 +1243,7 @@ impl Signal for LoadResolvedItemsRequest {
                                 play: request.play,
                             },
                         );
-                        let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                        let starts_playback = edit_starts_playback(player, &edit);
                         let completion = Some(
                             player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                         );
@@ -1526,7 +1545,7 @@ async fn apply_resolved_items_load(
                             play: request.play,
                         },
                     );
-                    let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                    let starts_playback = edit_starts_playback(player, &edit);
                     let completion = Some(
                         player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                     );

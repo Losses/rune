@@ -3675,7 +3675,7 @@ mod lifecycle_tests {
             "the paired controller must control the player before the load"
         );
         let revoke_fingerprint = fingerprint.clone();
-        session
+        let edit_result = session
             .edit_queue_with_load(None, Some(peer), move |player| {
                 let completion = Some(player.command_with_completion(
                     playback::PlayerCommand::EditPlaylist(
@@ -3702,29 +3702,32 @@ mod lifecycle_tests {
                     .expect("revoking the controller mid-load");
                 (true, true, completion)
             })
-            .await?;
-        assert_eq!(
-            session.playback_owner_for_test().await,
-            None,
-            "the revoked controller must not own the playback its in-flight load started"
-        );
-        // The pause goes out behind the load's commands and its completion is awaited before
-        // the edit answers, so playback may never come up playing; a track that was still
-        // loading comes up paused instead.
-        wait_until("in-flight revoked playback to pause", || async {
-            let status = player.global_params.player.lock().await.get_status();
-            Ok(matches!(
-                status.state,
-                PlayerPlaybackState::Paused | PlayerPlaybackState::Stopped
-            )
-            .then_some(()))
-        })
+            .await;
+        // Which answer the edit gets depends on where the revocation pass lands: a pause that
+        // arrives while the track still loads supersedes the play-through completion, one that
+        // arrives after it came up does not. Anything but those two answers is a failure.
+        if let Err(error) = &edit_result {
+            assert!(
+                format!("{error:?}").contains("superseded"),
+                "the edit may only fail superseded by the revocation pause, got: {error:?}"
+            );
+        }
+        // Whichever side the pause landed on, the playback the revoked controller's load
+        // started settles paused on the track the load put up — never playing, and never the
+        // interrupted playback from before it — and the revoked controller owns nothing.
+        wait_until(
+            "in-flight revoked playback to pause on the loaded track",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok(
+                    (status.state == PlayerPlaybackState::Paused && status.index == Some(0))
+                        .then_some(()),
+                )
+            },
+        )
         .await?;
-        // The revocation pass sees no owner afterwards either: the pause already acted, and
-        // nothing pauses twice or after the device resumes on its own.
-        wait_until("the revoked playback to stay stopped", || async {
-            let status = player.global_params.player.lock().await.get_status();
-            Ok((status.state != PlayerPlaybackState::Playing).then_some(()))
+        wait_until("the revoked controller to own nothing", || async {
+            Ok((session.playback_owner_for_test().await.is_none()).then_some(()))
         })
         .await?;
         player.global_params.node.token.cancel();
