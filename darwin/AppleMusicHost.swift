@@ -36,6 +36,8 @@ final class AppleMusicHost {
   /// The pending or running report of the network, and the last one sent.
   private var reachTask: Task<Void, Never>?
   private var lastReach: String?
+  /// Whether the last report sent said that the device is offline.
+  private var reportedOffline = false
 
   private init() {}
 
@@ -214,7 +216,9 @@ final class AppleMusicHost {
 
   /// Reports whether the device is online to the hub, and while it is offline, which library
   /// songs are stored on it, after `delay` nanoseconds. A report that is still waiting is
-  /// replaced. While offline the report repeats, and is only sent again when it changed.
+  /// replaced. While offline the report repeats, and is only sent again when it changed. When
+  /// the stored songs cannot be read, the report says only that the device is offline, unless
+  /// a repeat finds that said already.
   private func reportReach(after delay: UInt64, onlyIfChanged: Bool = false) {
     reachTask?.cancel()
     reachTask = Task { [weak self] in
@@ -228,7 +232,7 @@ final class AppleMusicHost {
         // A read that failed is tried again later rather than taken for an empty library.
         if let downloaded = await Self.downloadedSongIDs() {
           event["downloaded"] = downloaded
-        } else {
+        } else if onlyIfChanged, self?.reportedOffline == true {
           self?.reportReach(after: Self.offlineRefresh, onlyIfChanged: true)
           return
         }
@@ -237,6 +241,7 @@ final class AppleMusicHost {
       let json = encode(event)
       if !(onlyIfChanged && json == self.lastReach) {
         self.lastReach = json
+        self.reportedOffline = !online
         self.channel?.invokeMethod("event", arguments: json)
       }
       if !online {

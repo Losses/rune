@@ -61,9 +61,9 @@ enum ReachabilityEvent {
         host: String,
         online: bool,
         /// The ids of the tracks stored on this device, as the library names them. Only given
-        /// while offline.
+        /// while offline, and not when the host could not read them.
         #[serde(default)]
-        downloaded: Vec<String>,
+        downloaded: Option<Vec<String>>,
     },
 }
 
@@ -74,10 +74,10 @@ fn reachability(payload: &str) -> Option<(String, Reach)> {
         online,
         downloaded,
     } = serde_json::from_str(payload).ok()?;
-    let reach = if online {
-        Reach::default()
-    } else {
-        Reach::offline(downloaded.into_iter().collect())
+    let reach = match downloaded {
+        _ if online => Reach::default(),
+        Some(downloaded) => Reach::offline(downloaded.into_iter().collect()),
+        None => Reach::offline_unread(),
     };
     Some((host, reach))
 }
@@ -136,8 +136,15 @@ mod tests {
             ))
         );
         assert_eq!(
-            reachability(r#"{"type":"networkState","host":"platformHost","online":false}"#),
+            reachability(
+                r#"{"type":"networkState","host":"platformHost","online":false,"downloaded":[]}"#
+            ),
             Some(("platformHost".to_owned(), Reach::offline(HashSet::new())))
+        );
+        // Offline without them, the host could not read them, which is not none.
+        assert_eq!(
+            reachability(r#"{"type":"networkState","host":"platformHost","online":false}"#),
+            Some(("platformHost".to_owned(), Reach::offline_unread()))
         );
         assert_eq!(
             reachability(

@@ -8,8 +8,9 @@ use crate::messages::AudioAvailability;
 /// What the platform host reported of this device's network. Online until it says otherwise.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Reach {
-    /// The ids of the tracks stored on this device, as the library that holds them names
-    /// them; none while the device is online.
+    offline: bool,
+    /// While the device is offline, the ids of the tracks stored on it, as the library that
+    /// holds them names them; none while it is online, or when the host could not read them.
     stored: Option<HashSet<String>>,
 }
 
@@ -17,13 +18,23 @@ impl Reach {
     /// The device is offline, and `stored` are the ids of the tracks it holds.
     pub(crate) fn offline(stored: HashSet<String>) -> Self {
         Self {
+            offline: true,
             stored: Some(stored),
+        }
+    }
+
+    /// The device is offline, and the host could not read which tracks it holds, which is not
+    /// taken for none: no track is marked as one it lacks.
+    pub(crate) fn offline_unread() -> Self {
+        Self {
+            offline: true,
+            stored: None,
         }
     }
 
     /// Whether the device is online.
     pub(crate) fn is_online(&self) -> bool {
-        self.stored.is_none()
+        !self.offline
     }
 
     /// Whether a track plays now. `follows` is what its library declares (see
@@ -64,6 +75,18 @@ mod tests {
             Reach::default().availability(true, None),
             AudioAvailability::RemoteOnly
         );
+    }
+
+    #[test]
+    fn offline_tracks_the_host_could_not_read_are_not_taken_for_none() {
+        let offline = Reach::offline_unread();
+        assert!(!offline.is_online());
+        assert_eq!(
+            offline.availability(true, Some("a")),
+            AudioAvailability::RemoteOnly
+        );
+        assert_ne!(offline, Reach::offline(HashSet::new()));
+        assert_ne!(offline, Reach::default());
     }
 
     #[test]
