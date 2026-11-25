@@ -23,6 +23,8 @@ mod api;
 mod client;
 mod error;
 pub mod models;
+#[cfg(feature = "test-fixtures")]
+pub mod test_fixtures;
 mod tokens;
 
 pub use client::{AppleMusicClient, ClientBuilder, DEFAULT_BASE_URL, RetryPolicy};
