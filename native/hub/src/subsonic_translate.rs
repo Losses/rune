@@ -2039,6 +2039,8 @@ pub(crate) async fn mix_query_request(
     let planned = mixes::plan(&request.queries, MixQueryRequest::wire_name())?;
     let cover_only = planned.cover_only;
     let cover_wall = matches!(planned.plan, Plan::Random(_));
+    // The cover filter of every song pages through the kept song list.
+    let from_kept_list = cover_only && matches!(planned.plan, Plan::All);
     let cursor = usize::try_from(request.cursor.max(0)).unwrap_or(usize::MAX);
     let page_size = usize::try_from(request.page_size.max(0)).unwrap_or(usize::MAX);
     // Songs without a cover are dropped before the page is cut, so a page of a cover filter is
@@ -2115,7 +2117,11 @@ pub(crate) async fn mix_query_request(
                 .is_some_and(|cover| cached.contains(cover))
         });
     }
-    let (mut files, covers) = translate_songs(binding, &songs)?;
+    let (mut files, covers) = if from_kept_list {
+        translate_kept_songs(binding, &songs)?
+    } else {
+        translate_songs(binding, &songs)?
+    };
     let cover_art_map = if cover_wall {
         // A batch larger than the cache can evict a cover cached above before the map is built.
         // The wall reads its covers once, so a track whose cover is gone is left out, and the
@@ -2242,6 +2248,34 @@ fn translate_songs(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Result<
             .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
             .transpose()?;
         files.push(subsonic_media_file(binding, id, cover_art_id, song));
+        covers.extend(song.cover_art.clone().map(|cover| (id, cover)));
+    }
+    Ok((files, covers))
+}
+
+/// Numbers songs of a kept list and builds their wire form from what the catalog holds of them,
+/// which a read since the list's may have brought up to date. The catalog takes only the songs it
+/// did not hold, so a kept list never writes an older copy over a newer one.
+fn translate_kept_songs(binding: &SubsonicBinding, songs: &[SubsonicSong]) -> Result<WireSongs> {
+    let mut catalog = binding
+        .catalog
+        .lock()
+        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+    let mut files = Vec::with_capacity(songs.len());
+    let mut covers = Vec::new();
+    for song in songs {
+        let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+        let song = catalog
+            .songs
+            .entry(id)
+            .or_insert_with(|| song.clone())
+            .clone();
+        let cover_art_id = song
+            .cover_art
+            .as_deref()
+            .map(|cover| catalog.ids.intern(SubsonicIdKind::CoverArt, cover))
+            .transpose()?;
+        files.push(subsonic_media_file(binding, id, cover_art_id, &song));
         covers.extend(song.cover_art.clone().map(|cover| (id, cover)));
     }
     Ok((files, covers))
@@ -2477,21 +2511,30 @@ impl HomeSource for SubsonicBinding {
     fn tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
         Box::pin(async move {
             // The first songs of the kept song list, else as many as the home shows.
-            let songs = match self.lists.songs.kept(Instant::now()).await {
-                Some(songs) => {
-                    let catalog = self
-                        .catalog
-                        .lock()
-                        .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-                    songs
-                        .iter()
-                        .take(limit)
-                        .map(|song| held_song(&catalog, song).clone())
-                        .collect()
-                }
-                None => tracks_page_songs(self, limit, ComplexQueryRequest::wire_name()).await?,
+            let Some(songs) = self.lists.songs.kept(Instant::now()).await else {
+                let songs =
+                    tracks_page_songs(self, limit, ComplexQueryRequest::wire_name()).await?;
+                return song_tracks(self, songs);
             };
-            song_tracks(self, songs)
+            // As the catalog holds them, under one lock, and only the songs it did not hold go
+            // into it, so a kept list never writes an older copy over a newer one.
+            let mut catalog = self
+                .catalog
+                .lock()
+                .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            songs
+                .iter()
+                .take(limit)
+                .map(|song| {
+                    let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+                    let held = catalog.songs.entry(id).or_insert_with(|| song.clone());
+                    Ok(HomeTrack {
+                        remote: held.id.clone(),
+                        name: held.title.clone(),
+                        cover: held.cover_art.clone(),
+                    })
+                })
+                .collect()
         })
     }
 
