@@ -24,7 +24,7 @@ use crate::apple_music_binding::{
     MixRef, PlaylistRef, SongRef, catalog_track, cover_url, is_library_song, is_library_song_id,
     song_of_track,
 };
-use crate::apple_music_held::is_rune_album;
+use crate::apple_music_held::{self, is_rune_album};
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist,
@@ -163,6 +163,22 @@ async fn entries(
             let named = binding.named_artists().await?;
             for artist in named.iter() {
                 add(&artist.remote(), &artist.name, artist.artwork.as_ref())?;
+            }
+            // A catalog artist a Rune mix names that the list does not hold, by its catalog
+            // artist or by its name, is listed by the id the catalog gives it, so it opens the
+            // catalog's page, as from a search: the library holds none of its songs yet. Once
+            // they are read, they credit it, and the list holds it with its library page.
+            for artist in apple_music_held::held(binding).await.artists() {
+                let listed = named.get(&catalog_artist_remote(&artist.id)).is_some()
+                    || named_artist_remote(&artist.name)
+                        .is_some_and(|remote| named.get(&remote).is_some());
+                if !listed {
+                    add(
+                        &format!("{CATALOG_PREFIX}{}", artist.id),
+                        &artist.name,
+                        None,
+                    )?;
+                }
             }
         }
         AppleIdKind::RunePlaylist => {

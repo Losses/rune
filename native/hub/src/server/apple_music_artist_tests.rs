@@ -8,7 +8,7 @@ use crate::apple_music_classes::{AlbumFacts, ArtistViews, Classes, VIEWS_TTL};
 use crate::apple_music_translate::artist_page::classify_in_background;
 use crate::messages::{
     ArtistSectionKind, ArtistSectionOpens, FetchArtistPageRequest, FetchArtistPageResponse,
-    FetchArtistSectionAlbumsRequest, SearchField, SearchForRequest,
+    FetchArtistSectionAlbumsRequest, RemoveMixRequest, SearchField, SearchForRequest,
 };
 
 /// The id a catalog artist found by search is numbered by: "Viewed Artist" of the fake.
@@ -1928,5 +1928,217 @@ async fn a_song_a_rune_playlist_holds_is_on_its_artists_library_page_where_its_a
     // The song is among the artist's tracks.
     let tracks = artist_track_keys(&apple, artist).await?;
     assert!(tracks.contains(&"catalog:8001".to_owned()), "{tracks:?}");
+    apple.finish().await
+}
+
+// The catalog artists Rune's mixes name ------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_artist_only_a_rune_mix_names_is_listed_and_opens_its_catalog_page() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let viewed = viewed_artist(&apple)?;
+    let made = create_mix(&apple, "Viewed", vec![query("lib::artist", viewed)]).await?;
+
+    // The catalog lists no album of it, so the library holds none of its songs: it joins the
+    // Artists page by the id the catalog gives it.
+    let listed = wait_until("the artist to be listed", || async {
+        let listed = all_artists(&apple).await?;
+        Ok(names(&listed).contains(&"Viewed Artist").then_some(listed))
+    })
+    .await?;
+    assert_eq!(
+        names(&listed),
+        ["Artist One", "Artist Two", "Viewed Artist"]
+    );
+    assert_eq!(artist_named(&listed, "Viewed Artist")?, viewed);
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Night Album"]
+    );
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+
+    // Its page is the catalog's, as a search opens it, not an empty page of the library.
+    let page = apple.run(&artist_page_in(viewed, "en")).await?;
+    assert_eq!(
+        page.sections
+            .iter()
+            .map(|section| section.kind)
+            .collect::<Vec<_>>(),
+        [
+            ArtistSectionKind::Albums,
+            ArtistSectionKind::LatestRelease,
+            ArtistSectionKind::Singles,
+            ArtistSectionKind::EssentialAlbums,
+            ArtistSectionKind::AppearsOn
+        ]
+    );
+    assert!(!page.tracks.is_empty());
+
+    // Once no mix names it, it is not listed.
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        names(&all_artists(&apple).await?),
+        ["Artist One", "Artist Two"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_artist_in_a_rune_mix_brings_the_songs_of_its_albums_once() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            twin: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let artist = artist_named(&all_artists(&apple).await?, "Twin Artist")?;
+    assert_eq!(
+        apple.binding.resolve(AppleIdKind::Artist, artist)?,
+        "artist:330"
+    );
+    assert_eq!(artist_track_keys(&apple, artist).await?, ["i.t1"]);
+
+    // The mix plays the songs of the artist's two albums, and the library holds them.
+    let catalog = apple.binding.intern(AppleIdKind::Artist, "catalog:330")?;
+    let made = create_mix(&apple, "Twin", vec![query("lib::artist", catalog)]).await?;
+    assert_eq!(
+        mix_titles(&apple, stored_queries(&apple, made.id).await?).await?,
+        ["Early One", "Early Two", "Twin One", "Late Two"]
+    );
+    let first = album_listed(&apple, "Twin First").await?;
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Night Album", "Twin First", "Twin Second"]
+    );
+    assert_eq!(
+        album_titles(&apple, first).await?,
+        ["Early One", "Early Two"]
+    );
+    // The album the library holds one song of holds the others too, the library's copy once.
+    let second = apple.binding.intern(AppleIdKind::Album, "l.twin")?;
+    assert_eq!(
+        album_titles(&apple, second).await?,
+        ["Twin One", "Late Two"]
+    );
+    let (titles, count) = all_tracks(&apple).await?;
+    assert_eq!(count, 7);
+    assert_eq!(
+        titles.iter().filter(|title| *title == "Twin One").count(),
+        1
+    );
+    // The artist's albums were listed to the end of the list, and their songs read together,
+    // once.
+    assert_eq!(apple.fake.count("/v1/catalog/it/artists/330/albums"), 2);
+    assert_eq!(
+        apple
+            .fake
+            .count_containing("/v1/catalog/it/artists/330/albums?offset=1"),
+        1
+    );
+    assert_eq!(apple.fake.count_containing("include=artists,tracks"), 1);
+    assert_eq!(apple.fake.count("/v1/catalog/it/albums/"), 0);
+
+    // The artist keeps its library page, with both albums in their section and every song once.
+    wait_synced(&apple, &["1950", "1951"]).await?;
+    wait_until("the albums to be on the page", || async {
+        let page = apple.run(&artist_page_request(artist)).await?;
+        Ok((section_counts(&page) == [(ArtistSectionKind::Albums, 2)]).then_some(()))
+    })
+    .await?;
+    let mut albums = section_albums(&apple, artist, "albums", 0, 10).await?;
+    albums.sort_unstable();
+    let mut wanted = vec![first, second];
+    wanted.sort_unstable();
+    assert_eq!(albums, wanted);
+    assert_eq!(
+        artist_track_keys(&apple, artist).await?,
+        ["catalog:9501", "catalog:9502", "catalog:9511", "i.t1"]
+    );
+
+    // Once no mix names it, the library holds only its own song.
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Night Album", "Twin Second"]
+    );
+    assert_eq!(album_titles(&apple, second).await?, ["Twin One"]);
+    assert_eq!(artist_track_keys(&apple, artist).await?, ["i.t1"]);
+    assert_eq!(all_tracks(&apple).await?.1, 4);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_artist_a_mix_names_brings_its_new_releases_once_a_day_has_passed() -> Result<()> {
+    use crate::apple_music_held::ARTIST_SONGS_AGE;
+
+    let dir = tempfile::tempdir()?;
+    let heard = Arc::new(Heard::default());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            twin: true,
+            heard: Some(heard.clone()),
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let artist = artist_named(&all_artists(&apple).await?, "Twin Artist")?;
+    let catalog = apple.binding.intern(AppleIdKind::Artist, "catalog:330")?;
+    let made = create_mix(&apple, "Twin", vec![query("lib::artist", catalog)]).await?;
+    album_listed(&apple, "Twin First").await?;
+    assert_eq!(all_tracks(&apple).await?.1, 7);
+
+    // Apple lists a new release. Within a day, the library keeps what it read.
+    apple.fake.twin_new_album.store(true, Ordering::SeqCst);
+    let told = told_settled(&heard).await;
+    all_albums(&apple).await?;
+    assert_eq!(told_settled(&heard).await, told);
+    assert!(!names(&all_albums(&apple).await?).contains(&"Twin Third"));
+
+    // A day later, the artist is read again: the release comes in, and the pages are told.
+    apple.clock.advance(ARTIST_SONGS_AGE);
+    all_albums(&apple).await?;
+    let third = album_listed(&apple, "Twin Third").await?;
+    told_after(&heard, told).await?;
+    assert_eq!(album_titles(&apple, third).await?, ["New One"]);
+    assert_eq!(all_tracks(&apple).await?.1, 8);
+    assert_eq!(
+        artist_track_keys(&apple, artist).await?,
+        [
+            "catalog:9501",
+            "catalog:9502",
+            "catalog:9511",
+            "catalog:9521",
+            "i.t1"
+        ]
+    );
+
+    // Once no mix names it, the library holds only its own song.
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Night Album", "Twin Second"]
+    );
+    assert_eq!(artist_track_keys(&apple, artist).await?, ["i.t1"]);
     apple.finish().await
 }
