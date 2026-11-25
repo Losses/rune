@@ -1752,7 +1752,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         password: request.password.clone(),
     };
     let client = SubsonicClient::new(endpoint, replacement, http);
-    match timeout(Duration::from_secs(5), client.probe()).await {
+    let probe = match timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
             return Err(credential_failure(Kind::SubsonicUnreachable));
@@ -1765,8 +1765,8 @@ pub(crate) async fn replace_subsonic_credential_on_node(
             ..
         })) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
         Ok(Err(_)) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
-        Ok(Ok(_)) => {}
-    }
+        Ok(Ok(probe)) => probe,
+    };
     {
         let _commit = node.subsonic_credential_commit.lock().await;
         let verified = Credential {
@@ -1783,21 +1783,22 @@ pub(crate) async fn replace_subsonic_credential_on_node(
             .replace(*credential, &verified)
             .await
             .map_err(|_| credential_failure(Kind::Storage))?;
+        let config_dir = Path::new(&*node.config_path);
+        let library_id = record.catalog_library_id().unwrap_or(record_id.0);
         match node.service_binding(record_id.0)? {
             Some(binding) => binding.renew_sign_in(&verified),
             // Another username is another account, whose lists the closed library's kept ones
             // are not. They are never given to it, so a deletion that fails leaves only files
             // nothing reads.
             None if previous.is_some_and(|previous| previous != verified.username) => {
-                let library_id = record.catalog_library_id().unwrap_or(record_id.0);
-                if let Err(error) =
-                    delete_kept_lists(Path::new(&*node.config_path), library_id).await
-                {
+                if let Err(error) = delete_kept_lists(config_dir, library_id).await {
                     log::warn!("Could not delete the lists of another account: {error}");
                 }
             }
             None => {}
         }
+        // The library opens next time with the roles the server gives the new sign-in.
+        SubsonicBinding::keep_verified_probe(config_dir, library_id, &verified.username, probe);
     }
     if let Err(error) = publish_library_records_changed(node).await {
         log::warn!("Could not publish library record change: {error:#}");

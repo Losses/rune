@@ -2042,7 +2042,7 @@ async fn a_subsonic_library_whose_sign_in_was_rejected_opens_with_its_lists_and_
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_subsonic_library_opened_from_what_it_kept_takes_the_probe_its_server_gives() -> Result<()>
 {
-    use crate::messages::{PlayRequest, ReplaceSubsonicCredentialRequest};
+    use crate::messages::PlayRequest;
     use crate::rpc::TargetRequest;
     use crate::subsonic_binding::SubsonicBinding;
 
@@ -2063,18 +2063,8 @@ async fn a_subsonic_library_opened_from_what_it_kept_takes_the_probe_its_server_
     kept_on_disk(&node, record_id.0, &["probe"]).await?;
     node.close_ui(&ui.main_token).await;
 
-    // The account gets another password, and the server gives it the jukebox role.
-    state.rotated.store(true, Ordering::SeqCst);
-    replace_subsonic_credential_on_node(
-        &ReplaceSubsonicCredentialRequest {
-            record_id: record_id.0.to_string(),
-            username: "alice".into(),
-            password: "new-password".into(),
-            call_id: None,
-        },
-        &node,
-    )
-    .await?;
+    // The server gives the account the jukebox role.
+    state.jukebox.store(true, Ordering::SeqCst);
     open_registered_here(&node, record_id.0).await?;
     let ui = node.current_ui().await?;
     wait_until("the probe the server gives", || async {
@@ -2151,6 +2141,50 @@ async fn a_subsonic_jukebox_is_followed_once_the_server_check_grants_its_role() 
 
     server.abort();
     node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A closed Subsonic library signed in again keeps the probe that sign-in was verified with, so
+/// it opens next time with the roles the server gives the account now.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_sign_in_keeps_the_probe_it_was_verified_with() -> Result<()> {
+    use crate::messages::ReplaceSubsonicCredentialRequest;
+    use crate::subsonic_binding::SubsonicBinding;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    let (record_id, _) = register_relogin_record(&node, endpoint).await?;
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    kept_on_disk(&node, record_id.0, &["probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+    let jukebox_kept = || {
+        SubsonicBinding::kept_probe(Path::new(&*node.config_path), record_id.0, "alice")
+            .is_some_and(|probe| probe.roles.jukebox_role)
+    };
+    assert!(!jukebox_kept());
+
+    // The account gets another password, with which the server gives it the jukebox role.
+    state.rotated.store(true, Ordering::SeqCst);
+    replace_subsonic_credential_on_node(
+        &ReplaceSubsonicCredentialRequest {
+            record_id: record_id.0.to_string(),
+            username: "alice".into(),
+            password: "new-password".into(),
+            call_id: None,
+        },
+        &node,
+    )
+    .await?;
+    wait_until("the verified probe kept", || async {
+        Ok(jukebox_kept().then_some(()))
+    })
+    .await?;
+
+    server.abort();
     node.shutdown().await?;
     Ok(())
 }

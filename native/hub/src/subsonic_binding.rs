@@ -11,7 +11,7 @@ use crate::{
         covers::{CoverSource, ServiceCoverCache, cover_cache_root},
         folder::prepare_service_library_folder,
         ids::RemoteIdMap,
-        lists::{KeptList, ListSpec, ServiceLists, kept_value, lists_folder},
+        lists::{KeptList, ListSpec, ServiceLists, keep_value, kept_value, lists_folder},
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
@@ -623,6 +623,17 @@ impl SubsonicBinding {
         user: &str,
     ) -> Option<SubsonicProbe> {
         kept_value(config_dir, library_id, Some(user), PROBE)
+    }
+
+    /// Keeps `probe`, what the check of a new sign-in to the server of the library `library_id` as
+    /// `user` found, so the library opens with it next time.
+    pub(crate) fn keep_verified_probe(
+        config_dir: &Path,
+        library_id: Uuid,
+        user: &str,
+        probe: SubsonicProbe,
+    ) {
+        keep_value(config_dir, library_id, Some(user), PROBE, probe);
     }
 
     /// What the last check of the server found: the roles of the account and what the server

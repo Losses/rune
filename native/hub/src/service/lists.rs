@@ -72,6 +72,19 @@ pub(crate) fn kept_value<T: DeserializeOwned>(
     ListStore::new(lists_folder(config_dir, library_id), account).load(name)
 }
 
+/// Keeps `value` beside the lists of the service library `library_id` as `name` for `account`,
+/// soon, such as what a check of a new sign-in found while the library is closed.
+pub(crate) fn keep_value<T: Serialize + Send + Sync + 'static>(
+    config_dir: &Path,
+    library_id: Uuid,
+    account: Option<&str>,
+    name: &str,
+    value: T,
+) {
+    let store = ListStore::new(lists_folder(config_dir, library_id), account);
+    store.save(store.generation(), name, Arc::new(value));
+}
+
 /// A list a binding keeps: the name of its file, and how long it stays current once read.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ListSpec {
