@@ -3513,7 +3513,7 @@ mod lifecycle_tests {
                     fingerprint: fingerprint.clone(),
                     public_key: String::new(),
                 }),
-                |_player| (false, true),
+                |_player| (false, true, None),
             )
             .await?;
         wait_until("the recorded owner to reach the session store", || async {
@@ -3537,6 +3537,101 @@ mod lifecycle_tests {
         .context("releasing the owner did not persist before a clean shutdown")?;
         player.global_params.node.token.cancel();
         controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// A load whose explicit `EditPlaylist` completion fails hands the ownership back to the
+    /// playback it interrupted: the owner is written before the load's commands go out, and
+    /// only the command's own failure — not only the player thread's — may roll it back.
+    /// Here the second controller's load asks for an index beyond the playlist it just
+    /// replaced, so the player thread answers the command with `CannotApply` for certain.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_load_hands_playback_ownership_back() -> Result<()> {
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement};
+
+        let player_dir = tempfile::tempdir()?;
+        let first_dir = tempfile::tempdir()?;
+        let second_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let first = fixture(first_dir.path()).await?;
+        let second = fixture(second_dir.path()).await?;
+        let first_fingerprint = info(&first).await?.fingerprint;
+        let second_fingerprint = info(&second).await?.fingerprint;
+        paired_full(&player, &first).await?;
+        // The player's server is already running, so the second controller is only granted
+        // access both ways instead of pairing through the server start.
+        pair(&player, &second).await?;
+        pair(&second, &player).await?;
+        let session = player.global_params.node.session()?;
+        let owner_of = |fingerprint: &str| {
+            Some(PeerIdentity {
+                fingerprint: fingerprint.to_owned(),
+                public_key: String::new(),
+            })
+        };
+        // The first controller owns the playback.
+        session
+            .edit_queue_with_load(None, owner_of(&first_fingerprint), |_player| {
+                (false, true, None)
+            })
+            .await?;
+        assert_eq!(
+            session
+                .playback_owner_for_test()
+                .await
+                .map(|owner| owner.fingerprint),
+            Some(first_fingerprint.clone())
+        );
+        // The second controller's load goes out and fails its own completion: the track list
+        // is replaced with one entry while the load asks for index 99.
+        let error = session
+            .edit_queue_with_load(None, owner_of(&second_fingerprint), |player| {
+                let completion = Some(player.command_with_completion(
+                    playback::PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: vec![(
+                                PlayingItem::IndependentFile("missing-load-track.ogg".into()),
+                                playback::player::PlaybackSource::Local(
+                                    "missing-load-track.ogg".into(),
+                                ),
+                            )],
+                            placement: PlaylistPlacement::Replace,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 99,
+                                position: Duration::ZERO,
+                                play: true,
+                            }),
+                            block: None,
+                        },
+                        None,
+                    ),
+                ));
+                (true, true, completion)
+            })
+            .await
+            .expect_err("a load past the end of the playlist cannot apply");
+        assert!(
+            error.chain().any(
+                |cause| cause.downcast_ref::<ExpectedRequestError>().is_some_and(
+                    |expected| matches!(expected, ExpectedRequestError::PlayerCommandCannotApply)
+                )
+            ),
+            "the failing load should surface the player command error: {error:?}"
+        );
+        // The ownership is the first controller's again, not the failed load's.
+        assert_eq!(
+            session
+                .playback_owner_for_test()
+                .await
+                .map(|owner| owner.fingerprint),
+            Some(first_fingerprint.clone()),
+            "the failed load must hand the ownership back"
+        );
+        player.global_params.node.token.cancel();
+        first.global_params.node.token.cancel();
+        second.global_params.node.token.cancel();
         Ok(())
     }
 

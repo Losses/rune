@@ -1078,7 +1078,6 @@ impl Signal for LoadResolvedItemsRequest {
                     .map_err(|error| {
                         ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
                     })?;
-                let mut completion = None;
                 node.session()?
                     .edit_queue_with_load(
                         request.expected_revision,
@@ -1098,19 +1097,14 @@ impl Signal for LoadResolvedItemsRequest {
                                 },
                             );
                             let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                            completion =
+                            let completion =
                                 Some(player.command_with_completion(PlayerCommand::EditPlaylist(
                                     edit, None,
                                 )));
-                            (changed, starts_playback)
+                            (changed, starts_playback, completion)
                         },
                     )
                     .await?;
-                if let Some(completion) = completion {
-                    completion
-                        .await
-                        .map_err(|error| Error::new(player_command_error(error)))?;
-                }
                 return Ok(Some(LoadResolvedItemsResponse {
                     call_id: None,
                     result: ResolvedItemsLoadResult::default(),
@@ -1214,7 +1208,6 @@ impl Signal for LoadResolvedItemsRequest {
                         "Invalid playback position: expected a finite, non-negative number of seconds",
                     )
                 })?;
-            let mut completion = None;
             node.session()?
                 .edit_queue_with_load(
                     request.expected_revision,
@@ -1232,18 +1225,13 @@ impl Signal for LoadResolvedItemsRequest {
                             },
                         );
                         let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                        completion = Some(
+                        let completion = Some(
                             player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                         );
-                        (changed, starts_playback)
+                        (changed, starts_playback, completion)
                     },
                 )
                 .await?;
-            if let Some(completion) = completion {
-                completion
-                    .await
-                    .map_err(|error| Error::new(player_command_error(error)))?;
-            }
         }
         Ok(Some(LoadResolvedItemsResponse {
             call_id: None,
@@ -1522,7 +1510,6 @@ async fn apply_resolved_items_load(
             })
             .await?;
     } else {
-        let mut completion = None;
         node.session()?
             .edit_queue_with_load(
                 request.expected_revision,
@@ -1540,18 +1527,13 @@ async fn apply_resolved_items_load(
                         },
                     );
                     let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                    completion = Some(
+                    let completion = Some(
                         player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                     );
-                    (changed, starts_playback)
+                    (changed, starts_playback, completion)
                 },
             )
             .await?;
-        if let Some(completion) = completion {
-            completion
-                .await
-                .map_err(|error| Error::new(player_command_error(error)))?;
-        }
     }
     Ok((result, handoff_item))
 }
