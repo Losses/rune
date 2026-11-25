@@ -13,8 +13,7 @@
 //! staging only starts at a frame boundary, so the consumer always sees aligned interleaved frames.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use rodio::source::SeekError;
@@ -95,36 +94,28 @@ impl PcmTap {
         }
     }
 
-    /// Recreate the ring buffer, dropping all queued samples. Returns true if successful.
+    /// Recreate the ring buffer, dropping all queued samples.
     /// Any existing consumer (such as the one held by the visualizer) will see its consumer
     /// as abandoned and can request a new one via the tap. The replacement is atomic: both
     /// producer and consumer are swapped together to avoid inconsistent state.
-    fn recreate_ring(&self) -> bool {
+    ///
+    /// This method uses blocking locks to ensure the replacement always succeeds.
+    /// If a lock is poisoned (due to a panic in another thread), we recover it.
+    fn recreate_ring(&self) {
         let (new_producer, new_consumer) = RingBuffer::new(PCM_TAP_CAPACITY);
 
-        // Try to lock both producer and consumer atomically.
         // Lock consumer first as it's less likely to be held during audio playback.
-        if let Ok(mut consumer_guard) = self.consumer.try_lock()
-            && let Ok(mut producer_guard) = self.producer.try_lock()
-        {
-            // Both locks acquired - replace atomically
-            let old_producer = std::mem::replace(&mut *producer_guard, new_producer);
-            let old_consumer = (*consumer_guard).replace(new_consumer);
-            drop(old_producer);
-            drop(old_consumer);
+        let mut consumer_guard = self.consumer.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut producer_guard = self.producer.lock().unwrap_or_else(PoisonError::into_inner);
 
-            // Increment generation to invalidate old sources
-            self.generation.fetch_add(1, Ordering::Relaxed);
-            return true;
-        }
-        // Producer lock failed (or consumer lock failed) - don't replace partial state.
-        // We cannot install new endpoints separately because that would leave the
-        // producer and consumer pointing to different rings, causing samples to be
-        // written to a ring that no consumer can read from, or read from a ring that
-        // the producer no longer writes to. Drop the new endpoints and return false.
-        drop(new_producer);
-        drop(new_consumer);
-        false
+        // Both locks acquired - replace atomically
+        let old_producer = std::mem::replace(&mut *producer_guard, new_producer);
+        let old_consumer = (*consumer_guard).replace(new_consumer);
+        drop(old_producer);
+        drop(old_consumer);
+
+        // Increment generation to invalidate old sources
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Wrap `source` so that its samples are copied into the ring while the tap is enabled.
@@ -146,14 +137,8 @@ impl PcmTap {
         if format_changed {
             // Replace the ring first, then publish the new format.
             // This ensures we never have new-format metadata with an old-format ring.
-            // Use a bounded retry with yield to avoid blocking the caller thread indefinitely.
-            // Each retry is very fast (atomic try_lock), so we don't expect this to loop long.
-            for _ in 0..64 {
-                if self.recreate_ring() {
-                    break;
-                }
-                thread::yield_now();
-            }
+            // recreate_ring now uses blocking locks, so it always succeeds and never spins.
+            self.recreate_ring();
             // Now ring is replaced and generation is incremented, publish the new format
             self.channels.swap(new_channels, Ordering::Relaxed);
             self.sample_rate.swap(new_sample_rate, Ordering::Relaxed);
@@ -181,7 +166,9 @@ impl PcmTap {
             && let Ok(mut chunk) = producer.write_chunk_uninit(samples.len())
         {
             // Check generation while holding the producer lock to prevent stale writes.
-            // If the ring was replaced, this source's generation won't match and we discard the batch.
+            // If the ring was replaced (via recreate_ring which uses blocking locks), this source's
+            // generation won't match and we discard the batch, preventing old-format samples
+            // from reaching the new-format consumer.
             if source_generation != self.generation.load(Ordering::Relaxed) {
                 return;
             }
@@ -542,12 +529,24 @@ mod tests {
         // Get the current generation
         let initial_generation = tap.generation.load(Ordering::Relaxed);
 
-        // Change format - this should succeed even with contention
-        // The while loop ensures replacement is certain
+        // Spawn a thread that holds the producer lock while we change format
+        let producer_lock = tap.producer.lock().unwrap_or_else(PoisonError::into_inner);
+
+        // In another thread, change to mono format - this should block and wait for the lock
         let input2: Vec<i16> = vec![2000; 5000];
-        let _: Vec<i16> = tap
-            .wrap(SamplesBuffer::new(1, 44_100, input2.clone()))
-            .collect();
+        let handle = std::thread::spawn({
+            let tap = Arc::clone(&tap);
+            move || {
+                let source = SamplesBuffer::new(1, 44_100, input2.clone());
+                tap.wrap(source).collect::<Vec<i16>>()
+            }
+        });
+
+        // Release the lock after a brief moment
+        drop(producer_lock);
+
+        // Wait for the format change to complete
+        let _ = handle.join();
 
         // Generation should have increased, confirming ring was replaced
         let new_generation = tap.generation.load(Ordering::Relaxed);
@@ -566,6 +565,58 @@ mod tests {
         }
 
         // Should only have samples from the new source
+        for &sample in &got {
+            assert!(
+                (sample - 2000.0 / 32768.0).abs() < 0.0001,
+                "Found old format sample: {}",
+                sample
+            );
+        }
+    }
+
+    #[test]
+    fn old_source_cannot_write_to_new_ring_with_contention() {
+        let tap = PcmTap::new();
+        tap.set_enabled(true);
+
+        // Create first source (stereo, 48kHz)
+        let input1: Vec<i16> = vec![1000; 10000];
+        let mut source1 = tap.wrap(source(input1.clone()));
+
+        // Fill with some samples
+        let _: Vec<i16> = source1.by_ref().take(1000).collect();
+
+        // Spawn a thread to hold the producer lock
+        let producer_guard = tap.producer.lock().unwrap_or_else(PoisonError::into_inner);
+
+        // In main thread, change format to mono - this will block waiting for the lock
+        let input2: Vec<i16> = vec![2000; 5000];
+        let handle = std::thread::spawn({
+            let tap = Arc::clone(&tap);
+            move || {
+                let source = SamplesBuffer::new(1, 44_100, input2.clone());
+                tap.wrap(source).collect::<Vec<i16>>()
+            }
+        });
+
+        // Continue with old source while format change is pending
+        // This should NOT write to the new ring if format change completes
+        let _: Vec<i16> = source1.collect();
+
+        // Release the lock
+        drop(producer_guard);
+
+        // Wait for format change to complete
+        let _ = handle.join();
+
+        // Get new consumer and verify only new format samples are there
+        let mut new_consumer = tap.take_consumer().unwrap();
+        let mut got = Vec::new();
+        while let Ok(sample) = new_consumer.pop() {
+            got.push(sample);
+        }
+
+        // Should only have samples from source2 (input2), not from source1
         for &sample in &got {
             assert!(
                 (sample - 2000.0 / 32768.0).abs() < 0.0001,
