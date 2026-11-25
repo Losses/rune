@@ -2001,6 +2001,12 @@ impl Scene {
         Ok(())
     }
 
+    /// The playing audio's sample rate changed: the analyzer reads its bins for it (see
+    /// [`Analyzer::set_sample_rate`]).
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        self.analyzer.set_sample_rate(sample_rate);
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.analyzer.push(interleaved, channels);
     }

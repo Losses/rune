@@ -1092,6 +1092,14 @@ impl Pipeline {
         self.latest().wants_covers()
     }
 
+    /// The playing audio runs at `sample_rate` from now on: the scene on screen reads its
+    /// spectrum for it, and scenes built from now on start with it (scenes being built already
+    /// take over what this one heard, which carries the rate; see [`Scene::take_music_from`]).
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        self.sample_rate = sample_rate;
+        self.scene.set_sample_rate(sample_rate);
+    }
+
     pub fn push_pcm(&mut self, interleaved: &[f32], channels: usize) {
         self.scene.push_pcm(interleaved, channels);
     }
@@ -1163,6 +1171,10 @@ impl Pipeline {
             self.covers.clone(),
             self.playing_cover.clone(),
         );
+        // A scene built while another rate played starts at the rate it was built with; it reads
+        // what arrives now, which is at the current one. Set first so that the takeover below
+        // swaps the analyzer and nothing reads at the stale rate.
+        scene.set_sample_rate(self.sample_rate);
         scene.take_music_from(&mut self.scene);
         scene.set_lens_forced(self.lab.lens);
         scene.set_bursts(self.lab.bursts);

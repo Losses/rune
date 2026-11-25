@@ -935,6 +935,15 @@ fn a_scene_takes_over_the_music_of_the_scene_it_replaces() {
     other.take_music_from(&mut next);
     assert_eq!(other.analyzer.sample_rate(), 44_100);
     assert_eq!(*other.music(), inputs::MusicValues::default());
+
+    // The audio has moved to the rate the takeover is at, as the pipeline sets on a scene
+    // built while another rate played (see `Pipeline::place`): the takeover swaps the analyzer
+    // again, so what the music was heard as goes on in the scene coming in.
+    let heard_next = *next.music();
+    other.set_sample_rate(48_000);
+    other.take_music_from(&mut next);
+    assert_eq!(other.analyzer.sample_rate(), 48_000);
+    assert_eq!(*other.music(), heard_next);
 }
 
 /// A scene whose update copies the shot's index and size into the state, and whose pass shows
