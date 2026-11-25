@@ -14,14 +14,13 @@ use ::metadata::reader::get_lyrics;
 use crate::{
     Session, Signal, TypedRequest,
     handlers::playback::{
-        ItemRoutingParams, item_service, item_service_binding, local_item_library,
+        ItemRoutingParams, item_service_binding, item_service_slots, local_item_library,
         playing_item_from_request, reject_remote_independent_item,
     },
     library_pool::LibraryHandle,
     messages::*,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
-    service::item_slots,
     utils::{GlobalParams, ParamsExtractor, require_library},
 };
 
@@ -52,10 +51,10 @@ impl Signal for GetLyricByTrackIdRequest {
             return Ok(None);
         };
         reject_remote_independent_item(session.as_ref(), item)?;
-        // A streaming library's item is answered as its service declares for its items,
+        // A streaming library's item is answered as its library declares for its items,
         // whichever library is open: by that library's binding, or as unsupported.
-        if let Some(service) = item_service(&node, library.as_ref(), item)? {
-            return match GetLyricByTrackIdRequest::slot(&item_slots(service)) {
+        if let Some(slots) = item_service_slots(&node, library.as_ref(), item)? {
+            return match GetLyricByTrackIdRequest::slot(&slots) {
                 Slot::Translate => {
                     let binding = item_service_binding(&node, library.as_ref(), item)
                         .await?

@@ -1,6 +1,7 @@
 //! What the item this device plays supports of the requests answered by the library the item
 //! belongs to, as the UI is told it.
 
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use crate::{
     node::NodeContext,
     request_owner::Implementation,
     rpc::{Slot, UnsupportedReason},
-    service::{ServiceBinding, item_slots},
+    service::{ServiceBinding, unbound_item_slots},
     utils::{Broadcaster, held_service_binding, load_registry},
 };
 
@@ -136,7 +137,11 @@ fn playing_item_slots(
     };
     match held_service_binding(node, library_id) {
         Ok(Some(binding)) => Some(Implementation::Service(binding).item_slots()),
-        Ok(None) => unheld_item_slots(load_registry(node), library_id),
+        Ok(None) => unheld_item_slots(
+            Path::new(&*node.config_path),
+            load_registry(node),
+            library_id,
+        ),
         Err(error) => {
             warn!("Could not tell what the playing item supports: {error:#}");
             None
@@ -153,9 +158,14 @@ fn record_of(registry: &LibraryRegistry, library_id: Uuid) -> Result<&LibraryRec
 }
 
 /// The item slots of the library `library_id`, which this device holds no binding for, from
-/// the library records as `registry` read them. None when they could not be read: the UI then
-/// keeps what it heard rather than hearing that a local library answers.
-fn unheld_item_slots(registry: Result<LibraryRegistry>, library_id: Uuid) -> Option<RequestSlots> {
+/// the library records as `registry` read them and what `config_dir` keeps for the library. None
+/// when the records could not be read: the UI then keeps what it heard rather than hearing that
+/// a local library answers.
+fn unheld_item_slots(
+    config_dir: &Path,
+    registry: Result<LibraryRegistry>,
+    library_id: Uuid,
+) -> Option<RequestSlots> {
     let registry = match registry {
         Ok(registry) => registry,
         Err(error) => {
@@ -167,7 +177,9 @@ fn unheld_item_slots(registry: Result<LibraryRegistry>, library_id: Uuid) -> Opt
         Ok(record) => record
             .protocol
             .service()
-            .map_or_else(RequestSlots::local, item_slots),
+            .map_or_else(RequestSlots::local, |service| {
+                unbound_item_slots(config_dir, service, library_id)
+            }),
         // The library is gone from this device, as after its record was removed: nothing
         // about the item can be answered.
         Err(_) => RequestSlots::unimplemented(),

@@ -203,6 +203,24 @@ pub struct SignOutServiceLibraryResponse {
     pub call_id: Option<u64>,
 }
 
+/// Allows or stops looking the lyrics of the songs of the streaming service library of
+/// `record_id` up at an online lyrics database, for a library whose lyrics come from one. The
+/// choice is kept on this device.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SetOnlineLyricsRequest {
+    pub record_id: String,
+    pub enabled: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Sent once the choice is kept. A failure is a typed request failure.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct SetOnlineLyricsResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum OpenDalLibraryService {
     WebDav {
@@ -292,6 +310,9 @@ pub struct LibraryRecordSummary {
     /// Whether the library is signed in now, for a library whose sign-in lives on this device
     /// rather than in a credential its record keeps. None for every other library.
     pub signed_in: Option<bool>,
+    /// Whether the library may look its songs' lyrics up at an online lyrics database, for a
+    /// library whose lyrics come from one. None for every other library.
+    pub online_lyrics: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -399,6 +420,7 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
             connection_access: record.connection_access().map(Into::into),
             sync_access: record.access_level().map(Into::into),
             signed_in: None,
+            online_lyrics: None,
         }
     }
 }

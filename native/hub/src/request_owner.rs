@@ -266,10 +266,10 @@ impl Implementation {
     /// How this implementation answers the requests routed by item about the items of its own
     /// library. The slots of other requests mean nothing here. An open service library leaves
     /// those requests to the library of each item named, while its own items have what the
-    /// service declares for them.
+    /// service declares for them, with what the user chose for the library.
     pub(crate) fn item_slots(&self) -> RequestSlots {
         match self {
-            Self::Service(binding) => item_slots(binding.service()),
+            Self::Service(binding) => item_slots(binding.service(), binding.online_lyrics()),
             // A Rune library answers about its items as it answers as the open library: here,
             // or through the device that holds it. The session resolves each item it plays to
             // the library this device holds of it, so a peer's slots apply only to an item a

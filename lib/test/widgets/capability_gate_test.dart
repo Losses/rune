@@ -195,6 +195,7 @@ RequestCapabilities snapshot({
     registerServiceLibraryRequest: capability,
     signInServiceLibraryRequest: capability,
     signOutServiceLibraryRequest: capability,
+    setOnlineLyricsRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

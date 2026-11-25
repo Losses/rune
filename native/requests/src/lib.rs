@@ -1709,6 +1709,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::NodeLoop,
             routing: RequestRouting::OpenLibrary,
         },
+        RequestResponse {
+            request: "SetOnlineLyricsRequest".to_string(),
+            response: Some("SetOnlineLyricsResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =

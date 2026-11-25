@@ -41,6 +41,7 @@ use crate::service::ServiceBinding;
 use crate::service::covers::cover_cache_root;
 use crate::service::folder::delete_service_library_folder;
 use crate::service::lists::lists_folder;
+use crate::service::lrclib::fake::FakeLrclib;
 use crate::service::reach::Reach;
 use crate::service::registry::{Clock, ServiceSetup, SystemClock};
 use crate::test_wait::wait_until;
@@ -911,11 +912,13 @@ impl Clock for TestClock {
     }
 }
 
-/// How a node's services reach the fake at `base` and tell the time by `clock`.
-fn fake_services(base: &str, clock: &Arc<TestClock>) -> ServiceSetup {
+/// How a node's services reach the fake at `base`, look lyrics up at `lrclib` and tell the time
+/// by `clock`.
+fn fake_services(base: &str, clock: &Arc<TestClock>, lrclib: &Arc<FakeLrclib>) -> ServiceSetup {
     ServiceSetup {
         apple_music_host: Some(base.to_owned()),
         clock: Arc::clone(clock) as Arc<dyn Clock>,
+        lyrics: lrclib.lrclib(),
     }
 }
 
@@ -935,7 +938,7 @@ async fn node_on(
         ReconnectConfig::default(),
         crate::session::PlayerSession::real_player(),
         Arc::new(::visualizer::Visualizer::new()),
-        fake_services(base, &TestClock::new()),
+        fake_services(base, &TestClock::new(), &Arc::default()),
     )
     .await
 }
@@ -950,6 +953,9 @@ struct OpenApple {
     server: tokio::task::JoinHandle<()>,
     /// The clock what the library keeps ages by.
     clock: Arc<TestClock>,
+    /// The lyrics database the library looks lyrics up at, which fails to connect until it is
+    /// told how to answer.
+    lrclib: Arc<FakeLrclib>,
     /// The UI params the open made. The node keeps them weakly, and in the app the GUI request
     /// listeners keep them alive. In a test run another test's listeners take the shared signal
     /// channels over and end these, so the test holds the params itself.
@@ -1014,12 +1020,14 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let base = format!("http://{}", listener.local_addr()?);
     let clock = TestClock::new();
+    let lrclib = Arc::new(FakeLrclib::default());
     let broadcaster: Arc<dyn crate::utils::Broadcaster> = match &options.heard {
         Some(heard) => heard.clone(),
         None => Arc::new(Quiet),
     };
     let fixture =
-        super::fixture_with_services(dir, broadcaster, fake_services(&base, &clock)).await?;
+        super::fixture_with_services(dir, broadcaster, fake_services(&base, &clock, &lrclib))
+            .await?;
     let node = fixture.global_params.node.clone();
     let fake = Arc::new(AppleFake {
         base: base.clone(),
@@ -1105,6 +1113,7 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         record,
         server,
         clock,
+        lrclib,
         ui,
     };
     if !options.import_unfinished {
@@ -1243,10 +1252,16 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
         crate::messages::GetLikedRequest::slot(&items),
         Slot::Translate
     );
+    // The library looks its songs' lyrics up online, which only a library the user allowed to
+    // has.
+    assert_eq!(GetLyricByTrackIdRequest::slot(&items), Slot::Translate);
     let hidden = Slot::Unsupported {
         reason: UnsupportedReason::NotImplemented,
     };
-    assert_eq!(GetLyricByTrackIdRequest::slot(&items), hidden);
+    let allowed = crate::service::item_slots(ServiceKind::AppleMusic, true);
+    assert_eq!(GetLyricByTrackIdRequest::slot(&allowed), Slot::Translate);
+    let not_allowed = crate::service::item_slots(ServiceKind::AppleMusic, false);
+    assert_eq!(GetLyricByTrackIdRequest::slot(&not_allowed), hidden);
     // What the library does not hold, its search and playlists made of files, it does not
     // answer.
     for slot in [
@@ -2424,13 +2439,14 @@ async fn cached_summary_never_starts_the_read_the_song_list_needs() -> Result<()
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     // A binding nothing has read yet knows no song, and does not go and ask.
-    let setup = fake_services(&apple.fake.base, &TestClock::new());
+    let setup = fake_services(&apple.fake.base, &TestClock::new(), &apple.lrclib);
     let unread = AppleMusicBinding::new(
         uuid::Uuid::new_v4(),
         |tokens| setup.apple_music_client(tokens),
         dir.path(),
         Arc::new(Quiet),
         Arc::new(SystemClock),
+        setup.lyrics.clone(),
     );
     unread.sign_in(Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).context("tokens")?);
     let before = apple.fake.total();
@@ -2894,7 +2910,7 @@ async fn what_an_item_supports_is_what_asking_about_it_does() -> Result<()> {
         assert_eq!(binding.service(), service);
         assert_eq!(
             item_capability_snapshot(None, &Implementation::Service(binding.clone()).item_slots()),
-            item_capability_snapshot(None, &item_slots(service))
+            item_capability_snapshot(None, &item_slots(service, binding.online_lyrics()))
         );
     }
     let declared = |item: &PlayingItemRef, implementation: Implementation| {
@@ -3247,13 +3263,14 @@ async fn a_binding_made_afresh_answers_the_artist_list_from_disk_before_its_sign
     .await?;
 
     // As after a restart, before the platform signs the library in again.
-    let setup = fake_services(&apple.fake.base, &TestClock::new());
+    let setup = fake_services(&apple.fake.base, &TestClock::new(), &apple.lrclib);
     let fresh = AppleMusicBinding::new(
         apple.record.0,
         |tokens| setup.apple_music_client(tokens),
         &config,
         Arc::new(Heard::default()),
         Arc::new(SystemClock),
+        setup.lyrics.clone(),
     );
     assert!(!fresh.is_signed_in());
     let asked = apple.fake.total();
@@ -9383,4 +9400,11 @@ async fn a_library_artist_a_mix_names_brings_only_the_librarys_songs() -> Result
     assert!(!apple.fake.seen.lock().unwrap().iter().any(read_for_it));
     assert!(!held_file(&apple).exists());
     apple.finish().await
+}
+
+// Search and lyrics -------------------------------------------------------------------------
+
+mod lyrics {
+    use super::*;
+    include!("apple_music_lyrics_tests.rs");
 }

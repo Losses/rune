@@ -2606,6 +2606,7 @@ mod access_policy_tests {
             "RegisterServiceLibraryRequest" => RequestAccess::NodeLocal,
             "SignInServiceLibraryRequest" => RequestAccess::NodeLocal,
             "SignOutServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SetOnlineLyricsRequest" => RequestAccess::NodeLocal,
             "GetOpenLibraryRequest" => RequestAccess::Control,
             _ => return None,
         })

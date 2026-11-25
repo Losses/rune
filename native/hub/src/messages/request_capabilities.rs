@@ -195,13 +195,15 @@ pub struct RequestCapabilities {
     pub register_service_library_request: RequestCapability,
     pub sign_in_service_library_request: RequestCapability,
     pub sign_out_service_library_request: RequestCapability,
+    pub set_online_lyrics_request: RequestCapability,
 }
 
 impl RequestCapabilities {
     /// How many fields at the end of a snapshot a paired device of an older build may leave
-    /// out: those appended since protocol 2.0, the two artist page requests of 2.1 and the three
-    /// service library requests.
-    const APPENDED_SINCE_2_0: usize = 5;
+    /// out: those appended since protocol 2.0, the two artist page requests of 2.1, the three
+    /// service library requests and the one that allows a service library to look lyrics up
+    /// online.
+    const APPENDED_SINCE_2_0: usize = 6;
 
     /// Reads a snapshot a paired device sent. A device of an older build ends it before the
     /// fields appended since, so those are read as refused for a device too old to answer them.
@@ -299,6 +301,7 @@ mod tests {
             current.register_service_library_request,
             current.sign_in_service_library_request,
             current.sign_out_service_library_request,
+            current.set_online_lyrics_request,
         ))?;
         let old = &full[..full.len() - appended.len()];
 
@@ -310,6 +313,7 @@ mod tests {
                 register_service_library_request: TOO_OLD,
                 sign_in_service_library_request: TOO_OLD,
                 sign_out_service_library_request: TOO_OLD,
+                set_online_lyrics_request: TOO_OLD,
                 ..current.clone()
             }
         );
@@ -331,6 +335,7 @@ mod tests {
             current.register_service_library_request,
             current.sign_in_service_library_request,
             current.sign_out_service_library_request,
+            current.set_online_lyrics_request,
         ))?;
         let old = &full[..full.len() - appended.len()];
 
@@ -340,6 +345,7 @@ mod tests {
                 register_service_library_request: TOO_OLD,
                 sign_in_service_library_request: TOO_OLD,
                 sign_out_service_library_request: TOO_OLD,
+                set_online_lyrics_request: TOO_OLD,
                 ..current.clone()
             }
         );

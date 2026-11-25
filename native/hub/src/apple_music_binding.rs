@@ -50,6 +50,7 @@ use crate::{
         folder::prepare_service_library_folder,
         ids::RemoteIdMap,
         lists::{KeptList, ListSpec, ServiceLists, kept_value, lists_folder},
+        lrclib::{LibraryLyrics, Lrclib, Lyrics, SongQuery},
         reach::Reach,
         registry::{Clock, SignInFailure},
         rune_likes::{LIKES_FILE, RuneLikes},
@@ -1018,6 +1019,9 @@ pub(crate) struct AppleMusicBinding {
     content_change: Mutex<Option<tokio_time::Instant>>,
     /// The clock the kept lists age by.
     clock: Arc<dyn Clock>,
+    /// The lyrics of the library's songs, which Apple gives Rune none of, looked up at LRCLIB as
+    /// far as the user allowed it.
+    lyrics: LibraryLyrics,
 }
 
 /// Downloads covers by their address. Apple serves them from a content network that needs no
@@ -1057,7 +1061,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 impl AppleMusicBinding {
     /// A binding whose lists answer from what was kept on disk in `config_dir`, before Apple
     /// does and before any sign-in. Its client, which `client` makes for the binding's tokens,
-    /// reads Apple, and what it keeps ages by `clock`.
+    /// reads Apple, what it keeps ages by `clock`, and its songs' lyrics are looked up at
+    /// `lyrics` once the user allows it.
     ///
     /// The lists are kept for no account (`account: None`). This is a choice, made for a service
     /// that cannot tell its accounts apart: the platform hands over tokens at every launch, as
@@ -1073,8 +1078,10 @@ impl AppleMusicBinding {
         config_dir: &Path,
         broadcaster: Arc<dyn Broadcaster>,
         clock: Arc<dyn Clock>,
+        lyrics: Lrclib,
     ) -> Arc<Self> {
         prepare_service_library_folder(config_dir, library_id);
+        let lyrics = LibraryLyrics::new(config_dir, library_id, lyrics, Arc::clone(&clock));
         let held = apple_music_account::prepare(config_dir, library_id);
         let records = device_records_folder(config_dir, library_id);
         let tokens = Arc::new(SessionTokens::default());
@@ -1148,6 +1155,7 @@ impl AppleMusicBinding {
                 reach: Mutex::default(),
                 content_change: Mutex::default(),
                 clock,
+                lyrics,
             }
         })
     }
@@ -2493,6 +2501,31 @@ impl AppleMusicBinding {
         Ok(song)
     }
 
+    /// Whether the user allowed looking the songs' lyrics up at LRCLIB for this library.
+    pub(crate) fn looks_up_lyrics(&self) -> bool {
+        self.lyrics.allowed()
+    }
+
+    /// The lyrics LRCLIB has for `song`, the song of `track`, found by its title, credit, album
+    /// and length and kept under its catalog id when it has one (see `LibraryLyrics::lyrics_of`).
+    pub(crate) async fn lyrics_of(&self, track: &str, song: SongRef<'_>) -> Option<Lyrics> {
+        let id = match song {
+            SongRef::Library(listed) => listed.store_id(),
+            SongRef::Catalog(catalog) => Some(catalog.id.as_str()),
+        }
+        .unwrap_or(track)
+        .to_owned();
+        let query = SongQuery {
+            title: song.title().to_owned(),
+            artist: song.artist().unwrap_or_default().to_owned(),
+            album: song.album().map(str::to_owned),
+            duration: Some(song.duration())
+                .filter(|seconds| *seconds > 0.0)
+                .map(Duration::from_secs_f64),
+        };
+        self.lyrics.lyrics_of(&id, &query).await
+    }
+
     pub(crate) fn song_summary(
         &self,
         track: &str,
@@ -2610,6 +2643,16 @@ impl ServiceBinding for AppleMusicBinding {
 
     fn signed_in(&self) -> bool {
         self.is_signed_in()
+    }
+
+    /// Apple gives Rune no lyrics, which the library looks up at LRCLIB as far as the user
+    /// allowed it.
+    fn online_lyrics(&self) -> bool {
+        self.looks_up_lyrics()
+    }
+
+    fn set_online_lyrics(&self, allowed: bool) {
+        self.lyrics.set_allowed(allowed);
     }
 
     /// Apple Music plays from Apple, so offline only the songs downloaded on this device play.

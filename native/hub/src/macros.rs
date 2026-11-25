@@ -193,6 +193,11 @@ mod node_request_loop_tests {
             SignOutServiceLibraryResponse
         );
         error_handler!(
+            handle_set_online_lyrics_request,
+            SetOnlineLyricsRequest,
+            SetOnlineLyricsResponse
+        );
+        error_handler!(
             handle_set_mix_with_others_request,
             SetMixWithOthersRequest,
             ()
@@ -486,6 +491,7 @@ mod node_request_loop_tests {
         let (_register_service_tx, register_service_rx) = signal_channel();
         let (_sign_in_service_tx, sign_in_service_rx) = signal_channel();
         let (_sign_out_service_tx, sign_out_service_rx) = signal_channel();
+        let (_online_lyrics_tx, online_lyrics_rx) = signal_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
         let emit = move |signal: &dyn RinfRustSignal| {
             output_tx
@@ -553,6 +559,7 @@ mod node_request_loop_tests {
                 register_service_library_request_receiver: register_service_rx,
                 sign_in_service_library_request_receiver: sign_in_service_rx,
                 sign_out_service_library_request_receiver: sign_out_service_rx,
+                set_online_lyrics_request_receiver: online_lyrics_rx,
             },
         ));
 

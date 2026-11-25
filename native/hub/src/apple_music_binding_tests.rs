@@ -21,6 +21,7 @@ use uuid::Uuid;
 use super::*;
 use crate::request_error::{classify, request_failure_cause};
 use crate::service::lists::lists_folder;
+use crate::service::lrclib::fake::FakeLrclib;
 use crate::service::registry::{Clock, SystemClock};
 use crate::service::store::ListStore;
 use crate::test_wait::wait_until;
@@ -102,6 +103,11 @@ fn tokens() -> Tokens {
     Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).unwrap()
 }
 
+/// Lyrics looked up at a database of the test's own, which answers nothing until told to.
+fn no_lyrics() -> Lrclib {
+    Arc::new(FakeLrclib::default()).lrclib()
+}
+
 fn tokens_of(user: &str) -> Tokens {
     Tokens::new(DEVELOPER_TOKEN, user).unwrap()
 }
@@ -124,6 +130,7 @@ fn bound_in(fixtures: &FixtureServer, dir: &Path, library_id: Uuid) -> Bound {
         dir,
         told.clone(),
         clock.clone(),
+        no_lyrics(),
     );
     Bound {
         binding,
@@ -150,6 +157,7 @@ fn unserved() -> (TempDir, Arc<AppleMusicBinding>, Arc<Counted>) {
         dir.path(),
         counted.clone(),
         Arc::new(SystemClock),
+        no_lyrics(),
     );
     (dir, binding, counted)
 }
@@ -1640,6 +1648,7 @@ async fn every_unknown_song_is_read_and_answered_past_the_cache_bound() {
         dir.path(),
         Arc::new(Counted::default()),
         Arc::new(SystemClock),
+        no_lyrics(),
     );
     binding.sign_in(tokens());
     let wanted = MAX_FETCHED_TRACKS + 500;
@@ -1825,4 +1834,53 @@ fn the_songs_of_catalog_collections_are_kept_within_their_bounds_least_used_firs
     }
     assert_eq!(catalog.collection_songs.len(), MAX_KEPT_COLLECTIONS);
     assert!(catalog.used_collection_songs(first).is_none());
+}
+
+#[tokio::test]
+async fn kept_lyrics_survive_a_restart_and_a_sign_out() {
+    use crate::service::online_lyrics::{kept_lyrics_folder, set_allowed};
+
+    let dir = tempfile::tempdir().unwrap();
+    let library_id = Uuid::new_v4();
+    set_allowed(dir.path(), library_id, true).unwrap();
+    let made = |lyrics: &Arc<FakeLrclib>| {
+        AppleMusicBinding::new(
+            library_id,
+            AppleMusicClient::new,
+            dir.path(),
+            Arc::new(Counted::default()),
+            Arc::new(SystemClock),
+            lyrics.lrclib(),
+        )
+    };
+    let song: LibrarySong = serde_json::from_value(library_song("i.lyrics", "Kept")).unwrap();
+    let first_lrclib = Arc::new(FakeLrclib::default());
+    first_lrclib.answer(
+        "/api/get",
+        Some((
+            200,
+            r#"{"instrumental":false,"plainLyrics":"one","syncedLyrics":null}"#,
+        )),
+    );
+    let first = made(&first_lrclib);
+    assert!(first.looks_up_lyrics());
+    assert!(
+        first
+            .lyrics_of("i.lyrics", SongRef::Library(&song))
+            .await
+            .is_some()
+    );
+    let kept = kept_lyrics_folder(dir.path(), library_id).join("lyrics.json");
+    until(|| kept.exists()).await;
+    // Signing out clears the lists, not the lyrics, which belong to no account.
+    first.sign_out();
+    let gone = Arc::new(FakeLrclib::default());
+    let second = made(&gone);
+    assert!(
+        second
+            .lyrics_of("i.lyrics", SongRef::Library(&song))
+            .await
+            .is_some()
+    );
+    assert!(gone.asked().is_empty());
 }

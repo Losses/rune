@@ -1531,6 +1531,7 @@ mod lifecycle_tests {
         for name in [
             "ListLocalLibrariesRequest",
             "SetLibraryBackgroundSyncRequest",
+            "SetOnlineLyricsRequest",
             "ListPeerLibrariesRequest",
             "AddRemoteLibraryRequest",
             "ListControllersRequest",

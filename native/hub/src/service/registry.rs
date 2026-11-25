@@ -12,7 +12,7 @@ use database::library_registry::{LibraryRecordId, LibraryRegistry, ServiceKind};
 use crate::access_policy::RuneAccessPolicy;
 use crate::apple_music_binding::{AppleMusicBinding, Tokens, verified_tokens};
 use crate::messages::{RegisterLibraryFailureKind, ServiceSignIn};
-use crate::service::{ServiceBinding, platform_host, reach::Reach};
+use crate::service::{ServiceBinding, lrclib::Lrclib, platform_host, reach::Reach};
 use crate::utils::Broadcaster;
 
 /// The time what a service library keeps ages by.
@@ -31,9 +31,9 @@ impl Clock for SystemClock {
     }
 }
 
-/// How the service libraries of a node reach their services and tell the time. A node is made
-/// with the services' own APIs and the system's clock. A test makes one with a server and a
-/// clock of its own.
+/// How the service libraries of a node reach their services and the lyrics database, and tell
+/// the time. A node is made with the services' own APIs, LRCLIB and the system's clock. A test
+/// makes one with servers and a clock of its own.
 #[derive(Clone)]
 pub(crate) struct ServiceSetup {
     /// The Apple Music API host to read from instead of Apple's. It is asked once per call, as
@@ -41,6 +41,8 @@ pub(crate) struct ServiceSetup {
     pub(crate) apple_music_host: Option<String>,
     /// The clock what the libraries keep ages by.
     pub(crate) clock: Arc<dyn Clock>,
+    /// Where the libraries whose lyrics come from online look them up.
+    pub(crate) lyrics: Lrclib,
 }
 
 impl Default for ServiceSetup {
@@ -48,6 +50,7 @@ impl Default for ServiceSetup {
         Self {
             apple_music_host: None,
             clock: Arc::new(SystemClock),
+            lyrics: Lrclib::default(),
         }
     }
 }
@@ -225,6 +228,7 @@ impl ServiceRegistry {
                 &self.config_dir,
                 Arc::clone(&self.broadcaster),
                 Arc::clone(&self.setup.clock),
+                self.setup.lyrics.clone(),
             )
         }));
         if made

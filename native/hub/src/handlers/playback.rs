@@ -29,12 +29,13 @@ use ::playback::player::{
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
+use crate::macros::RequestSlots;
 use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
-use crate::request_owner::refuse_libraries_kept_here;
+use crate::request_owner::{Implementation, refuse_libraries_kept_here};
 use crate::rpc::NamedLibraries;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
-use crate::service::ServiceBinding;
+use crate::service::{ServiceBinding, unbound_item_slots};
 use crate::{
     Session, Signal,
     library_pool::{LibraryHandle, LibraryPool},
@@ -43,7 +44,7 @@ use crate::{
     session::{HandoffLoadParams, PlayerSession},
     utils::{
         GlobalParams, ParamsExtractor, RESOLVED_TRACK_LIMIT, files_to_playback_request,
-        require_library, resolved_start, service_binding_for_library,
+        held_service_binding, require_library, resolved_start, service_binding_for_library,
     },
 };
 use anyhow::Error;
@@ -121,6 +122,35 @@ pub(crate) fn item_service(
         .record(LibraryRecordId(library_id))
         .ok()
         .and_then(|record| record.protocol.service()))
+}
+
+/// What the streaming service library that owns `item` answers about its items, if one does:
+/// as the binding this device holds for it declares, or else as its service declares for it with
+/// what this device keeps of the user's choices for it. `open_library` is the local library the
+/// request came with, which answers for its own items.
+pub(crate) fn item_service_slots(
+    node: &NodeContext,
+    open_library: Option<&LibraryHandle>,
+    item: &PlayingItemRef,
+) -> Result<Option<RequestSlots>> {
+    let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
+        return Ok(None);
+    };
+    let library_id = Uuid::parse_str(library_id).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
+    })?;
+    if open_library.is_some_and(|library| library.library_id == library_id) {
+        return Ok(None);
+    }
+    if let Some(binding) = held_service_binding(node, library_id)? {
+        return Ok(Some(Implementation::Service(binding).item_slots()));
+    }
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    Ok(registry
+        .record(LibraryRecordId(library_id))
+        .ok()
+        .and_then(|record| record.protocol.service())
+        .map(|service| unbound_item_slots(Path::new(&*node.config_path), service, library_id)))
 }
 
 /// The binding of the streaming service library that owns `item`, if one does. The open

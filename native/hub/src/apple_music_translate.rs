@@ -35,22 +35,23 @@ use crate::messages::{
     FetchMediaFilesRequest, FetchMediaFilesResponse, FetchMixQueriesRequest,
     FetchParsedMediaFileRequest, FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
     FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
-    GetMediaFilesCountRequest, GetMediaFilesCountResponse, GetMixByIdRequest,
-    GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest, MediaFile,
-    MediaFileSummary, MixQueryRequest, MixQueryResponse, PlayingItemRef, Playlist,
-    PlaylistOccurrence, PlaylistOccurrenceCursor, RemoveItemFromPlaylistRequest,
-    RemoveItemFromPlaylistResponse, RemoveMixRequest, RemovePlaylistRequest,
-    RemovePlaylistResponse, ReorderPlaylistItemPositionRequest,
+    GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
+    GetMixByIdRequest, GetPlaylistByIdRequest, GetPlaylistByIdResponse,
+    GetPrimaryColorByTrackIdRequest, MediaFile, MediaFileSummary, MixQueryRequest,
+    MixQueryResponse, PlayingItemRef, Playlist, PlaylistOccurrence, PlaylistOccurrenceCursor,
+    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemoveMixRequest,
+    RemovePlaylistRequest, RemovePlaylistResponse, ReorderPlaylistItemPositionRequest,
     ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
     SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest,
     SearchMediaFileSummaryResponse, SetLikedRequest, SetLikedResponse, UpdateMixRequest,
     UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 use crate::request_error::ExpectedRequestError;
-use crate::rpc::{RequestTranslationFuture, Slot};
+use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
 use crate::service::{
     ServiceBinding, ServiceFuture,
     home::{self, HomeItem, HomeMix, HomeSource, HomeTrack},
+    lrclib,
     mixes::{self, MixItem, MixSource, MixTarget, Plan, unsupported_query},
     positional_occurrences::{listed_after, occurrence_page, occurrences_response},
     rune_playlists::{StoredEntry, StoredPlaylist, TrackAbout},
@@ -1933,8 +1934,8 @@ async fn apple_song(binding: &AppleMusicBinding, track: &str) -> Result<Option<A
     }
 }
 
-/// The track a liked-state request names, which must be one of this library's.
-fn liked_track(binding: &AppleMusicBinding, item: &Option<PlayingItemRef>) -> Result<String> {
+/// The track a request about one item names, which must be one of this library's.
+fn item_track(binding: &AppleMusicBinding, item: &Option<PlayingItemRef>) -> Result<String> {
     match item {
         Some(PlayingItemRef::LibraryTrack { library_id, track })
             if *library_id == ServiceBinding::library_id(binding).to_string() =>
@@ -1959,7 +1960,7 @@ pub(crate) async fn set_liked_request(
     binding: &AppleMusicBinding,
     request: &SetLikedRequest,
 ) -> Result<Option<SetLikedResponse>> {
-    let track = liked_track(binding, &request.item)?;
+    let track = item_track(binding, &request.item)?;
     binding
         .rune_likes
         .set_liked(&binding.like_keys(&track), request.liked)
@@ -1978,7 +1979,7 @@ pub(crate) async fn get_liked_request(
     binding: &AppleMusicBinding,
     request: &GetLikedRequest,
 ) -> Result<Option<GetLikedResponse>> {
-    let track = liked_track(binding, &request.item)?;
+    let track = item_track(binding, &request.item)?;
     let liked = binding
         .rune_likes
         .is_liked(&binding.like_keys(&track))
@@ -1986,6 +1987,40 @@ pub(crate) async fn get_liked_request(
     Ok(request.item.clone().map(|item| GetLikedResponse {
         item,
         liked,
+        call_id: request.call_id,
+    }))
+}
+
+/// Answers the lyrics of a song from LRCLIB, by the song's title, credit, album and length.
+/// Apple gives Rune no lyrics. A song without lyrics, or whose lyrics could not be looked up,
+/// has no lines, as a song of a local library without lyrics has none. A library the user has
+/// not allowed to look lyrics up has none for its songs, as its item slots say.
+pub(crate) async fn get_lyric_by_track_id_request(
+    binding: &AppleMusicBinding,
+    request: &GetLyricByTrackIdRequest,
+) -> Result<Option<GetLyricByTrackIdResponse>> {
+    if !binding.looks_up_lyrics() {
+        return Err(ExpectedRequestError::Unsupported {
+            request: GetLyricByTrackIdRequest::wire_name(),
+            reason: UnsupportedReason::NotImplemented,
+        }
+        .into());
+    }
+    let track = item_track(binding, &request.item)?;
+    let lines = match binding.song(&track).await {
+        Ok(song) => binding
+            .lyrics_of(&track, song.as_ref())
+            .await
+            .map(|lyrics| lrclib::lines(&lyrics))
+            .unwrap_or_default(),
+        Err(error) => {
+            log::warn!("Lyrics were not looked up, as the song could not be read: {error:#}");
+            Vec::new()
+        }
+    };
+    Ok(request.item.clone().map(|item| GetLyricByTrackIdResponse {
+        item,
+        lines,
         call_id: request.call_id,
     }))
 }
@@ -2066,6 +2101,7 @@ apple_music_requests! {
         AddItemToMixRequest => add_item_to_mix_request as translate_add_item_to_mix_request,
         SetLikedRequest => set_liked_request as translate_set_liked_request,
         GetLikedRequest => get_liked_request as translate_get_liked_request,
+        GetLyricByTrackIdRequest => get_lyric_by_track_id_request as translate_get_lyric_by_track_id_request,
     }
     // This device answers these by the library of the item each names, whichever library is
     // open: the items of another library are that library's to answer.
@@ -2079,6 +2115,9 @@ apple_music_requests! {
         // Likes are kept in Rune, on this device, so an item is liked whichever library is open.
         SetLikedRequest => Translate,
         GetLikedRequest => Translate,
+        // Apple gives Rune no lyrics, so the library looks them up at LRCLIB, once the user
+        // allows it (see `service::item_slots`).
+        GetLyricByTrackIdRequest => Translate,
         // The hub takes the color of a streaming item from its cover in the library's cover cache.
         GetPrimaryColorByTrackIdRequest => Native,
     }

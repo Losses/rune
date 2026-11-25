@@ -16,11 +16,11 @@ use crate::{
         ListLibraryRecordsResponse, ListLocalLibrariesRequest, ListLocalLibrariesResponse,
         LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
         RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
-        SetLibraryBackgroundSyncResponse,
+        SetLibraryBackgroundSyncResponse, SetOnlineLyricsRequest, SetOnlineLyricsResponse,
     },
     node::NodeContext,
-    service::folder::delete_service_library_folder,
-    utils::{GlobalParams, ParamsExtractor},
+    service::{folder::delete_service_library_folder, looks_up_lyrics_online, online_lyrics},
+    utils::{GlobalParams, ParamsExtractor, held_service_binding},
 };
 
 async fn record_summaries(
@@ -73,6 +73,18 @@ async fn record_summaries(
                     .held(record.record_id)
                     .is_some_and(|binding| binding.signed_in()),
             );
+        }
+        // A library whose lyrics come from online says whether the user allowed it to look them
+        // up, which is kept on this device.
+        if record
+            .protocol
+            .service()
+            .is_some_and(looks_up_lyrics_online)
+        {
+            summary.online_lyrics = Some(online_lyrics::allowed(
+                Path::new(&*node.config_path),
+                record.record_id.0,
+            ));
         }
         match &mut summary.kind {
             LibraryRecordKindSummary::Replica {
@@ -335,6 +347,59 @@ impl Signal for SetLibraryBackgroundSyncRequest {
         .await?;
         publish_library_records_changed(&node).await?;
         Ok(Some(SetLibraryBackgroundSyncResponse { call_id: None }))
+    }
+}
+
+impl ParamsExtractor for SetOnlineLyricsRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for SetOnlineLyricsRequest {
+    type Params = Arc<NodeContext>;
+    type Response = SetOnlineLyricsResponse;
+
+    /// Keeps whether the service library of the record may look its songs' lyrics up online,
+    /// for a library whose lyrics come from there. A binding this device holds for it follows
+    /// at once, and the UI hears what the library's items support now and the records again.
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let record_id = Uuid::parse_str(&request.record_id)
+            .map(LibraryRecordId)
+            .map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("invalid record UUID: {error}"))
+            })?;
+        let config_dir = Path::new(&*node.config_path).to_owned();
+        let registry = LibraryRegistry::load(&config_dir)?;
+        let offered = registry
+            .record(record_id)
+            .ok()
+            .and_then(|record| record.protocol.service())
+            .is_some_and(looks_up_lyrics_online);
+        if !offered {
+            return Err(ExpectedRequestError::invalid_input(
+                "The record is not a library whose lyrics come from online",
+            )
+            .into());
+        }
+        let enabled = request.enabled;
+        tokio::task::spawn_blocking(move || {
+            online_lyrics::set_allowed(&config_dir, record_id.0, enabled)
+        })
+        .await??;
+        if let Some(binding) = held_service_binding(&node, record_id.0)? {
+            binding.set_online_lyrics(enabled);
+        }
+        node.item_capabilities_changed();
+        publish_library_records_changed(&node).await?;
+        Ok(Some(SetOnlineLyricsResponse { call_id: None }))
     }
 }
 

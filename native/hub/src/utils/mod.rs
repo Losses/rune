@@ -404,6 +404,17 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         }
     }
 
+    fn handle_set_online_lyrics_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetOnlineLyricsRequest,
+    ) -> impl Future<Output = Result<Option<SetOnlineLyricsResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
     fn handle_list_peer_libraries_request(
         &self,
         node: &NodeSlot,
