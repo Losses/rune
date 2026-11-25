@@ -120,7 +120,8 @@ impl SongArtists {
     }
 
     /// Takes in what Apple answered for the songs `asked`: their artists, and none for a song it
-    /// left out, which it does not know.
+    /// left out, which it does not know. An artist Apple names by its id alone keeps the name and
+    /// the picture it was named with before.
     pub(crate) fn add(&mut self, asked: &[String], found: Vec<(String, Vec<Artist>)>) {
         for id in asked {
             self.songs.entry(id.clone()).or_default();
@@ -131,13 +132,23 @@ impl SongArtists {
                 if artist.id.is_empty() {
                     continue;
                 }
-                self.artists.insert(
-                    artist.id.clone(),
-                    CatalogArtist {
-                        name: catalog_artist_name(&artist).to_owned(),
-                        artwork: catalog_artist_artwork(&artist).cloned(),
-                    },
+                let (name, artwork) = (
+                    catalog_artist_name(&artist),
+                    catalog_artist_artwork(&artist),
                 );
+                let kept = self
+                    .artists
+                    .entry(artist.id.clone())
+                    .or_insert_with(|| CatalogArtist {
+                        name: String::new(),
+                        artwork: None,
+                    });
+                if !name.is_empty() {
+                    name.clone_into(&mut kept.name);
+                }
+                if let Some(artwork) = artwork {
+                    kept.artwork = Some(artwork.clone());
+                }
                 ids.push(artist.id);
             }
             self.songs.insert(song, ids);
@@ -888,6 +899,23 @@ pub(crate) mod tests {
             ]
         );
         assert!(named.get("name:サワノヒロユキ/kohta yamamoto").is_none());
+    }
+
+    #[test]
+    fn an_artist_named_by_its_id_alone_keeps_its_name_and_picture() {
+        let mut song_artists = SongArtists::default();
+        let bare: Artist = serde_json::from_value(json!({"id": "156", "type": "artists"})).unwrap();
+        song_artists.add(
+            &["c.1".to_owned(), "c.2".to_owned()],
+            vec![
+                ("c.1".into(), vec![catalog("156", "Hiroyuki Sawano")]),
+                ("c.2".into(), vec![bare]),
+            ],
+        );
+        let kept = &song_artists.artists["156"];
+        assert_eq!(kept.name, "Hiroyuki Sawano");
+        assert!(kept.artwork.is_some());
+        assert_eq!(song_artists.songs["c.2"], ["156"]);
     }
 
     #[test]
