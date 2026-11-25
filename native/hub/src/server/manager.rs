@@ -6146,6 +6146,23 @@ mod lifecycle_tests {
             response
         }
 
+        // The gate that lets a test reject one re-authorization: the first authorize request
+        // after the flag is raised answers 401, and the flag falls so the renewal that follows
+        // goes through. A test that raises it must see it consumed, or its rejection never
+        // reached a request.
+        async fn reject_one_authorize(
+            AxumState(faults): AxumState<Faults>,
+            request: axum::extract::Request,
+            next: axum::middleware::Next,
+        ) -> Response {
+            if request.uri().path() == "/sync/authorize"
+                && faults.reject_next_authorize.swap(false, Ordering::SeqCst)
+            {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            next.run(request).await
+        }
+
         let client_dir = tempfile::tempdir()?;
         let client = fixture(client_dir.path()).await?;
         client.stop_worker().await?;
@@ -6180,7 +6197,13 @@ mod lifecycle_tests {
             .route("/sync/blobs/{digest}", get(blob))
             .with_state(faults.clone())
             .layer(middleware::from_fn_with_state(auth.clone(), require_auth));
-        let app = auth.router().merge(blob_router);
+        let app = auth
+            .router()
+            .merge(blob_router)
+            .layer(middleware::from_fn_with_state(
+                faults.clone(),
+                reject_one_authorize,
+            ));
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
@@ -6304,6 +6327,10 @@ mod lifecycle_tests {
         assert!(
             !audio.cancel.is_cancelled(),
             "a transient rejection cancelled the authorized stream"
+        );
+        assert!(
+            !fixture.faults.reject_next_authorize.load(Ordering::SeqCst),
+            "the authorization rejection never reached a request"
         );
 
         fixture.server.abort();

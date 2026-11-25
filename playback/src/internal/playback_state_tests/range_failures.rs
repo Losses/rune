@@ -359,7 +359,7 @@ async fn range_failure_scenario(corruption: Corruption) -> Result<()> {
             // far slower than any playback.
             let play_outcome = tokio_time::timeout(TEST_DEADLINE, play)
                 .await?
-                .unwrap_or(Err(PlayerCommandError::SourceUnavailable));
+                .context("the play completion channel closed unanswered")?;
             if let Err(error) = &play_outcome {
                 assert_eq!(
                     *error,
@@ -456,11 +456,14 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
                 &[file_uuid, second_uuid, third_uuid],
             ))?;
             let play = completed_command(&commands_sender, PlayerCommand::Play);
-            let _ = tokio_time::timeout(TEST_DEADLINE, play).await;
+            let play_outcome = tokio_time::timeout(TEST_DEADLINE, play)
+                .await?
+                .context("the play completion channel closed unanswered")?;
             let first = library_item(library_id, file_uuid);
             let second = library_item(library_id, second_uuid);
 
             let mut continuations = HashMap::new();
+            let mut seeked = false;
             tokio_time::timeout(TEST_DEADLINE, async {
                 while continuations.len() < 2 {
                     match events.recv().await {
@@ -469,6 +472,15 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
                                 || log.item.as_ref() == Some(&second) =>
                         {
                             continuations.insert(log.item.clone().unwrap(), log.chain_continuation);
+                        }
+                        Some(PlayerEvent::Playing { item, .. }) if item == first => {
+                            // The decoder read linearly past the probe, so the corruption has
+                            // not been asked for yet. A seek near the end lands ahead of the
+                            // throttled download for certain and asks the range that is.
+                            if play_outcome.is_ok() && !seeked {
+                                seeked = true;
+                                commands_sender.send(PlayerCommand::Seek(8.0))?;
+                            }
                         }
                         Some(_) => {}
                         None => bail!("the player's event channel closed"),
