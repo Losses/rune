@@ -235,17 +235,10 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     return found;
   }
 
-  bool _sameIds(SearchForResponse a, SearchForResponse? b) {
-    return b != null &&
-        listEquals(a.tracks, b.tracks) &&
-        listEquals(a.artists, b.artists) &&
-        listEquals(a.albums, b.albums) &&
-        listEquals(a.playlists, b.playlists) &&
-        listEquals(a.genres, b.genres);
-  }
-
   /// Searches for [query]. A [quiet] search shows no ring, keeps what is shown
-  /// until the answer arrives, and replaces it only when the ids differ.
+  /// until the answer arrives, and replaces it without playing the animations
+  /// again. It reads the cards in again even when it found the same, as what
+  /// they show, such as a cover, may have arrived while the page was covered.
   Future<void> _performSearch(
     String query, {
     bool refresh = false,
@@ -267,8 +260,6 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
     try {
       final response = await searchFor(query, refresh: refresh);
-      if (quiet && _sameIds(response, _searchResults)) return;
-
       final found = await _cardsFor(response);
 
       // The text changed while this search ran; its results are out of date
