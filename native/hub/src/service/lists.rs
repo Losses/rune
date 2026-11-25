@@ -12,12 +12,12 @@
 //! read, so nothing kept depends on the numbers one binding handed out.
 //!
 //! A binding holds one sign-in. The lists are kept for the account it signs in to, and never given
-//! to another. A sign-in known to be another account clears the lists, on disk too, and what the
-//! reads in flight bring is not kept (see [`ServiceLists::clear`]). A sign-in
-//! renewed for the same account keeps them, and so does a sign-in that is lost or expires: the
-//! lists are still given, and read again once the service takes a sign-in again. Where a binding
-//! cannot tell whether the account changed, it keeps them, and the first read after the sign-in
-//! replaces them.
+//! to another. A sign-in to another account clears the lists, on disk too, and what the reads in
+//! flight bring is not kept (see [`ServiceLists::clear`]). A sign-in renewed for the same account
+//! keeps them, and so does a sign-in that is lost or expires: the lists are still given, and read
+//! again once the service takes a sign-in again. Lists kept for no account, as by a binding whose
+//! service cannot tell its accounts apart, are not known to be the same account's; how they are
+//! treated is left to the first service that can tell one (see [`ServiceLists::new`]).
 
 use std::fmt;
 use std::io;
@@ -118,10 +118,12 @@ pub(crate) struct ServiceLists {
 }
 
 impl ServiceLists {
-    /// The lists kept in `dir` for `account`, None where the binding cannot tell its accounts
-    /// apart. `changed` is called whenever a read brings a list other than the one kept, and when
-    /// the lists are cleared, so what shows them can read them again. It is called on the task of
-    /// the read, and must not block.
+    /// The lists kept in `dir` for `account`. A binding has to pass the account its sign-in names
+    /// once its service can tell one, and passes None only while it cannot; the first service that
+    /// can tell one decides how lists of an unknown account are treated. `changed` is called
+    /// whenever a read brings a list other than the one kept, and when the lists are cleared, so
+    /// what shows them can read them again. It is called on the task of the read, and must not
+    /// block.
     pub(crate) fn new(
         dir: PathBuf,
         account: Option<&str>,
