@@ -3635,6 +3635,103 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// A load whose controller loses control access while the load is still in flight must not
+    /// leave playback running ownerless: the revocation pass over the owner has no owner to see
+    /// yet when the load's commands go out, so the ownership write itself pauses the playback
+    /// behind them. Here the revocation is applied inside the edit closure, after the load's
+    /// command has gone out and before the ownership is written, which is exactly the landing
+    /// the revocation pass cannot cover.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_pauses_when_starting_controller_is_revoked_mid_load() -> Result<()> {
+        use crate::access_policy::Action;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{
+            PlaybackState as PlayerPlaybackState, PlayingItem, PlaylistEdit, PlaylistLoad,
+            PlaylistPlacement,
+        };
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let session = player.global_params.node.session()?;
+        let track_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        let track = (
+            PlayingItem::IndependentFile(track_path.to_string_lossy().into_owned()),
+            playback::player::PlaybackSource::Local(track_path),
+        );
+        let access_policy = player.global_params.node.access_policy.clone();
+        let peer = PeerIdentity {
+            fingerprint: fingerprint.clone(),
+            public_key: String::new(),
+        };
+        // The controller still controls its playback when the load begins; the access is cut
+        // after the load's command is already on its way to the player thread.
+        assert!(
+            access_policy.check(&peer, &Action::Control).is_ok(),
+            "the paired controller must control the player before the load"
+        );
+        let revoke_fingerprint = fingerprint.clone();
+        session
+            .edit_queue_with_load(None, Some(peer), move |player| {
+                let completion = Some(player.command_with_completion(
+                    playback::PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: vec![track],
+                            placement: PlaylistPlacement::Replace,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 0,
+                                position: Duration::ZERO,
+                                play: true,
+                            }),
+                            block: None,
+                        },
+                        None,
+                    ),
+                ));
+                let mut grants = access_policy
+                    .grants(&revoke_fingerprint)
+                    .expect("paired controller grants");
+                grants.control = false;
+                access_policy
+                    .set(&revoke_fingerprint, grants)
+                    .expect("revoking the controller mid-load");
+                (true, true, completion)
+            })
+            .await?;
+        assert_eq!(
+            session.playback_owner_for_test().await,
+            None,
+            "the revoked controller must not own the playback its in-flight load started"
+        );
+        // The pause goes out behind the load's commands and its completion is awaited before
+        // the edit answers, so playback may never come up playing; a track that was still
+        // loading comes up paused instead.
+        wait_until("in-flight revoked playback to pause", || async {
+            let status = player.global_params.player.lock().await.get_status();
+            Ok(matches!(
+                status.state,
+                PlayerPlaybackState::Paused | PlayerPlaybackState::Stopped
+            )
+            .then_some(()))
+        })
+        .await?;
+        // The revocation pass sees no owner afterwards either: the pause already acted, and
+        // nothing pauses twice or after the device resumes on its own.
+        wait_until("the revoked playback to stay stopped", || async {
+            let status = player.global_params.player.lock().await.get_status();
+            Ok((status.state != PlayerPlaybackState::Playing).then_some(()))
+        })
+        .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
     /// How a controller that stopped reading ends its session.
     #[derive(Clone, Copy)]
     enum StalledControllerEnd {
