@@ -963,7 +963,9 @@ pub(crate) async fn open_remote_library_for_fingerprint(
         RendererLinkUse::Control,
     )
     .await?;
-    link.call(&RefreshSessionRequest { call_id: None }).await?;
+    // The renderer answers the session refresh only after it has re-emitted its
+    // session. Install the link before asking, as the reconnect does, so those
+    // events reach the UI instead of being discarded as not yet installed.
     let mut params = node.params_for_ui()?;
     params.library_id = link.active_library_id();
     let params = Arc::new(params);
@@ -974,6 +976,11 @@ pub(crate) async fn open_remote_library_for_fingerprint(
     node.install_renderer_link(link, alias)?;
     node.transition_current_player(previous_player, node.current_player()?)
         .await?;
+    if let Some(link) = node.renderer_link()?
+        && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
+    {
+        log::warn!("Remote library opened, but its state refresh failed: {error:#}");
+    }
     listen_local_gui(&params, &params.main_token);
     Ok((params, generation))
 }

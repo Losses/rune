@@ -15342,6 +15342,143 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
     Ok(())
 }
 
+/// Opening a remote library must publish the remote player's queue from the
+/// open itself. The renderer answers the refresh only after it has re-emitted
+/// its session, so the initial queue event can reach the reader before the
+/// open task has installed the link; only an already installed link may
+/// publish it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn opening_a_remote_library_publishes_the_remote_queue() -> Result<()> {
+    let controller_dir = tempfile::tempdir()?;
+    let renderer_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let renderer = super::fixture(renderer_dir.path()).await?;
+    let first = session_audio(&renderer, "remote-open-first.ogg").await?;
+    let second = session_audio(&renderer, "remote-open-second.ogg").await?;
+    queue_session(&renderer, &[first, second]).await?;
+    let local_track = session_audio(&controller, "remote-open-local.ogg").await?;
+    queue_session(&controller, &[local_track]).await?;
+    let address = super::paired_full(&renderer, &controller).await?;
+    controller.stop_worker().await?;
+    renderer.stop_worker().await?;
+    let fingerprint = super::info(&renderer).await?.fingerprint;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &fingerprint,
+            vec![format!("127.0.0.1:{}", address.port())],
+        )
+        .await?;
+    let expected: Vec<PlayingItemRef> = renderer
+        .global_params
+        .player
+        .lock()
+        .await
+        .get_playlist()
+        .iter()
+        .filter_map(|item| match item {
+            PlayingItem::LibraryTrack { library_id, track } => Some(PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: track.to_string(),
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(expected.len(), 2);
+    let remote_session_id = renderer.global_params.node.session()?.session_id().await;
+    signals.clear();
+
+    open_remote_library_for_fingerprint(
+        controller.global_params.node.clone(),
+        &fingerprint,
+        vec![format!("127.0.0.1:{}", address.port())],
+        None,
+    )
+    .await?;
+
+    // The queue is settled and paused, so nothing emits another full queue
+    // update after this open: the initial one must have been published, not
+    // discarded before the link was installed.
+    let update = {
+        let remote_session_id = remote_session_id.clone();
+        let expected = expected.clone();
+        wait_until("the remote queue update from opening the library", move || {
+            let remote_session_id = remote_session_id.clone();
+            let expected = expected.clone();
+            let signals = signals.clone();
+            async move {
+                Ok(signals
+                    .decoded::<PlaylistUpdate>("PlaylistUpdate")
+                    .into_iter()
+                    .find(|update| {
+                        update.session_id == remote_session_id
+                            && update.items.iter().map(|item| item.item.clone()).eq(expected.iter().cloned())
+                    }))
+            }
+        })
+        .await?
+    };
+    assert_eq!(update.items.len(), 2);
+    controller.global_params.node.shutdown().await?;
+    renderer.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// An open that fails before the link is installed installs nothing and keeps
+/// the local player current.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_remote_open_installs_nothing_and_keeps_the_local_player() -> Result<()> {
+    use crate::backends::remote::RemoteConnectError;
+
+    let controller_dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let controller = fixture_with_broadcaster(
+        controller_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let local_track = session_audio(&controller, "failed-remote-open-local.ogg").await?;
+    queue_session(&controller, &[local_track]).await?;
+    signals.clear();
+
+    let error = open_remote_library_for_fingerprint(
+        controller.global_params.node.clone(),
+        "untrusted-fingerprint",
+        vec!["127.0.0.1:9".into()],
+        None,
+    )
+    .await
+    .err()
+    .context("opening an untrusted endpoint must fail")?;
+    assert!(matches!(
+        error.downcast_ref::<RemoteConnectError>(),
+        Some(RemoteConnectError::UntrustedEndpoint)
+    ));
+    assert!(controller.global_params.node.renderer_link()?.is_none());
+    assert!(matches!(
+        controller.global_params.node.current_player()?,
+        CurrentPlayer::Local
+    ));
+    assert!(
+        signals.decoded::<PlaylistUpdate>("PlaylistUpdate").is_empty(),
+        "a failed open must not publish queue events"
+    );
+    controller.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 fn reconnect_config(deadline: Duration) -> ReconnectConfig {
     ReconnectConfig {
         delays: [Duration::from_millis(50); 4],
