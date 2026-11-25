@@ -229,6 +229,20 @@ async fn album_list_is_alphabetical_and_paged() {
 }
 
 #[tokio::test]
+async fn album_list_by_sends_the_list_type() {
+    let server = fixture().await;
+    let albums = bounded(client(server.url.clone()).album_list_by("newest", 500, 0))
+        .await
+        .unwrap();
+    assert_eq!(albums[0].id, "album-001");
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests[0].0, "getAlbumList2");
+    assert_eq!(requests[0].1["type"], "newest");
+    assert_eq!(requests[0].1["size"], "500");
+    assert_eq!(requests[0].1["offset"], "0");
+}
+
+#[tokio::test]
 async fn song_browse() {
     let server = fixture().await;
     let result = bounded(client(server.url.clone()).song("opaque-song-009"))

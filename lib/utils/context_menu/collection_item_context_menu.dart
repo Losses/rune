@@ -16,6 +16,7 @@ import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/request_capabilities.dart';
 import '../../utils/l10n.dart';
 
 import '../build_query.dart';
@@ -234,7 +235,9 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         );
       },
     ),
-    if (libraryState.openRecord != null && !libraryState.isRemoteControl)
+    if (libraryState.openRecord != null &&
+        !libraryState.isRemoteControl &&
+        canPlayOnOtherDevice(context))
       MenuFlyoutItem(
         leading: const Icon(Symbols.cast),
         text: Text(S.of(context).playOn),
@@ -265,16 +268,17 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         );
       },
     ),
-    MenuFlyoutItem(
-      leading: const Icon(Symbols.rocket),
-      text: Text(S.of(context).startRoaming),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => startRoaming(context, type, id, fallbackFileIds),
-        );
-      },
-    ),
+    if (canStartRoaming(context))
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.rocket),
+        text: Text(S.of(context).startRoaming),
+        onPressed: () async {
+          await _handleCollectionRequest(
+            context,
+            () => startRoaming(context, type, id, fallbackFileIds),
+          );
+        },
+      ),
   ];
 
   if (edit != null && !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
@@ -344,36 +348,37 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
         leading: const Icon(Symbols.upload),
         text: Text(S.of(context).exportTracks),
         items: (context) => [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.list_alt),
-            text: Text(S.of(context).exportM3u8),
-            onPressed: () async {
-              final host = Navigator.of(context).context;
-              Flyout.of(context).close();
+          if (canExportPlaylistFile(context))
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.list_alt),
+              text: Text(S.of(context).exportM3u8),
+              onPressed: () async {
+                final host = Navigator.of(context).context;
+                Flyout.of(context).close();
 
-              final Directory appDocumentsDir =
-                  await getApplicationDocumentsDirectory();
+                final Directory appDocumentsDir =
+                    await getApplicationDocumentsDirectory();
 
-              if (!host.mounted) return;
-              final String? path = await pickSaveFile(
-                host,
-                suggestedName: '$title.m3u8',
-                initialDirectory: appDocumentsDir.path,
-                acceptedTypeGroups: const [
-                  XTypeGroup(label: 'playlist', extensions: <String>['m3u8']),
-                ],
-              );
+                if (!host.mounted) return;
+                final String? path = await pickSaveFile(
+                  host,
+                  suggestedName: '$title.m3u8',
+                  initialDirectory: appDocumentsDir.path,
+                  acceptedTypeGroups: const [
+                    XTypeGroup(label: 'playlist', extensions: <String>['m3u8']),
+                  ],
+                );
 
-              if (path == null) return;
+                if (path == null) return;
 
-              if (!host.mounted) return;
-              await _handleCollectionRequest(host, () async {
-                final playlist = await buildM3u8(type, id);
-                final file = File(path);
-                await file.writeAsString(playlist);
-              });
-            },
-          ),
+                if (!host.mounted) return;
+                await _handleCollectionRequest(host, () async {
+                  final playlist = await buildM3u8(type, id);
+                  final file = File(path);
+                  await file.writeAsString(playlist);
+                });
+              },
+            ),
           MenuFlyoutItem(
             leading: const Icon(Symbols.wall_art),
             text: Text(S.of(context).exportCoverWall),
@@ -422,7 +427,9 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         );
       },
     ),
-    if (libraryState.openRecord != null && !libraryState.isRemoteControl)
+    if (libraryState.openRecord != null &&
+        !libraryState.isRemoteControl &&
+        canPlayOnOtherDevice(context))
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).playOn,
@@ -456,18 +463,19 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         );
       },
     ),
-    CommandBarButton(
-      icon: Tooltip(
-        message: S.of(context).startRoaming,
-        child: const Icon(Symbols.rocket),
+    if (canStartRoaming(context))
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).startRoaming,
+          child: const Icon(Symbols.rocket),
+        ),
+        onPressed: () async {
+          await _handleCollectionRequest(
+            context,
+            () => startRoaming(context, type, id, fallbackFileIds),
+          );
+        },
       ),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => startRoaming(context, type, id, fallbackFileIds),
-        );
-      },
-    ),
   ];
 
   return FlyoutContent(

@@ -122,6 +122,7 @@ class TurntileScreenImplementationState
   Widget build(BuildContext context) {
     final data = Provider.of<CollectionDataProvider>(context);
     final isUserGenerated = userGenerated(data.collectionType);
+    final showEmptyDetail = emptyPageShowsDetail(context, data.collectionType);
     final pageError = data.pageError;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
@@ -165,6 +166,7 @@ class TurntileScreenImplementationState
                         hasRecommendation: false,
                         reloadData: data.reloadData,
                         userGenerated: isUserGenerated,
+                        showDetail: showEmptyDetail,
                       )
                     : Container(),
               ),

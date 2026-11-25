@@ -13,16 +13,14 @@ import '../../widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
-/// The answer a Subsonic library gives to the summary request, which it does
-/// not implement.
+/// The answer of a library that does not implement the summary request.
 const _summaryUnsupported = RequestFailure(
   'ComplexQueryRequest',
   RequestErrorKind.unavailable,
   'ComplexQueryRequest is unsupported by this target: not implemented',
 );
 
-/// The capabilities of a library that offers no summaries, such as a Subsonic
-/// one.
+/// The capabilities of a library that offers no summaries.
 class _NoSummaryCapabilities extends RequestCapabilitiesProvider {
   _NoSummaryCapabilities() : super(changes: const Stream.empty());
 

@@ -32,4 +32,11 @@ void main() {
     );
     expect(playCount, 0);
   });
+
+  test('a failing playback does not escape', () async {
+    await startCafePlaybackAfterOpen(
+      libraryOpened: Future.value(true),
+      play: () async => throw StateError('no analysis data'),
+    );
+  });
 }

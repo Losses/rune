@@ -14,6 +14,7 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/request_capabilities.dart';
 import '../dialogs/play_on/play_on_dialog.dart';
 
 import '../rune_log.dart';
@@ -129,11 +130,13 @@ void openTrackItemContextMenu(
     return;
   }
   final withMixes = offersMixes(context);
+  // A library that lists no playlists is not asked for them.
+  final withPlaylists = canListPlaylists(context);
   late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   late final FetchParsedMediaFileResponse parsedMediaFile;
   try {
-    playlists = await loadPlaylists();
+    playlists = withPlaylists ? await loadPlaylists() : const [];
     mixes = withMixes ? await loadMixes() : null;
     parsedMediaFile = await loadMediaFile(fileId);
   } on RequestFailure catch (error) {
@@ -239,7 +242,9 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      if (libraryState.openRecord != null && !libraryState.isRemoteControl)
+      if (libraryState.openRecord != null &&
+          !libraryState.isRemoteControl &&
+          canPlayOnOtherDevice(context))
         MenuFlyoutItem(
           leading: const Icon(Symbols.cast),
           text: Text(S.of(context).playOn),
@@ -266,21 +271,22 @@ Widget buildTrackItemContextMenu(
           );
         },
       ),
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.rocket),
-        text: Text(S.of(context).startRoaming),
-        onPressed: () async {
-          await _runTrackAction(
-            context,
-            () => startRoaming(
+      if (canStartRoaming(context))
+        MenuFlyoutItem(
+          leading: const Icon(Symbols.rocket),
+          text: Text(S.of(context).startRoaming),
+          onPressed: () async {
+            await _runTrackAction(
               context,
-              CollectionType.track,
-              item.file.id,
-              const [],
-            ),
-          );
-        },
-      ),
+              () => startRoaming(
+                context,
+                CollectionType.track,
+                item.file.id,
+                const [],
+              ),
+            );
+          },
+        ),
       if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
           playlistId != null &&
           occurrenceId != null)
@@ -445,7 +451,9 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    if (libraryState.openRecord != null && !libraryState.isRemoteControl)
+    if (libraryState.openRecord != null &&
+        !libraryState.isRemoteControl &&
+        canPlayOnOtherDevice(context))
       CommandBarButton(
         icon: Tooltip(
           message: S.of(context).playOn,
@@ -474,23 +482,24 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         );
       },
     ),
-    CommandBarButton(
-      icon: Tooltip(
-        message: S.of(context).startRoaming,
-        child: const Icon(Symbols.rocket),
-      ),
-      onPressed: () async {
-        await _runTrackAction(
-          context,
-          () => startRoaming(
+    if (canStartRoaming(context))
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).startRoaming,
+          child: const Icon(Symbols.rocket),
+        ),
+        onPressed: () async {
+          await _runTrackAction(
             context,
-            CollectionType.track,
-            item.file.id,
-            const [],
-          ),
-        );
-      },
-    ),
+            () => startRoaming(
+              context,
+              CollectionType.track,
+              item.file.id,
+              const [],
+            ),
+          );
+        },
+      ),
     if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica &&
         playlistId != null &&
         occurrenceId != null)

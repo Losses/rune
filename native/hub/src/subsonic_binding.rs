@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -61,6 +61,9 @@ pub(crate) enum SubsonicIdKind {
 /// How many fetched songs a binding keeps at most.
 const MAX_FETCHED_SONGS: usize = 2000;
 
+/// How long a list read from the server is kept for paging and for the home.
+pub(crate) const LIST_TTL: Duration = Duration::from_secs(60);
+
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
@@ -79,6 +82,8 @@ pub(crate) struct SubsonicBinding {
     feed_link_changes: watch::Sender<u64>,
     /// The visualizer of the node this jukebox plays for, which its feed writes.
     visualizer: Arc<Visualizer>,
+    /// What the random groups of the home are drawn with, rotated over time.
+    pub(crate) home_seed: u64,
 }
 
 /// The running visualizer feed connection loop.
@@ -384,7 +389,14 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
     pub(crate) artists_loaded: bool,
+    /// The ids of the artists in the order the server lists them, once they are loaded.
+    pub(crate) artist_order: Vec<i32>,
     pub(crate) albums_loaded: bool,
+    /// The ids of the first songs of the whole song list, as read to keep only those with a
+    /// cover, and when.
+    pub(crate) song_pool: Option<(Instant, Arc<Vec<i32>>)>,
+    /// The ids of every album, oldest added first, and when they were read.
+    pub(crate) albums_by_addition: Option<(Instant, Arc<Vec<i32>>)>,
 }
 
 impl SubsonicBinding {
@@ -414,6 +426,7 @@ impl SubsonicBinding {
             visualizer_feed: Mutex::new(None),
             feed_link_changes: watch::channel(0).0,
             visualizer,
+            home_seed: rand::random(),
         }
     }
 
@@ -1076,7 +1089,8 @@ mod visualizer_feed_tests {
         backends::remote::{decode_message, encode_message},
         messages::{
             PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, RealtimeFFT,
-            VisualizerFeedChart, VisualizerFeedCovers,
+            VisualizerFeedChart, VisualizerFeedCovers, VisualizerInputs as PushedInputs,
+            VisualizerInputsChanged,
         },
         utils::{Broadcaster, RinfRustSignal},
     };
@@ -1134,6 +1148,7 @@ mod visualizer_feed_tests {
         names: Mutex<Vec<String>>,
         playback_states: Mutex<Vec<PlaybackState>>,
         playback_statuses: Mutex<Vec<PlaybackStatus>>,
+        pushed_inputs: Mutex<Vec<PushedInputs>>,
     }
 
     #[derive(Serialize)]
@@ -1224,6 +1239,9 @@ mod visualizer_feed_tests {
             if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
                 self.playback_states.lock().unwrap().push(status.state);
                 self.playback_statuses.lock().unwrap().push(status.clone());
+            }
+            if let Some(changed) = message.as_any().downcast_ref::<VisualizerInputsChanged>() {
+                self.pushed_inputs.lock().unwrap().push(changed.inputs);
             }
         }
     }
@@ -2032,6 +2050,79 @@ mod visualizer_feed_tests {
         })
         .await
         .unwrap();
+
+        node.close_ui(&node.token).await;
+        node.shutdown().await.unwrap();
+        server.abort();
+    }
+
+    /// The UI follows what the jukebox's feed gives the visualizer, as the node tells it each
+    /// time that changes, also while no visualizer runs to be asked.
+    #[tokio::test]
+    async fn the_ui_hears_the_jukebox_inputs_as_the_feed_drops_and_returns() {
+        use crate::node::NodeContext;
+        use crate::server::utils::device::RunMode;
+
+        let (url, state, server) = server(true, true).await;
+        let node_dir = TempDir::new().unwrap();
+        let path = node_dir.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
+        let signals = Arc::new(Signals::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            signals.clone(),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await
+        .unwrap();
+        let root = TempDir::new().unwrap();
+        let binding = open_binding_for(
+            url,
+            &root,
+            Arc::new(Signals::default()),
+            Arc::clone(node.visualizer()),
+        )
+        .await;
+        node.set_open_service_catalog(None, binding.clone())
+            .await
+            .unwrap();
+        let last_pushed = || signals.pushed_inputs.lock().unwrap().last().copied();
+        // The feed that drops is one the server took.
+        wait_until("the feed connection", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        wait_until("the UI to hear the live feed", || async {
+            Ok((last_pushed() == Some(PushedInputs::Full)).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(true, Ordering::SeqCst);
+        state.feed_drop.notify_one();
+        wait_until("the UI to hear that the feed is gone", || async {
+            Ok((last_pushed() == Some(PushedInputs::None)).then_some(()))
+        })
+        .await
+        .unwrap();
+
+        state.refuse_feed.store(false, Ordering::SeqCst);
+        wait_until("the UI to hear that the feed is back", || async {
+            Ok((last_pushed() == Some(PushedInputs::Full)).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(state.connections.load(Ordering::SeqCst), 2);
+        // Each change is told once, however often the inputs were published again.
+        let pushed = signals.pushed_inputs.lock().unwrap().clone();
+        assert!(
+            pushed.windows(2).all(|pair| pair[0] != pair[1]),
+            "{pushed:?}"
+        );
 
         node.close_ui(&node.token).await;
         node.shutdown().await.unwrap();

@@ -318,16 +318,24 @@ impl SubsonicClient {
         size: u32,
         offset: u32,
     ) -> Result<Vec<SubsonicAlbum>, SubsonicError> {
+        self.album_list_by("alphabeticalByName", size, offset).await
+    }
+
+    /// List albums in the order of a Subsonic list type that takes no other parameter, such as
+    /// `newest` or `alphabeticalByName`, using the Subsonic paging parameters. `byYear` and
+    /// `byGenre` need parameters this does not send.
+    pub async fn album_list_by(
+        &self,
+        list_type: &str,
+        size: u32,
+        offset: u32,
+    ) -> Result<Vec<SubsonicAlbum>, SubsonicError> {
         let size = size.to_string();
         let offset = offset.to_string();
         let response: AlbumListResponse = self
             .call(
                 "getAlbumList2",
-                &[
-                    ("type", "alphabeticalByName"),
-                    ("size", &size),
-                    ("offset", &offset),
-                ],
+                &[("type", list_type), ("size", &size), ("offset", &offset)],
             )
             .await?;
         Ok(response

@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use ::playback::player::Playable;
 use ::visualizer::{
     Inspect, LabCommand, LabEvent, LabEventKind, LabTransition, Level, Location, PcmInput,
-    SceneInputs, VisualizerInputs as EngineInputs,
+    SceneInputs,
 };
 
 use crate::{
@@ -25,14 +25,6 @@ use std::result;
 use tokio::sync as tokio_sync;
 use tokio::task;
 use visualizer::package;
-
-fn message_inputs(inputs: EngineInputs) -> VisualizerInputs {
-    match inputs {
-        EngineInputs::None => VisualizerInputs::None,
-        EngineInputs::SpectrumOnly => VisualizerInputs::SpectrumOnly,
-        EngineInputs::Full => VisualizerInputs::Full,
-    }
-}
 
 fn message_runtime_status(status: &::visualizer::Status) -> VisualizerRuntimeStatus {
     match status.transport {
@@ -390,7 +382,7 @@ impl Signal for VisualizerStatusRequest {
             preset_name: status.preset_name,
             preset_path: status.preset_path,
             preset_count: u32::try_from(status.preset_count).unwrap_or(u32::MAX),
-            inputs: message_inputs(status.inputs),
+            inputs: status.inputs.into(),
             last_error: status.last_error,
         }))
     }
@@ -673,7 +665,7 @@ impl Signal for VisualizerSupportRequest {
         Ok(Some(VisualizerSupportResponse {
             call_id: None,
             support: message_support(gpu),
-            inputs: message_inputs(VISUALIZER.status().inputs),
+            inputs: VISUALIZER.status().inputs.into(),
         }))
     }
 }
