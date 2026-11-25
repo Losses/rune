@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// The version of the files' format. A file of another version is ignored, and replaced by the
 /// next write of its value.
@@ -256,15 +257,16 @@ impl Inner {
 }
 
 /// Writes `bytes` to a file beside `path` and moves it into place, so `path` holds the old value
-/// or the new one, never a part of either. Writes are made one at a time, so the file beside it
-/// can have a fixed name.
+/// or the new one, never a part of either. Each write has a file of its own, as another store of
+/// the same library, such as one a binding closed a moment ago left writing, may write the same
+/// name at once.
 fn write_atomically(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     create_private_dir(dir)?;
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let temporary = dir.join(format!(".{name}.tmp"));
+    let temporary = dir.join(format!(".{name}.{}.tmp", Uuid::new_v4().simple()));
     let written = (|| {
         let mut file = create_private_file(&temporary)?;
         file.write_all(bytes)?;
