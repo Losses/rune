@@ -36,18 +36,19 @@ class LibraryOpenStateProvider with ChangeNotifier {
 
   final LibraryRegistryProvider registry;
 
-  /// Readies the record open last before startup opens it again, as by signing it in. What it
-  /// throws keeps the library closed, as a failed open does.
+  /// Readies the record open last before startup opens it again, as by signing
+  /// it in. What it throws keeps the library closed, as a failed open does.
   final Future<void> Function(String recordId)? _beforeOpen;
   late final Future<bool> initialOpen;
 
-  /// Why startup did not open a library again: a request that failed, or what readying the
-  /// record threw.
+  /// Why startup did not open a library again: a request that failed, or what
+  /// readying the record threw.
   Object? initialOpenFailure;
   bool _openingAtStartup = true;
   bool _disposed = false;
 
-  /// Whether startup is still opening a library again, as while it waits for a sign-in.
+  /// Whether startup is still opening a library again, as while it waits for a
+  /// sign-in.
   bool get isOpeningAtStartup => _openingAtStartup;
 
   LibraryRecordSummary? get openRecord => registry.openRecord;

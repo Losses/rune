@@ -266,8 +266,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
     return _acceptRegisterResponse(response);
   }
 
-  /// Registers the library of a streaming service, signed in with [signIn]. A service this
-  /// device already has keeps its record, which comes back signed in again.
+  /// Registers the library of a streaming service, signed in with [signIn]. A
+  /// service this device already has keeps its record, which comes back signed
+  /// in again.
   Future<RegisterLibraryResponse> registerServiceLibrary(
     StreamingService service,
     String alias,

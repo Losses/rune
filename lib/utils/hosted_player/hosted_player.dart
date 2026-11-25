@@ -20,7 +20,8 @@ abstract class SelfReportingHost implements HostedPlayerHost {
   void attach(void Function(Map<String, dynamic>) emit);
 }
 
-/// What a platform host answered when asked to authorize the user's account on its service.
+/// What a platform host answered when asked to authorize the user's account on
+/// its service.
 sealed class HostAuthorizationResult {
   const HostAuthorizationResult();
 }
@@ -41,7 +42,8 @@ enum HostAuthorizationFailure {
   /// Allowed, but the service gave no token, as offline or without an account.
   noToken,
 
-  /// Allowed, but the account that the device is signed in with cannot use the service.
+  /// Allowed, but the account that the device is signed in with cannot use the
+  /// service.
   account,
 
   /// Allowed, but the user has yet to accept the service's privacy notice.
@@ -61,11 +63,11 @@ class HostAuthorizationFailed extends HostAuthorizationResult {
   final HostAuthorizationFailure failure;
 }
 
-/// A host that also authorizes the user's account on its service, for a library whose sign-in
-/// lives on this device.
+/// A host that also authorizes the user's account on its service, for a library
+/// whose sign-in lives on this device.
 abstract class AuthorizingHost implements HostedPlayerHost {
-  /// Authorizes the user's account on the host's service, or says why it cannot. Without
-  /// [interactive] it must not show anything to the user.
+  /// Authorizes the user's account on the host's service, or says why it
+  /// cannot. Without [interactive] it must not show anything to the user.
   Future<HostAuthorizationResult> authorize({bool interactive = false});
 
   /// Fires when the service stops letting Rune play while Rune runs.
@@ -81,8 +83,9 @@ abstract class NetworkReportingHost implements HostedPlayerHost {
   Stream<void> get networkBack;
 }
 
-/// The hosts this platform provides, by family. Platform code adds its hosts here at startup,
-/// and the player bridge and the sign-in of a library on this device both look them up.
+/// The hosts this platform provides, by family. Platform code adds its hosts
+/// here at startup, and the player bridge and the sign-in of a library on this
+/// device both look them up.
 final Map<String, HostedPlayerHost> platformHosts = {};
 
 /// Routes the player's commands to the host registered for each family.

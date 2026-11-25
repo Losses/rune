@@ -23,8 +23,8 @@ Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
   return response.message;
 }
 
-/// Registers the library of [service] with [signIn], or signs in again the one this device
-/// already has.
+/// Registers the library of [service] with [signIn], or signs in again the one
+/// this device already has.
 Future<RegisterLibraryResponse> registerServiceLibrary(
   StreamingService service,
   String alias,
