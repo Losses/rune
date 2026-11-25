@@ -25,8 +25,8 @@ import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
 import 'utils/device_sign_in.dart';
+import 'utils/library_sign_in.dart';
 import 'utils/dialogs/failed_to_initialize_library.dart';
-import 'utils/dialogs/library_sign_in.dart';
 import 'utils/dialogs/device_sign_in/device_sign_in_dialog.dart';
 import 'utils/remote_connection_messages.dart';
 import 'utils/share_sync_messages.dart';
@@ -446,13 +446,15 @@ void mainLoop(
         ),
         ChangeNotifierProvider.value(value: libraryRegistry),
         Provider(create: (_) => LocalFolderPickerProvider()),
-        // The hub keeps the sign-ins made on this device in memory only, so they are made
-        // again at every start, before the library open last is opened again.
+        // The hub keeps the sign-ins made on this device in memory only, so
+        // they are made again at every start, before the library open last is
+        // opened again.
         Provider(
           lazy: false,
-          create: (context) =>
-              DeviceSignIns(context.read<LibraryRegistryProvider>())
-                ..signInAtStartup(),
+          create: (context) => DeviceSignIns(
+            context.read<LibraryRegistryProvider>(),
+            methods: platformSignInMethods,
+          )..signInAtStartup(),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -687,7 +689,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         // The library chooser is there once the current frame is out.
         await WidgetsBinding.instance.endOfFrame;
       },
-      showLibrary: () => $$replace('/library'),
+      showLibrary: () => $$replace(cafeMode ? '/cover_wall' : '/library'),
     );
     _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
       (signal) {

@@ -300,8 +300,10 @@ Future<void> _pumpApp(WidgetTester tester) async {
           ),
         ),
         Provider(
-          create: (context) =>
-              DeviceSignIns(context.read<LibraryRegistryProvider>()),
+          create: (context) => DeviceSignIns(
+            context.read<LibraryRegistryProvider>(),
+            methods: const {},
+          ),
         ),
         ChangeNotifierProvider(
           create: (context) => LibraryOpenStateProvider(

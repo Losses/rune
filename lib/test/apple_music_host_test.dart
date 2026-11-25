@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,14 +27,12 @@ void main() {
   group('registerOnPlatform', () {
     tearDown(() => platformHosts.remove('appleMusic'));
 
-    test('registers the host where the runner provides it', () {
-      AppleMusicHost.registerOnPlatform(supported: true);
-      expect(platformHosts['appleMusic'], isA<AppleMusicHost>());
-    });
-
-    test('registers nothing elsewhere', () {
-      AppleMusicHost.registerOnPlatform(supported: false);
-      expect(platformHosts.containsKey('appleMusic'), isFalse);
+    test('registers the host only where the runner provides it', () {
+      AppleMusicHost.registerOnPlatform();
+      expect(
+        platformHosts['appleMusic'] is AppleMusicHost,
+        Platform.isMacOS || Platform.isIOS,
+      );
     });
   });
 

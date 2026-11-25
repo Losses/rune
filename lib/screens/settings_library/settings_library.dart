@@ -6,7 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/apple_music_sign_in.dart';
 import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../utils/dialogs/library_sign_in.dart';
+import '../../utils/library_sign_in.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';

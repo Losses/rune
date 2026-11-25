@@ -9,7 +9,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../bindings/bindings.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../../utils/dialogs/library_sign_in.dart';
+import '../../../utils/library_sign_in.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_registry.dart';
 import '../../../providers/responsive_providers.dart';
@@ -132,8 +132,8 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           },
                           onPressed: () async {
                             try {
-                              // A sign-in the user was told about and closed leaves
-                              // them here.
+                              // A sign-in the user was told about and closed
+                              // leaves them here.
                               if (!await openLibraryWithSignIn(
                                 context,
                                 registry,

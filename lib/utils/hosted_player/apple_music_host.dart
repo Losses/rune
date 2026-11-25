@@ -7,8 +7,9 @@ import 'package:flutter/services.dart';
 import '../logger.dart';
 import 'hosted_player.dart';
 
-/// Plays Apple Music through the macOS or iOS runner's MusicKit host. Dart only forwards:
-/// batches go to the runner as JSON text, and the runner's events come back the same way.
+/// Plays Apple Music through the macOS or iOS runner's MusicKit host. Dart only
+/// forwards: batches go to the runner as JSON text, and the runner's events
+/// come back the same way.
 class AppleMusicHost
     implements SelfReportingHost, AuthorizingHost, NetworkReportingHost {
   AppleMusicHost({MethodChannel? channel})
@@ -24,13 +25,16 @@ class AppleMusicHost
   Future<void>? _announced;
   Future<void> _queue = Future.value();
 
-  /// The latest `hostReady` passed on: the announcement's, or one the runner sent since.
+  /// The latest `hostReady` passed on: the announcement's, or one the runner
+  /// sent since.
   Map<String, dynamic>? _ready;
 
-  /// Whether the runner last reported access, as far as it said; unknown until it reports.
+  /// Whether the runner last reported access, as far as it said; unknown until
+  /// it reports.
   bool? _authorized;
 
-  /// The revision of the latest batch whose track failed for lack of authorization.
+  /// The revision of the latest batch whose track failed for lack of
+  /// authorization.
   Object? _lostRevision;
 
   /// Whether the runner last reported access. Null until it reports.
@@ -38,10 +42,11 @@ class AppleMusicHost
 
   final _accessLost = StreamController<void>.broadcast();
 
-  /// Fires when Apple Music stops letting Rune play: the access the runner reported was
-  /// withdrawn while Rune runs, or a track failed for lack of authorization, once per batch,
-  /// while the runner has not reported access. A host that starts without access, or whose
-  /// start is unknown, has lost nothing. The sign-in flow takes it from there.
+  /// Fires when Apple Music stops letting Rune play: the access the runner
+  /// reported was withdrawn while Rune runs, or a track failed for lack of
+  /// authorization, once per batch, while the runner has not reported access. A
+  /// host that starts without access, or whose start is unknown, has lost
+  /// nothing. The sign-in flow takes it from there.
   @override
   Stream<void> get accessLost => _accessLost.stream;
 
@@ -53,15 +58,15 @@ class AppleMusicHost
 
   final _networkBack = StreamController<void>.broadcast();
 
-  /// Fires when the runner reports the network back after it reported none. The sign-in
-  /// flow tries again the sign-ins that failed without it.
+  /// Fires when the runner reports the network back after it reported none. The
+  /// sign-in flow tries again the sign-ins that failed without it.
   @override
   Stream<void> get networkBack => _networkBack.stream;
 
-  /// Registers the host on macOS and iOS, where the runner provides the channel. `supported`
-  /// overrides the platform check.
-  static void registerOnPlatform({bool? supported}) {
-    if (supported ?? (Platform.isMacOS || Platform.isIOS)) {
+  /// Registers the host on macOS and iOS, where the runner provides the
+  /// channel.
+  static void registerOnPlatform() {
+    if (Platform.isMacOS || Platform.isIOS) {
       platformHosts[family] = AppleMusicHost();
     }
   }
@@ -88,10 +93,11 @@ class AppleMusicHost
     return parseAuthorization(reply);
   }
 
-  /// Reads the runner's reply. Without both an authorization and a user token there is nothing to
-  /// sign in with; the runner's `reason` tells a system too old for Apple Music from a refusal,
-  /// and an account that cannot use Apple Music, or a privacy notice still to accept, from a
-  /// token that could not be had otherwise.
+  /// Reads the runner's reply. Without both an authorization and a user token
+  /// there is nothing to sign in with; the runner's `reason` tells a system too
+  /// old for Apple Music from a refusal, and an account that cannot use Apple
+  /// Music, or a privacy notice still to accept, from a token that could not be
+  /// had otherwise.
   static HostAuthorizationResult parseAuthorization(Object? reply) {
     if (reply is! Map) {
       return const HostAuthorizationFailed(
@@ -122,8 +128,9 @@ class AppleMusicHost
     );
   }
 
-  /// Asks the runner what it can do and passes that on, before the player hands over anything.
-  /// The runner drops whatever it still held, since what it reports is a host that just started.
+  /// Asks the runner what it can do and passes that on, before the player hands
+  /// over anything. The runner drops whatever it still held, since what it
+  /// reports is a host that just started.
   @override
   void attach(void Function(Map<String, dynamic>) emit) {
     _listen(emit);
@@ -136,17 +143,18 @@ class AppleMusicHost
     void Function(Map<String, dynamic>) emit,
   ) {
     _listen(emit);
-    // A host that was not attached announces itself before its first batch. Batches wait in
-    // line behind the announcement, in order.
+    // A host that was not attached announces itself before its first batch.
+    // Batches wait in line behind the announcement, in order.
     final announced = _announced ??= _announce();
     _queue = _queue.then((_) async {
       await announced;
       final ready = _ready;
       if (ready != null && !_canPlay(ready)) {
-        // The hub drops what comes before it is ready, as an announcement made at startup can.
-        // A host that cannot play says so again, so the player fails the track at once rather
-        // than waiting for a report. One that can is not repeated, since the player would hand
-        // its track over again.
+        // The hub drops what comes before it is ready, as an announcement made
+        // at startup can. A host that cannot play says so again, so the player
+        // fails the track at once rather than waiting for a report. One that
+        // can is not repeated, since the player would hand its track over
+        // again.
         _emit?.call(ready);
         return;
       }
@@ -164,8 +172,9 @@ class AppleMusicHost
     _emit = emit;
   }
 
-  /// Asks the runner what it can do and passes the answer on. Never throws. When the runner
-  /// cannot be reached, Rust is told that nothing can be played here.
+  /// Asks the runner what it can do and passes the answer on. Never throws.
+  /// When the runner cannot be reached, Rust is told that nothing can be played
+  /// here.
   Future<void> _announce() async {
     try {
       final reply = await _channel.invokeMethod<Object>('status');
@@ -230,9 +239,9 @@ class AppleMusicHost
         lost = _authorized == true && authorized == false;
         if (authorized is bool) _authorized = authorized;
         _ready = decoded;
-      // While the runner reports access, a sign-in would not let the track play: the track
-      // shows as revoked, and nothing is asked. A batch whose tracks fail one after another
-      // loses access once.
+      // While the runner reports access, a sign-in would not let the track
+      // play: the track shows as revoked, and nothing is asked. A batch whose
+      // tracks fail one after another loses access once.
       case 'jukeboxItemFailed'
           when decoded['reason'] == 'notAuthorized' && _authorized != true:
         final revision = decoded['revision'];

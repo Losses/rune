@@ -18,9 +18,11 @@ import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/apple_music_sign_in.dart';
 import 'package:rune/utils/device_sign_in.dart';
 import 'package:rune/utils/dialogs/device_sign_in/device_sign_in_dialog.dart';
-import 'package:rune/utils/dialogs/library_sign_in.dart';
 import 'package:rune/utils/hosted_player/apple_music_host.dart';
 import 'package:rune/utils/hosted_player/hosted_player.dart';
+import 'package:rune/utils/hosted_player/platform_hosts.dart';
+import 'package:rune/utils/library_sign_in.dart';
+import 'package:rune/utils/platform.dart';
 import 'package:rune/utils/recover_failed_startup_open.dart';
 import 'package:rune/widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
@@ -105,7 +107,8 @@ class _OfflineHost extends _Host implements NetworkReportingHost {
   Stream<void> get networkBack => const Stream.empty();
 }
 
-/// Answers silently with [silent], and waits for [interactive] when asked to show something.
+/// Answers silently with [silent], and waits for [interactive] when asked to
+/// show something.
 class _GatedHost implements AuthorizingHost {
   _GatedHost({required this.silent});
 
@@ -144,9 +147,9 @@ class _StuckHost implements AuthorizingHost {
   ) {}
 }
 
-/// A hub that opens an Apple Music library whether or not it is signed in, as the real one
-/// does: one that is not opens from what it kept. Its records say the Apple Music library is
-/// not signed in, as the real hub's do at startup.
+/// A hub that opens an Apple Music library whether or not it is signed in, as
+/// the real one does: one that is not opens from what it kept. Its records say
+/// the Apple Music library is not signed in, as the real hub's do at startup.
 class _Hub {
   _Hub({
     this.records = const [_appleRecord, _localRecord],
@@ -210,6 +213,7 @@ class _Hub {
     DeviceSignInPolicy? policy,
   }) => DeviceSignIns(
     registry,
+    methods: platformSignInMethods,
     hosts: {AppleMusicHost.family: ?host},
     policy: policy,
   );
@@ -348,6 +352,30 @@ void main() {
         expect(appleMusicSubtitleText(_strings), text);
       });
     }
+
+    test('an iOS build on a Mac speaks of the Mac', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      debugIosDevice = IosDevice.mac;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        debugIosDevice = null;
+      });
+      expect(appleMusicSubtitleText(_strings), _strings.appleMusicSubtitle);
+      expect(
+        appleMusicAuthorizationMessage(
+          _strings,
+          HostAuthorizationFailure.refused,
+        ),
+        _strings.appleMusicAccessDenied,
+      );
+      expect(
+        appleMusicAuthorizationMessage(
+          _strings,
+          HostAuthorizationFailure.account,
+        ),
+        _strings.appleMusicAccountUnavailable,
+      );
+    });
   });
 
   group('which libraries sign in on this device', () {
@@ -847,9 +875,9 @@ void main() {
       expect(hub.opens, ['local-record']);
     });
 
-    /// Starts as the app does with an Apple Music library open last: signs in, opens it unless
-    /// only the user can make the sign-in work, and recovers a failed open on the library
-    /// chooser. Tells what happened in order.
+    /// Starts as the app does with an Apple Music library open last: signs in,
+    /// opens it unless only the user can make the sign-in work, and recovers a
+    /// failed open on the library chooser. Tells what happened in order.
     Future<List<String>> start(
       WidgetTester tester,
       _Hub hub,
@@ -902,8 +930,8 @@ void main() {
         final host = _Host([_refused, _refused, _authorization]);
         final events = await start(tester, hub, hub.signInsWith(host));
 
-        // The sign-in made at startup is the one told. No other was made for the dialog, and
-        // the library was not opened.
+        // The sign-in made at startup is the one told. No other was made for
+        // the dialog, and the library was not opened.
         expect(host.calls, [false, true]);
         expect(events, ['chooser']);
         expect(hub.opens, isEmpty);
@@ -962,7 +990,8 @@ void main() {
         expect(find.byType(InfoBar), findsNothing);
         expect(signIns.policy.awaitingRetry, ['apple-record']);
 
-        // The network comes back, and the library signs in by itself, showing nothing.
+        // The network comes back, and the library signs in by itself, showing
+        // nothing.
         hub.signInFailure = null;
         final contextOf = await _context(tester);
         AutomaticDeviceSignIn(
@@ -1338,7 +1367,7 @@ void main() {
     );
 
     testWidgets(
-      'the dialog stays up for a stray click, and for Esc while it signs in',
+      'the dialog stays up for Esc and a click beside it while it signs in',
       (tester) async {
         final hub = await _hub();
         final contextOf = await _context(tester);
@@ -1352,8 +1381,6 @@ void main() {
           ).then(results.add),
         );
         await tester.pumpAndSettle();
-        await tester.tapAt(const Offset(4, 4));
-        await tester.pumpAndSettle();
         expect(find.text(_strings.loginFailed), findsOneWidget);
 
         final gate = Completer<void>();
@@ -1361,6 +1388,8 @@ void main() {
         await tester.tap(find.text(_strings.playOnRetry));
         await tester.pump();
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        await tester.tapAt(const Offset(4, 4));
         await tester.pump();
         expect(find.text(_strings.loginFailed), findsOneWidget);
         expect(results, isEmpty);
@@ -1389,6 +1418,53 @@ void main() {
       expect(find.text(_strings.loginFailed), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(results, [false]);
+      expect(find.byType(ContentDialog), findsNothing);
+    });
+
+    testWidgets('Esc closes the dialog after a Retry that failed', (
+      tester,
+    ) async {
+      final hub = await _hub();
+      final contextOf = await _context(tester);
+      final host = _Host([_refused]);
+      final results = <bool>[];
+      unawaited(
+        signInOnDeviceAgain(
+          contextOf(),
+          hub.signInsWith(host, policy: policy),
+          'apple-record',
+        ).then(results.add),
+      );
+      await tester.pumpAndSettle();
+      final asked = host.calls.length;
+      await tester.tap(find.text(_strings.playOnRetry));
+      await tester.pumpAndSettle();
+      expect(host.calls.length, greaterThan(asked));
+      expect(find.text(_strings.loginFailed), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(results, [false]);
+      expect(find.byType(ContentDialog), findsNothing);
+    });
+
+    testWidgets('a click beside the dialog closes it like Esc', (tester) async {
+      final hub = await _hub();
+      final contextOf = await _context(tester);
+      final results = <bool>[];
+      unawaited(
+        signInOnDeviceAgain(
+          contextOf(),
+          hub.signInsWith(_Host([_refused]), policy: policy),
+          'apple-record',
+        ).then(results.add),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(_strings.loginFailed), findsOneWidget);
+
+      await tester.tapAt(const Offset(4, 4));
       await tester.pumpAndSettle();
       expect(results, [false]);
       expect(find.byType(ContentDialog), findsNothing);
@@ -1447,7 +1523,8 @@ void main() {
         automatic = automaticFor(hub, contextOf, host);
       }
 
-      /// Lets a sign-in fail [times] times, each after the cooldown of the one before.
+      /// Lets a sign-in fail [times] times, each after the cooldown of the one
+      /// before.
       Future<void> fail(WidgetTester tester, int times) async {
         for (var index = 0; index < times; index++) {
           now = now.add(signInCooldown * 2);
