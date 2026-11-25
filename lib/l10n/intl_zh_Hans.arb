@@ -1730,6 +1730,7 @@
   "libraryOpenDalUnreachable": "请检查服务器地址和网络连接。",
   "libraryOpenDalNotFolder": "请确认所选文件夹存在且可以访问。",
   "libraryOpenDalReadOnly": "请选择可写入的文件夹，才能将媒体索引存储在共享文件夹中。",
+  "libraryShareIdentityChanged": "此位置的共享媒体库已更改。同步将无法继续使用旧身份。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "连接到 Subsonic 音乐服务器。",
   "playOnThisDevice": "在此设备播放",

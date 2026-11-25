@@ -1730,6 +1730,7 @@
   "libraryOpenDalUnreachable": "核伺址與網絡。",
   "libraryOpenDalNotFolder": "核所擇資料夾存而可取。",
   "libraryOpenDalReadOnly": "擇可書之夾，方得置曲目索引於共享夾。",
+  "libraryShareIdentityChanged": "此處共享之樂庫已易。同步無從以舊辨識續之。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "連接於 Subsonic 樂庫伺服器。",
   "playOnThisDevice": "於此裝置奏",

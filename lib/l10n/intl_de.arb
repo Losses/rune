@@ -1730,6 +1730,7 @@
   "libraryOpenDalUnreachable": "Überprüfe die Serveradresse und die Netzwerkverbindung.",
   "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist.",
   "libraryOpenDalReadOnly": "Wähle einen beschreibbaren Ordner, um den Medienindex in der Freigabe zu speichern.",
+  "libraryShareIdentityChanged": "Die freigegebene Mediathek an diesem Speicherort hat sich geändert. Die Synchronisation kann nicht mit der vorherigen Identität fortgesetzt werden.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Mit einem Subsonic-Musikserver verbinden.",
   "playOnThisDevice": "Auf diesem Gerät abspielen",

@@ -32,7 +32,10 @@ void main() {
         );
       }
       await pumpEventQueue();
-      expect(shown, [s.libraryInvalidSource, s.libraryInvalidSource]);
+      expect(shown, [
+        s.libraryShareIdentityChanged,
+        s.libraryShareIdentityChanged,
+      ]);
       notice.dispose();
       await updates.close();
     },

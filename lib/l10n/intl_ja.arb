@@ -1730,6 +1730,7 @@
   "libraryOpenDalUnreachable": "サーバーの通信管理機とネットワーク接続を確認してください。",
   "libraryOpenDalNotFolder": "選択したフォルダーが存在し、アクセスできることを確認してください。",
   "libraryOpenDalReadOnly": "共有フォルダーに資料索引を保存するには、書き込み可能なフォルダーを選んでください。",
+  "libraryShareIdentityChanged": "この場所にある共有ライブラリが変更されました。同期は以前の ID で続行できません。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic 音楽サーバーに接続します。",
   "playOnThisDevice": "このデバイスで再生",

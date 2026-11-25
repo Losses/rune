@@ -1732,6 +1732,7 @@
   "libraryOpenDalUnreachable": "Vérifiez l’adresse du serveur et la connexion réseau.",
   "libraryOpenDalNotFolder": "Vérifiez que le dossier choisi existe et est accessible.",
   "libraryOpenDalReadOnly": "Choisissez un dossier accessible en écriture pour conserver l’index multimédia dans le dossier partagé.",
+  "libraryShareIdentityChanged": "La bibliothèque partagée à cet emplacement a changé. La synchronisation ne peut pas continuer avec l'identité précédente.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Connectez-vous à un serveur musical Subsonic.",
   "playOnThisDevice": "Lire sur cet appareil",

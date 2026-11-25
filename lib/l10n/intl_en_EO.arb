@@ -1732,6 +1732,7 @@
   "libraryOpenDalUnreachable": "Kontrolu la servilan adreson kaj retkonekton.",
   "libraryOpenDalNotFolder": "Kontrolu, ĉu la elektita dosierujo ekzistas kaj estas atingebla.",
   "libraryOpenDalReadOnly": "Elektu skribeblan dosierujon por konservi la mediindekson en la komuna dosierujo.",
+  "libraryShareIdentityChanged": "Ĉi tiu komuna biblioteko ĉe ĉi tiu loko ŝanĝiĝis. Sinkronigo ne povas daŭri kun la antaŭa identeco.",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Konektu al Subsona muzikservilo.",
   "playOnThisDevice": "Ludi en Ĉi tiu Aparato",

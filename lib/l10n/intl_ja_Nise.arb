@@ -1732,6 +1732,7 @@
   "libraryOpenDalUnreachable": "通信管理機の所在と網絡接続を確認してください。",
   "libraryOpenDalNotFolder": "選択した格納場所の存在と接続可否を確認してください。",
   "libraryOpenDalReadOnly": "共有フォルダー資料索引保存為、書込可能格納場所選択了承。",
+  "libraryShareIdentityChanged": "此場所共有資料集既変更。旧識別情報同期継続不可。",
   "subsonic": "Subsonic",
   "subsonicSubtitle": "Subsonic 音楽服務器接続。",
   "playOnThisDevice": "此機器再生",
