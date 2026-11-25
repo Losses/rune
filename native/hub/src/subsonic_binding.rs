@@ -500,8 +500,9 @@ impl SubsonicLists {
         catalog: &Arc<Mutex<SubsonicCatalog>>,
         broadcaster: Arc<dyn Broadcaster>,
     ) -> Self {
-        // A page that shows a list reads it again once a read brings another.
-        let kept = ServiceLists::new(dir, move || {
+        // The lists are the account's that signs in, which the username names on a server. A page
+        // that shows a list reads it again once a read brings another.
+        let kept = ServiceLists::new(dir, client.user().as_deref(), move || {
             broadcaster.broadcast(&LibraryContentChanged {
                 path: String::new(),
             });
@@ -609,10 +610,15 @@ impl SubsonicBinding {
         }
     }
 
-    /// What the last check of the server of the library `library_id` found, kept when the
-    /// library was opened before. It reads the file, so it blocks.
-    pub(crate) fn kept_probe(config_dir: &Path, library_id: Uuid) -> Option<SubsonicProbe> {
-        kept_value(config_dir, library_id, PROBE)
+    /// What the last check of the server of the library `library_id` found for the account
+    /// `user`, kept when the library was opened before with that account. It reads the file, so
+    /// it blocks.
+    pub(crate) fn kept_probe(
+        config_dir: &Path,
+        library_id: Uuid,
+        user: &str,
+    ) -> Option<SubsonicProbe> {
+        kept_value(config_dir, library_id, Some(user), PROBE)
     }
 
     /// What the last check of the server found: the roles of the account and what the server
@@ -1130,7 +1136,7 @@ impl ServiceBinding for SubsonicBinding {
             });
         self.renewed.cancel();
         if other_account {
-            self.lists.kept.clear();
+            self.lists.kept.clear(Some(&credential.username));
         }
     }
 

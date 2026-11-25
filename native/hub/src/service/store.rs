@@ -26,11 +26,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Values kept in one folder, a versioned JSON file each, by name. A file that cannot be read is
-/// ignored. Writes are made on a thread of their own after a short wait, so a burst of them is
-/// written once, and each replaces its file whole. The folder is made by the first write, in a
-/// parent that must exist already: once the library's folder is deleted with its record, nothing
-/// is written back into it.
+/// Values kept in one folder, a versioned JSON file each, by name, for the account they were read
+/// for. A file that cannot be read, or that another account's values were written to, is
+/// ignored, so a store never gives one account what was read for another, also when the files of
+/// that one could not be deleted or are written after the account changed. Writes are made on a
+/// thread of their own after a short wait, so a burst of them is written once, and each replaces
+/// its file whole. The folder is made by the first write, in a parent that must exist already:
+/// once the library's folder is deleted with its record, nothing is written back into it.
 ///
 /// Clones are handles to the same folder.
 #[derive(Clone)]
@@ -52,6 +54,8 @@ struct Inner {
 #[derive(Default)]
 struct State {
     generation: u64,
+    /// The account the values are kept for, as `account_key` gives it.
+    account: Option<String>,
     /// The writes not made yet, by name: only the last of each is made.
     pending: HashMap<String, Pending>,
     /// Whether the writing thread runs.
@@ -66,13 +70,22 @@ struct Pending {
 #[derive(Serialize)]
 struct Versioned<'a, T> {
     version: u32,
+    account: Option<&'a str>,
     value: &'a T,
 }
 
 #[derive(Deserialize)]
 struct Stored<T> {
     version: u32,
+    #[serde(default)]
+    account: Option<String>,
     value: T,
+}
+
+/// What a store keeps of an account: a digest of it, so its files name no account. None for a
+/// service whose accounts the binding cannot tell apart.
+fn account_key(account: Option<&str>) -> Option<String> {
+    account.map(|account| blake3::hash(account.as_bytes()).to_hex().to_string())
 }
 
 impl fmt::Debug for ListStore {
@@ -84,11 +97,14 @@ impl fmt::Debug for ListStore {
 }
 
 impl ListStore {
-    /// A store of the folder `dir`, which its first write makes.
-    pub(crate) fn new(dir: PathBuf) -> Self {
+    /// A store of the folder `dir`, which its first write makes, for `account`.
+    pub(crate) fn new(dir: PathBuf, account: Option<&str>) -> Self {
         Self(Arc::new(Inner {
             dir,
-            state: Mutex::default(),
+            state: Mutex::new(State {
+                account: account_key(account),
+                ..State::default()
+            }),
             io: Mutex::new(()),
         }))
     }
@@ -98,8 +114,9 @@ impl ListStore {
         StoreGeneration(lock(&self.0.state).generation)
     }
 
-    /// The value saved as `name`, or `None` when there is none, or it cannot be read or is of
-    /// another version. It reads the file, so it blocks.
+    /// The value saved as `name` for the store's account, or `None` when there is none, or it
+    /// cannot be read, is of another version or was saved for another account. It reads the file,
+    /// so it blocks.
     pub(crate) fn load<T: DeserializeOwned>(&self, name: &str) -> Option<T> {
         let bytes = match fs::read(self.0.path(name)) {
             Ok(bytes) => bytes,
@@ -110,7 +127,14 @@ impl ListStore {
             }
         };
         match serde_json::from_slice::<Stored<T>>(&bytes) {
-            Ok(stored) if stored.version == FORMAT => Some(stored.value),
+            Ok(stored) if stored.version == FORMAT => {
+                if stored.account == lock(&self.0.state).account {
+                    Some(stored.value)
+                } else {
+                    log::info!("Ignored the kept {name} of another account");
+                    None
+                }
+            }
             Ok(stored) => {
                 log::info!("Ignored the kept {name} of format {}", stored.version);
                 None
@@ -132,9 +156,12 @@ impl ListStore {
         if state.generation != generation.0 {
             return;
         }
+        // The generation names the account too, as only a clear changes it.
+        let account = state.account.clone();
         let encode = Box::new(move || {
             serde_json::to_vec(&Versioned {
                 version: FORMAT,
+                account: account.as_deref(),
                 value: &*value,
             })
         });
@@ -158,15 +185,17 @@ impl ListStore {
         }
     }
 
-    /// Deletes every saved value, drops the saves not written yet, and runs `then` before the
-    /// new generation can be taken or a save be accepted, so what a read of the new generation
-    /// finds is what `then` made, never what came before it. It waits for a write being made,
-    /// so nothing is left of it either.
-    pub(crate) fn clear_then(&self, then: impl FnOnce()) {
+    /// Deletes every saved value, drops the saves not written yet, keeps values for `account`
+    /// from now on, and runs `then` before the new generation can be taken or a save be accepted,
+    /// so what a read of the new generation finds is what `then` made, never what came before
+    /// it. It waits for a write being made, so nothing is left of it either. A file it cannot
+    /// delete stays another account's, which the store does not give.
+    pub(crate) fn clear_then(&self, account: Option<&str>, then: impl FnOnce()) {
         // The folder first, so a save under the new generation is written after the deletion.
         let _io = lock(&self.0.io);
         let mut state = lock(&self.0.state);
         state.generation += 1;
+        state.account = account_key(account);
         state.pending.clear();
         match fs::remove_dir_all(&self.0.dir) {
             Ok(()) => {}
@@ -313,11 +342,11 @@ mod tests {
     fn saves_are_written_whole_and_read_back_by_another_store() {
         let root = TempDir::new().unwrap();
         let dir = root.path().join("lists");
-        let store = ListStore::new(dir.clone());
+        let store = ListStore::new(dir.clone(), None);
         let generation = store.generation();
         store.save(generation, "names", names("a"));
         store.save(generation, "names", names("b"));
-        let read = ListStore::new(dir.clone());
+        let read = ListStore::new(dir.clone(), None);
         assert_eq!(written(&read, "names"), Some(vec!["b".to_owned()]));
         // Only the file itself is left.
         let files: Vec<_> = fs::read_dir(&dir)
@@ -328,7 +357,7 @@ mod tests {
 
         // A save taken before a clear is not written after it.
         store.save(generation, "names", names("c"));
-        store.clear_then(|| {});
+        store.clear_then(None, || {});
         assert!(!dir.exists());
         store.save(generation, "names", names("d"));
         after_a_write();
@@ -339,12 +368,12 @@ mod tests {
     #[test]
     fn a_new_generation_is_taken_only_after_what_a_clear_runs() {
         let root = TempDir::new().unwrap();
-        let store = ListStore::new(root.path().join("lists"));
+        let store = ListStore::new(root.path().join("lists"), None);
         let before = store.generation();
         let ran = AtomicBool::new(false);
         thread::scope(|scope| {
             let reader = RefCell::new(None);
-            store.clear_then(|| {
+            store.clear_then(None, || {
                 reader.replace(Some(scope.spawn(|| {
                     let generation = store.generation();
                     (generation, ran.load(Ordering::SeqCst))
@@ -365,7 +394,7 @@ mod tests {
 
         let root = TempDir::new().unwrap();
         let dir = root.path().join("lists");
-        let store = ListStore::new(dir.clone());
+        let store = ListStore::new(dir.clone(), None);
         store.save(store.generation(), "names", names("a"));
         assert!(written(&store, "names").is_some());
 
@@ -378,11 +407,11 @@ mod tests {
     fn saves_are_written_after_the_last_handle_is_dropped() {
         let root = TempDir::new().unwrap();
         let dir = root.path().join("lists");
-        let store = ListStore::new(dir.clone());
+        let store = ListStore::new(dir.clone(), None);
         store.save(store.generation(), "names", names("a"));
         drop(store);
 
-        let read = ListStore::new(dir);
+        let read = ListStore::new(dir, None);
         assert_eq!(written(&read, "names"), Some(vec!["a".to_owned()]));
     }
 
@@ -391,7 +420,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         let library = root.path().join("library");
         fs::create_dir_all(&library).unwrap();
-        let store = ListStore::new(library.join("lists"));
+        let store = ListStore::new(library.join("lists"), None);
         store.save(store.generation(), "names", names("a"));
         // The record and its folder are deleted before the write is made.
         fs::remove_dir_all(&library).unwrap();
@@ -406,11 +435,11 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("old.json"), r#"{"version":0,"value":["a"]}"#).unwrap();
         fs::write(dir.join("broken.json"), "{").unwrap();
-        let store = ListStore::new(dir.clone());
+        let store = ListStore::new(dir.clone(), None);
         assert_eq!(store.load::<Vec<String>>("old"), None);
         assert_eq!(store.load::<Vec<String>>("broken"), None);
         assert_eq!(store.load::<Vec<String>>("missing"), None);
-        store.clear_then(|| {});
+        store.clear_then(None, || {});
         assert!(!dir.exists());
     }
 }

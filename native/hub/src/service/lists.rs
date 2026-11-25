@@ -11,8 +11,9 @@
 //! The lists keep the service's own ids. The integer ids of a response are given when a list is
 //! read, so nothing kept depends on the numbers one binding handed out.
 //!
-//! A binding holds one sign-in. A sign-in known to be another account clears the lists, on disk
-//! too, and what the reads in flight bring is not kept (see [`ServiceLists::clear`]). A sign-in
+//! A binding holds one sign-in. The lists are kept for the account it signs in to, and never given
+//! to another. A sign-in known to be another account clears the lists, on disk too, and what the
+//! reads in flight bring is not kept (see [`ServiceLists::clear`]). A sign-in
 //! renewed for the same account keeps them, and so does a sign-in that is lost or expires: the
 //! lists are still given, and read again once the service takes a sign-in again. Where a binding
 //! cannot tell whether the account changed, it keeps them, and the first read after the sign-in
@@ -59,15 +60,16 @@ pub(crate) async fn delete_kept_lists(config_dir: &Path, library_id: Uuid) -> io
     }
 }
 
-/// A value the service library `library_id` keeps beside its lists as `name`, such as what the
-/// last check of its service found, or `None` when it keeps none. It reads the file, so it
-/// blocks.
+/// A value the service library `library_id` keeps beside its lists as `name` for `account`, such
+/// as what the last check of its service found, or `None` when it keeps none for that account. It
+/// reads the file, so it blocks.
 pub(crate) fn kept_value<T: DeserializeOwned>(
     config_dir: &Path,
     library_id: Uuid,
+    account: Option<&str>,
     name: &str,
 ) -> Option<T> {
-    ListStore::new(lists_folder(config_dir, library_id)).load(name)
+    ListStore::new(lists_folder(config_dir, library_id), account).load(name)
 }
 
 /// A list a binding keeps: the name of its file, and how long it stays current once read.
@@ -99,12 +101,17 @@ pub(crate) struct ServiceLists {
 }
 
 impl ServiceLists {
-    /// The lists kept in `dir`. `changed` is called whenever a read brings a list other than the
-    /// one kept, and when the lists are cleared, so what shows them can read them again. It is
-    /// called on the task of the read, and must not block.
-    pub(crate) fn new(dir: PathBuf, changed: impl Fn() + Send + Sync + 'static) -> Self {
+    /// The lists kept in `dir` for `account`, None where the binding cannot tell its accounts
+    /// apart. `changed` is called whenever a read brings a list other than the one kept, and when
+    /// the lists are cleared, so what shows them can read them again. It is called on the task of
+    /// the read, and must not block.
+    pub(crate) fn new(
+        dir: PathBuf,
+        account: Option<&str>,
+        changed: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         Self {
-            store: ListStore::new(dir),
+            store: ListStore::new(dir, account),
             changed: Arc::new(changed),
             lists: Mutex::default(),
         }
@@ -138,13 +145,14 @@ impl ServiceLists {
         KeptList(list)
     }
 
-    /// Forgets every list, on disk too, as the account signed in has changed. What the reads in
-    /// flight bring may belong to the account signed in before, so it is not kept, though the
-    /// callers that wait for such a read still get its list.
-    pub(crate) fn clear(&self) {
+    /// Forgets every list, on disk too, as the account signed in has changed to `account`, which
+    /// the lists are kept for from now on. What the reads in flight bring may belong to the
+    /// account signed in before, so it is not kept, though the callers that wait for such a read
+    /// still get its list.
+    pub(crate) fn clear(&self, account: Option<&str>) {
         let lists: Vec<_> = lock(&self.lists).iter().filter_map(Weak::upgrade).collect();
         // The disk first, so a list read from disk after this is never one of the old account.
-        self.store.clear_then(|| {
+        self.store.clear_then(account, || {
             for list in &lists {
                 list.forget();
             }
@@ -476,7 +484,7 @@ mod tests {
     }
 
     fn kept_in(root: &TempDir) -> ServiceLists {
-        ServiceLists::new(root.path().join("lists"), || {})
+        ServiceLists::new(root.path().join("lists"), None, || {})
     }
 
     /// Waits until `callers` wait for the read in flight, besides the list and the task that
@@ -692,7 +700,7 @@ mod tests {
         // A file where the folder of the lists goes fails every write, as a full disk does.
         let dir = root.path().join("lists");
         fs::write(&dir, b"").unwrap();
-        let lists = ServiceLists::new(dir.clone(), || {});
+        let lists = ServiceLists::new(dir.clone(), None, || {});
         let service = Service::new(1);
         let list = declare(&lists, &service);
         let start = Instant::now();
@@ -712,7 +720,7 @@ mod tests {
         let changes = Arc::new(AtomicUsize::new(0));
         let lists = {
             let changes = Arc::clone(&changes);
-            ServiceLists::new(root.path().join("lists"), move || {
+            ServiceLists::new(root.path().join("lists"), None, move || {
                 changes.fetch_add(1, Ordering::SeqCst);
             })
         };
@@ -739,7 +747,7 @@ mod tests {
         })
         .await
         .unwrap();
-        lists.clear();
+        lists.clear(None);
         assert!(!file.exists());
         assert_eq!(changes.load(Ordering::SeqCst), 1);
         // Its caller still gets its list, which is not kept.
@@ -754,12 +762,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_list_kept_for_another_account_is_never_given() {
+        let root = TempDir::new().unwrap();
+        let dir = root.path().join("lists");
+        let start = Instant::now();
+        {
+            let lists = ServiceLists::new(dir.clone(), Some("alice"), || {});
+            let list = declare(&lists, &Service::new(1));
+            assert_eq!(*list.get(start).await.unwrap(), 1);
+        }
+        // The list of the first account is written once its binding is gone, as a write queued
+        // before another account signs in is.
+        let file = dir.join("numbers.json");
+        wait_until("the kept list on disk", || async {
+            Ok(file.is_file().then_some(()))
+        })
+        .await
+        .unwrap();
+
+        // The account it was read for gets it.
+        let lists = ServiceLists::new(dir.clone(), Some("alice"), || {});
+        let list = declare(&lists, &Service::new(0));
+        assert_eq!(list.kept(start).await.as_deref(), Some(&1));
+        // Another account is not given it, also before anything deleted it: its list is read.
+        let lists = ServiceLists::new(dir, Some("bob"), || {});
+        let service = Service::new(2);
+        let list = declare(&lists, &service);
+        assert_eq!(list.kept(start).await, None);
+        assert_eq!(*list.get(start).await.unwrap(), 2);
+        assert_eq!(service.reads(), 1);
+    }
+
+    #[tokio::test]
     async fn only_a_read_that_brings_another_list_tells_of_a_change() {
         let root = TempDir::new().unwrap();
         let changes = Arc::new(AtomicUsize::new(0));
         let lists = {
             let changes = Arc::clone(&changes);
-            ServiceLists::new(root.path().join("lists"), move || {
+            ServiceLists::new(root.path().join("lists"), None, move || {
                 changes.fetch_add(1, Ordering::SeqCst);
             })
         };

@@ -2074,7 +2074,8 @@ async fn a_subsonic_library_opened_from_what_it_kept_takes_the_probe_its_server_
     })
     .await?;
     wait_until("the probe kept on disk", || async {
-        let kept = SubsonicBinding::kept_probe(Path::new(&*node.config_path), record_id.0);
+        let kept =
+            SubsonicBinding::kept_probe(Path::new(&*node.config_path), record_id.0, "alice");
         Ok(kept
             .is_some_and(|probe| probe.roles.jukebox_role)
             .then_some(()))

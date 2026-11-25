@@ -1786,8 +1786,8 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         match node.service_binding(record_id.0)? {
             Some(binding) => binding.renew_sign_in(&verified),
             // Another username is another account, whose lists the closed library's kept ones
-            // are not. Where the old username cannot be read, they stay until a read replaces
-            // them.
+            // are not. They are never given to it, so a deletion that fails leaves only files
+            // nothing reads.
             None if previous.is_some_and(|previous| previous != verified.username) => {
                 let library_id = record.catalog_library_id().unwrap_or(record_id.0);
                 if let Err(error) =
@@ -2069,13 +2069,8 @@ async fn open_subsonic_record(
             )
         })?;
     let config_dir = Path::new(&*node.config_path);
-    // What the last check of the server found, when the library was opened before. It opens from
-    // that and from its kept lists without waiting for the server, which it checks in the
-    // background. Opened for the first time, it keeps nothing to show, so it waits for the probe
-    // as before, and fails as before when the server cannot be reached or rejects the sign-in.
-    let kept_probe = SubsonicBinding::kept_probe(config_dir, library_id);
     let mut credential = read_credential().await?;
-    let (client, result, commit) = loop {
+    let (client, kept_probe, result, commit) = loop {
         let password = std::str::from_utf8(credential.secret.as_bytes())
             .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
         let client = SubsonicClient::new(
@@ -2086,6 +2081,12 @@ async fn open_subsonic_record(
             },
             http.clone(),
         );
+        // What the last check of the server found for this account, when the library was opened
+        // before with it. It opens from that and from its kept lists without waiting for the
+        // server, which it checks in the background. Opened for the first time, it keeps nothing
+        // to show, so it waits for the probe as before, and fails as before when the server
+        // cannot be reached or rejects the sign-in.
+        let kept_probe = SubsonicBinding::kept_probe(config_dir, library_id, &credential.username);
         let result = match &kept_probe {
             Some(probe) => Ok(Ok(probe.clone())),
             None => timeout(Duration::from_secs(10), client.probe()).await,
@@ -2095,7 +2096,7 @@ async fn open_subsonic_record(
         if credential.username == current.username
             && credential.secret.as_bytes() == current.secret.as_bytes()
         {
-            break (client, result, commit);
+            break (client, kept_probe, result, commit);
         }
         // Re-login won while the probe was in flight. Both the client and
         // the roles returned by getUser must come from the saved credential.
