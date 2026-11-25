@@ -178,7 +178,7 @@ struct State<T, E> {
     epoch: u64,
     kept: Option<Kept<T>>,
     reading: Option<Reading<T, E>>,
-    /// When the last read in the background that failed began.
+    /// When the last read in the background that failed ended.
     failed: Option<Instant>,
 }
 
@@ -277,10 +277,13 @@ where
     ) -> Reading<T, E> {
         let list = Arc::downgrade(&self.0);
         let read = (self.0.read)();
+        let began = Instant::now();
         let reading = async move {
             let read = read.await.map(Arc::new);
             if let Some(list) = list.upgrade() {
-                list.finish(epoch, generation, now, background, &read);
+                // When it ended, on the clock `now` is read from.
+                let ended = now + began.elapsed();
+                list.finish(epoch, generation, now, ended, background, &read);
             }
             read
         }
@@ -322,13 +325,14 @@ where
     T: Serialize + PartialEq + Send + Sync + 'static,
     E: fmt::Display,
 {
-    /// Keeps what a read that began at `now` under `epoch` brought, unless the list was forgotten
-    /// since, and saves it under `generation`.
+    /// Keeps what a read that began at `now` and ended at `ended` under `epoch` brought, unless
+    /// the list was forgotten since, and saves it under `generation`.
     fn finish(
         &self,
         epoch: u64,
         generation: StoreGeneration,
         now: Instant,
+        ended: Instant,
         background: bool,
         read: &Result<Arc<T>, E>,
     ) {
@@ -354,7 +358,7 @@ where
                 Err(error) => {
                     if background {
                         log::info!("Could not read the {} again: {error}", self.spec.name);
-                        state.failed = Some(now);
+                        state.failed = Some(ended);
                     }
                     false
                 }
@@ -573,11 +577,46 @@ mod tests {
         .unwrap();
         // The old list is still given, and no read starts until a while after the failure.
         assert_eq!(*list.get(old + RETRY_AFTER / 2).await.unwrap(), 1);
-        assert_eq!(service.reads(), 2);
+        assert!(list.0.state.lock().unwrap().reading.is_none());
         service.answer(3);
-        assert_eq!(*list.get(old + RETRY_AFTER).await.unwrap(), 1);
-        kept_becomes(&list, old + RETRY_AFTER, 3).await;
+        let later = old + RETRY_AFTER + Duration::from_secs(1);
+        assert_eq!(*list.get(later).await.unwrap(), 1);
+        kept_becomes(&list, later, 3).await;
         assert_eq!(service.reads(), 3);
+    }
+
+    #[tokio::test]
+    async fn the_wait_after_a_failed_read_counts_from_its_failure() {
+        let root = TempDir::new().unwrap();
+        let lists = kept_in(&root);
+        let service = Service::gated(1);
+        let list = declare(&lists, &service);
+        let start = Instant::now();
+        service.release(1);
+        assert_eq!(*list.get(start).await.unwrap(), 1);
+
+        // A read in the background takes a while, and fails.
+        service.answer(0);
+        let old = start + AGE;
+        assert_eq!(*list.get(old).await.unwrap(), 1);
+        tokio_time::sleep(Duration::from_millis(300)).await;
+        service.release(1);
+        wait_until("the failed read", || async {
+            Ok(
+                (service.reads() == 2 && list.0.state.lock().unwrap().reading.is_none())
+                    .then_some(()),
+            )
+        })
+        .await
+        .unwrap();
+        // A whole wait after it began is not yet a whole wait after it failed.
+        assert_eq!(*list.get(old + RETRY_AFTER).await.unwrap(), 1);
+        assert!(list.0.state.lock().unwrap().reading.is_none());
+        service.answer(3);
+        service.release(1);
+        let later = old + RETRY_AFTER + Duration::from_secs(1);
+        assert_eq!(*list.get(later).await.unwrap(), 1);
+        kept_becomes(&list, later, 3).await;
     }
 
     #[tokio::test]
