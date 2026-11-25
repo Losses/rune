@@ -699,13 +699,19 @@ impl SubsonicBinding {
         Ok(song)
     }
 
-    /// A song this binding fetched already.
+    /// A song this binding holds already, from an earlier fetch or from the catalog.
     fn known_song(&self, track_id: &str) -> Option<SubsonicSong> {
-        self.fetched_songs
+        if let Some(song) = self
+            .fetched_songs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(track_id)
-            .cloned()
+        {
+            return Some(song.clone());
+        }
+        let catalog = self.catalog.lock().unwrap_or_else(PoisonError::into_inner);
+        let id = catalog.ids.lookup(SubsonicIdKind::Track, track_id)?;
+        catalog.songs.get(&id).cloned()
     }
 
     fn song_summary(&self, track_id: &str, song: SubsonicSong) -> PlayingItemMetadataSummary {
@@ -771,6 +777,11 @@ impl ServiceBinding for SubsonicBinding {
             };
             Ok((self.song_summary(track, song), cover))
         })
+    }
+
+    fn cached_summary(&self, track: &str) -> Option<PlayingItemMetadataSummary> {
+        self.known_song(track)
+            .map(|song| self.song_summary(track, song))
     }
 
     fn cover_when_cached<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, Option<String>> {

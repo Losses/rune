@@ -1,9 +1,8 @@
-use crate::messages::{PlaybackState, PlaybackStatus};
 use anyhow::{Error, Result, bail};
 use database::playing_item::PlayingItemMetadataSummary;
 use playback::player::PlayingItem;
 use playback::{
-    MediaMetadata, MediaPlayback, MediaPosition,
+    MediaMetadata, MediaPlayback,
     controller::{MediaControlManager, get_default_cover_art_path},
 };
 use scrobbling::ScrobblingTrack;
@@ -116,23 +115,9 @@ fn ios_cover_path(path: Option<&str>, default: &path::Path) -> Option<String> {
 
 pub(crate) async fn update_media_controls_progress(
     manager: Arc<Mutex<MediaControlManager>>,
-    status: &PlaybackStatus,
+    playback: MediaPlayback,
 ) -> Result<()> {
     let mut manager = manager.lock().await;
-
-    let playback = match status.state {
-        PlaybackState::Playing => MediaPlayback::Playing {
-            progress: Some(MediaPosition(Duration::from_secs_f32(
-                status.progress_seconds,
-            ))),
-        },
-        PlaybackState::Paused => MediaPlayback::Paused {
-            progress: Some(MediaPosition(Duration::from_secs_f32(
-                status.progress_seconds,
-            ))),
-        },
-        PlaybackState::Stopped => MediaPlayback::Stopped,
-    };
 
     match manager.controls.set_playback(playback) {
         Ok(x) => x,

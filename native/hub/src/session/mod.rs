@@ -27,7 +27,7 @@ use database::{
 use fsio::FsIo;
 use futures::future::BoxFuture;
 use playback::{
-    PlaybackMode,
+    MediaPlayback, MediaPosition, PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     player::{
         HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
@@ -101,6 +101,8 @@ pub struct PlayerSession {
     attached_controllers: StdMutex<Vec<ControllerEntry>>,
     /// Asks the event loop to show this session in the UI again.
     show_requests: mpsc::UnboundedSender<ShowRequest>,
+    /// Wakes the event loop to name the current track again.
+    rename_items: Arc<Notify>,
     /// Wakes the event loop to tell the UI again what the current item supports.
     item_capabilities_changed: Arc<Notify>,
 }
@@ -552,6 +554,7 @@ impl PlayerSession {
             persistence_writes: Arc::new(AtomicUsize::new(0)),
             attached_controllers: StdMutex::new(Vec::new()),
             show_requests,
+            rename_items: Arc::new(Notify::new()),
             item_capabilities_changed: Arc::new(Notify::new()),
         });
         session.start_events(node, show_receiver).await;
@@ -616,6 +619,7 @@ impl PlayerSession {
         let cancel = self.cancel.clone();
         let session_id = self.state.lock().await.session_id.to_string();
         let event_state = self.state.clone();
+        let rename_items = self.rename_items.clone();
         let item_capabilities_changed = self.item_capabilities_changed.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
@@ -636,6 +640,7 @@ impl PlayerSession {
         let event_task = tokio::spawn(async move {
             let mut item_state = ItemEventState {
                 late_covers: Some(late_cover_tx),
+                late_names: Some(rename_items.clone()),
                 ..ItemEventState::default()
             };
             // The requests to show the session again that are still waiting, and the status
@@ -644,6 +649,10 @@ impl PlayerSession {
             // report from before this device's player became current again.
             let mut shows = Vec::new();
             let mut barrier: Option<BoxFuture<'static, PlayerStatus>> = None;
+            // The status the loop handled last, and whether a track named late waits to go out
+            // again on it.
+            let mut last_status: Option<PlayerStatus> = None;
+            let mut late_name = false;
             loop {
                 tokio::select! {
                     biased;
@@ -664,6 +673,7 @@ impl PlayerSession {
                     Ok(value) = status.recv() => {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
+                        last_status = Some(value.clone());
                         handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
                     Some(late) = late_cover_rx.recv() => {
@@ -673,6 +683,7 @@ impl PlayerSession {
                             // Statuses still queued come before this snapshot. If the player has
                             // moved to another item, they report that change in order.
                             if status.item == item_state.last_item {
+                                last_status = Some(status.clone());
                                 handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                             }
                         }
@@ -706,6 +717,18 @@ impl PlayerSession {
                             let _ = shown.send(());
                         }
                     }
+                    // A track named late goes out again only when no status report waits, and on
+                    // the status handled last: a snapshot taken from the player now could be newer
+                    // than reports still queued, which would then take the UI back.
+                    _ = ready(()), if late_name => {
+                        late_name = false;
+                        let Some(node) = weak.upgrade() else { return };
+                        if name_late_track(&mut item_state, &controls, true).await
+                            && let Some(status) = last_status.clone()
+                        {
+                            handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                        }
+                    }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
                     Ok(detail) = crash.recv() => broadcaster.broadcast(&CrashResponse { detail }),
                     Ok(error) = logs.recv() => {
@@ -716,6 +739,10 @@ impl PlayerSession {
                         handle_scrobbler_error(weak.upgrade(), error).await;
                     }
                     Ok(value) = login.recv() => handle_login_event(value, broadcaster.as_ref()),
+                    // A service named a track late. Only its status goes out again, once no report
+                    // waits: the queue names its tracks as it is read, and reading it again would
+                    // ask the service about every queued track.
+                    _ = rename_items.notified() => late_name = true,
                     _ = item_capabilities_changed.notified() => {
                         let Some(node) = weak.upgrade() else { return };
                         item_capabilities::changed(&node, &mut item_state, broadcaster.as_ref()).await;
@@ -845,7 +872,15 @@ struct ItemEventState {
     /// Where a cover that finishes downloading after its track started is sent, when the
     /// caller follows the player and can show it.
     late_covers: Option<mpsc::UnboundedSender<LateCover>>,
+    /// Told when a service names a track only after its status went out unnamed, when the
+    /// caller follows the player and can name the track again.
+    late_names: Option<Arc<Notify>>,
+    /// Whether `metadata` was found for `last_item`.
+    metadata_found: bool,
 }
+
+/// How long a status report waits for a service to name the track playing.
+const STATUS_METADATA_WAIT: Duration = Duration::from_secs(3);
 
 struct ResolvedLibrary {
     library_id: Uuid,
@@ -869,13 +904,14 @@ async fn playing_track_library(
     library_id: Uuid,
     track: &str,
     late_covers: Option<&mpsc::UnboundedSender<LateCover>>,
+    late_names: Option<&Arc<Notify>>,
 ) -> Result<(
     ResolvedLibrary,
     Result<(PlayingItemMetadataSummary, Option<String>)>,
 )> {
     let implementation = playback_implementation_for_item(node, library_id).await?;
     if let Implementation::Service(binding) = &implementation {
-        let metadata = service_track_metadata(binding, item, track, late_covers).await;
+        let metadata = service_track_metadata(binding, item, track, late_covers, late_names).await;
         let library = ResolvedLibrary {
             library_id,
             fsio: None,
@@ -897,31 +933,80 @@ async fn playing_track_library(
 
 /// A service track's metadata, with its cover if the cover is already cached. Otherwise the
 /// cover is fetched and sent to `late_covers` once it is cached.
+///
+/// A service that does not answer in time gives what its binding already holds, so a slow
+/// service does not hold the status up. When the binding holds nothing, the track goes unnamed
+/// for now, and `late_names` is told once the service has answered, so that the track is named
+/// again from what the binding holds then.
 async fn service_track_metadata(
     binding: &Arc<dyn ServiceBinding>,
     item: &PlayingItem,
     track: &str,
     late_covers: Option<&mpsc::UnboundedSender<LateCover>>,
+    late_names: Option<&Arc<Notify>>,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    let (metadata, cover) = binding.item_metadata(track, true).await?;
+    let mut lookup = {
+        let binding = Arc::clone(binding);
+        let track = track.to_owned();
+        task::spawn(async move { binding.item_metadata(&track, true).await })
+    };
+    let (metadata, cover) = match timeout(STATUS_METADATA_WAIT, &mut lookup).await {
+        Ok(answer) => answer.context("The lookup of the service track stopped")??,
+        Err(_) => {
+            if let Some(summary) = binding.cached_summary(track) {
+                lookup.abort();
+                (summary, None)
+            } else {
+                match late_names {
+                    Some(late_names) => {
+                        let binding = Arc::clone(binding);
+                        let track = track.to_owned();
+                        let late_names = Arc::clone(late_names);
+                        task::spawn(async move {
+                            // The track is named again only from what the binding holds by
+                            // then, so a service that stays slow is not asked over and over.
+                            if matches!(lookup.await, Ok(Ok(_)))
+                                && binding.cached_summary(&track).is_some()
+                            {
+                                late_names.notify_one();
+                            }
+                        });
+                    }
+                    None => lookup.abort(),
+                }
+                anyhow::bail!("The service did not answer in time");
+            }
+        }
+    };
     if cover.is_none()
         && let Some(late_covers) = late_covers
     {
-        let binding = Arc::clone(binding);
-        let item = item.clone();
-        let track = track.to_owned();
-        let late_covers = late_covers.clone();
-        tokio::spawn(async move {
-            match binding.cover_when_cached(&track).await {
-                Ok(Some(cover)) => {
-                    let _ = late_covers.send(LateCover { item, cover });
-                }
-                Ok(None) => {}
-                Err(error) => log::warn!("Could not fetch the playing service cover: {error:#}"),
-            }
-        });
+        fetch_late_cover(binding, item, track, late_covers);
     }
     Ok((metadata, cover))
+}
+
+/// Fetches the cover of a service track whose status went out without it, and sends it to
+/// `late_covers` once it is cached.
+fn fetch_late_cover(
+    binding: &Arc<dyn ServiceBinding>,
+    item: &PlayingItem,
+    track: &str,
+    late_covers: &mpsc::UnboundedSender<LateCover>,
+) {
+    let binding = Arc::clone(binding);
+    let item = item.clone();
+    let track = track.to_owned();
+    let late_covers = late_covers.clone();
+    tokio::spawn(async move {
+        match binding.cover_when_cached(&track).await {
+            Ok(Some(cover)) => {
+                let _ = late_covers.send(LateCover { item, cover });
+            }
+            Ok(None) => {}
+            Err(error) => log::warn!("Could not fetch the playing service cover: {error:#}"),
+        }
+    });
 }
 
 /// Shows a cover that arrived after its track started, if that track is still the one playing
@@ -948,6 +1033,56 @@ async fn show_late_cover(
     true
 }
 
+/// Names a library track that went out unnamed, now that its service has answered: from what the
+/// binding that looked it up holds by now. The track keeps its place in playback, so it is not
+/// started again, and its service is not asked again. A track whose library could not be had is
+/// looked up again in full. `now_playing` says whether the caller reports what plays now.
+/// Returns whether the track's status is to go out again, named or to be looked up.
+async fn name_late_track(
+    item_state: &mut ItemEventState,
+    controls: &Option<Arc<Mutex<MediaControlManager>>>,
+    now_playing: bool,
+) -> bool {
+    let Some(item) = item_state.last_item.clone() else {
+        return false;
+    };
+    let PlayingItem::LibraryTrack { track, .. } = &item else {
+        return false;
+    };
+    if item_state.metadata_found {
+        return false;
+    }
+    let binding = match &item_state.library {
+        Some(ResolvedLibrary {
+            implementation: Implementation::Service(binding),
+            ..
+        }) => Arc::clone(binding),
+        Some(_) => return false,
+        None => {
+            item_state.last_item = None;
+            return true;
+        }
+    };
+    let Some(metadata) = binding.cached_summary(track) else {
+        return false;
+    };
+    item_state.metadata = metadata;
+    item_state.metadata_found = true;
+    item_state.now_playing_pending = now_playing;
+    if let Some(late_covers) = &item_state.late_covers {
+        fetch_late_cover(&binding, &item, track, late_covers);
+    }
+    if let Some(manager) = controls {
+        let _ = update_media_controls_metadata(
+            manager.clone(),
+            &item_state.metadata,
+            item_state.cover.as_ref(),
+        )
+        .await;
+    }
+    true
+}
+
 /// Turns a player status into the GUI report. `now_playing` is `None` when only
 /// re-showing the current state (e.g. after renderer control ends).
 async fn handle_status_event(
@@ -966,11 +1101,22 @@ async fn handle_status_event(
         item_state.library = None;
         item_state.now_playing_pending = false;
         item_state.track_started = false;
+        item_state.metadata_found = false;
         if let Some(item) = &value.item {
             let result = match item {
                 PlayingItem::LibraryTrack { library_id, track } => {
                     let late_covers = item_state.late_covers.as_ref();
-                    match playing_track_library(node, item, *library_id, track, late_covers).await {
+                    let late_names = item_state.late_names.as_ref();
+                    match playing_track_library(
+                        node,
+                        item,
+                        *library_id,
+                        track,
+                        late_covers,
+                        late_names,
+                    )
+                    .await
+                    {
                         Ok((library, result)) => {
                             item_state.library = Some(library);
                             result
@@ -983,6 +1129,7 @@ async fn handle_status_event(
             if let Ok((metadata, cover)) = result {
                 item_state.metadata = metadata;
                 item_state.cover = cover;
+                item_state.metadata_found = true;
                 item_state.now_playing_pending = now_playing.is_some();
                 if let Some(manager) = controls {
                     let _ = update_media_controls_metadata(
@@ -1062,7 +1209,8 @@ async fn handle_status_event(
         session_id,
     );
     if let Some(manager) = controls {
-        let _ = update_media_controls_progress(manager.clone(), &report).await;
+        let playback = now_playing_playback(&value, item_state.metadata_found);
+        let _ = update_media_controls_progress(manager.clone(), playback).await;
     }
     broadcaster.broadcast(&report);
 
@@ -1154,6 +1302,20 @@ async fn handle_status_event(
                 }
             }
         });
+    }
+}
+
+/// The playback a status gives the system's Now Playing, which shows it against the metadata it
+/// was last given. The state always goes, so that a pause or a stop shows at once, even when the
+/// item's metadata is never found. The position of an item whose metadata was not found waits
+/// until it is, as when a slow service names its track late: it would go out against the item
+/// before.
+fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> MediaPlayback {
+    let progress = metadata_found.then_some(MediaPosition(status.position));
+    match status.state {
+        PlaybackState::Playing => MediaPlayback::Playing { progress },
+        PlaybackState::Paused => MediaPlayback::Paused { progress },
+        PlaybackState::Stopped => MediaPlayback::Stopped,
     }
 }
 

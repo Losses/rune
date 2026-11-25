@@ -48,6 +48,12 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
         with_cover: bool,
     ) -> ServiceFuture<'a, (PlayingItemMetadataSummary, Option<String>)>;
 
+    /// The metadata of a track from what the binding already holds, without asking the service.
+    /// None when it has not seen the track.
+    fn cached_summary(&self, _track: &str) -> Option<PlayingItemMetadataSummary> {
+        None
+    }
+
     /// The cover of a track that `item_metadata` gave without one because it was not cached
     /// yet. The cover is fetched, and its path given once it is cached. None when the track has
     /// no cover or the service does not fetch covers this way.
