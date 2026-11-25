@@ -37,7 +37,6 @@ pub(super) async fn primary(
         name: Set(credit.credited_as.clone()),
         group: Set(generate_group_name(&credit.credited_as)),
         musicbrainz_id: Set(Some(mbid.to_string())),
-        ..Default::default()
     })
     .on_conflict(
         OnConflict::column(artists::Column::Id)
