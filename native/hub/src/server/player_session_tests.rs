@@ -420,6 +420,11 @@ struct ReloginServer {
     hold_next_user: AtomicBool,
     user_received: Notify,
     release_user: Notify,
+    /// Gives the account the jukebox role whatever its password.
+    jukebox: AtomicBool,
+    /// How many times the server gave the jukebox queue, which a poll reads once the status it
+    /// read first was decoded.
+    jukebox_reads: AtomicUsize,
 }
 
 async fn subsonic_relogin_mock() -> (String, Arc<ReloginServer>, JoinHandle<()>) {
@@ -482,9 +487,22 @@ async fn subsonic_relogin_response(
             state.user_received.notify_one();
             state.release_user.notified().await;
         }
-        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":rotated}}})
+        let jukebox = rotated || state.jukebox.load(Ordering::SeqCst);
+        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":jukebox}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
+    } else if action == "jukeboxControl" {
+        let jukebox = json!({"currentIndex":0,"playing":false,"gain":1.0,"position":0});
+        if query.get("action").is_some_and(|action| action == "get") {
+            state.jukebox_reads.fetch_add(1, Ordering::SeqCst);
+            let mut playlist = jukebox;
+            playlist["entry"] = json!([{"id":"track-1","title":"Song","duration":10}]);
+            json!({"subsonic-response":{"status":"ok","jukeboxPlaylist":playlist}})
+        } else {
+            json!({"subsonic-response":{"status":"ok","jukeboxStatus":jukebox}})
+        }
+    } else if action == "getArtists" {
+        json!({"subsonic-response":{"status":"ok","artists":{"index":[{"name":"A","artist":[{"id":"artist-1","name":"Artist One"}]}]}}})
     } else {
         json!({"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}})
     };
@@ -1839,6 +1857,428 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
 
     server.abort();
     node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A closed Subsonic library signed in to another account drops the lists it kept for the old
+/// one, and one signed in again to its own account keeps them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_closed_subsonic_library_signed_in_to_another_account_drops_its_kept_lists() -> Result<()>
+{
+    use crate::messages::{
+        CollectionType, FetchCollectionGroupSummaryRequest, ReplaceSubsonicCredentialRequest,
+    };
+    use crate::service::lists::lists_folder;
+    use crate::subsonic_binding::SubsonicBinding;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let ui = node.current_ui().await?;
+    dispatch_gui_request(
+        &ui,
+        &FetchCollectionGroupSummaryRequest {
+            call_id: None,
+            collection_type: CollectionType::Artist,
+        },
+    )
+    .await?
+    .context("the artist summary")?;
+    let kept = lists_folder(Path::new(&*node.config_path), library_id).join("artists.json");
+    wait_until("the kept artists", || {
+        let found = kept.is_file();
+        async move { Ok(found.then_some(())) }
+    })
+    .await?;
+    node.close_ui(&ui.main_token).await;
+
+    let sign_in = |username: &str| ReplaceSubsonicCredentialRequest {
+        record_id: library_id.to_string(),
+        username: username.into(),
+        password: "new-secret".into(),
+        call_id: None,
+    };
+    replace_subsonic_credential_on_node(&sign_in("alice"), &node).await?;
+    assert!(kept.is_file(), "a new password dropped the lists");
+    replace_subsonic_credential_on_node(&sign_in("bob"), &node).await?;
+    assert!(
+        !kept.exists(),
+        "another account kept the lists of the old one"
+    );
+    // Nothing of the old account is left in the folder of the lists: at most the probe the new
+    // sign-in was verified with.
+    let folder = lists_folder(Path::new(&*node.config_path), library_id);
+    let left: Vec<String> = fs::read_dir(&folder)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        left.iter()
+            .all(|name| name == "probe.json" || name.starts_with(".probe.json.")),
+        "the folder of the lists holds {left:?}"
+    );
+    let config = Path::new(&*node.config_path);
+    assert!(SubsonicBinding::kept_probe(config, library_id, "alice").is_none());
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// Waits until the library `library_id` keeps each of `kept` on disk.
+async fn kept_on_disk(node: &NodeContext, library_id: Uuid, kept: &[&str]) -> Result<()> {
+    use crate::service::lists::lists_folder;
+
+    let folder = lists_folder(Path::new(&*node.config_path), library_id);
+    for name in kept {
+        let file = folder.join(format!("{name}.json"));
+        wait_until("the kept lists on disk", || {
+            let found = file.is_file();
+            async move { Ok(found.then_some(())) }
+        })
+        .await?;
+    }
+    Ok(())
+}
+
+/// The groups of an artist summary, by title, with their counts.
+fn summary_groups(response: crate::messages::CollectionGroupSummaryResponse) -> Vec<(String, i32)> {
+    response
+        .groups
+        .into_iter()
+        .map(|group| (group.group_title, group.count))
+        .collect()
+}
+
+/// A Subsonic library opened before opens again at once from what it kept, also while its server
+/// is down, and answers from its kept lists; what no kept list answers fails as it does while the
+/// server is down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_library_opened_before_opens_from_what_it_kept_while_its_server_is_down()
+-> Result<()> {
+    use crate::messages::{CollectionType, FetchCollectionGroupSummaryRequest};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let summary = FetchCollectionGroupSummaryRequest {
+        call_id: None,
+        collection_type: CollectionType::Artist,
+    };
+    let ui = node.current_ui().await?;
+    let first = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the artist summary")?,
+    );
+    kept_on_disk(&node, library_id, &["artists", "probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+    server.abort();
+    let _ = server.await;
+
+    timeout(TEST_DEADLINE, open_registered_here(&node, library_id))
+        .await?
+        .context("the library did not open from what it kept")?;
+    let ui = node.current_ui().await?;
+    let again = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the kept artist summary")?,
+    );
+    assert_eq!(again, first);
+    let playlists = dispatch_gui_request(&ui, &FetchAllPlaylistsRequest { call_id: None })
+        .await
+        .err()
+        .context("the playlists answered without the server")?;
+    assert_eq!(classify(&playlists), RequestErrorKind::Unavailable);
+
+    node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A Subsonic library whose password changed on the server opens again from what it kept,
+/// answers from its kept lists, and asks for a new sign-in once the check of the server in the
+/// background finds the old one rejected. The rejected sign-in clears nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_library_whose_sign_in_was_rejected_opens_with_its_lists_and_asks_for_another()
+-> Result<()> {
+    use crate::messages::{CollectionType, FetchCollectionGroupSummaryRequest};
+
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    let (record_id, _) = register_relogin_record(&node, endpoint).await?;
+    let summary = FetchCollectionGroupSummaryRequest {
+        call_id: None,
+        collection_type: CollectionType::Artist,
+    };
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    let first = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the artist summary")?,
+    );
+    assert_eq!(first, [("A".to_owned(), 1)]);
+    kept_on_disk(&node, record_id.0, &["artists", "probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+
+    // The password changes on the server, and the library opens again with the old one.
+    state.rotated.store(true, Ordering::SeqCst);
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    let again = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the kept artist summary")?,
+    );
+    assert_eq!(again, first);
+    let asked = wait_until("a sign-in asked for", || async {
+        Ok(signals
+            .decoded::<RequestFailedResponse>("RequestFailedResponse")
+            .into_iter()
+            .find(|failure| failure.cause.is_some()))
+    })
+    .await?;
+    assert_eq!(
+        asked.cause,
+        Some(RequestFailureCause::ServiceSignInRequired {
+            record_id: record_id.0.to_string(),
+        })
+    );
+    kept_on_disk(&node, record_id.0, &["artists", "probe"]).await?;
+
+    server.abort();
+    node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A Subsonic library opened from what it kept takes the probe the check of its server in the
+/// background gives in place of the kept one, and keeps it for the next open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_library_opened_from_what_it_kept_takes_the_probe_its_server_gives() -> Result<()>
+{
+    use crate::messages::PlayRequest;
+    use crate::rpc::TargetRequest;
+    use crate::subsonic_binding::SubsonicBinding;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    let (record_id, _) = register_relogin_record(&node, endpoint).await?;
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    let jukebox_role = || -> Result<bool> {
+        let binding = node
+            .service_binding(record_id.0)?
+            .context("open Subsonic binding")?;
+        Ok(PlayRequest::slot(&binding.slots()) == Slot::Translate)
+    };
+    assert!(!jukebox_role()?);
+    kept_on_disk(&node, record_id.0, &["probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+
+    // The server gives the account the jukebox role.
+    state.jukebox.store(true, Ordering::SeqCst);
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    wait_until("the probe the server gives", || async {
+        Ok(jukebox_role()?.then_some(()))
+    })
+    .await?;
+    wait_until("the probe kept on disk", || async {
+        let kept =
+            SubsonicBinding::kept_probe(Path::new(&*node.config_path), record_id.0, "alice");
+        Ok(kept
+            .is_some_and(|probe| probe.roles.jukebox_role)
+            .then_some(()))
+    })
+    .await?;
+
+    server.abort();
+    node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A Subsonic library that plays on its server's jukebox, opened from a probe kept without the
+/// jukebox role, follows the jukebox once the check of the server grants the role.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_jukebox_is_followed_once_the_server_check_grants_its_role() -> Result<()> {
+    use database::library_registry::LibraryRecord;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    // A record that plays on the jukebox, as one registered while the account had the role.
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "alice".into(),
+            secret: Secret::new(b"old-password".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Jukebox".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint,
+            credential,
+            mode: SubsonicOpenMode::RemoteControl,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    let record_id = record.record_id.0;
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    kept_on_disk(&node, record_id, &["probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+
+    // The server grants the role, and the library opens from the probe it kept without it.
+    state.jukebox.store(true, Ordering::SeqCst);
+    let before = state.jukebox_reads.load(Ordering::SeqCst);
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    // Following the jukebox reads its status and queue again and again.
+    wait_until("the jukebox followed", || async {
+        Ok((state.jukebox_reads.load(Ordering::SeqCst) >= before + 2).then_some(()))
+    })
+    .await?;
+
+    server.abort();
+    node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A closed Subsonic library signed in again keeps the probe that sign-in was verified with, so
+/// it opens next time with the roles the server gives the account now.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_sign_in_keeps_the_probe_it_was_verified_with() -> Result<()> {
+    use crate::messages::ReplaceSubsonicCredentialRequest;
+    use crate::subsonic_binding::SubsonicBinding;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    let (record_id, _) = register_relogin_record(&node, endpoint).await?;
+    open_registered_here(&node, record_id.0).await?;
+    let ui = node.current_ui().await?;
+    kept_on_disk(&node, record_id.0, &["probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+    let jukebox_kept = || {
+        SubsonicBinding::kept_probe(Path::new(&*node.config_path), record_id.0, "alice")
+            .is_some_and(|probe| probe.roles.jukebox_role)
+    };
+    assert!(!jukebox_kept());
+
+    // The account gets another password, with which the server gives it the jukebox role.
+    state.rotated.store(true, Ordering::SeqCst);
+    replace_subsonic_credential_on_node(
+        &ReplaceSubsonicCredentialRequest {
+            record_id: record_id.0.to_string(),
+            username: "alice".into(),
+            password: "new-password".into(),
+            call_id: None,
+        },
+        &node,
+    )
+    .await?;
+    wait_until("the verified probe kept", || async {
+        Ok(jukebox_kept().then_some(()))
+    })
+    .await?;
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A service library's record is removed, and the removal answered, also when its folder cannot
+/// be deleted.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_record_whose_folder_cannot_be_deleted_is_still_removed() -> Result<()> {
+    use crate::messages::RemoveLibraryRecordRequest;
+    use crate::service::folder::service_library_folder;
+    use database::library_registry::LibraryRecord;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "alice".into(),
+            secret: Secret::new(b"password".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Subsonic".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: "http://127.0.0.1:1".into(),
+            credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    // A cover the folder cannot let go of.
+    let covers =
+        service_library_folder(Path::new(&*node.config_path), record.record_id.0).join("covers");
+    fs::create_dir_all(&covers)?;
+    fs::write(covers.join("cover.img"), b"cover")?;
+    fs::set_permissions(&covers, fs::Permissions::from_mode(0o500))?;
+
+    let remove = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id: record.record_id.0.to_string(),
+    };
+    let removed = remove.handle(node.clone(), None, &remove).await;
+    fs::set_permissions(&covers, fs::Permissions::from_mode(0o700))?;
+    removed?.context("the removal")?;
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert!(registry.record(record.record_id).is_err());
+
     node.shutdown().await?;
     Ok(())
 }

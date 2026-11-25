@@ -1,23 +1,27 @@
 use crate::{
     macros::RequestSlots,
     messages::{
-        PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef, PlaylistItem, PlaylistUpdate,
-        RequestErrorKind, RequestFailedResponse, RequestFailureCause, SetRealtimeFFTEnabledRequest,
+        LibraryContentChanged, PlaybackMode, PlaybackState, PlaybackStatus, PlayingItemRef,
+        PlaylistItem, PlaylistUpdate, RequestErrorKind, RequestFailedResponse, RequestFailureCause,
+        SetRealtimeFFTEnabledRequest,
     },
     node::ReconnectConfig,
     service::{
         ServiceBinding, ServiceFuture, ServicePlayer,
         covers::{CoverSource, ServiceCoverCache, cover_cache_root},
+        folder::prepare_service_library_folder,
         ids::RemoteIdMap,
+        lists::{KeptList, ListSpec, ServiceLists, keep_value, kept_value, lists_folder},
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
 };
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -27,21 +31,25 @@ use anyhow::Result;
 use database::credentials::Credential;
 use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
-use futures::{SinkExt, StreamExt, future::BoxFuture};
+use futures::{FutureExt, SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
     AudioPlaybackNote, AudioRequest, AudioSourceMode, PlayingItem, RemoteAudioError,
     RemoteAudioSource, UnavailableReason,
 };
 use subsonic::{
     SubsonicAlbum, SubsonicArtist, SubsonicClient, SubsonicCredentials, SubsonicJukebox,
-    SubsonicSong,
+    SubsonicProbe, SubsonicSong,
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::backends::remote::{deliver_visualizer_feed_frame, encode_message};
-use crate::subsonic_translate::jukebox_error_for_refresh;
+use crate::subsonic_translate::{
+    jukebox_error_for_refresh, read_albums_by_name, read_newest_albums, read_song_list,
+};
 use anyhow::Error;
-use reqwest::header;
+use reqwest::{StatusCode, header};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::iter;
 use std::sync as std_sync;
 use subsonic::StreamError;
@@ -61,17 +69,54 @@ pub(crate) enum SubsonicIdKind {
 /// How many fetched songs a binding keeps at most.
 const MAX_FETCHED_SONGS: usize = 2000;
 
-/// How long a list read from the server is kept for paging and for the home.
-pub(crate) const LIST_TTL: Duration = Duration::from_secs(60);
+/// How long a list read from the server stays current. Past it, the kept list is still given, and
+/// read again in the background.
+const LIST_TTL: Duration = Duration::from_secs(60);
+
+/// The first songs of the song list, at most `mixes::MAX_COVER_POOL`, each once.
+const SONGS: ListSpec = ListSpec {
+    name: "songs",
+    max_age: LIST_TTL,
+};
+
+/// Every album, by name.
+const ALBUMS: ListSpec = ListSpec {
+    name: "albums",
+    max_age: LIST_TTL,
+};
+
+/// Every album, newest added first.
+const NEWEST_ALBUMS: ListSpec = ListSpec {
+    name: "newest-albums",
+    max_age: LIST_TTL,
+};
+
+/// Every artist, in the order the server lists them.
+const ARTISTS: ListSpec = ListSpec {
+    name: "artists",
+    max_age: LIST_TTL,
+};
+
+/// The name the probe is kept beside the lists under.
+const PROBE: &str = "probe";
 
 pub(crate) struct SubsonicBinding {
     pub(crate) library_id: Uuid,
     pub(crate) play_on_this_device: bool,
     pub(crate) client: Arc<SubsonicClient>,
-    pub(crate) probe: subsonic::SubsonicProbe,
-    pub(crate) catalog: Mutex<SubsonicCatalog>,
+    /// What the last check of the server found. A library opened from what it kept checks the
+    /// server in the background, and the probe it gets replaces this one.
+    pub(crate) probe: Mutex<SubsonicProbe>,
+    /// Cancelled once the sign-in is renewed, as what a check of the server found under the
+    /// sign-in before says nothing of the new one, or the library closes, which takes nothing
+    /// from a check any more.
+    check_over: CancellationToken,
+    pub(crate) catalog: Arc<Mutex<SubsonicCatalog>>,
+    pub(crate) lists: SubsonicLists,
     pub(crate) covers: Arc<ServiceCoverCache>,
     jukebox_poll: Mutex<Option<CancellationToken>>,
+    /// Whether the jukebox is followed, as the UI's player, until the library closes.
+    followed: AtomicBool,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
     /// Songs fetched by id, kept so that what is asked about a song right after it was fetched,
@@ -388,15 +433,150 @@ pub(crate) struct SubsonicCatalog {
     pub(crate) artists: HashMap<i32, SubsonicArtist>,
     pub(crate) albums: HashMap<i32, SubsonicAlbum>,
     pub(crate) songs: HashMap<i32, SubsonicSong>,
-    pub(crate) artists_loaded: bool,
-    /// The ids of the artists in the order the server lists them, once they are loaded.
-    pub(crate) artist_order: Vec<i32>,
-    pub(crate) albums_loaded: bool,
-    /// The ids of the first songs of the whole song list, as read to keep only those with a
-    /// cover, and when.
-    pub(crate) song_pool: Option<(Instant, Arc<Vec<i32>>)>,
-    /// The ids of every album, oldest added first, and when they were read.
-    pub(crate) albums_by_addition: Option<(Instant, Arc<Vec<i32>>)>,
+}
+
+impl SubsonicCatalog {
+    fn keep_songs(&mut self, songs: &[SubsonicSong]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.songs,
+            SubsonicIdKind::Track,
+            songs,
+            |song| song.id.as_str(),
+        );
+    }
+
+    fn keep_albums(&mut self, albums: &[SubsonicAlbum]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.albums,
+            SubsonicIdKind::Album,
+            albums,
+            |album| album.id.as_str(),
+        );
+    }
+
+    /// Forgets what the server told of the items, which another account may not be let see. The
+    /// ids stay, so an id the UI holds names the same item, which the server is asked about.
+    fn forget_metadata(&mut self) {
+        self.artists.clear();
+        self.albums.clear();
+        self.songs.clear();
+    }
+
+    fn keep_artists(&mut self, artists: &[SubsonicArtist]) {
+        keep_read(
+            &mut self.ids,
+            &mut self.artists,
+            SubsonicIdKind::Artist,
+            artists,
+            |artist| artist.id.as_str(),
+        );
+    }
+}
+
+/// Keeps the items of a list read from the server, under the ids this library gives them, in
+/// place of what was kept of them. An item no id can be given to any more is left out here: the
+/// request that shows it numbers it, and tells of it.
+fn keep_read<T: Clone>(
+    ids: &mut RemoteIdMap<SubsonicIdKind>,
+    held: &mut HashMap<i32, T>,
+    kind: SubsonicIdKind,
+    items: &[T],
+    remote_id: fn(&T) -> &str,
+) {
+    for item in items {
+        if let Ok(id) = ids.intern(kind, remote_id(item)) {
+            held.insert(id, item.clone());
+        }
+    }
+}
+
+/// The lists a Subsonic library keeps, each read as the server lists it. A read keeps what it
+/// brings in the catalog too, in place of what was kept of the same items.
+pub(crate) struct SubsonicLists {
+    kept: ServiceLists,
+    pub(crate) songs: KeptList<Vec<SubsonicSong>, SubsonicError>,
+    pub(crate) albums: KeptList<Vec<SubsonicAlbum>, SubsonicError>,
+    pub(crate) newest_albums: KeptList<Vec<SubsonicAlbum>, SubsonicError>,
+    pub(crate) artists: KeptList<Vec<SubsonicArtist>, SubsonicError>,
+}
+
+/// Reads a list with the client.
+type ReadList<T> = fn(Arc<SubsonicClient>) -> BoxFuture<'static, Result<Vec<T>, SubsonicError>>;
+
+impl SubsonicLists {
+    fn new(
+        dir: PathBuf,
+        client: &Arc<SubsonicClient>,
+        catalog: &Arc<Mutex<SubsonicCatalog>>,
+        broadcaster: Arc<dyn Broadcaster>,
+    ) -> Self {
+        // The lists are the account's that signs in, which the username names on a server. A page
+        // that shows a list reads it again once a read brings another.
+        let kept = ServiceLists::new(dir, client.user().as_deref(), move || {
+            broadcaster.broadcast(&LibraryContentChanged {
+                path: String::new(),
+            });
+        });
+        Self {
+            songs: declare_list(
+                &kept,
+                SONGS,
+                (client, catalog),
+                |client| async move { read_song_list(&client).await }.boxed(),
+                SubsonicCatalog::keep_songs,
+            ),
+            albums: declare_list(
+                &kept,
+                ALBUMS,
+                (client, catalog),
+                |client| async move { read_albums_by_name(&client).await }.boxed(),
+                SubsonicCatalog::keep_albums,
+            ),
+            newest_albums: declare_list(
+                &kept,
+                NEWEST_ALBUMS,
+                (client, catalog),
+                |client| async move { read_newest_albums(&client, usize::MAX).await }.boxed(),
+                SubsonicCatalog::keep_albums,
+            ),
+            artists: declare_list(
+                &kept,
+                ARTISTS,
+                (client, catalog),
+                |client| async move { client.artists().await }.boxed(),
+                SubsonicCatalog::keep_artists,
+            ),
+            kept,
+        }
+    }
+}
+
+/// Declares the list `spec` names on `lists`, which `read` reads with the client, and whose items
+/// the catalog keeps with `keep` once the list keeps them.
+fn declare_list<T>(
+    lists: &ServiceLists,
+    spec: ListSpec,
+    (client, catalog): (&Arc<SubsonicClient>, &Arc<Mutex<SubsonicCatalog>>),
+    read: ReadList<T>,
+    keep: fn(&mut SubsonicCatalog, &[T]),
+) -> KeptList<Vec<T>, SubsonicError>
+where
+    T: Serialize + DeserializeOwned + PartialEq + Send + Sync + 'static,
+{
+    let (client, catalog) = (Arc::clone(client), Arc::clone(catalog));
+    lists.declare(
+        spec,
+        move || read(Arc::clone(&client)),
+        // Only a list the list keeps, so never one read for the account signed in before.
+        move |list: &Vec<T>| {
+            keep(
+                &mut catalog.lock().unwrap_or_else(PoisonError::into_inner),
+                list,
+            )
+        },
+    )
 }
 
 impl SubsonicBinding {
@@ -409,17 +589,28 @@ impl SubsonicBinding {
         broadcaster: Arc<dyn Broadcaster>,
         visualizer: Arc<Visualizer>,
     ) -> Self {
+        prepare_service_library_folder(&config_dir, library_id);
+        let client = Arc::new(client);
+        let catalog = Arc::new(Mutex::new(SubsonicCatalog::default()));
         Self {
             library_id,
             play_on_this_device,
-            client: Arc::new(client),
-            probe,
-            catalog: Mutex::new(SubsonicCatalog::default()),
+            lists: SubsonicLists::new(
+                lists_folder(&config_dir, library_id),
+                &client,
+                &catalog,
+                Arc::clone(&broadcaster),
+            ),
+            client,
+            probe: Mutex::new(probe),
+            check_over: CancellationToken::new(),
+            catalog,
             covers: Arc::new(ServiceCoverCache::new(
                 cover_cache_root(&config_dir, library_id),
                 broadcaster,
             )),
             jukebox_poll: Mutex::new(None),
+            followed: AtomicBool::new(false),
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
             fetched_songs: Mutex::new(HashMap::new()),
@@ -430,11 +621,125 @@ impl SubsonicBinding {
         }
     }
 
+    /// What the last check of the server of the library `library_id` found for the account
+    /// `user`, kept when the library was opened before with that account. It reads the file, so
+    /// it blocks.
+    pub(crate) fn kept_probe(
+        config_dir: &Path,
+        library_id: Uuid,
+        user: &str,
+    ) -> Option<SubsonicProbe> {
+        kept_value(config_dir, library_id, Some(user), PROBE)
+    }
+
+    /// Keeps `probe`, what the check of a new sign-in to the server of the library `library_id` as
+    /// `user` found, so the library opens with it next time.
+    pub(crate) fn keep_verified_probe(
+        config_dir: &Path,
+        library_id: Uuid,
+        user: &str,
+        probe: SubsonicProbe,
+    ) {
+        keep_value(config_dir, library_id, Some(user), PROBE, probe);
+    }
+
+    /// What the last check of the server found: the roles of the account and what the server
+    /// declares.
+    pub(crate) fn probe(&self) -> SubsonicProbe {
+        self.probe
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Keeps the probe on disk, so the library opens from it next time.
+    pub(crate) fn keep_probe(&self) {
+        self.lists.kept.keep(PROBE, self.probe());
+    }
+
+    /// Takes what the check of the server, made under the sign-in the library opened with,
+    /// found, unless the sign-in was renewed or the library closed since: a probe replaces the
+    /// kept one, on disk too, and a sign-in the server rejects asks for a new one. A jukebox that
+    /// is followed is followed again as the probe has it now. Says whether the probe changed.
+    pub(crate) fn take_check(
+        self: &Arc<Self>,
+        probed: Result<SubsonicProbe, SubsonicError>,
+    ) -> bool {
+        // A renewal and a close cancel under this lock, so each comes wholly before the check is
+        // taken, which it then ends, or wholly after.
+        let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.check_over.is_cancelled() {
+            return false;
+        }
+        match probed {
+            Ok(probe) => {
+                let changed = *kept != probe;
+                let follow_again = probe.roles.jukebox_role != kept.roles.jukebox_role
+                    || probe.supports_rune_visualizer_feed()
+                        != kept.supports_rune_visualizer_feed();
+                *kept = probe.clone();
+                // Kept on disk under the lock, so a renewal to another account clears it after.
+                self.lists.kept.keep(PROBE, probe);
+                drop(kept);
+                if follow_again && self.followed.load(Ordering::Acquire) {
+                    // Followed again as the probe has it now: polled, with the feed the server
+                    // declares, while the account has the role, and not at all without it.
+                    self.stop_jukebox_polling();
+                    self.start_jukebox_polling();
+                    // A close meanwhile stops what this started.
+                    if !self.followed.load(Ordering::Acquire) {
+                        self.stop_jukebox_polling();
+                    }
+                }
+                changed
+            }
+            // A server in front of Subsonic may refuse the sign-in by its HTTP status, as the
+            // stream treats it.
+            Err(
+                SubsonicError::Server {
+                    kind:
+                        SubsonicServerError::WrongCredentials
+                        | SubsonicServerError::NotAuthorized
+                        | SubsonicServerError::InvalidApiKey,
+                    ..
+                }
+                | SubsonicError::HttpStatus(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+            ) => {
+                self.ask_for_sign_in("Subsonic server check");
+                false
+            }
+            Err(error) => {
+                log::info!("Could not check the Subsonic server: {error}");
+                false
+            }
+        }
+    }
+
+    /// Cancelled once the sign-in is renewed or the library closes, after which the check of the
+    /// server under the sign-in it opened with is over.
+    pub(crate) fn check_over(&self) -> CancellationToken {
+        self.check_over.clone()
+    }
+
+    /// Asks the UI for a new sign-in, as the server rejects the one the library keeps, which
+    /// `request` found.
+    pub(crate) fn ask_for_sign_in(&self, request: &str) {
+        self.covers.broadcaster.broadcast(&RequestFailedResponse {
+            request: request.into(),
+            call_id: None,
+            kind: RequestErrorKind::PermissionDenied,
+            detail: "Subsonic account is not authorized for this request".into(),
+            cause: Some(RequestFailureCause::ServiceSignInRequired {
+                record_id: self.library_id.to_string(),
+            }),
+        });
+    }
+
     pub(crate) fn start_jukebox_polling(self: &Arc<Self>) {
         if self.play_on_this_device {
             return;
         }
-        if !self.probe.roles.jukebox_role {
+        if !self.probe().roles.jukebox_role {
             return;
         }
         let Ok(mut poll) = self.jukebox_poll.lock() else {
@@ -543,7 +848,8 @@ impl SubsonicBinding {
     }
 
     fn start_visualizer_feed(self: &Arc<Self>) {
-        if !self.probe.supports_rune_visualizer_feed() {
+        let probe = self.probe();
+        if !probe.supports_rune_visualizer_feed() {
             return;
         }
         let Ok(mut feed) = self.visualizer_feed.lock() else {
@@ -559,7 +865,6 @@ impl SubsonicBinding {
             link: Arc::clone(&link),
         });
         let client = Arc::clone(&self.client);
-        let probe = self.probe.clone();
         let broadcaster = Arc::clone(&self.covers.broadcaster);
         let visualizer = Arc::clone(&self.visualizer);
         let binding = Arc::downgrade(self);
@@ -646,15 +951,7 @@ impl SubsonicBinding {
                     ..
                 }
             ) {
-                self.covers.broadcaster.broadcast(&RequestFailedResponse {
-                    request: "Subsonic scrobble".into(),
-                    call_id: None,
-                    kind: RequestErrorKind::PermissionDenied,
-                    detail: "Subsonic account is not authorized for this request".into(),
-                    cause: Some(RequestFailureCause::ServiceSignInRequired {
-                        record_id: self.library_id.to_string(),
-                    }),
-                });
+                self.ask_for_sign_in("Subsonic scrobble");
             }
         }
     }
@@ -769,7 +1066,7 @@ impl ServiceBinding for SubsonicBinding {
     }
 
     fn slots(&self) -> RequestSlots {
-        RequestSlots::subsonic(&self.probe)
+        RequestSlots::subsonic(&self.probe())
     }
 
     fn service(&self) -> ServiceKind {
@@ -896,21 +1193,49 @@ impl ServiceBinding for SubsonicBinding {
         let Ok(password) = str::from_utf8(credential.secret.as_bytes()) else {
             return;
         };
-        self.client
-            .replace_credentials(SubsonicCredentials::Password {
-                user: credential.username.clone(),
-                password: password.to_owned(),
-            });
+        // Another username is another account, whose lists the kept ones are not. A new
+        // password for the same account keeps them.
+        let other_account = self.client.user().as_deref() != Some(credential.username.as_str());
+        {
+            // Under the probe lock, so a check of the server under the sign-in before is taken
+            // wholly before this or not at all.
+            let _probe = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+            self.client
+                .replace_credentials(SubsonicCredentials::Password {
+                    user: credential.username.clone(),
+                    password: password.to_owned(),
+                });
+            self.check_over.cancel();
+        }
+        if other_account {
+            // The lists first, so no read of the account before keeps what it brings after.
+            self.lists.kept.clear(Some(&credential.username));
+            self.catalog
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .forget_metadata();
+            self.fetched_songs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear();
+        }
     }
 
     fn close(&self) {
+        {
+            // Under the probe lock, so a check of the server is taken wholly before this or not at
+            // all, and asks for no sign-in for a library that is closed.
+            let _probe = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+            self.check_over.cancel();
+        }
+        self.followed.store(false, Ordering::Release);
         self.stop_jukebox_polling();
     }
 }
 
 impl ServicePlayer for SubsonicBinding {
     fn visualizer_inputs(&self) -> VisualizerInputs {
-        if !self.probe.supports_rune_visualizer_feed() {
+        if !self.probe().supports_rune_visualizer_feed() {
             return VisualizerInputs::None;
         }
         let lost = self.visualizer_feed.lock().is_ok_and(|feed| {
@@ -933,6 +1258,7 @@ impl ServicePlayer for SubsonicBinding {
     }
 
     fn follow(self: Arc<Self>) {
+        self.followed.store(true, Ordering::Release);
         self.start_jukebox_polling();
     }
 }
@@ -2174,5 +2500,107 @@ mod visualizer_feed_tests {
             binding.covers.cancellation.cancel();
             server.abort();
         }
+    }
+
+    /// A rejection of the sign-in the server check found, as the server answers it.
+    fn rejected() -> subsonic::SubsonicError {
+        subsonic::SubsonicError::Server {
+            kind: subsonic::SubsonicServerError::WrongCredentials,
+            message: "Wrong username or password".into(),
+        }
+    }
+
+    fn asked_for_sign_in(signals: &Signals) -> bool {
+        signals
+            .names
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|name| name == "RequestFailedResponse")
+    }
+
+    #[tokio::test]
+    async fn a_library_closed_before_its_server_check_ends_takes_nothing_from_it() {
+        use crate::service::ServiceBinding;
+
+        let (url, _state, server) = server(true, false).await;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.close();
+        assert!(!binding.take_check(Err(rejected())));
+        assert!(!asked_for_sign_in(&signals));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_server_check_refused_with_http_401_or_403_asks_for_a_sign_in() {
+        use reqwest::StatusCode as HttpStatus;
+
+        for status in [HttpStatus::UNAUTHORIZED, HttpStatus::FORBIDDEN] {
+            let (url, _state, server) = server(true, false).await;
+            let root = TempDir::new().unwrap();
+            let signals = Arc::new(Signals::default());
+            let binding = open_binding(url, &root, signals.clone()).await;
+            binding.take_check(Err(subsonic::SubsonicError::HttpStatus(status)));
+            assert!(asked_for_sign_in(&signals), "{status} asked for no sign-in");
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_feed_the_server_check_finds_declared_starts_for_the_followed_jukebox() {
+        use crate::service::ServicePlayer;
+
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let declared = binding.client.probe().await.unwrap();
+        // The library opens from a probe kept before the server declared the feed.
+        binding
+            .probe
+            .lock()
+            .unwrap()
+            .extensions
+            .retain(|(name, _)| name != "runeVisualizerFeed");
+        Arc::clone(&binding).follow();
+        tokio_time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(state.connections.load(Ordering::SeqCst), 0);
+
+        binding.take_check(Ok(declared));
+        wait_until("the feed of the followed jukebox", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        binding.stop_jukebox_polling();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_jukebox_whose_role_the_server_check_finds_taken_stops_being_followed() {
+        use crate::service::ServicePlayer;
+
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        Arc::clone(&binding).follow();
+        wait_until("the feed of the followed jukebox", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        state.feed_release.notify_one();
+
+        let mut taken = binding.probe();
+        taken.roles.jukebox_role = false;
+        binding.take_check(Ok(taken));
+        wait_until("the feed closed", || async {
+            Ok(state.closed.load(Ordering::SeqCst).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert!(binding.jukebox_poll.lock().unwrap().is_none());
+        server.abort();
     }
 }

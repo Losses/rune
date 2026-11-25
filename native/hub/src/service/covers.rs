@@ -7,7 +7,6 @@ use std::fmt;
 use std::fs;
 use std::future;
 use std::io;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -24,7 +23,9 @@ use tokio::time as tokio_time;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::{messages::LibraryContentChanged, utils::Broadcaster};
+use crate::{
+    messages::LibraryContentChanged, service::folder::service_library_folder, utils::Broadcaster,
+};
 
 /// Downloads cover images by the ids a service gives them.
 pub(crate) trait CoverSource: Send + Sync + 'static {
@@ -44,13 +45,9 @@ const CHANGE_WINDOW: Duration = Duration::from_millis(500);
 /// The largest cover a service may send.
 const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
 
-/// Where the cover cache of one service library lives: its own folder, named by its library
-/// id. The parent keeps the name it had when only Subsonic libraries cached covers, so the
-/// caches already on disk stay where they are.
+/// Where the cover cache of one service library lives: in the library's own folder.
 pub(crate) fn cover_cache_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
-    config_dir
-        .join("subsonic-covers")
-        .join(library_id.to_string())
+    service_library_folder(config_dir, library_id).join("covers")
 }
 
 /// The covers of one service library, downloaded once and kept on disk.
@@ -330,17 +327,6 @@ impl fmt::Debug for SharedCoverFetchError {
 }
 
 impl error::Error for SharedCoverFetchError {}
-
-pub(crate) async fn delete_service_cover_cache(
-    config_dir: &Path,
-    library_id: Uuid,
-) -> io::Result<()> {
-    match tokio_fs::remove_dir_all(cover_cache_root(config_dir, library_id)).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
 
 /// Takes a cover's download out of the cache's pending ones when dropped.
 struct PendingGuard {
@@ -748,11 +734,10 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::Semaphore;
     use tokio::time as tokio_time;
-    use uuid::Uuid;
 
     use super::{
-        CoverCacheLimits, CoverSource, MAX_WAITING_SCHEDULED, ServiceCoverCache, cover_cache_root,
-        delete_service_cover_cache, evict_cover_cache, keep_primary_color,
+        CoverCacheLimits, CoverSource, MAX_WAITING_SCHEDULED, ServiceCoverCache, evict_cover_cache,
+        keep_primary_color,
     };
     use crate::test_wait::wait_until;
     use crate::utils::{Broadcaster, RinfRustSignal};
@@ -1258,22 +1243,5 @@ mod tests {
             fs::read_to_string(cached.with_extension("color")).unwrap(),
             "digest 7"
         );
-    }
-
-    #[tokio::test]
-    async fn removing_service_record_deletes_its_cover_cache_directory() {
-        let root = TempDir::new().unwrap();
-        let library_id = Uuid::new_v4();
-        let cache = root
-            .path()
-            .join("subsonic-covers")
-            .join(library_id.to_string());
-        assert_eq!(cover_cache_root(root.path(), library_id), cache);
-        fs::create_dir_all(&cache).unwrap();
-        fs::write(cache.join("cover.img"), b"cover").unwrap();
-        delete_service_cover_cache(root.path(), library_id)
-            .await
-            .unwrap();
-        assert!(!cache.exists());
     }
 }

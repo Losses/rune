@@ -86,6 +86,7 @@ use crate::request_error::ExpectedRequestError;
 use crate::request_owner::Implementation;
 use crate::server::ServerManager;
 use crate::service::ServiceBinding;
+use crate::service::lists::delete_kept_lists;
 use crate::subsonic_binding::SubsonicBinding;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
@@ -1751,7 +1752,7 @@ pub(crate) async fn replace_subsonic_credential_on_node(
         password: request.password.clone(),
     };
     let client = SubsonicClient::new(endpoint, replacement, http);
-    match timeout(Duration::from_secs(5), client.probe()).await {
+    let probe = match timeout(Duration::from_secs(5), client.probe()).await {
         Err(_) => return Err(credential_failure(Kind::SubsonicUnreachable)),
         Ok(Err(SubsonicError::Transport(_) | SubsonicError::HttpStatus(_))) => {
             return Err(credential_failure(Kind::SubsonicUnreachable));
@@ -1764,21 +1765,40 @@ pub(crate) async fn replace_subsonic_credential_on_node(
             ..
         })) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
         Ok(Err(_)) => return Err(credential_failure(Kind::SubsonicWrongCredentials)),
-        Ok(Ok(_)) => {}
-    }
+        Ok(Ok(probe)) => probe,
+    };
     {
         let _commit = node.subsonic_credential_commit.lock().await;
         let verified = Credential {
             username: request.username.clone(),
             secret: Secret::new(request.password.as_bytes().to_vec()),
         };
+        let previous = node
+            .credentials
+            .get(*credential)
+            .await
+            .ok()
+            .map(|previous| previous.username);
         node.credentials
             .replace(*credential, &verified)
             .await
             .map_err(|_| credential_failure(Kind::Storage))?;
-        if let Some(binding) = node.service_binding(record_id.0)? {
-            binding.renew_sign_in(&verified);
+        let config_dir = Path::new(&*node.config_path);
+        let library_id = record.catalog_library_id().unwrap_or(record_id.0);
+        match node.service_binding(record_id.0)? {
+            Some(binding) => binding.renew_sign_in(&verified),
+            // Another username is another account, whose lists the closed library's kept ones
+            // are not. They are never given to it, so a deletion that fails leaves only files
+            // nothing reads.
+            None if previous.is_some_and(|previous| previous != verified.username) => {
+                if let Err(error) = delete_kept_lists(config_dir, library_id).await {
+                    log::warn!("Could not delete the lists of another account: {error}");
+                }
+            }
+            None => {}
         }
+        // The library opens next time with the roles the server gives the new sign-in.
+        SubsonicBinding::keep_verified_probe(config_dir, library_id, &verified.username, probe);
     }
     if let Err(error) = publish_library_records_changed(node).await {
         log::warn!("Could not publish library record change: {error:#}");
@@ -2049,8 +2069,9 @@ async fn open_subsonic_record(
                 anyhow::anyhow!("Could not create Subsonic client"),
             )
         })?;
+    let config_dir = Path::new(&*node.config_path);
     let mut credential = read_credential().await?;
-    let (client, result, commit) = loop {
+    let (client, kept_probe, result, commit) = loop {
         let password = std::str::from_utf8(credential.secret.as_bytes())
             .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
         let client = SubsonicClient::new(
@@ -2061,13 +2082,22 @@ async fn open_subsonic_record(
             },
             http.clone(),
         );
-        let result = timeout(Duration::from_secs(10), client.probe()).await;
+        // What the last check of the server found for this account, when the library was opened
+        // before with it. It opens from that and from its kept lists without waiting for the
+        // server, which it checks in the background. Opened for the first time, it keeps nothing
+        // to show, so it waits for the probe as before, and fails as before when the server
+        // cannot be reached or rejects the sign-in.
+        let kept_probe = SubsonicBinding::kept_probe(config_dir, library_id, &credential.username);
+        let result = match &kept_probe {
+            Some(probe) => Ok(Ok(probe.clone())),
+            None => timeout(Duration::from_secs(10), client.probe()).await,
+        };
         let commit = node.subsonic_credential_commit.lock().await;
         let current = read_credential().await?;
         if credential.username == current.username
             && credential.secret.as_bytes() == current.secret.as_bytes()
         {
-            break (client, result, commit);
+            break (client, kept_probe, result, commit);
         }
         // Re-login won while the probe was in flight. Both the client and
         // the roles returned by getUser must come from the saved credential.
@@ -2106,12 +2136,15 @@ async fn open_subsonic_record(
     let binding = Arc::new(SubsonicBinding::new(
         client,
         probe,
-        Path::new(&*node.config_path).to_path_buf(),
+        config_dir.to_path_buf(),
         library_id,
         play_on_this_device,
         Arc::clone(&node.gui_broadcaster),
         Arc::clone(node.visualizer()),
     ));
+    if kept_probe.is_none() {
+        binding.keep_probe();
+    }
     // Like the local and remote paths, the opened library gets its own UI and GUI
     // listeners; attaching it releases the previous library's.
     let mut params = node
@@ -2121,12 +2154,52 @@ async fn open_subsonic_record(
     let params = Arc::new(params);
     node.attach_ui(&params).await;
     let generation = node
-        .set_open_service_catalog(Some(record_id), binding)
+        .set_open_service_catalog(
+            Some(record_id),
+            Arc::clone(&binding) as Arc<dyn ServiceBinding>,
+        )
         .await
         .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
     drop(commit);
     listen_local_gui(&params, &params.main_token);
+    if kept_probe.is_some() {
+        check_subsonic_server(node, &binding);
+    }
     Ok(generation)
+}
+
+/// Checks the server of a Subsonic library opened from what it kept, in the background. The
+/// probe the server gives replaces the kept one, and the UI hears the request slots it gives. A
+/// server that rejects the sign-in asks the UI for a new one, as a request it rejects does. A
+/// server that cannot be reached leaves the library as it is: the kept lists still show, and the
+/// requests that need the server fail as they do while it is down.
+fn check_subsonic_server(node: &Arc<NodeContext>, binding: &Arc<SubsonicBinding>) {
+    let node = Arc::downgrade(node);
+    let client = Arc::clone(&binding.client);
+    let check_over = binding.check_over();
+    let binding = Arc::downgrade(binding);
+    tokio::spawn(async move {
+        let probed = tokio::select! {
+            // A sign-in renewed meanwhile is the one the library keeps now, and what the server
+            // answers to the one before says nothing of it. A library closed meanwhile takes
+            // nothing from it.
+            _ = check_over.cancelled() => return,
+            probed = timeout(Duration::from_secs(10), client.probe()) => probed,
+        };
+        let Some(binding) = binding.upgrade() else {
+            return;
+        };
+        let Ok(probed) = probed else {
+            log::info!("The Subsonic server did not answer its check in time");
+            return;
+        };
+        if binding.take_check(probed)
+            && let Some(node) = node.upgrade()
+            && let Err(error) = node.publish_capabilities()
+        {
+            log::warn!("Could not publish the capabilities the server gives: {error:#}");
+        }
+    });
 }
 
 /// The binding of the service library `library_id`: the open one, or one made from its record

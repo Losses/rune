@@ -1,10 +1,13 @@
 //! What the hub needs from a streaming service's library, whichever service it is.
 
 pub(crate) mod covers;
+pub(crate) mod folder;
 pub(crate) mod home;
 pub(crate) mod ids;
+pub(crate) mod lists;
 pub(crate) mod mixes;
 pub(crate) mod positional_occurrences;
+pub(crate) mod store;
 
 use std::sync::Arc;
 
@@ -90,8 +93,9 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
     }
 
     /// Signs in to the service again with `credential`, the one its library record keeps from
-    /// now on, without the library being opened again. A service that does not sign in with a
-    /// kept credential has nothing to renew.
+    /// now on, without the library being opened again. A credential of another account clears the
+    /// lists the binding keeps, on disk too; one of the same account keeps them. A service that
+    /// does not sign in with a kept credential has nothing to renew.
     fn renew_sign_in(&self, _credential: &Credential) {}
 
     /// Stops the background work done for this library while it was open in the UI. The hub
