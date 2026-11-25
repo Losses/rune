@@ -1244,6 +1244,7 @@ impl PlayerInternal {
                     match cmd {
                         PlayerCommand::WithCompletion { .. } => unreachable!(),
                         PlayerCommand::Restore { tracks, index, position, mode } => {
+                            self.last_pause_report = None;
                             self.clear_unavailable(None)?;
                             self.add_to_playlist(tracks, AddMode::AppendToEnd);
                             self.debounce_timer = None;
@@ -1253,6 +1254,7 @@ impl PlayerInternal {
                             self.load_at(index, false, false, Some(position))?;
                         },
                         PlayerCommand::RestoreTagged { entries, index, position, mode, revision } => {
+                            self.last_pause_report = None;
                             self.queue_revision = revision;
                             self.clear_unavailable(None)?;
                             self.playlist = entries
@@ -1272,6 +1274,7 @@ impl PlayerInternal {
                             self.load_at(index, false, false, Some(position))?;
                         },
                         PlayerCommand::Load { index } => {
+                            self.last_pause_report = None;
                             if index < self.playlist.len() {
                                 let mapped = self.get_mapped_track_index(index);
                                 self.clear_unavailable(Some(self.playlist[mapped].item.clone()))?;
@@ -1279,6 +1282,7 @@ impl PlayerInternal {
                             self.load(Some(index), false, true)?;
                         },
                         PlayerCommand::LoadAtPosition { index, position, play } => {
+                            self.last_pause_report = None;
                             if index < self.playlist.len() {
                                 self.clear_unavailable(Some(self.playlist[index].item.clone()))?;
                             }
@@ -1437,9 +1441,16 @@ impl PlayerInternal {
                             self.last_pause_report = None;
                             self.stop()?
                         },
-                        PlayerCommand::Next => self.next()?,
-                        PlayerCommand::Previous => self.previous()?,
+                        PlayerCommand::Next => {
+                            self.last_pause_report = None;
+                            self.next()?
+                        },
+                        PlayerCommand::Previous => {
+                            self.last_pause_report = None;
+                            self.previous()?
+                        },
                         PlayerCommand::Switch(index) => {
+                            self.last_pause_report = None;
                             if index >= self.playlist.len() {
                                 self.complete_current(Err(PlayerCommandError::CannotApply));
                             } else {
@@ -1498,6 +1509,10 @@ impl PlayerInternal {
                             }
                         },
                         PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response, .. } => {
+                            // A session handed back replaces what an older handoff of this
+                            // player stopped, paused or playing, so the report it left must
+                            // not answer a pause that follows.
+                            self.last_pause_report = None;
                             let interrupted = self.interrupted_item();
                             let current_index = self.current_queue_edit_index()
                                 .and_then(|_| self.current_playlist_index());
@@ -1520,6 +1535,7 @@ impl PlayerInternal {
                             });
                         },
                         PlayerCommand::TakeBackBlock { block, interrupted, resume, response, .. } => {
+                            self.last_pause_report = None;
                             if !self.playlist.iter().any(|item| item.block == Some(block)) {
                                 let _ = response.send(None);
                                 continue;
@@ -7103,6 +7119,68 @@ mod playback_state_tests {
                     // A pause the user asked for settles the memory: what follows reads the
                     // player as it stands, not the handoff pause before it.
                     commands_sender.send(PlayerCommand::Pause)?;
+                    assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pause_reporting_does_not_survive_a_session_handed_back_paused() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    let pause_reporting = || {
+                        let (response, paused) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                        Ok::<_, anyhow::Error>(paused)
+                    };
+                    commands_sender.send(restore(
+                        library_id,
+                        &[file_uuid],
+                        0,
+                        1.5,
+                        PlaybackMode::Sequential,
+                    ))?;
+                    expect_loaded(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
+
+                    // A handoff pauses the player playing, and the answer is lost: the report
+                    // it remembers is Playing.
+                    {
+                        let (response, _lost) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                    }
+                    expect_paused(&mut events, &track).await?;
+
+                    // The session comes back paused, as a handback of audio paused on the
+                    // device it went to loads it. What a pause answers starts there: it must
+                    // not replay what the older handoff stopped.
+                    let (response, loaded) = oneshot::channel();
+                    commands_sender.send(PlayerCommand::HandoffLoad {
+                        tracks: vec![(track.clone(), PlaybackSource::LibraryStream)],
+                        block: HandoffBlockId(Uuid::new_v4()),
+                        start_index: Some(0),
+                        position: Duration::from_millis(1500),
+                        play: false,
+                        playback_mode: None,
+                        revision: None,
+                        response,
+                    })?;
+                    loaded.await?;
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
 
                     runner.abort();
