@@ -8410,11 +8410,17 @@ mod faulty_player {
     };
     use playback::pcm_tap::PcmTap;
     use playback::{InternalLog, PlayerCommand, SimpleReceiver};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::oneshot::{self, Receiver};
 
     /// The real player, except that a pause is answered with a failure: a device whose player
     /// cannot pause, so that handing its session off fails at the pause and nowhere else.
     pub(super) struct PauseFails(pub(super) Player);
+
+    /// The real player, except that the first reporting pause loses its answer over the wire:
+    /// the pause applies, but the handoff never hears it, so it retries over a reconnected
+    /// link. A wire that recovers then answers the retry.
+    pub(super) struct LosesFirstPauseAnswer(pub(super) Player, pub(super) AtomicBool);
 
     impl Playable for PauseFails {
         fn command_with_completion(
@@ -8591,8 +8597,193 @@ mod faulty_player {
             self.0.subscribe_log()
         }
     }
+
+    impl Playable for LosesFirstPauseAnswer {
+        fn command_with_completion(
+            &mut self,
+            command: PlayerCommand,
+        ) -> BoxFuture<
+            'static,
+            result::Result<(), PlayerCommandError>,
+        > {
+            if matches!(
+                command,
+                PlayerCommand::Pause | PlayerCommand::PauseReporting { .. }
+            ) {
+                return Box::pin(future::ready(Err(
+                    PlayerCommandError::CannotApply,
+                )));
+            }
+            self.0.command_with_completion(command)
+        }
+        fn command_completion(
+            &mut self,
+        ) -> BoxFuture<
+            'static,
+            result::Result<PlayerStatus, PlayerCommandError>,
+        > {
+            self.0.command_completion()
+        }
+        fn load(&self, index: usize) {
+            self.0.load(index)
+        }
+        fn load_at_position(&self, index: usize, position: Duration, play: bool) {
+            self.0.load_at_position(index, position, play)
+        }
+        fn play(&self) {
+            self.0.play()
+        }
+        fn pause(&self) {
+            self.0.pause()
+        }
+        fn stop(&self) {
+            self.0.stop()
+        }
+        fn next(&self) {
+            self.0.next()
+        }
+        fn previous(&self) {
+            self.0.previous()
+        }
+        fn switch(&self, index: usize) {
+            self.0.switch(index)
+        }
+        fn seek(&self, position_seconds: f64) {
+            self.0.seek(position_seconds)
+        }
+        fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
+            self.0.add_to_playlist(tracks, mode)
+        }
+        fn add_to_playlist_with_sources(
+            &self,
+            tracks: Vec<(PlayingItem, PlaybackSource)>,
+            mode: AddMode,
+        ) {
+            self.0.add_to_playlist_with_sources(tracks, mode)
+        }
+        fn edit_playlist(&mut self, edit: PlaylistEdit) {
+            self.0.edit_playlist(edit)
+        }
+        fn handoff_load(
+            &self,
+            tracks: Vec<(PlayingItem, PlaybackSource)>,
+            block: HandoffBlockId,
+            start_index: Option<usize>,
+            position: Duration,
+            play: bool,
+            playback_mode: Option<PlaybackMode>,
+        ) -> Receiver<HandoffLoadResult> {
+            self.0
+                .handoff_load(tracks, block, start_index, position, play, playback_mode)
+        }
+        fn take_back_block(
+            &self,
+            block: HandoffBlockId,
+            interrupted: InterruptedItem,
+            resume: bool,
+        ) -> Receiver<Option<TakeBackBlockResult>> {
+            self.0.take_back_block(block, interrupted, resume)
+        }
+        fn clear_handoff_blocks(
+            &self,
+        ) -> Receiver<ClearHandoffBlocksResult> {
+            self.0.clear_handoff_blocks()
+        }
+        fn pause_reporting(&self) -> Receiver<PausedPlayback> {
+            if self.1.swap(true, Ordering::SeqCst) {
+                return self.0.pause_reporting();
+            }
+            // The first reporting pause applies on the player, but its answer never arrives:
+            // the handoff pauses again over a reconnected link, and that retry is what must
+            // still answer what the first one stopped.
+            let lost = self.0.pause_reporting();
+            tokio::spawn(async move {
+                let _ = lost.await;
+            });
+            oneshot::channel().1
+        }
+        fn restore(
+            &self,
+            tracks: Vec<(PlayingItem, PlaybackSource)>,
+            index: Option<usize>,
+            position: Duration,
+            mode: PlaybackMode,
+        ) {
+            self.0.restore(tracks, index, position, mode)
+        }
+        fn restore_tagged(
+            &self,
+            entries: Vec<QueueEntry>,
+            index: Option<usize>,
+            position: Duration,
+            mode: PlaybackMode,
+            revision: u64,
+        ) {
+            self.0.restore_tagged(entries, index, position, mode, revision)
+        }
+        fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
+            self.0.set_source_resolver(resolver)
+        }
+        fn remove_from_playlist(&self, index: usize) {
+            self.0.remove_from_playlist(index)
+        }
+        fn clear_playlist(&self) {
+            self.0.clear_playlist()
+        }
+        fn move_playlist_item(&self, old_index: usize, new_index: usize) {
+            self.0.move_playlist_item(old_index, new_index)
+        }
+        fn set_playback_mode(&mut self, mode: PlaybackMode) {
+            self.0.set_playback_mode(mode)
+        }
+        fn set_volume(&mut self, volume: f32) {
+            self.0.set_volume(volume)
+        }
+        fn set_realtime_fft_enabled(&mut self, enabled: bool) {
+            self.0.set_realtime_fft_enabled(enabled)
+        }
+        fn pcm_tap(&self) -> Arc<PcmTap> {
+            self.0.pcm_tap()
+        }
+        fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
+            self.0.set_adaptive_switching_enabled(enabled)
+        }
+        fn set_mix_with_others(&mut self, enabled: bool) {
+            self.0.set_mix_with_others(enabled)
+        }
+        fn terminate(&self) {
+            self.0.terminate()
+        }
+        fn get_status(&self) -> PlayerStatus {
+            self.0.get_status()
+        }
+        fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {
+            self.0.status_after_pending()
+        }
+        fn get_playlist(&self) -> Vec<PlayingItem> {
+            self.0.get_playlist()
+        }
+        fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+            self.0.subscribe_status()
+        }
+        fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
+            self.0.subscribe_played_through()
+        }
+        fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+            self.0.subscribe_playlist()
+        }
+        fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+            self.0.subscribe_realtime_fft()
+        }
+        fn subscribe_crash(&self) -> SimpleReceiver<String> {
+            self.0.subscribe_crash()
+        }
+        fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+            self.0.subscribe_log()
+        }
+    }
 }
-use faulty_player::PauseFails;
+use faulty_player::{LosesFirstPauseAnswer, PauseFails};
 
 /// A handoff source whose player cannot pause.
 async fn attached_handoff_source_that_cannot_pause()
@@ -8603,6 +8794,40 @@ async fn attached_handoff_source_that_cannot_pause()
         Some(Box::new(|player| Arc::new(Mutex::new(PauseFails(player))))),
     )
     .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_pause_answer_lost_and_retried_still_starts_the_destination_playing() -> Result<()>
+{
+    // The source pauses for the handoff, but the answer of that pause is lost: the handoff
+    // pauses it again over a reconnected link. That retry finds the player already paused, so
+    // only what the first pause reported can still start the destination playing.
+    let (_dirs, controller, source, _) = attached_handoff_source_with_player(
+        true,
+        None,
+        Some(Box::new(|player| {
+            Arc::new(Mutex::new(LosesFirstPauseAnswer(
+                player,
+                AtomicBool::new(false),
+            )))
+        })),
+    )
+    .await?;
+
+    hand_off(&controller, None).await?;
+
+    let loaded = wait_player(&controller, |status| {
+        status.index == Some(0) && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(
+        loaded.state,
+        PlayerPlaybackState::Playing,
+        "the destination should start playing even though the pause answered only once: {loaded:?}"
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]

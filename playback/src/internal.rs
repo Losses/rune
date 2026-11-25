@@ -1068,6 +1068,11 @@ pub(crate) struct PlayerInternal {
     // follow it in the same chain are chain continuations. A load that reaches its track ends
     // the chain, as does one that does not advance it.
     failure_chain_signaled: bool,
+    // What the last reporting pause answered. A caller that lost the answer pauses again, and
+    // a fresh answer would read the pause the first one applied instead of what it stopped, so
+    // the retry answers the remembered one as long as the player has not moved since: a play,
+    // a plain pause, or a stop settles it.
+    last_pause_report: Option<PausedPlayback>,
     unavailable: HashMap<PlayingItem, UnavailableReason>,
     // Where outputs come from, and how they stop and start again.
     outputs: Arc<dyn Outputs>,
@@ -1147,6 +1152,7 @@ impl PlayerInternal {
             listen_continues: false,
             resume_after_interruption: false,
             failure_chain_signaled: false,
+            last_pause_report: None,
             unavailable: HashMap::new(),
             outputs,
             host_bridge: Arc::new(RwLock::new(None)),
@@ -1395,6 +1401,7 @@ impl PlayerInternal {
                             // A play asked for during an interruption settles it: a late end of
                             // the interruption must not start playback again on its own.
                             self.resume_after_interruption = false;
+                            self.last_pause_report = None;
                             let was_loading = self.state == InternalPlaybackState::Loading;
                             self.play()?;
                             if was_loading {
@@ -1404,19 +1411,32 @@ impl PlayerInternal {
                         PlayerCommand::Pause => {
                             // A pause asked for during an interruption holds after it ends.
                             self.resume_after_interruption = false;
+                            self.last_pause_report = None;
                             self.pause()?;
                         },
                         PlayerCommand::PauseReporting { response } => {
-                            let paused = if self.plays_or_starts_playing() {
+                            // A retry of a reporting pause whose answer was lost finds the
+                            // player already paused by the first one, so it answers what the
+                            // first reported while nothing has moved since. Any other pause
+                            // reads the state fresh.
+                            let fresh = if self.plays_or_starts_playing() {
                                 PausedPlayback::Playing
                             } else {
                                 PausedPlayback::NotPlaying
                             };
+                            let paused = match (fresh, self.last_pause_report) {
+                                (PausedPlayback::NotPlaying, Some(remembered)) => remembered,
+                                _ => fresh,
+                            };
                             self.resume_after_interruption = false;
                             self.pause()?;
+                            self.last_pause_report = Some(paused);
                             let _ = response.send(paused);
                         },
-                        PlayerCommand::Stop => self.stop()?,
+                        PlayerCommand::Stop => {
+                            self.last_pause_report = None;
+                            self.stop()?
+                        },
                         PlayerCommand::Next => self.next()?,
                         PlayerCommand::Previous => self.previous()?,
                         PlayerCommand::Switch(index) => {
@@ -7028,6 +7048,61 @@ mod playback_state_tests {
                     expect_playing(&mut events, &track).await?;
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::Playing);
                     expect_paused(&mut events, &track).await?;
+                    // A plain pause settles what the reporting pause remembered, so the next
+                    // one reads the player as it stands.
+                    commands_sender.send(PlayerCommand::Pause)?;
+                    assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pause_reporting_retries_after_a_lost_answer_replay_it() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    let pause_reporting = || {
+                        let (response, paused) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                        Ok::<_, anyhow::Error>(paused)
+                    };
+                    commands_sender.send(restore(
+                        library_id,
+                        &[file_uuid],
+                        0,
+                        1.5,
+                        PlaybackMode::Sequential,
+                    ))?;
+                    expect_loaded(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
+
+                    // The first reporting pause applies, but its answer is lost: the pause is
+                    // sent, and nothing listens. A retry finds the player already paused, yet
+                    // must answer what the first pause stopped, not the pause it applied.
+                    {
+                        let (response, _lost) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                    }
+                    expect_paused(&mut events, &track).await?;
+                    assert_eq!(pause_reporting()?.await?, PausedPlayback::Playing);
+
+                    // A pause the user asked for settles the memory: what follows reads the
+                    // player as it stands, not the handoff pause before it.
+                    commands_sender.send(PlayerCommand::Pause)?;
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
 
                     runner.abort();
