@@ -55,11 +55,11 @@ use crate::{
     messages::{
         AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
         IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
-        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlayerHostChanged,
-        PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
-        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
-        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
-        VisualizerInputsChanged,
+        LibraryTaskKind, LibraryTaskStateChanged, PauseReport, PauseReportingRequest, PauseRequest,
+        PlaybackStatus, PlayerHostChanged, PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest,
+        RemoteLibraryReconnecting, RemoteLossKind, RendererAttachmentChanged, RendererLinkLost,
+        RequestCapabilities, RequestCapability, TrustListUpdated, TrustedClientsChanged,
+        TrustedServerCertificate, VisualizerInputsChanged,
     },
     server::{
         ServerManager, WebSocketService,
@@ -682,29 +682,35 @@ impl NodeContext {
         self.handoff_generation.load(Ordering::Acquire)
     }
 
+    /// Pauses the source renderer for a handoff. The pause answers what it stopped, so the
+    /// handoff keeps a source that was reopening to play playing: an earlier snapshot may be
+    /// too old for a play that reaches the player after it. `Ok(None)` when a newer handoff
+    /// has superseded this one.
     pub(crate) async fn pause_handoff_source(
         self: &Arc<Self>,
         fingerprint: &str,
         source: &RendererLink,
         generation: u64,
-    ) -> Result<bool> {
+    ) -> Result<Option<PauseReport>> {
         let _guard = self.handoff_gate.lock().await;
         if self.handoff_generation() != generation {
-            return Ok(false);
+            return Ok(None);
         }
 
-        match source.call(&PauseRequest { call_id: None }).await {
-            Ok(()) => Ok(true),
+        match source.call(&PauseReportingRequest { call_id: None }).await {
+            Ok(response) => Ok(Some(response.paused)),
             Err(first_error) => {
                 let (retry_link, _) = self
                     .connect_renderer(fingerprint, RendererLinkUse::Cast)
                     .await
                     .with_context(|| format!("Pause source renderer {fingerprint}"))?;
-                let result = retry_link.call(&PauseRequest { call_id: None }).await;
+                let result = retry_link
+                    .call(&PauseReportingRequest { call_id: None })
+                    .await;
                 retry_link.close();
                 result
                     .context("Pause source renderer after reconnect")
-                    .map(|()| true)
+                    .map(|response| Some(response.paused))
                     .or(Err(first_error))
             }
         }

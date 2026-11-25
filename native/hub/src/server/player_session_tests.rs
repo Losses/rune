@@ -140,10 +140,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, copy as copy_io};
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
-use tokio::sync::{Mutex, Notify, broadcast, oneshot};
+use tokio::sync::{Mutex, Notify, broadcast, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
-
 
 #[derive(Clone)]
 struct SubsonicHubMock {
@@ -7984,6 +7983,342 @@ async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// A track resolution that can stall inside the load that opens it, so that a test decides
+/// when a track that is loading to play finishes. Closed or open by the sender the resolver
+/// is made with; a dropped sender never stalls a load again.
+struct GatedResolver {
+    inner: Arc<dyn player::PlaybackSourceResolver>,
+    gate: watch::Receiver<bool>,
+}
+
+impl GatedResolver {
+    fn new(node: &Arc<NodeContext>) -> (Arc<Self>, watch::Sender<bool>) {
+        let (sender, gate) = watch::channel(true);
+        (
+            Arc::new(Self {
+                inner: Arc::new(crate::server::PairedAudioResolver(
+                    Arc::downgrade(node),
+                    String::new(),
+                )),
+                gate,
+            }),
+            sender,
+        )
+    }
+
+    async fn wait_open(mut gate: watch::Receiver<bool>) {
+        while !*gate.borrow() {
+            if gate.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+}
+
+macro_rules! gated {
+    ($self:ident, $method:ident ( $($arg:expr),* )) => {{
+        let inner = $self.inner.clone();
+        let gate = $self.gate.clone();
+        Box::pin(async move {
+            Self::wait_open(gate).await;
+            inner.$method($($arg),*).await
+        })
+    }};
+}
+
+impl player::PlaybackSourceResolver for GatedResolver {
+    fn resolve_track(
+        &self,
+        library_id: String,
+        track: String,
+    ) -> futures::future::BoxFuture<'static, Result<player::LibraryTrackKey>> {
+        gated!(self, resolve_track(library_id, track))
+    }
+    fn for_library(
+        &self,
+        library_id: String,
+    ) -> futures::future::BoxFuture<'static, Result<Option<player::LibraryPlaybackSource>>> {
+        let inner = self.inner.clone();
+        let gate = self.gate.clone();
+        Box::pin(async move {
+            Self::wait_open(gate.clone()).await;
+            let Some(library) = inner.for_library(library_id).await? else {
+                return Ok(None);
+            };
+            // The load resolves through the library resolver it is given here, so the gate
+            // must wrap it too, or nothing stalls.
+            Ok(Some(player::LibraryPlaybackSource {
+                fsio: library.fsio,
+                resolver: Arc::new(GatedResolver {
+                    inner: library.resolver,
+                    gate,
+                }),
+            }))
+        })
+    }
+    fn resolve_id(&self, file_uuid: Uuid) -> futures::future::BoxFuture<'static, Result<Option<i32>>> {
+        gated!(self, resolve_id(file_uuid))
+    }
+    fn local_path(&self, id: i32) -> futures::future::BoxFuture<'static, Result<Option<PathBuf>>> {
+        gated!(self, local_path(id))
+    }
+    fn requires_stream(&self, id: i32) -> futures::future::BoxFuture<'static, Result<bool>> {
+        gated!(self, requires_stream(id))
+    }
+    fn resolve(&self, id: i32) -> futures::future::BoxFuture<'static, Result<player::RemoteAudioSource>> {
+        gated!(self, resolve(id))
+    }
+}
+
+/// A controller whose attached source renderer has loaded its track paused, as a restored
+/// session does: the track never opened an output, so a Play loads it again before it plays.
+/// Returns the resolver gate as well, open as it is.
+async fn attached_paused_handoff_source() -> Result<(
+    Vec<TempDir>,
+    Fixture,
+    Fixture,
+    String,
+    watch::Sender<bool>,
+    i32,
+    SocketAddr,
+)> {
+    let controller_dir = tempfile::tempdir()?;
+    let source_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let source = fixture_with_player(
+        source_dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        Arc::new(Quiet),
+        ReconnectConfig::default(),
+        RunMode::App,
+        crate::session::PlayerSession::real_player(),
+    )
+    .await?;
+    let source_id = session_audio(&source, "handoff-reopen-source.ogg").await?;
+    queue_session(&source, &[source_id]).await?;
+    for node in [&controller, &source] {
+        node.global_params
+            .player
+            .lock()
+            .await
+            .set_playback_mode(PlaybackMode::RepeatAll);
+    }
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .load_at_position(0, Duration::from_secs(1), false);
+    wait_player(&source, |status| {
+        status.state == PlayerPlaybackState::Paused && status.ready && status.index == Some(0)
+    })
+    .await?;
+    let (resolver, gate_sender) = GatedResolver::new(&source.global_params.node);
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_source_resolver(resolver);
+    let source_address = replicate_host_library(&source, &controller).await?.0;
+    let source_info = super::info(&source).await?;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &source_info.fingerprint,
+            vec![format!("127.0.0.1:{}", source_address.port())],
+        )
+        .await?;
+    controller
+        .global_params
+        .node
+        .attach_renderer(&source_info.fingerprint)
+        .await?;
+    Ok((
+        vec![controller_dir, source_dir],
+        controller,
+        source,
+        source_info.fingerprint,
+        gate_sender,
+        source_id,
+        source_address,
+    ))
+}
+
+/// A reload of the source's track to play that stalls inside its resolution. Once `reload`
+/// has run, the source's player is loading the track again in order to play it, and a pause
+/// meanwhile must still answer that the source was playing.
+async fn start_gated_reload_to_play(
+    source: &Fixture,
+    gate: &watch::Sender<bool>,
+) {
+    let _ = gate.send(false);
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .load_at_position(0, Duration::from_millis(500), true);
+}
+
+/// Waits until the stalled reload completed, by the position it starts at: the track stood
+/// paused at its first second, the reload starts half a second before that, and a short
+/// track repeats under RepeatAll, so the position is under two seconds only just after the
+/// reload and whenever playback wrapped since.
+async fn reload_completed(f: &Fixture) -> Result<PlayerStatus> {
+    wait_player(f, |status| {
+        status.index == Some(0) && status.position < Duration::from_millis(2000)
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_of_a_reloading_renderer_starts_the_destination_playing() -> Result<()> {
+    let (_dirs, controller, source, _, gate, _, _) = attached_paused_handoff_source().await?;
+    start_gated_reload_to_play(&source, &gate).await;
+
+    hand_off(&controller, None).await?;
+    let _ = gate.send(true);
+
+    let loaded = reload_completed(&controller).await?;
+    assert_eq!(
+        loaded.state,
+        PlayerPlaybackState::Playing,
+        "the destination should start playing: {loaded:?}"
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// Pairs `target` with the source's controller and corrupts its replica of the track, so a
+/// handoff to it fails after the source was paused, and the handoff must resume the source.
+/// Returns the target's fingerprint.
+async fn undecodable_handoff_target(
+    controller: &Fixture,
+    source: &Fixture,
+    source_id: i32,
+    source_address: SocketAddr,
+    dirs: &mut Vec<TempDir>,
+) -> Result<(Fixture, String)> {
+    let target_dir = tempfile::tempdir()?;
+    let target = fixture(target_dir.path()).await?;
+    let file_name = "handoff-reopen-source.ogg";
+    let item = library_track_for_id(source, source_id).await?;
+    let target_address = paired_full(&target, controller)
+        .await
+        .context("pair target with controller")?;
+    pair(source, &target).await.context("pair target with source")?;
+    pair(&target, source).await.context("pair source with target")?;
+    let (_, target_replica) = replicate_host_library_at(source, &target, source_address)
+        .await
+        .context("replicate source library to target")?;
+    let target_fingerprint = info(&target).await?.fingerprint;
+    controller
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &target_fingerprint,
+            vec![format!("127.0.0.1:{}", target_address.port())],
+        )
+        .await?;
+    let target_track_id = file_ids_by_uuid(
+        &target_replica.global_params.test_library().main_db,
+        &[item.file_uuid],
+    )
+    .await?
+    .get(&item.file_uuid)
+    .copied()
+    .context("target replica track id")?;
+    let corrupt = target_dir.path().join("handoff-reopen-corrupt.ogg");
+    fs::write(&corrupt, b"not an audio file")?;
+    materialize_replica_file(&target_replica, target_track_id, &corrupt, file_name).await?;
+    dirs.push(target_dir);
+    Ok((target, target_fingerprint))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn failed_handoff_resumes_a_reloading_renderer_source() -> Result<()> {
+    let (mut dirs, controller, source, _, gate, source_id, source_address) =
+        attached_paused_handoff_source().await?;
+    let (target, target_fingerprint) =
+        undecodable_handoff_target(&controller, &source, source_id, source_address, &mut dirs)
+            .await?;
+    start_gated_reload_to_play(&source, &gate).await;
+
+    // The pause of the handoff is answered before its target is touched, so once it has had a
+    // moment to reach the source, the stalled load may finish: whether it completes before or
+    // after the resume, the source must end up playing either way.
+    let handoff = tokio::spawn({
+        let spawned = Fixture {
+            manager: controller.manager.clone(),
+            global_params: controller.global_params.clone(),
+        };
+        let target_fingerprint = target_fingerprint.clone();
+        async move { hand_off(&spawned, Some(target_fingerprint)).await }
+    });
+    sleep(Duration::from_secs(1)).await;
+    let _ = gate.send(true);
+    let error = timeout(TEST_DEADLINE, handoff)
+        .await
+        .context("handoff to an undecodable target did not finish")??
+        .unwrap_err();
+    assert!(
+        error.chain().any(|cause| matches!(
+            cause.downcast_ref::<ExpectedRequestError>(),
+            Some(
+                ExpectedRequestError::Unavailable { .. }
+                    | ExpectedRequestError::Remote {
+                        kind: RequestErrorKind::Unavailable,
+                        ..
+                    }
+            )
+        )),
+        "a handoff to an undecodable target should fail as unavailable: {error:#}"
+    );
+
+    let loaded = reload_completed(&source).await?;
+    assert_eq!(
+        loaded.state,
+        PlayerPlaybackState::Playing,
+        "the source should play again after the failed handoff: {loaded:?}"
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    target.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_of_a_paused_renderer_starts_the_destination_paused() -> Result<()> {
+    let (_dirs, controller, source, _, _gate, _, _) = attached_paused_handoff_source().await?;
+
+    hand_off(&controller, None).await?;
+
+    let loaded = wait_player(&controller, |status| {
+        status.index == Some(0) && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(
+        loaded.state,
+        PlayerPlaybackState::Paused,
+        "a source that was not playing must not leave the destination playing: {loaded:?}"
+    );
+    assert_eq!(
+        source.global_params.player.lock().await.get_status().state,
+        PlayerPlaybackState::Paused
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 mod faulty_player {
     use std::future;
     use std::result;
@@ -8010,7 +8345,10 @@ mod faulty_player {
             'static,
             result::Result<(), PlayerCommandError>,
         > {
-            if matches!(command, PlayerCommand::Pause) {
+            if matches!(
+                command,
+                PlayerCommand::Pause | PlayerCommand::PauseReporting { .. }
+            ) {
                 return Box::pin(future::ready(Err(
                     PlayerCommandError::CannotApply,
                 )));
@@ -8192,10 +8530,11 @@ async fn attached_handoff_source_that_cannot_pause()
 async fn handoff_pause_failure_leaves_destination_unchanged() -> Result<()> {
     let (_dirs, controller, source, _) = attached_handoff_source_that_cannot_pause().await?;
     let error = hand_off(&controller, None).await.unwrap_err();
-    // The handoff stops at the pause that failed, not at a later check.
+    // The handoff stops at the pause that failed, not at a later check. A reporting pause can
+    // only fail by losing its answer, which reports as unavailable.
     assert_eq!(
         crate::request_error::classify(&error),
-        RequestErrorKind::InvalidInput,
+        RequestErrorKind::Unavailable,
         "{error:#}"
     );
     assert_eq!(
@@ -8446,7 +8785,7 @@ async fn failed_pause_does_not_block_a_later_handoff() -> Result<()> {
     let error = hand_off(&controller, None).await.unwrap_err();
     assert_eq!(
         crate::request_error::classify(&error),
-        RequestErrorKind::InvalidInput,
+        RequestErrorKind::Unavailable,
         "{error:#}"
     );
     hand_off(&controller, Some(source_fingerprint)).await?;

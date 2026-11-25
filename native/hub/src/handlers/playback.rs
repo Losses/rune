@@ -509,6 +509,37 @@ impl Signal for PauseRequest {
     }
 }
 
+impl ParamsExtractor for PauseReportingRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.player),)
+    }
+}
+
+impl Signal for PauseReportingRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Response = PauseReportingResponse;
+
+    async fn handle(
+        &self,
+        (player,): Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        // The player answers after the commands already sent, such as a Play pressed just
+        // before this pause, and counts a track that is reopening to play as playing.
+        let paused = { player.lock().await.pause_reporting() };
+        let paused = paused
+            .await
+            .map_err(|_| Error::new(player_command_error(PlayerCommandError::ThreadUnavailable)))?;
+        Ok(Some(PauseReportingResponse {
+            paused: paused.into(),
+            call_id: None,
+        }))
+    }
+}
+
 async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
     let item = player.lock().await.get_status().item;
     record_skip_item(node, item).await
@@ -1982,36 +2013,27 @@ async fn pause_handoff_source(
     generation: u64,
 ) -> Result<PausedHandoffSource> {
     if let Some(source) = attached {
-        let before = source
-            .call(&SessionSnapshotRequest { call_id: None })
-            .await?;
-        let paused = match node
+        // The pause answers what it stopped: a play that reached the player after the last
+        // snapshot, such as a track reopening to play, counts as playing here.
+        let paused = node
             .pause_handoff_source(source.fingerprint(), &source, generation)
-            .await
-        {
-            Ok(paused) => paused,
-            Err(error) => {
-                if before.playing {
-                    source.call(&PlayRequest { call_id: None }).await?;
-                }
-                return Err(error);
-            }
-        };
-        if !paused {
+            .await?;
+        let Some(paused) = paused else {
             return Err(ExpectedRequestError::HandoffSuperseded.into());
-        }
+        };
+        let was_playing = paused == PauseReport::Playing;
         let snapshot = source.call(&SessionSnapshotRequest { call_id: None }).await;
         let snapshot = match snapshot {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                if before.playing {
+                if was_playing {
                     source.call(&PlayRequest { call_id: None }).await?;
                 }
                 return Err(error);
             }
         };
         if snapshot.playing {
-            if before.playing {
+            if was_playing {
                 source.call(&PlayRequest { call_id: None }).await?;
             }
             // Something resumed the source while it was being handed off.
@@ -2020,7 +2042,7 @@ async fn pause_handoff_source(
         Ok(PausedHandoffSource {
             snapshot,
             source: PausedSource::Renderer(source),
-            was_playing: before.playing,
+            was_playing,
         })
     } else {
         let session = node.session()?;
