@@ -288,10 +288,9 @@ impl DownloadQueue {
     fn release(self: &Arc<Self>) {
         // Turns whose download is gone already are given back after the lock is let go.
         let mut refused = Vec::new();
-        let running_before = {
+        let running_after = {
             let mut state = self.lock();
             state.running = state.running.saturating_sub(1);
-            let running = state.running;
             while !state.closed && state.running < COVER_DOWNLOADS {
                 let Some(next) = state.take_next() else {
                     break;
@@ -304,11 +303,11 @@ impl DownloadQueue {
                     refused.push(turn);
                 }
             }
-            running
+            state.running
         };
         drop(refused);
         // Notify when all downloads have completed
-        if running_before == 0 {
+        if running_after == 0 {
             self.all_done.notify_waiters();
         }
     }
