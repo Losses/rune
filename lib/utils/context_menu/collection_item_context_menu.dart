@@ -253,10 +253,7 @@ void openCollectionItemContextMenu(
 
   final withMixes = offersMixes(context);
   // A library that lists no playlists is not asked for them.
-  final withPlaylists = requestAvailable(
-    context,
-    (capabilities) => capabilities.fetchAllPlaylistsRequest,
-  );
+  final withPlaylists = canListPlaylists(context);
   late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   try {
@@ -437,10 +434,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   }
 
   if (hasQueries &&
-      requestAvailable(
-        context,
-        (capabilities) => capabilities.fetchAllPlaylistsRequest,
-      ) &&
+      canListPlaylists(context) &&
       !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
     items.add(
