@@ -858,6 +858,7 @@ async fn remote_track_plays_and_seeks_again_after_a_restart_on_both_backends() -
                     index: Some(0),
                     position: Duration::from_secs(2),
                     mode: PlaybackMode::Sequential,
+                    revision: 0,
                 })
                 .await
                 .with_context(|| format!("{backend} track was not restored"))?;

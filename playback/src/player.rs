@@ -545,6 +545,7 @@ pub trait Playable: Send {
         index: Option<usize>,
         position: Duration,
         mode: PlaybackMode,
+        revision: u64,
     );
     fn set_source_resolver(&self, _resolver: Arc<dyn PlaybackSourceResolver>) {}
     /// Where commands for hosted tracks go. Without one, hosted tracks cannot play.
@@ -1125,12 +1126,14 @@ impl Playable for Player {
         index: Option<usize>,
         position: Duration,
         mode: PlaybackMode,
+        revision: u64,
     ) {
         self.command_with_discarded_completion(PlayerCommand::RestoreTagged {
             entries,
             index,
             position,
             mode,
+            revision,
         });
     }
     fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
@@ -1344,6 +1347,7 @@ impl Playable for MockPlayer {
         _index: Option<usize>,
         _position: Duration,
         _mode: PlaybackMode,
+        _revision: u64,
     ) {
     }
     fn clear_playlist(&self) {}

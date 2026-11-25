@@ -607,11 +607,14 @@ impl PlayerSession {
             item_capabilities_changed: Arc::new(Notify::new()),
         });
         session.start_events(node, show_receiver).await;
+        // The restored queue is the queue the persisted revision describes: restore is no
+        // edit and bumps nothing, but it must carry the revision edits continue from.
         session.player.lock().await.restore_tagged(
             state.queue_entries(),
             state.index,
             state.position,
             state.playback_mode(),
+            state.queue_revision,
         );
         Ok(session)
     }

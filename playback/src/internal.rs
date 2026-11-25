@@ -458,6 +458,10 @@ pub enum PlayerCommand {
         index: Option<usize>,
         position: Duration,
         mode: PlaybackMode,
+        /// The revision the persisted queue carries: restore is no edit, so it does not bump,
+        /// but the snapshots of the restored queue must pair with the revision edits continue
+        /// from.
+        revision: u64,
     },
     Load {
         index: usize,
@@ -1196,7 +1200,8 @@ impl PlayerInternal {
                             self.set_playback_mode(mode)?;
                             self.load_at(index, false, false, Some(position))?;
                         },
-                        PlayerCommand::RestoreTagged { entries, index, position, mode } => {
+                        PlayerCommand::RestoreTagged { entries, index, position, mode, revision } => {
+                            self.queue_revision = revision;
                             self.clear_unavailable(None)?;
                             self.playlist = entries
                                 .into_iter()

@@ -8085,8 +8085,9 @@ mod faulty_player {
             index: Option<usize>,
             position: Duration,
             mode: PlaybackMode,
+            revision: u64,
         ) {
-            self.0.restore_tagged(entries, index, position, mode)
+            self.0.restore_tagged(entries, index, position, mode, revision)
         }
         fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
             self.0.set_source_resolver(resolver)
@@ -17457,5 +17458,65 @@ async fn stale_queue_snapshot_does_not_remove_wrong_track() -> Result<()> {
     );
 
     fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// A restart must restore the queue under the revision it persisted with: the restore is no
+/// edit and bumps nothing, but its snapshots pair with the revision edits continue from, or
+/// the first Unavailable report after it goes out under a revision the queue never had.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_restores_the_queue_under_its_persisted_revision() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let id = session_audio(&fixture, "restart-revision.ogg").await?;
+    let item = library_track_for_id(&fixture, id).await?;
+
+    // One edit through the session: the queue and the persisted revision are 1.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::from(item)],
+            start_index: None,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(0),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Pause,
+        },
+    )
+    .await?;
+    wait_player(&fixture, |status| status.playlist.len() == 1).await?;
+    let config_path = fixture.global_params.config_path.to_string();
+    fixture.global_params.node.shutdown().await?;
+
+    // The node comes back with its signals recorded, so the restored playlist's revision can
+    // be read against the session's.
+    let signals = Arc::new(RecordedSignals::default());
+    let node = NodeContext::new(
+        &config_path,
+        &config_path,
+        signals.clone(),
+        false,
+        RunMode::App,
+        Arc::new(Visualizer::new()),
+    )
+    .await?;
+    let session_revision = node.session()?.queue_revision().await;
+    assert_eq!(session_revision, 1, "the persisted revision survived the restart");
+
+    let restored = wait_until("the restored playlist publication", || async {
+        Ok(signals
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .into_iter()
+            .find(|update| update.items.len() == 1))
+    })
+    .await?;
+    assert_eq!(
+        restored.revision, session_revision,
+        "the restored queue went out under revision {} while the session continues from {}",
+        restored.revision, session_revision
+    );
+    node.shutdown().await?;
     Ok(())
 }

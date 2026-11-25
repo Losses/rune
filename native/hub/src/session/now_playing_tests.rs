@@ -533,6 +533,7 @@ impl Playable for ScriptedPlayer {
         _index: Option<usize>,
         _position: Duration,
         _mode: PlaybackMode,
+        _revision: u64,
     ) {
     }
     fn clear_playlist(&self) {}
