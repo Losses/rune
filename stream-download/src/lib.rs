@@ -481,7 +481,10 @@ impl<P: StorageProvider> StreamDownload<P> {
 
     fn check_for_failure(&self) -> io::Result<()> {
         if self.handle.is_failed() {
-            Err(io::Error::other("stream failed to download"))
+            Err(self
+                .handle
+                .failure_error()
+                .unwrap_or_else(|| io::Error::other("stream failed to download")))
         } else {
             Ok(())
         }

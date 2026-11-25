@@ -673,13 +673,14 @@ impl ServerManager {
                         .ok_or_else(|| anyhow::anyhow!("node synchronization is closing"))?.child_token();
                     let library_cancel = lifetime.clone();
                     stream_handles.retain(|handle| !handle.is_finished());
+                    let failure_reason = Arc::new(StdMutex::new(None));
                     let request = Arc::new(super::sync_worker::RenewableAudio {
                         global: Arc::downgrade(&node), own: own.clone(), private_key: self.private_key.clone(),
                         endpoint: super::sync_worker::PeerEndpoint { fingerprint: fingerprint.clone(), trusted_host: trusted_host.clone(), host: host.clone(), port },
                         url: url.clone(), access_url, size: blob.size,
                         client: Arc::new(Mutex::new(super::sync_worker::AudioCredentials { client, generation: 0 })), cancel: cancellation.clone(),
+                        failure_reason: Some(failure_reason.clone()),
                     });
-                    let failure_reason = Arc::new(StdMutex::new(None));
                     let watcher_failure_reason = failure_reason.clone();
                     let watch_cancel = cancellation.clone();
                     let watch_params = Arc::downgrade(&node);
@@ -6292,6 +6293,7 @@ mod lifecycle_tests {
                 generation: 0,
             })),
             cancel: CancellationToken::new(),
+            failure_reason: None,
         };
 
         tokio::time::pause();

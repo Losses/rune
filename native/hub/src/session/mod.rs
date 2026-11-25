@@ -28,7 +28,7 @@ use database::{
 use fsio::FsIo;
 use futures::future::BoxFuture;
 use playback::{
-    MediaPlayback, MediaPosition, PlaybackMode,
+    InternalLog, MediaPlayback, MediaPosition, PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     hosted::is_hosted_path,
     player::{
@@ -54,9 +54,9 @@ use crate::{
     handlers::playback::playing_item_requests,
     messages::{
         AttachedControllerInfo, ControllersUpdated, CrashResponse, PlaybackStatus, PlayingItemRef,
-        PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT,
-        ScrobbleServiceStatus, ScrobbleServiceStatusUpdated, VisualizerFeedChart,
-        VisualizerFeedCovers,
+        PlaylistItem, PlaylistUnavailableReason, PlaylistUpdate, RealtimeFFT, RequestErrorKind,
+        RequestFailedResponse, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+        VisualizerFeedChart, VisualizerFeedCovers,
     },
     node::{HiddenLocalSession, NodeContext},
     request_error::ExpectedRequestError,
@@ -758,8 +758,9 @@ impl PlayerSession {
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
                     Ok(detail) = crash.recv() => broadcaster.broadcast(&CrashResponse { detail }),
                     Ok(error) = logs.recv() => {
-                        let item = player.lock().await.get_status().item;
-                        if let (Some(node), Some(item)) = (weak.upgrade(), item) { handle_log_event(&node, item, error.domain, error.error).await; }
+                        if let Some(node) = weak.upgrade() {
+                            handle_log_event(&node, error, broadcaster.as_ref()).await;
+                        }
                     }
                     Ok(error) = errors.recv() => {
                         handle_scrobbler_error(weak.upgrade(), error).await;
@@ -1539,8 +1540,31 @@ async fn handle_played_event(
     }
 }
 
-async fn handle_log_event(node: &NodeContext, item: PlayingItem, domain: String, detail: String) {
-    let _ = item_log(node, &item, domain, detail).await;
+/// A playback failure reaches the application log, and when no request answer already carried
+/// it, also reaches the user as a typed request failure: nothing else reports a playback that
+/// stops on its own.
+async fn handle_log_event(node: &NodeContext, error: InternalLog, broadcaster: &dyn Broadcaster) {
+    let detail = error.error.clone();
+    if let Some(item) = &error.item {
+        let _ = item_log(node, item, error.domain.clone(), detail.clone()).await;
+    }
+    if error.answered {
+        return;
+    }
+    let kind = match error.failure {
+        Some(UnavailableReason::AccessRevoked | UnavailableReason::CredentialsRejected) => {
+            RequestErrorKind::PermissionDenied
+        }
+        Some(UnavailableReason::TrackGone) => RequestErrorKind::NotFound,
+        _ => RequestErrorKind::Unavailable,
+    };
+    broadcaster.broadcast(&RequestFailedResponse {
+        request: "Playback".into(),
+        call_id: None,
+        kind,
+        detail,
+        cause: None,
+    });
 }
 
 async fn handle_scrobbler_error(node: Option<Arc<NodeContext>>, error: ScrobblingError) {

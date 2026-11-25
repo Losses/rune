@@ -112,6 +112,7 @@ use crate::{
 use database::actions::{
     downloads::cleanup_unselected_downloads,
     file::{catalog_track, file_ids_by_uuid, file_uuids_by_id},
+    logging::list_log,
     mixes::query_mix_media_files,
 };
 use database::credentials::{Credential, CredentialRef, Secret};
@@ -6319,6 +6320,49 @@ async fn scenario_revoking_host_grant_stops_remote_playback() -> Result<()> {
             .all(|(name, _)| name != "CrashResponse"),
         "expected access revocation must not crash the player"
     );
+
+    // A playback that stops on its own must surface: the failure reaches the application log,
+    // and since no pending request answer carries it, a typed request failure reaches the
+    // listeners.
+    peer_step_with_timeout(
+        "B records the playback failure in its application log",
+        TEST_DEADLINE,
+        async {
+            wait_until("application log entry for the revoked playback", || async {
+                let logs = list_log(&b_replica.global_params.test_library().main_db, 0, 20).await?;
+                Ok(logs
+                    .iter()
+                    .any(|entry| entry.domain == "playback")
+                    .then_some(()))
+            })
+            .await
+        },
+    )
+    .await?;
+    peer_step("B broadcast the playback failure as a typed request failure", async {
+        let failures: Vec<RequestFailedResponse> = b_signals
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name == "RequestFailedResponse")
+            .filter_map(|(_, payload)| rinf::deserialize::<RequestFailedResponse>(payload).ok())
+            .collect();
+        let failure = failures
+            .iter()
+            .find(|failure| failure.request == "Playback")
+            .context(format!(
+                "no typed playback failure reached the listeners among {} request failures",
+                failures.len()
+            ))?;
+        anyhow::ensure!(
+            failure.kind == RequestErrorKind::PermissionDenied,
+            "access revocation surfaced as {:?}, not permission denied",
+            failure.kind
+        );
+        Ok(())
+    })
+    .await?;
 
     let local = PlayingItem::from(library_track_for_id(&b, b_local_id).await?);
     b.global_params
