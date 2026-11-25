@@ -3219,6 +3219,30 @@ async fn a_read_begun_before_a_sign_out_is_not_kept() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_list_read_begun_before_a_sign_out_is_not_known_after_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() =
+        Some(("/v1/me/library/songs".into(), release.clone()));
+    let reads = apple.fake.count("/v1/me/library/songs");
+    let read = apple.binding.current_songs();
+    let switch = async {
+        fake_asked(&apple, "/v1/me/library/songs", reads + 1).await?;
+        apple.binding.sign_out();
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (read, switch) = tokio::join!(read, switch);
+    switch?;
+    // The caller that waited still gets what was read, and the binding knows none of it.
+    assert_eq!(read?.len(), 3);
+    assert!(apple.binding.known_songs().is_none());
+    assert!(apple.binding.known_song("i.s1").is_none());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_old_list_answers_at_once_and_the_ui_hears_once_apple_changed_it() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let (apple, heard) = open_apple_heard(dir.path()).await?;

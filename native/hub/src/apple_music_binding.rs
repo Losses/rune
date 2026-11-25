@@ -1483,32 +1483,35 @@ impl AppleMusicBinding {
     /// The library's songs, as kept, or else read, with the songs Rune holds in the library.
     pub(crate) async fn songs(&self) -> Result<Arc<AppleSongs>> {
         self.note_asked(SONGS.name);
+        let generation = self.generation();
         let own = self
             .lists
             .songs
             .get(self.clock.now())
             .await
             .map_err(|error| self.request_error(error, "Apple Music song"))?;
-        Ok(self.with_held_songs(own).await)
+        Ok(self.with_held_songs(own, generation).await)
     }
 
     /// The library's songs as Apple lists them now, joining a read under way or starting one,
     /// with the songs Rune holds in the library.
     pub(crate) async fn current_songs(&self) -> Result<Arc<AppleSongs>> {
         self.note_asked(SONGS.name);
+        let generation = self.generation();
         let own = self
             .lists
             .songs
             .current(self.clock.now())
             .await
             .map_err(|error| self.request_error(error, "Apple Music song"))?;
-        Ok(self.with_held_songs(own).await)
+        Ok(self.with_held_songs(own, generation).await)
     }
 
     /// `own`, the library's songs as Apple lists them, with the songs Rune holds in the library
     /// after them (see `apple_music_held`), each on the library's album of its catalog album as
-    /// the albums are kept. This is the song list the binding knows from then on.
-    async fn with_held_songs(&self, own: Arc<AppleSongs>) -> Arc<AppleSongs> {
+    /// the albums are kept. This is the song list the binding knows from then on, unless the
+    /// account signed out since `generation`, taken before `own` was.
+    async fn with_held_songs(&self, own: Arc<AppleSongs>, generation: u64) -> Arc<AppleSongs> {
         let held = apple_music_held::held(self).await;
         // A look at the kept albums reads them again in the background once they are old, so they
         // are looked at only when Rune holds songs.
@@ -1518,7 +1521,10 @@ impl AppleMusicBinding {
             self.lists.albums.kept(self.clock.now()).await
         };
         let songs = self.held.songs_with(own, &held, albums);
-        self.catalog().songs = Some(Arc::clone(&songs));
+        let mut catalog = self.catalog();
+        if catalog.generation == generation {
+            catalog.songs = Some(Arc::clone(&songs));
+        }
         songs
     }
 
@@ -1562,8 +1568,9 @@ impl AppleMusicBinding {
     /// The library's songs as kept, here or on disk, without a read; read again behind once old.
     /// The songs Rune holds in the library come with them.
     pub(crate) async fn kept_songs(&self) -> Option<Arc<AppleSongs>> {
+        let generation = self.generation();
         let own = self.lists.songs.kept(self.clock.now()).await?;
-        Some(self.with_held_songs(own).await)
+        Some(self.with_held_songs(own, generation).await)
     }
 
     /// The library's albums as kept, here or on disk, without a read; read again behind once
@@ -2037,10 +2044,11 @@ impl AppleMusicBinding {
         if !self.is_signed_in() {
             return Err(AppleError::SignedOut);
         }
+        let generation = self.generation();
         let Ok(own) = self.lists.songs.get(now).await else {
             return Ok(read);
         };
-        let songs = self.with_held_songs(own).await;
+        let songs = self.with_held_songs(own, generation).await;
         // Owned batches: closures taking borrowed items here fail the compiler's Send check.
         let batches: Vec<Vec<String>> = read
             .missing(songs.library_entries().map(|(_, song)| song))
