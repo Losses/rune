@@ -224,12 +224,15 @@ impl Record {
             .is_some_and(|found| normalised(found) == normalised(title))
     }
 
+    /// Whether the record is as long as a song of `wanted` length, as far as it is known. A
+    /// record without a length is not, for a song whose length is known.
     fn near(&self, wanted: Option<Duration>) -> bool {
         match (wanted, self.duration) {
             (Some(wanted), Some(found)) => {
                 (found - wanted.as_secs_f64()).abs() <= DURATION_TOLERANCE
             }
-            _ => true,
+            (Some(_), None) => false,
+            (None, _) => true,
         }
     }
 }
@@ -798,6 +801,26 @@ mod tests {
         assert_eq!(
             find(&http.lrclib(), &song(200)).await.unwrap(),
             Some(Lyrics::Plain("same".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_search_result_without_a_length_is_not_taken_for_a_song_of_known_length() {
+        let http = Arc::new(FakeLrclib::default());
+        http.answer("/api/get", Some((404, "{}")));
+        http.answer(
+            "/api/search",
+            Some((
+                200,
+                r#"[
+                    {"trackName":"Night & Day","instrumental":false,"plainLyrics":"no length","syncedLyrics":null},
+                    {"trackName":"Night & Day","duration":200,"instrumental":false,"plainLyrics":"right","syncedLyrics":null}
+                ]"#,
+            )),
+        );
+        assert_eq!(
+            find(&http.lrclib(), &song(200)).await.unwrap(),
+            Some(Lyrics::Plain("right".into()))
         );
     }
 
