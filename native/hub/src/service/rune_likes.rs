@@ -112,8 +112,8 @@ impl RuneLikes {
 
     /// Likes or unlikes the song which `keys` name (see `is_liked`). The like is kept under the
     /// first key; an entry the song has under another key is changed with it, so the keys never
-    /// disagree afterwards. A song liked again is the one liked last; one that is liked already
-    /// stays where it is.
+    /// disagree afterwards. A changed entry becomes the one made last, so the decision made last
+    /// counts once its song is known by more keys; one that is so already stays where it is.
     pub(crate) async fn set_liked<K: AsRef<str>>(&self, keys: &[K], liked: bool) -> Result<()> {
         let keys: Vec<String> = keys.iter().map(|key| key.as_ref().to_owned()).collect();
         self.store
@@ -121,14 +121,13 @@ impl RuneLikes {
                 for (at, key) in keys.iter().enumerate() {
                     match likes.iter().position(|like| like.id == *key) {
                         Some(index) if likes[index].liked == liked => {}
-                        Some(index) if liked => {
+                        Some(index) => {
                             likes.remove(index);
                             likes.push(StoredLike {
                                 id: key.clone(),
                                 liked,
                             });
                         }
-                        Some(index) => likes[index].liked = false,
                         None if at == 0 => likes.push(StoredLike {
                             id: key.clone(),
                             liked,
@@ -329,5 +328,22 @@ mod tests {
         likes.set_liked(&["i.3"], true).await.unwrap();
         likes.set_liked(&["catalog:3"], false).await.unwrap();
         assert!(!likes.is_liked(&["i.3", "catalog:3"]).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_unlike_under_one_key_outweighs_an_older_like_under_the_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let (folder, likes) = store(dir.path());
+        // Liked under each key while they were not known to name one song.
+        likes.set_liked(&["i.1"], true).await.unwrap();
+        likes.set_liked(&["catalog:1"], true).await.unwrap();
+        likes.set_liked(&["i.1"], false).await.unwrap();
+        assert_eq!(
+            written(&folder),
+            noted(&[("catalog:1", true), ("i.1", false)])
+        );
+        // Once both keys are known, the unlike made last decides.
+        assert!(!likes.is_liked(&["i.1", "catalog:1"]).await.unwrap());
+        assert!(!likes.is_liked(&["catalog:1", "i.1"]).await.unwrap());
     }
 }
