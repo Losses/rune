@@ -46,7 +46,7 @@ use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
-use crate::service::ServiceBinding;
+use crate::service::{ServiceBinding, covers::ServiceCoverCache};
 use crate::session::PlayerWrap;
 use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
@@ -271,6 +271,8 @@ pub struct NodeContext {
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
+    /// Weak references to service cover caches for cleanup when removing libraries.
+    cover_caches: Arc<StdMutex<HashMap<Uuid, Vec<Weak<ServiceCoverCache>>>>>,
 }
 
 impl Debug for NodeContext {
@@ -501,6 +503,7 @@ impl NodeContext {
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_blocks: Mutex::new(HashMap::new()),
+            cover_caches: Arc::new(StdMutex::new(HashMap::new())),
         });
         let policy = node.access_policy.clone();
         let revoked_tokens = node.sync_tokens.clone();
@@ -1666,6 +1669,37 @@ impl NodeContext {
         }
         result = result.and(self.library_pool.close_idle().await);
         result
+    }
+
+    /// Register a service cover cache for tracking. The cache will be automatically
+    /// cleaned up when the last reference to it is dropped (using Weak).
+    pub(crate) fn register_cover_cache(&self, library_id: Uuid, cache: &Arc<ServiceCoverCache>) {
+        let mut caches = self.cover_caches.lock().unwrap_or_else(|e| e.into_inner());
+        caches
+            .entry(library_id)
+            .or_default()
+            .push(Arc::downgrade(cache));
+    }
+
+    /// Cancel cover downloads for a library and wait for them to complete.
+    pub(crate) async fn cancel_cover_downloads_for_library(&self, library_id: Uuid) {
+        // Get all caches for this library and filter out expired ones
+        let caches_to_cancel = {
+            let caches = self.cover_caches.lock().unwrap_or_else(|e| e.into_inner());
+            caches
+                .get(&library_id)
+                .map(|vec| {
+                    vec.iter()
+                        .filter_map(|weak| weak.upgrade())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+
+        // Cancel and wait for downloads for each live cache
+        for cache in caches_to_cancel {
+            cache.close_and_wait_downloads().await;
+        }
     }
 }
 

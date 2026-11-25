@@ -224,6 +224,10 @@ impl Signal for RemoveLibraryRecordRequest {
             node.stop_library_sync(library_id).await;
             node.library_pool.release_background(library_id).await;
         }
+        if let Some(library_id) = service_library_id {
+            // Cancel any active cover downloads before deleting the cache
+            node.cancel_cover_downloads_for_library(library_id).await;
+        }
         // The record is gone, so a folder left behind only takes room: the removal still answers,
         // and the UI hears of it.
         if let Some(library_id) = service_library_id
@@ -364,6 +368,8 @@ mod tests {
         let replica = create_replica(config, &mut registry, replica_id, "Replica", "owner").await?;
         Ok((owned, replica))
     }
+
+
 
     #[tokio::test]
     async fn list_and_set_local_library_options() -> Result<()> {

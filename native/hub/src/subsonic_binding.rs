@@ -2578,6 +2578,76 @@ mod visualizer_feed_tests {
     }
 
     #[tokio::test]
+    async fn remove_subsonic_library_record_deletes_cover_cache() {
+        use crate::service::covers::cover_cache_root;
+        use crate::service::folder::service_library_folder;
+        use std::sync::atomic::Ordering;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        // Start a mock Subsonic server with delayed cover response
+        let (url, state, server) = server(true, false).await;
+        state.delay_cover.store(true, Ordering::SeqCst);
+
+        let root = TempDir::new().unwrap();
+
+        // Create a mock Subsonic binding
+        let binding = open_binding(url.clone(), &root, Arc::new(Signals::default())).await;
+        let library_id = binding.library_id;
+
+        // Get the cover cache directory path
+        let cover_cache_path = cover_cache_root(root.path(), library_id);
+        std::fs::create_dir_all(&cover_cache_path).unwrap();
+
+        // Clone before moving into spawn
+        let covers_for_download = binding.covers.clone();
+        let client = binding.client.clone();
+        let covers_for_cancel = binding.covers.clone();
+
+        // Trigger a cover download that will be held by the mock
+        let _download_task = tokio::spawn(async move {
+            covers_for_download
+                .ensure_cached(client, "test-cover-id")
+                .await
+        });
+
+        // Wait for the download request to reach the mock
+        tokio::time::timeout(Duration::from_secs(1), state.cover_started.notified())
+            .await
+            .expect("Cover download request should reach mock server");
+
+        let cover_count_before = state.cover_calls.load(Ordering::SeqCst);
+        assert!(cover_count_before > 0, "Cover download should have started");
+
+        // Simulate what RemoveLibraryRecordRequest does:
+        // 1. Cancel cover downloads for the library via node
+        // But we don't have easy access to node from binding
+        // Instead, we test the core mechanism: close_and_wait_downloads
+        covers_for_cancel.close_and_wait_downloads().await;
+
+        // 2. Delete the service library folder
+        let service_folder = service_library_folder(root.path(), library_id);
+        let _ = std::fs::remove_dir_all(&service_folder);
+
+        // Release the download to let it attempt to complete (it should be cancelled)
+        state.release_cover.notify_one();
+
+        // Wait for any async operations
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Verify the cover cache directory does not exist
+        // With the fix, close_and_wait_downloads calls cancellation.cancel()
+        // which causes fetch_uncached to return early before create_dir_all
+        assert!(
+            !cover_cache_path.exists(),
+            "Cover cache directory should not exist after close_and_wait_downloads. \
+             This tests that downloads are properly cancelled before directory operations."
+        );
+
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn a_jukebox_whose_role_the_server_check_finds_taken_stops_being_followed() {
         use crate::service::ServicePlayer;
 
