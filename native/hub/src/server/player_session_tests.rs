@@ -2205,6 +2205,65 @@ async fn a_subsonic_sign_in_keeps_the_probe_it_was_verified_with() -> Result<()>
     Ok(())
 }
 
+/// A service library's record is removed, and the removal answered, also when its folder cannot
+/// be deleted.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_record_whose_folder_cannot_be_deleted_is_still_removed() -> Result<()> {
+    use crate::messages::RemoveLibraryRecordRequest;
+    use crate::service::folder::service_library_folder;
+    use database::library_registry::LibraryRecord;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "alice".into(),
+            secret: Secret::new(b"password".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Subsonic".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: "http://127.0.0.1:1".into(),
+            credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    // A cover the folder cannot let go of.
+    let covers =
+        service_library_folder(Path::new(&*node.config_path), record.record_id.0).join("covers");
+    fs::create_dir_all(&covers)?;
+    fs::write(covers.join("cover.img"), b"cover")?;
+    fs::set_permissions(&covers, fs::Permissions::from_mode(0o500))?;
+
+    let remove = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id: record.record_id.0.to_string(),
+    };
+    let removed = remove.handle(node.clone(), None, &remove).await;
+    fs::set_permissions(&covers, fs::Permissions::from_mode(0o700))?;
+    removed?.context("the removal")?;
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert!(registry.record(record.record_id).is_err());
+
+    node.shutdown().await?;
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn session_threads_stop_with_node() -> Result<()> {

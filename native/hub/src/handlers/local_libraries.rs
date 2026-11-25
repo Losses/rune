@@ -224,8 +224,12 @@ impl Signal for RemoveLibraryRecordRequest {
             node.stop_library_sync(library_id).await;
             node.library_pool.release_background(library_id).await;
         }
-        if let Some(library_id) = service_library_id {
-            delete_service_library_folder(config, library_id).await?;
+        // The record is gone, so a folder left behind only takes room: the removal still answers,
+        // and the UI hears of it.
+        if let Some(library_id) = service_library_id
+            && let Err(error) = delete_service_library_folder(config, library_id).await
+        {
+            warn!("Could not delete the folder of service library {library_id}: {error}");
         }
         // The item playing here may belong to the library that went away.
         node.item_capabilities_changed();
