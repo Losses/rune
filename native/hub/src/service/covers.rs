@@ -17,7 +17,7 @@ use anyhow::{Error, Result};
 use futures::future::BoxFuture;
 use futures::{StreamExt, stream};
 use tokio::fs as tokio_fs;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{Notify, oneshot, watch};
 use tokio::task;
 use tokio::time as tokio_time;
 use tokio_util::sync::CancellationToken;
@@ -156,6 +156,8 @@ impl QueueState {
 /// turn ends.
 struct DownloadQueue {
     state: Mutex<QueueState>,
+    /// Notifies when all downloads have completed (running count reaches 0).
+    all_done: Arc<Notify>,
 }
 
 /// The turn of one download, given back when it is dropped.
@@ -209,6 +211,7 @@ impl DownloadQueue {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(QueueState::default()),
+            all_done: Arc::new(Notify::new()),
         })
     }
 
@@ -285,7 +288,7 @@ impl DownloadQueue {
     fn release(self: &Arc<Self>) {
         // Turns whose download is gone already are given back after the lock is let go.
         let mut refused = Vec::new();
-        {
+        let running_after = {
             let mut state = self.lock();
             state.running = state.running.saturating_sub(1);
             while !state.closed && state.running < COVER_DOWNLOADS {
@@ -300,12 +303,34 @@ impl DownloadQueue {
                     refused.push(turn);
                 }
             }
-        }
+            state.running
+        };
         drop(refused);
+        // Notify when all downloads have completed
+        if running_after == 0 {
+            self.all_done.notify_waiters();
+        }
     }
 
     fn is_closed(&self) -> bool {
         self.lock().closed
+    }
+
+    /// Closes the queue and waits for all running downloads to complete.
+    async fn close_and_wait(&self) {
+        // Create the notified future first, before checking state
+        let notified = self.all_done.notified();
+        {
+            let mut state = self.lock();
+            state.closed = true;
+            // If there are no running downloads, notify immediately
+            if state.running == 0 {
+                self.all_done.notify_waiters();
+                return;
+            }
+        }
+        // Wait for all running downloads to complete
+        notified.await;
     }
 }
 
@@ -355,6 +380,12 @@ impl ServiceCoverCache {
             change_pending: Arc::new(AtomicBool::new(false)),
             playing: Mutex::new(None),
         }
+    }
+
+    /// Closes the download queue and waits for all active downloads to complete.
+    pub(crate) async fn close_and_wait_downloads(&self) {
+        self.cancellation.cancel();
+        self.downloads.close_and_wait().await;
     }
 
     /// Announces that covers are ready. A burst of finished covers gives one announcement, sent

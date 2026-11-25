@@ -2145,6 +2145,8 @@ async fn open_subsonic_record(
     if kept_probe.is_none() {
         binding.keep_probe();
     }
+    // Register the cover cache so it can be cancelled when the library is removed
+    node.register_cover_cache(library_id, &binding.covers);
     // Like the local and remote paths, the opened library gets its own UI and GUI
     // listeners; attaching it releases the previous library's.
     let mut params = node
@@ -2274,7 +2276,7 @@ async fn subsonic_binding_from_record(
             } => Error::new(RemoteAudioError::CredentialsRejected),
             _ => Error::new(RemoteAudioError::LibraryUnavailable),
         })?;
-    Ok(Arc::new(SubsonicBinding::new(
+    let binding = Arc::new(SubsonicBinding::new(
         client,
         probe,
         Path::new(&*node.config_path).to_path_buf(),
@@ -2282,7 +2284,10 @@ async fn subsonic_binding_from_record(
         mode == SubsonicOpenMode::PlayOnThisDevice,
         Arc::clone(&node.gui_broadcaster),
         Arc::clone(node.visualizer()),
-    )))
+    ));
+    // Register the cover cache so it can be cancelled when the library is removed
+    node.register_cover_cache(library_id, &binding.covers);
+    Ok(binding)
 }
 
 pub(crate) async fn playback_implementation_for_library(

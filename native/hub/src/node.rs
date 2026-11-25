@@ -4,7 +4,7 @@ pub(crate) use reconnect::ReconnectConfig;
 use reconnect::ReconnectTask;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Debug, Formatter, Result as FmtResult},
     fs,
     path::Path,
@@ -46,7 +46,7 @@ use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
-use crate::service::ServiceBinding;
+use crate::service::{ServiceBinding, covers::ServiceCoverCache};
 use crate::session::PlayerWrap;
 use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
@@ -271,6 +271,11 @@ pub struct NodeContext {
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
+    /// Weak references to service cover caches for cleanup when removing libraries.
+    cover_caches: Arc<StdMutex<HashMap<Uuid, Vec<Weak<ServiceCoverCache>>>>>,
+    /// Libraries currently being removed. A binding created during removal must not
+    /// register a cover cache that can write after the library is deleted.
+    removing_libraries: Arc<StdMutex<HashSet<Uuid>>>,
 }
 
 impl Debug for NodeContext {
@@ -501,6 +506,8 @@ impl NodeContext {
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_blocks: Mutex::new(HashMap::new()),
+            cover_caches: Arc::new(StdMutex::new(HashMap::new())),
+            removing_libraries: Arc::new(StdMutex::new(HashSet::new())),
         });
         let policy = node.access_policy.clone();
         let revoked_tokens = node.sync_tokens.clone();
@@ -1666,6 +1673,67 @@ impl NodeContext {
         }
         result = result.and(self.library_pool.close_idle().await);
         result
+    }
+
+    /// Register a service cover cache for tracking. The cache will be automatically
+    /// cleaned up when the last reference to it is dropped (using Weak).
+    pub(crate) fn register_cover_cache(&self, library_id: Uuid, cache: &Arc<ServiceCoverCache>) {
+        // Check if library is being removed - if so, don't register
+        {
+            let removing = self
+                .removing_libraries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if removing.contains(&library_id) {
+                // Library is being removed, skip registration to prevent
+                // writes after removal completes
+                return;
+            }
+        }
+        let mut caches = self.cover_caches.lock().unwrap_or_else(|e| e.into_inner());
+        caches
+            .entry(library_id)
+            .or_default()
+            .push(Arc::downgrade(cache));
+    }
+
+    /// Cancel cover downloads for a library and wait for them to complete.
+    pub(crate) async fn cancel_cover_downloads_for_library(&self, library_id: Uuid) {
+        // Mark library as being removed so new bindings don't register caches
+        {
+            let mut removing = self
+                .removing_libraries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            removing.insert(library_id);
+        }
+
+        // Get all caches for this library and filter out expired ones
+        let caches_to_cancel = {
+            let caches = self.cover_caches.lock().unwrap_or_else(|e| e.into_inner());
+            caches
+                .get(&library_id)
+                .map(|vec| {
+                    vec.iter()
+                        .filter_map(|weak| weak.upgrade())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+
+        // Cancel and wait for downloads for each live cache
+        for cache in caches_to_cancel {
+            cache.close_and_wait_downloads().await;
+        }
+
+        // Remove from tracking
+        {
+            let mut removing = self
+                .removing_libraries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            removing.remove(&library_id);
+        }
     }
 }
 

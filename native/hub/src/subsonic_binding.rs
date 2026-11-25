@@ -2577,6 +2577,95 @@ mod visualizer_feed_tests {
         server.abort();
     }
 
+    /// #895: a cover whose download ends after its library's record is removed must not bring
+    /// the library's folder back.
+    #[tokio::test]
+    async fn a_cover_download_that_ends_after_its_record_is_removed_leaves_no_folder() {
+        use crate::Signal;
+        use crate::messages::RemoveLibraryRecordRequest;
+        use crate::node::NodeContext;
+        use crate::server::utils::device::RunMode;
+        use crate::service::folder::service_library_folder;
+        use database::credentials::{Credential, Secret};
+        use database::library_registry::{
+            CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+            SubsonicOpenMode,
+        };
+
+        let (url, state, server) = server(true, false).await;
+        let root = TempDir::new().unwrap();
+        let config = root.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(root.path()).unwrap();
+        let node = NodeContext::new(
+            &config,
+            &config,
+            Arc::new(Signals::default()),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await
+        .unwrap();
+        let binding = open_binding(url.clone(), &root, Arc::new(Signals::default())).await;
+        let library_id = binding.library_id;
+        node.register_cover_cache(library_id, &binding.covers);
+        let credential = node
+            .credentials
+            .put(Credential {
+                username: "alice".into(),
+                secret: Secret::new(b"secret".to_vec()),
+            })
+            .await
+            .unwrap();
+        LibraryRegistry::update(root.path(), |registry| {
+            registry.libraries.push(LibraryRecord {
+                record_id: LibraryRecordId(library_id),
+                alias: "Subsonic".into(),
+                library_id: None,
+                protocol: ProtocolAdapter::SubsonicTranslate {
+                    endpoint: url.to_string(),
+                    credential,
+                    mode: SubsonicOpenMode::PlayOnThisDevice,
+                },
+                fs: Vec::new(),
+                catalog: CatalogPlacement::None,
+                background_sync: false,
+            });
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        // The mock holds the cover's response while the record is removed.
+        state.delay_cover.store(true, Ordering::SeqCst);
+        let download = tokio::spawn({
+            let (covers, client) = (Arc::clone(&binding.covers), Arc::clone(&binding.client));
+            async move { covers.ensure_cached(client, "cover").await }
+        });
+        timeout(TEST_DEADLINE, state.cover_started.notified())
+            .await
+            .expect("the cover request reaches the server");
+        let request = RemoveLibraryRecordRequest {
+            call_id: None,
+            record_id: library_id.to_string(),
+        };
+        let removed = tokio::spawn({
+            let node = Arc::clone(&node);
+            async move { request.handle(node, None, &request).await }
+        });
+        // The server answers only now, after the removal began.
+        state.release_cover.notify_one();
+        timeout(TEST_DEADLINE, removed)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let _ = timeout(TEST_DEADLINE, download).await.unwrap().unwrap();
+
+        assert!(!service_library_folder(root.path(), library_id).exists());
+        server.abort();
+    }
+
     #[tokio::test]
     async fn a_jukebox_whose_role_the_server_check_finds_taken_stops_being_followed() {
         use crate::service::ServicePlayer;
