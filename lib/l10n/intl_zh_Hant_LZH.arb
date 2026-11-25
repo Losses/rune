@@ -1822,7 +1822,6 @@
   "appleMusicAccessDenied": "Apple Music 未許取用。請於系統設定許 Rune，而後復試。",
   "appleMusicAccessDeniedIOS": "Apple Music 未許取用。請於「設定」>「隱私與安全」>「媒體與 Apple Music」許 Rune，而後復試。",
   "appleMusicNoToken": "Apple Music 未予 Rune 所需之權，請復試。",
-  "appleMusicRegisterFailed": "Rune 不能增 Apple Music。",
   "appleMusicSignInFailed": "Apple Music 不受籍名，請復試。",
   "appleMusicUnreachable": "Rune 不可連 Apple Music。請察網路，而後復試。",
   "appleMusicUnexpectedResponse": "Apple Music 所答非所期，請稍後復試。",

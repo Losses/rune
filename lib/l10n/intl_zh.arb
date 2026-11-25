@@ -1833,7 +1833,6 @@
   "appleMusicAccessDenied": "未獲得 Apple Music 訪問權限。請在系統設定中允許 Rune 訪問，然後重試。",
   "appleMusicAccessDeniedIOS": "未獲得 Apple Music 訪問權限。請在「設定」>「隱私與安全性」>「媒體與 Apple Music」中允許 Rune 訪問，然後重試。",
   "appleMusicNoToken": "Apple Music 沒有向 Rune 提供所需的訪問權限，請重試。",
-  "appleMusicRegisterFailed": "Rune 無法添加 Apple Music。",
   "appleMusicSignInFailed": "Apple Music 未接受登錄，請重試。",
   "appleMusicUnreachable": "Rune 無法連線到 Apple Music。請檢查網路連線，然後重試。",
   "appleMusicUnexpectedResponse": "Apple Music 返回了意外的回應，請稍後重試。",

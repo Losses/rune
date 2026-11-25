@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "La aliro al Apple Music ne estis permesita. Permesu ĝin por Rune en la Sistemaj Agordoj, poste reprovu.",
   "appleMusicAccessDeniedIOS": "La aliro al Apple Music ne estis permesita. Permesu ĝin por Rune en Agordoj > Privateco kaj Sekureco > Aŭdvidaĵoj kaj Apple Music, poste reprovu.",
   "appleMusicNoToken": "Apple Music ne donis al Rune la bezonatan aliron. Reprovu.",
-  "appleMusicRegisterFailed": "Rune ne povis aldoni Apple Music.",
   "appleMusicSignInFailed": "Apple Music ne akceptis la ensaluton. Reprovu.",
   "appleMusicUnreachable": "Rune ne povis atingi Apple Music. Kontrolu la retkonekton, poste reprovu.",
   "appleMusicUnexpectedResponse": "Apple Music sendis neatenditan respondon. Reprovu poste.",

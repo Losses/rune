@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "Apple Music 接続許可無。系統設定於 Rune 許可後、再試行。",
   "appleMusicAccessDeniedIOS": "Apple Music 接続許可無。設定 > 私事保護与安全性 > 媒体与 Apple Music 於 Rune 許可後、再試行。",
   "appleMusicNoToken": "Apple Music 必要接続権不与。再試行。",
-  "appleMusicRegisterFailed": "Apple Music 追加不可。",
   "appleMusicSignInFailed": "Apple Music 登録不受付。再試行。",
   "appleMusicUnreachable": "Apple Music 接続不可。網絡接続確認後、再試行。",
   "appleMusicUnexpectedResponse": "Apple Music 予期外応答返却。後刻再試行。",

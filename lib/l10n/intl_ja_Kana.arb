@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "Apple Music へのアクセスが キョカされませんでした。システムセッテイで Rune に キョカしてから、リトライしてください。",
   "appleMusicAccessDeniedIOS": "Apple Music へのアクセスが キョカされませんでした。セッテイ > プライバシーとセキュリティ > メディアと Apple Music で Rune に キョカしてから、リトライしてください。",
   "appleMusicNoToken": "Apple Music から ヒツヨウなアクセスを エられませんでした。リトライしてください。",
-  "appleMusicRegisterFailed": "Apple Music を ツイカできませんでした。",
   "appleMusicSignInFailed": "Apple Music が ログインを ウけつけませんでした。リトライしてください。",
   "appleMusicUnreachable": "Apple Music に セツゾクできませんでした。ネットワークを チェックしてから、リトライしてください。",
   "appleMusicUnexpectedResponse": "Apple Music から ヨキしないレスポンスが カエされました。あとで リトライしてください。",

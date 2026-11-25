@@ -2105,26 +2105,26 @@
   "capabilityDeviceOnly": "This library stays on this device, so no other device can play it.",
   "appleMusic": "Apple Music",
   "@appleMusic": {
+    "description": "The name of the Apple Music source in the add-library dialog, and of the library it adds."
   },
   "appleMusicSubtitle": "Play your Apple Music library through this Mac.",
   "@appleMusicSubtitle": {
+    "description": "Subtitle for the Apple Music source and its library on a Mac."
   },
   "appleMusicSubtitleIOS": "Play your Apple Music library on this iPhone or iPad.",
   "@appleMusicSubtitleIOS": {
+    "description": "Subtitle for the Apple Music source and its library on an iPhone or iPad."
   },
   "appleMusicAccessDenied": "Apple Music access was not granted. Allow it for Rune in System Settings, then try again.",
   "appleMusicAccessDeniedIOS": "Apple Music access was not granted. Allow it for Rune in Settings > Privacy & Security > Media & Apple Music, then try again.",
   "appleMusicNoToken": "Apple Music did not give Rune the access it needs. Try again.",
-  "appleMusicRegisterFailed": "Rune could not add Apple Music.",
-  "@appleMusicRegisterFailed": {
-  },
-  "appleMusicSignInFailed": "Apple Music did not accept the sign-in. Try again.",
+  "appleMusicSignInFailed": "Apple Music did not accept the login. Try again.",
   "appleMusicUnreachable": "Rune could not reach Apple Music. Check the network connection, then try again.",
   "appleMusicUnexpectedResponse": "Apple Music returned an unexpected response. Try again later.",
   "appleMusicNeedsNewerMacOS": "Apple Music needs macOS 14 or later.",
   "appleMusicNeedsNewerIOS": "Apple Music needs iOS 16.1 or later.",
-  "appleMusicAccountUnavailable": "The Apple Account on this Mac can't use Apple Music. Check the account in the Music app, then try again.",
-  "appleMusicAccountUnavailableIOS": "The Apple Account on this device can't use Apple Music. Check the account in the Music app, then try again.",
+  "appleMusicAccountUnavailable": "The Apple Account on this Mac cannot use Apple Music. Check the account in the Music app, then try again.",
+  "appleMusicAccountUnavailableIOS": "The Apple Account on this device cannot use Apple Music. Check the account in the Music app, then try again.",
   "appleMusicPrivacyNotice": "Open the Music app once and agree to its privacy notice, then try again.",
   "recentlyPlayed": "Recently Played",
   "@recentlyPlayed": {

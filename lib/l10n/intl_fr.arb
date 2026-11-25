@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "L’accès à Apple Music n’a pas été accordé. Autorisez-le pour Rune dans Réglages Système, puis réessayez.",
   "appleMusicAccessDeniedIOS": "L’accès à Apple Music n’a pas été accordé. Autorisez-le pour Rune dans Réglages > Confidentialité et sécurité > Média et Apple Music, puis réessayez.",
   "appleMusicNoToken": "Apple Music n’a pas donné à Rune l’accès nécessaire. Réessayez.",
-  "appleMusicRegisterFailed": "Rune n’a pas pu ajouter Apple Music.",
   "appleMusicSignInFailed": "Apple Music n’a pas accepté la connexion. Réessayez.",
   "appleMusicUnreachable": "Rune n’a pas pu joindre Apple Music. Vérifiez la connexion réseau, puis réessayez.",
   "appleMusicUnexpectedResponse": "Apple Music a renvoyé une réponse inattendue. Réessayez plus tard.",

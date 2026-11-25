@@ -1930,8 +1930,8 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    /// A registry whose hub keeps one Apple Music record, as the real one does: registering
-    /// again signs that record in again.
+    /// A registry whose hub keeps one Apple Music record, as the real one does:
+    /// registering again signs that record in again.
     LibraryRegistryProvider registryWith(
       List<String> steps, {
       Object? failure,
@@ -1965,8 +1965,11 @@ void main() {
     AddLibraryGuideDependencies dependenciesWith(
       List<String> steps, {
       HostAuthorizationResult authorization = authorization,
+      Future<void>? gate,
     }) => AddLibraryGuideDependencies(
-      hosts: {AppleMusicHost.family: _FakeHost(authorization, steps)},
+      hosts: {
+        AppleMusicHost.family: _FakeHost(authorization, steps, gate: gate),
+      },
       openRecord: (recordId) async => steps.add('open $recordId'),
     );
 
@@ -1987,7 +1990,8 @@ void main() {
       );
       expect(find.text(strings.appleMusic), findsOneWidget);
       expect(find.text(strings.appleMusicSubtitle), findsOneWidget);
-      // Lets the screen-size provider's debounce timer fire before the test ends.
+      // Lets the screen-size provider's debounce timer fire before the test
+      // ends.
       await tester.pump(const Duration(seconds: 2));
     });
 
@@ -2011,6 +2015,33 @@ void main() {
       ]);
       expect(registry.records.map((r) => r.recordId), ['apple-record']);
       expect(find.byType(ContentDialog), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('Confirm is disabled while Apple Music is being added', (
+      tester,
+    ) async {
+      final steps = <String>[];
+      final gate = Completer<void>();
+      await openGuide(
+        tester,
+        registry: registryWith(steps),
+        dependencies: dependenciesWith(steps, gate: gate.future),
+      );
+      Button confirm() =>
+          tester.widget<Button>(find.widgetWithText(Button, 'Confirm'));
+      await tester.tap(find.text(strings.appleMusic));
+      await tester.pumpAndSettle();
+      expect(confirm().onPressed, isNotNull);
+
+      await tester.tap(find.widgetWithText(Button, 'Confirm'));
+      await tester.pump();
+      expect(steps, ['authorize interactive']);
+      expect(confirm().onPressed, isNull);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(steps.last, 'open apple-record');
       await tester.pump(const Duration(seconds: 2));
     });
 
@@ -2062,7 +2093,6 @@ void main() {
 
         expect(steps, ['authorize interactive']);
         expect(registry.records, isEmpty);
-        expect(find.text(strings.appleMusicRegisterFailed), findsOneWidget);
         expect(find.text(message), findsOneWidget);
         await tester.tap(find.text('Close'));
         await tester.pumpAndSettle();
@@ -2109,7 +2139,6 @@ void main() {
 
         expect(steps, hasLength(2));
         expect(steps, isNot(contains(startsWith('open'))));
-        expect(find.text(strings.appleMusicRegisterFailed), findsOneWidget);
         expect(find.text(message), findsOneWidget);
         // The tokens never reach the screen.
         expect(find.textContaining('user-token'), findsNothing);
@@ -2121,14 +2150,18 @@ void main() {
 }
 
 class _FakeHost implements AuthorizingHost {
-  _FakeHost(this.authorization, this.steps);
+  _FakeHost(this.authorization, this.steps, {this.gate});
 
   final HostAuthorizationResult authorization;
   final List<String> steps;
 
+  /// What the answer waits for, when the user takes their time.
+  final Future<void>? gate;
+
   @override
   Future<HostAuthorizationResult> authorize({bool interactive = false}) async {
     steps.add(interactive ? 'authorize interactive' : 'authorize');
+    await gate;
     return authorization;
   }
 

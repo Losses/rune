@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "無得著 Apple Music 的存取權限。請佇系統設定內底允准 Rune，了後閣試一擺。",
   "appleMusicAccessDeniedIOS": "無得著 Apple Music 的存取權限。請佇「設定」>「隱私權佮安全性」>「媒體佮 Apple Music」內底允准 Rune，了後閣試一擺。",
   "appleMusicNoToken": "Apple Music 無予 Rune 需要的存取權限，請閣試一擺。",
-  "appleMusicRegisterFailed": "Rune 無法度加入 Apple Music。",
   "appleMusicSignInFailed": "Apple Music 無接受登入，請閣試一擺。",
   "appleMusicUnreachable": "Rune 無通連線到 Apple Music。請檢查網路連線，了後閣試一擺。",
   "appleMusicUnexpectedResponse": "Apple Music 傳轉來想袂到的回應，請小等閣試一擺。",

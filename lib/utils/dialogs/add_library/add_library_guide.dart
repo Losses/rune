@@ -89,7 +89,8 @@ class AddLibraryGuideDependencies {
   )?
   registerSubsonic;
 
-  /// The platform hosts to sign in with. The ones this platform provides by default.
+  /// The platform hosts to sign in with. The ones this platform provides by
+  /// default.
   final Map<String, HostedPlayerHost>? hosts;
 }
 
@@ -550,8 +551,9 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
     return host is AuthorizingHost ? host : null;
   }
 
-  /// Authorizes Apple Music on this device and registers its library, or signs in again the
-  /// one this device has, then opens it. Nothing is registered without an authorization.
+  /// Authorizes Apple Music on this device and registers its library, or signs
+  /// in again the one this device has, then opens it. Nothing is registered
+  /// without an authorization.
   Future<void> _addAppleMusic() async {
     final host = _appleMusicHost;
     if (host == null || _addingAppleMusic) return;
@@ -603,7 +605,6 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   Future<void> _appleMusicFailed(String message) => showErrorDialog(
     context: context,
     title: S.of(context).addLibrary,
-    subtitle: S.of(context).appleMusicRegisterFailed,
     errorMessage: message,
   );
 
@@ -999,26 +1000,29 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
           children: [
             if (selected)
               Button(
-                onPressed: () {
-                  if (source == AddLibrarySource.runeDevice) {
-                    Provider.of<BroadcastProvider>(
-                      context,
-                      listen: false,
-                    ).fetchPairedServers();
-                  }
-                  if (source == AddLibrarySource.runeDevice ||
-                      source == AddLibrarySource.subsonic ||
-                      source == AddLibrarySource.webDav ||
-                      source == AddLibrarySource.s3) {
-                    setState(() => _step = 2);
-                  } else if (source == AddLibrarySource.localFolder) {
-                    _chooseLocalFolder();
-                  } else if (source == AddLibrarySource.appleMusic) {
-                    _addAppleMusic();
-                  } else {
-                    widget.$close(source);
-                  }
-                },
+                onPressed:
+                    source == AddLibrarySource.appleMusic && _addingAppleMusic
+                    ? null
+                    : () {
+                        if (source == AddLibrarySource.runeDevice) {
+                          Provider.of<BroadcastProvider>(
+                            context,
+                            listen: false,
+                          ).fetchPairedServers();
+                        }
+                        if (source == AddLibrarySource.runeDevice ||
+                            source == AddLibrarySource.subsonic ||
+                            source == AddLibrarySource.webDav ||
+                            source == AddLibrarySource.s3) {
+                          setState(() => _step = 2);
+                        } else if (source == AddLibrarySource.localFolder) {
+                          _chooseLocalFolder();
+                        } else if (source == AddLibrarySource.appleMusic) {
+                          _addAppleMusic();
+                        } else {
+                          widget.$close(source);
+                        }
+                      },
                 child: Text(S.of(context).confirm),
               ),
           ],

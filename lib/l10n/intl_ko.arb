@@ -1824,7 +1824,6 @@
   "appleMusicAccessDenied": "Apple Music 접근이 허용되지 않았습니다. 시스템 설정에서 Rune에 허용한 다음 다시 시도하세요.",
   "appleMusicAccessDeniedIOS": "Apple Music 접근이 허용되지 않았습니다. 설정 > 개인정보 보호 및 보안 > 미디어 및 Apple Music에서 Rune에 허용한 다음 다시 시도하세요.",
   "appleMusicNoToken": "Apple Music이 Rune에 필요한 접근 권한을 주지 않았습니다. 다시 시도하세요.",
-  "appleMusicRegisterFailed": "Apple Music을 추가할 수 없습니다.",
   "appleMusicSignInFailed": "Apple Music이 로그인을 받아들이지 않았습니다. 다시 시도하세요.",
   "appleMusicUnreachable": "Apple Music에 연결할 수 없습니다. 네트워크 연결을 확인한 다음 다시 시도하세요.",
   "appleMusicUnexpectedResponse": "Apple Music이 예상하지 못한 응답을 보냈습니다. 나중에 다시 시도하세요.",

@@ -1822,7 +1822,6 @@
   "appleMusicAccessDenied": "Der Zugriff auf Apple Music wurde nicht erlaubt. Erlauben Sie ihn für Rune in den Systemeinstellungen und versuchen Sie es erneut.",
   "appleMusicAccessDeniedIOS": "Der Zugriff auf Apple Music wurde nicht erlaubt. Erlauben Sie ihn für Rune unter Einstellungen > Datenschutz & Sicherheit > Medien & Apple Music und versuchen Sie es erneut.",
   "appleMusicNoToken": "Apple Music hat Rune den nötigen Zugriff nicht gegeben. Versuchen Sie es erneut.",
-  "appleMusicRegisterFailed": "Rune konnte Apple Music nicht hinzufügen.",
   "appleMusicSignInFailed": "Apple Music hat die Anmeldung nicht angenommen. Versuchen Sie es erneut.",
   "appleMusicUnreachable": "Rune konnte Apple Music nicht erreichen. Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
   "appleMusicUnexpectedResponse": "Apple Music hat eine unerwartete Antwort zurückgegeben. Versuchen Sie es später erneut.",

@@ -1822,7 +1822,6 @@
   "appleMusicAccessDenied": "Доступ до Apple Music не надано. Дозвольте його для Rune в Системних параметрах і спробуйте ще раз.",
   "appleMusicAccessDeniedIOS": "Доступ до Apple Music не надано. Дозвольте його для Rune в Параметри > Приватність і безпека > Медіа й Apple Music і спробуйте ще раз.",
   "appleMusicNoToken": "Apple Music не надав Rune потрібного доступу. Спробуйте ще раз.",
-  "appleMusicRegisterFailed": "Rune не вдалося додати Apple Music.",
   "appleMusicSignInFailed": "Apple Music не прийняв вхід. Спробуйте ще раз.",
   "appleMusicUnreachable": "Rune не вдалося зв’язатися з Apple Music. Перевірте мережеве з’єднання і спробуйте ще раз.",
   "appleMusicUnexpectedResponse": "Apple Music повернув неочікувану відповідь. Спробуйте пізніше.",
