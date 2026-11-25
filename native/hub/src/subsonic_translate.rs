@@ -26,18 +26,18 @@ use crate::messages::{
     FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
     FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
     GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
-    GetPlaylistByIdRequest, GetPlaylistByIdResponse, HandoffLoadRequest, LibraryContentChanged,
-    LoadPlay, LoadRequest, LoadResolvedItemsRequest, LoadResolvedItemsResponse, LyricContentLine,
-    LyricContentLineSection, MediaFile, MediaFileSummary, MixQuery, MixQueryRequest,
-    MixQueryResponse, MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest,
-    PlaybackMode, PlayingItemRef, Playlist, PlaylistOccurrence, PlaylistOccurrenceCursor,
-    PlaylistOperateMode, PlaylistRevisionRequest, PlaylistRevisionResponse, PreviousRequest,
-    RefreshSessionRequest, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
-    RemovePlaylistRequest, RemovePlaylistResponse, RemoveRequest,
-    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
-    ResolveMixQueryRequest, ResolveMixQueryResponse, SearchCollectionSummaryRequest,
-    SearchCollectionSummaryResponse, SearchForRequest, SearchForResponse,
-    SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest,
+    HandoffLoadRequest, LibraryContentChanged, LoadPlay, LoadRequest, LoadResolvedItemsRequest,
+    LoadResolvedItemsResponse, LyricContentLine, LyricContentLineSection, MediaFile,
+    MediaFileSummary, MixQuery, MixQueryRequest, MixQueryResponse, MovePlaylistItemRequest,
+    NextRequest, PauseRequest, PlayRequest, PlaybackMode, PlayingItemRef, Playlist,
+    PlaylistOccurrence, PlaylistOccurrenceCursor, PlaylistOperateMode, PlaylistRevisionRequest,
+    PlaylistRevisionResponse, PreviousRequest, RefreshSessionRequest,
+    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
+    RemovePlaylistResponse, RemoveRequest, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
+    SearchForResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SeekRequest,
     SessionSnapshotRequest, SessionSnapshotResponse, SetAdaptiveSwitchingEnabledRequest,
     SetLikedRequest, SetLikedResponse, SetPlaybackModeRequest, SetRealtimeFFTEnabledRequest,
     SwitchRequest, TakeBackHandoffBlockRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
@@ -76,13 +76,13 @@ pub(crate) async fn set_liked_request(
             .client
             .star(&[&track])
             .await
-            .map_err(subsonic_request_error)?;
+            .map_err(|error| subsonic_request_error(binding, error))?;
     } else {
         binding
             .client
             .unstar(&[&track])
             .await
-            .map_err(subsonic_request_error)?;
+            .map_err(|error| subsonic_request_error(binding, error))?;
     }
     Ok(request.item.clone().map(|item| SetLikedResponse {
         item,
@@ -100,7 +100,7 @@ pub(crate) async fn get_liked_request(
         .client
         .song(&track)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     Ok(request.item.clone().map(|item| GetLikedResponse {
         item,
         liked: song.starred.is_some(),
@@ -117,7 +117,7 @@ pub(crate) async fn get_lyric_request(
         .client
         .song(&track)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let needs_extension = binding
         .probe
         .extensions
@@ -128,13 +128,13 @@ pub(crate) async fn get_lyric_request(
             .client
             .lyrics_by_song_id(&track)
             .await
-            .map_err(subsonic_request_error)?
+            .map_err(|error| subsonic_request_error(binding, error))?
     } else {
         binding
             .client
             .lyrics(song.artist.as_deref().unwrap_or_default(), &song.title)
             .await
-            .map_err(subsonic_request_error)?
+            .map_err(|error| subsonic_request_error(binding, error))?
     };
     let mut lines = Vec::new();
     if let Some(lyric) = lyrics
@@ -231,7 +231,7 @@ async fn fetch_remote_playlist(
         .client
         .playlist(&remote_id)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     Ok((
         remote_id,
         playlist.songs.into_iter().map(|song| song.id).collect(),
@@ -245,7 +245,7 @@ async fn playlist_songs(binding: &SubsonicBinding, id: i32) -> Result<Vec<Subson
         .client
         .playlist(&remote_id)
         .await
-        .map_err(subsonic_request_error)?
+        .map_err(|error| subsonic_request_error(binding, error))?
         .songs)
 }
 
@@ -255,7 +255,7 @@ async fn interned_playlists(binding: &SubsonicBinding) -> Result<Vec<(i32, Subso
         .client
         .playlists()
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let mut catalog = binding
         .catalog
         .lock()
@@ -299,7 +299,7 @@ pub(crate) async fn get_playlist_by_id_request(
         .client
         .playlist(&remote_id)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     Ok(Some(GetPlaylistByIdResponse {
         playlist: Playlist {
             id: playlist_id(binding, &remote.id)?,
@@ -318,7 +318,7 @@ pub(crate) async fn create_playlist_request(
         .client
         .playlists()
         .await
-        .map_err(subsonic_request_error)?
+        .map_err(|error| subsonic_request_error(binding, error))?
         .into_iter()
         .map(|item| item.id)
         .collect::<HashSet<_>>();
@@ -326,12 +326,12 @@ pub(crate) async fn create_playlist_request(
         .client
         .create_playlist(&request.name, &[])
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let remote = binding
         .client
         .playlists()
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let created = remote
         .into_iter()
         .find(|item| item.name == request.name && !existing_ids.contains(&item.id))
@@ -358,7 +358,7 @@ pub(crate) async fn update_playlist_request(
         .client
         .update_playlist(&remote_id, Some(&request.name), &[], &[])
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     Ok(Some(UpdatePlaylistResponse {
         playlist: Playlist {
             id: request.playlist_id,
@@ -378,7 +378,7 @@ pub(crate) async fn remove_playlist_request(
         .client
         .delete_playlist(&remote_id)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     Ok(Some(RemovePlaylistResponse {
         playlist_id: request.playlist_id,
         call_id: None,
@@ -404,7 +404,7 @@ pub(crate) async fn add_item_to_playlist_request(
         .client
         .playlist(&playlist_remote)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let mut songs = playlist
         .songs
         .iter()
@@ -426,7 +426,7 @@ pub(crate) async fn add_item_to_playlist_request(
         .client
         .update_playlist(&playlist_remote, None, &[&track_remote], &[])
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     playlist_entries_changed(binding);
     songs.push(track_remote);
     Ok(Some(AddItemToPlaylistResponse {
@@ -514,7 +514,7 @@ pub(crate) async fn remove_item_from_playlist_request(
         .client
         .update_playlist(&remote_id, None, &[], &[position])
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     playlist_entries_changed(binding);
     Ok(Some(RemoveItemFromPlaylistResponse { call_id: None }))
 }
@@ -539,7 +539,7 @@ pub(crate) async fn reorder_playlist_item_position_request(
         .client
         .replace_playlist_songs(&remote_id, &refs)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     playlist_entries_changed(binding);
     Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
 }
@@ -709,7 +709,7 @@ pub(crate) async fn search_for_request(
         .client
         .search(&request.query_str, limits)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let playlists = if count > 0 && (all || fields.contains(&CollectionQueryType::Playlist)) {
         // The search box ends its text with `*`, the prefix wildcard of Rune's search
         // syntax, which is not part of any playlist name.
@@ -794,7 +794,7 @@ pub(crate) async fn fetch_media_file_by_ids_request(
                     .client
                     .song(&remote_id)
                     .await
-                    .map_err(subsonic_request_error)?;
+                    .map_err(|error| subsonic_request_error(binding, error))?;
                 let mut catalog = binding
                     .catalog
                     .lock()
@@ -826,7 +826,11 @@ pub(crate) async fn fetch_media_file_by_ids_request(
     }))
 }
 
-fn empty_search_error(error: SubsonicError, request: &'static str) -> anyhow::Error {
+fn empty_search_error(
+    binding: &SubsonicBinding,
+    error: SubsonicError,
+    request: &'static str,
+) -> anyhow::Error {
     match error {
         SubsonicError::Server {
             kind: SubsonicServerError::MissingParameter,
@@ -836,7 +840,7 @@ fn empty_search_error(error: SubsonicError, request: &'static str) -> anyhow::Er
             reason: UnsupportedReason::NotImplemented,
         }
         .into(),
-        error => subsonic_request_error(error),
+        error => subsonic_request_error(binding, error),
     }
 }
 
@@ -904,7 +908,7 @@ pub(crate) async fn fetch_media_files_request(
             offset,
         )
         .await
-        .map_err(|error| empty_search_error(error, FetchMediaFilesRequest::wire_name()))?
+        .map_err(|error| empty_search_error(binding, error, FetchMediaFilesRequest::wire_name()))?
         .songs;
     let mut media_files = Vec::with_capacity(songs.len());
     let mut covers = Vec::new();
@@ -943,7 +947,7 @@ pub(crate) async fn get_media_files_count_request(
         .client
         .scan_status()
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let count = scan_status
         .count
         .ok_or_else(|| ExpectedRequestError::UnexpectedResponse {
@@ -976,7 +980,7 @@ pub(crate) async fn fetch_parsed_media_file_request(
         .client
         .song(&remote_id)
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let mut catalog = binding
         .catalog
         .lock()
@@ -1035,7 +1039,9 @@ pub(crate) async fn search_media_file_summary_request(
             },
         )
         .await
-        .map_err(|error| empty_search_error(error, SearchMediaFileSummaryRequest::wire_name()))?
+        .map_err(|error| {
+            empty_search_error(binding, error, SearchMediaFileSummaryRequest::wire_name())
+        })?
         .songs;
     let mut catalog = binding
         .catalog
@@ -1099,10 +1105,9 @@ pub(crate) async fn search_collection_summary_request(
             .into());
         }
     };
-    let results =
-        binding.client.search("", limits).await.map_err(|error| {
-            empty_search_error(error, SearchCollectionSummaryRequest::wire_name())
-        })?;
+    let results = binding.client.search("", limits).await.map_err(|error| {
+        empty_search_error(binding, error, SearchCollectionSummaryRequest::wire_name())
+    })?;
     let entries = {
         let mut catalog = binding
             .catalog
@@ -1236,7 +1241,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
                         .client
                         .artist(&remote_id)
                         .await
-                        .map_err(subsonic_request_error)?;
+                        .map_err(|error| subsonic_request_error(binding, error))?;
                     let name = item.name.clone();
                     let mut catalog = binding
                         .catalog
@@ -1258,7 +1263,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
                         .client
                         .album(&remote_id)
                         .await
-                        .map_err(subsonic_request_error)?;
+                        .map_err(|error| subsonic_request_error(binding, error))?;
                     let name = item.name.clone();
                     let mut catalog = binding
                         .catalog
@@ -1338,26 +1343,33 @@ fn jukebox_disabled(request: &'static str) -> anyhow::Error {
     .into()
 }
 
-fn jukebox_error(error: SubsonicError, request: &'static str) -> anyhow::Error {
+fn jukebox_error(
+    binding: &SubsonicBinding,
+    error: SubsonicError,
+    request: &'static str,
+) -> anyhow::Error {
     match error {
         SubsonicError::Transport(_) => ExpectedRequestError::Unavailable {
             what: "Subsonic jukebox",
         }
         .into(),
         SubsonicError::HttpStatus(status) if status == ReqwestStatusCode::UNAUTHORIZED => {
-            ExpectedRequestError::SubsonicNotAuthorized.into()
+            sign_in_required(binding)
         }
         SubsonicError::HttpStatus(_) => ExpectedRequestError::Unavailable {
             what: "Subsonic jukebox",
         }
         .into(),
         SubsonicError::JukeboxUnsupported => jukebox_disabled(request),
-        error => subsonic_request_error(error),
+        error => subsonic_request_error(binding, error),
     }
 }
 
-pub(crate) fn jukebox_error_for_refresh(error: SubsonicError) -> anyhow::Error {
-    jukebox_error(error, RefreshSessionRequest::wire_name())
+pub(crate) fn jukebox_error_for_refresh(
+    binding: &SubsonicBinding,
+    error: SubsonicError,
+) -> anyhow::Error {
+    jukebox_error(binding, error, RefreshSessionRequest::wire_name())
 }
 
 async fn jukebox_status(binding: &SubsonicBinding) -> Result<subsonic::SubsonicJukeboxStatus> {
@@ -1365,7 +1377,7 @@ async fn jukebox_status(binding: &SubsonicBinding) -> Result<subsonic::SubsonicJ
         .client
         .jukebox_status()
         .await
-        .map_err(|error| jukebox_error(error, "Subsonic jukebox status"))
+        .map_err(|error| jukebox_error(binding, error, "Subsonic jukebox status"))
 }
 
 async fn jukebox_play_request(binding: &SubsonicBinding, _: &PlayRequest) -> Result<Option<()>> {
@@ -1373,7 +1385,7 @@ async fn jukebox_play_request(binding: &SubsonicBinding, _: &PlayRequest) -> Res
         .client
         .jukebox_start()
         .await
-        .map_err(|error| jukebox_error(error, PlayRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, PlayRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1382,7 +1394,7 @@ async fn jukebox_pause_request(binding: &SubsonicBinding, _: &PauseRequest) -> R
         .client
         .jukebox_stop()
         .await
-        .map_err(|error| jukebox_error(error, PauseRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, PauseRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1397,7 +1409,7 @@ async fn jukebox_load_request(
         .client
         .jukebox_skip(index, 0)
         .await
-        .map_err(|error| jukebox_error(error, LoadRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, LoadRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1406,7 +1418,7 @@ async fn jukebox_next_request(binding: &SubsonicBinding, _: &NextRequest) -> Res
         .client
         .jukebox_get()
         .await
-        .map_err(|error| jukebox_error(error, NextRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, NextRequest::wire_name()))?;
     // The jukebox reports Sequential, so Next follows Rune's sequential rule: the
     // next song if there is one, otherwise playback stops. With no current song
     // there is nothing to move on from.
@@ -1419,13 +1431,13 @@ async fn jukebox_next_request(binding: &SubsonicBinding, _: &NextRequest) -> Res
             .client
             .jukebox_skip(next, 0)
             .await
-            .map_err(|error| jukebox_error(error, NextRequest::wire_name()))?;
+            .map_err(|error| jukebox_error(binding, error, NextRequest::wire_name()))?;
     } else {
         binding
             .client
             .jukebox_stop()
             .await
-            .map_err(|error| jukebox_error(error, NextRequest::wire_name()))?;
+            .map_err(|error| jukebox_error(binding, error, NextRequest::wire_name()))?;
     }
     Ok(Some(()))
 }
@@ -1438,13 +1450,13 @@ async fn jukebox_previous_request(
         .client
         .jukebox_get()
         .await
-        .map_err(|error| jukebox_error(error, PreviousRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, PreviousRequest::wire_name()))?;
     let index = queue.status.current_index.unwrap_or(0).saturating_sub(1);
     binding
         .client
         .jukebox_skip(index, 0)
         .await
-        .map_err(|error| jukebox_error(error, PreviousRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, PreviousRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1456,7 +1468,7 @@ async fn jukebox_switch_request(
         .client
         .jukebox_skip(request.index, 0)
         .await
-        .map_err(|error| jukebox_error(error, SwitchRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, SwitchRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1476,7 +1488,7 @@ async fn jukebox_seek_request(
         .client
         .jukebox_skip(status.current_index.unwrap_or(0), position)
         .await
-        .map_err(|error| jukebox_error(error, SeekRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, SeekRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1488,7 +1500,7 @@ async fn jukebox_volume_request(
         .client
         .jukebox_set_gain(request.volume)
         .await
-        .map_err(|error| jukebox_error(error, VolumeRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, VolumeRequest::wire_name()))?;
     Ok(Some(VolumeResponse {
         volume: request.volume,
         call_id: request.call_id,
@@ -1510,7 +1522,7 @@ async fn jukebox_playback_mode_request(
         .client
         .jukebox_shuffle()
         .await
-        .map_err(|error| jukebox_error(error, SetPlaybackModeRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, SetPlaybackModeRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1522,7 +1534,7 @@ async fn jukebox_remove_request(
         .client
         .jukebox_remove(request.index)
         .await
-        .map_err(|error| jukebox_error(error, RemoveRequest::wire_name()))?;
+        .map_err(|error| jukebox_error(binding, error, RemoveRequest::wire_name()))?;
     Ok(Some(()))
 }
 
@@ -1598,7 +1610,7 @@ async fn jukebox_insert_after_current(binding: &SubsonicBinding, ids: &[String])
         .client
         .jukebox_get()
         .await
-        .map_err(|error| jukebox_error(error, request))?;
+        .map_err(|error| jukebox_error(binding, error, request))?;
     let existing = queue.playlist.songs.iter().map(|song| song.id.as_str());
     let added = ids.iter().map(String::as_str);
     let Some(current) = queue
@@ -1611,7 +1623,7 @@ async fn jukebox_insert_after_current(binding: &SubsonicBinding, ids: &[String])
             .client
             .jukebox_add(&added.collect::<Vec<_>>())
             .await
-            .map_err(|error| jukebox_error(error, request))?;
+            .map_err(|error| jukebox_error(binding, error, request))?;
         return Ok(end);
     };
     let split = current as usize + 1;
@@ -1625,24 +1637,24 @@ async fn jukebox_insert_after_current(binding: &SubsonicBinding, ids: &[String])
         .client
         .jukebox_set(&rebuilt)
         .await
-        .map_err(|error| jukebox_error(error, request))?;
+        .map_err(|error| jukebox_error(binding, error, request))?;
     binding
         .client
         .jukebox_skip(current, queue.status.position_secs.unwrap_or_default())
         .await
-        .map_err(|error| jukebox_error(error, request))?;
+        .map_err(|error| jukebox_error(binding, error, request))?;
     if queue.status.playing {
         binding
             .client
             .jukebox_start()
             .await
-            .map_err(|error| jukebox_error(error, request))?;
+            .map_err(|error| jukebox_error(binding, error, request))?;
     } else {
         binding
             .client
             .jukebox_stop()
             .await
-            .map_err(|error| jukebox_error(error, request))?;
+            .map_err(|error| jukebox_error(binding, error, request))?;
     }
     Ok(current + 1)
 }
@@ -1651,7 +1663,7 @@ async fn jukebox_load_resolved_items_request(
     binding: &SubsonicBinding,
     request: &LoadResolvedItemsRequest,
 ) -> Result<Option<LoadResolvedItemsResponse>> {
-    let error = |error| jukebox_error(error, LoadResolvedItemsRequest::wire_name());
+    let error = |error| jukebox_error(binding, error, LoadResolvedItemsRequest::wire_name());
     let ids = subsonic_track_ids(binding, request)?;
     let references = ids.iter().map(String::as_str).collect::<Vec<_>>();
     let start = load_start(request)?;
@@ -1768,7 +1780,7 @@ async fn ensure_artists(binding: &SubsonicBinding) -> Result<()> {
         .client
         .artists()
         .await
-        .map_err(subsonic_request_error)?;
+        .map_err(|error| subsonic_request_error(binding, error))?;
     let mut catalog = binding
         .catalog
         .lock()
@@ -1796,7 +1808,7 @@ async fn ensure_albums(binding: &SubsonicBinding) -> Result<()> {
             .client
             .album_list(500, offset)
             .await
-            .map_err(subsonic_request_error)?;
+            .map_err(|error| subsonic_request_error(binding, error))?;
         let count = u32::try_from(albums.len()).unwrap_or(u32::MAX);
         let mut catalog = binding
             .catalog
@@ -2063,7 +2075,7 @@ async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<V
                 .client
                 .random_songs(count)
                 .await
-                .map_err(subsonic_request_error)?;
+                .map_err(|error| subsonic_request_error(binding, error))?;
             songs.retain(|song| song.cover_art.is_some());
             intern_songs(binding, &songs)?;
             return Ok(songs);
@@ -2081,7 +2093,7 @@ async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<V
                 .client
                 .artist(&remote_id)
                 .await
-                .map_err(subsonic_request_error)?;
+                .map_err(|error| subsonic_request_error(binding, error))?;
             let mut catalog = binding
                 .catalog
                 .lock()
@@ -2111,7 +2123,7 @@ async fn detail_songs(binding: &SubsonicBinding, query: DetailQuery) -> Result<V
             .client
             .album(&remote_id)
             .await
-            .map_err(subsonic_request_error)?;
+            .map_err(|error| subsonic_request_error(binding, error))?;
         album.songs.sort_by_key(|song| {
             (
                 song.disc.unwrap_or_default(),
@@ -2254,7 +2266,9 @@ async fn tracks_page_songs(binding: &SubsonicBinding) -> Result<Vec<SubsonicSong
                 u32::try_from(songs.len())?,
             )
             .await
-            .map_err(|error| empty_search_error(error, ResolveMixQueryRequest::wire_name()))?
+            .map_err(|error| {
+                empty_search_error(binding, error, ResolveMixQueryRequest::wire_name())
+            })?
             .songs;
         if page.is_empty() {
             break;
@@ -2338,7 +2352,15 @@ pub(crate) async fn resolve_mix_query_request(
     }))
 }
 
-fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
+/// The server no longer accepts the sign-in of the library `binding` serves.
+fn sign_in_required(binding: &SubsonicBinding) -> anyhow::Error {
+    ExpectedRequestError::ServiceSignInRequired {
+        record_id: binding.library_id.to_string(),
+    }
+    .into()
+}
+
+fn subsonic_request_error(binding: &SubsonicBinding, error: SubsonicError) -> anyhow::Error {
     match error {
         SubsonicError::Transport(_) | SubsonicError::HttpStatus(_) => {
             ExpectedRequestError::Unavailable {
@@ -2357,7 +2379,7 @@ fn subsonic_request_error(error: SubsonicError) -> anyhow::Error {
                 | SubsonicServerError::NotAuthorized
                 | SubsonicServerError::InvalidApiKey,
             ..
-        } => ExpectedRequestError::SubsonicNotAuthorized.into(),
+        } => sign_in_required(binding),
         SubsonicError::Server {
             kind: SubsonicServerError::NotFound,
             ..
@@ -2403,7 +2425,13 @@ macro_rules! subsonic_requests {
         routed_native { $($native_request:ty),* $(,)? }
         jukebox_supported { $($jukebox_request:ty => $jukebox_handler:ident as $jukebox_method:ident),* $(,)? }
         player { $($player_request:ty),* $(,)? }
+        items { $($item_request:ty => $item_slot:ident),* $(,)? }
     ) => {
+        $(const _: () = assert!(
+            <$item_request as crate::rpc::TargetRequest>::ROUTED_BY_ITEM,
+            "item slots are only for requests routed by item",
+        );)*
+
         impl RequestTranslator for SubsonicBinding {
             $(
                 fn $method<'a>(
@@ -2437,6 +2465,14 @@ macro_rules! subsonic_requests {
                 }
                 $(slots.set::<$request>(Slot::Translate);)*
                 $(slots.set::<$native_request>(Slot::Native);)*
+                slots
+            }
+
+            /// What a Subsonic library answers about its own items, of the requests routed by
+            /// item, whichever library is open. The others are unsupported for its items.
+            pub(crate) fn subsonic_items() -> Self {
+                let mut slots = Self::unimplemented();
+                $(slots.set::<$item_request>(Slot::$item_slot);)*
                 slots
             }
         }
@@ -2473,6 +2509,8 @@ subsonic_requests! {
     routed_native {
         SetLikedRequest,
         GetLikedRequest,
+        GetLyricByTrackIdRequest,
+        GetPrimaryColorByTrackIdRequest,
     }
     jukebox_supported {
         VolumeRequest => jukebox_volume_request as translate_volume_request,
@@ -2511,6 +2549,13 @@ subsonic_requests! {
         RefreshSessionRequest,
         SessionSnapshotRequest,
         PlaylistRevisionRequest,
+    }
+    items {
+        SetLikedRequest => Translate,
+        GetLikedRequest => Translate,
+        GetLyricByTrackIdRequest => Translate,
+        // The hub takes the color of a streaming item from its cover in the library's cover cache.
+        GetPrimaryColorByTrackIdRequest => Native,
     }
 }
 
@@ -4135,7 +4180,13 @@ mod tests {
         });
         assert_eq!(SetLikedRequest::slot(&slots), Slot::Native);
         assert_eq!(GetLikedRequest::slot(&slots), Slot::Native);
-        assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Translate);
+        // Lyrics are routed by item, as likes are: the open library leaves an item of another
+        // library to that library, and the binding answers for its own items.
+        assert_eq!(GetLyricByTrackIdRequest::slot(&slots), Slot::Native);
+        let items = RequestSlots::subsonic_items();
+        assert_eq!(GetLyricByTrackIdRequest::slot(&items), Slot::Translate);
+        assert_eq!(SetLikedRequest::slot(&items), Slot::Translate);
+        assert_eq!(GetLikedRequest::slot(&items), Slot::Translate);
     }
 
     #[test]
@@ -5697,32 +5748,41 @@ mod tests {
         assert_eq!(server.state.cover_calls.load(Ordering::SeqCst), 2);
     }
 
-    #[test]
-    fn rejected_request_credentials_are_typed_as_not_authorized() {
+    #[tokio::test]
+    async fn rejected_request_credentials_are_typed_as_not_authorized() {
         use subsonic::SubsonicServerError;
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, false).await;
         let failures = [
             SubsonicServerError::WrongCredentials,
             SubsonicServerError::NotAuthorized,
             SubsonicServerError::InvalidApiKey,
         ];
         for kind in failures {
-            let error = subsonic_request_error(SubsonicError::Server {
-                kind,
-                message: "rejected".into(),
-            });
+            let error = subsonic_request_error(
+                &binding,
+                SubsonicError::Server {
+                    kind,
+                    message: "rejected".into(),
+                },
+            );
             assert!(matches!(
                 error.downcast_ref::<ExpectedRequestError>(),
-                Some(ExpectedRequestError::SubsonicNotAuthorized)
+                Some(ExpectedRequestError::ServiceSignInRequired { record_id })
+                    if *record_id == binding.library_id.to_string()
             ));
             assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
         }
     }
 
-    #[test]
-    fn jukebox_failures_keep_authorization_unavailable_and_disabled_types() {
+    #[tokio::test]
+    async fn jukebox_failures_keep_authorization_unavailable_and_disabled_types() {
         use subsonic::SubsonicServerError;
 
+        let root = TempDir::new().unwrap();
+        let (binding, _server) = mock_subsonic(&root, true).await;
         let unauthorized = jukebox_error(
+            &binding,
             SubsonicError::Server {
                 kind: SubsonicServerError::WrongCredentials,
                 message: "rejected".into(),
@@ -5731,9 +5791,11 @@ mod tests {
         );
         assert!(matches!(
             unauthorized.downcast_ref::<ExpectedRequestError>(),
-            Some(ExpectedRequestError::SubsonicNotAuthorized)
+            Some(ExpectedRequestError::ServiceSignInRequired { record_id })
+                if *record_id == binding.library_id.to_string()
         ));
         let unavailable = jukebox_error(
+            &binding,
             SubsonicError::Transport("offline".into()),
             PlayRequest::wire_name(),
         );
@@ -5741,7 +5803,11 @@ mod tests {
             unavailable.downcast_ref::<ExpectedRequestError>(),
             Some(ExpectedRequestError::Unavailable { .. })
         ));
-        let disabled = jukebox_error(SubsonicError::JukeboxUnsupported, PlayRequest::wire_name());
+        let disabled = jukebox_error(
+            &binding,
+            SubsonicError::JukeboxUnsupported,
+            PlayRequest::wire_name(),
+        );
         assert!(matches!(
             disabled.downcast_ref::<ExpectedRequestError>(),
             Some(ExpectedRequestError::Unsupported {

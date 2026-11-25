@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use database::credentials::Credential;
+use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
 use futures::future::BoxFuture;
 use playback::player::RemoteAudioSource;
@@ -18,6 +19,14 @@ use crate::macros::{RequestSlots, RequestTranslator};
 
 pub(crate) type ServiceFuture<'a, T> = BoxFuture<'a, Result<T>>;
 
+/// How `service` answers the requests routed by item about its own items, whichever library is
+/// open, as its request table declares. The slots of other requests mean nothing here.
+pub(crate) fn item_slots(service: ServiceKind) -> RequestSlots {
+    match service {
+        ServiceKind::Subsonic => RequestSlots::subsonic_items(),
+    }
+}
+
 /// One open connection to a streaming service's library. Catalogue requests in a `Translate`
 /// slot go to its `RequestTranslator` methods, and everything else the hub asks of a service
 /// goes through the methods below. Tracks are named by the ids the service gives them.
@@ -27,6 +36,9 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
 
     /// How each request runs against this service.
     fn slots(&self) -> RequestSlots;
+
+    /// The service the library belongs to, which declares what its items support.
+    fn service(&self) -> ServiceKind;
 
     /// The metadata of a track and, when `with_cover` is set, its cover if the cover is cached
     /// already.

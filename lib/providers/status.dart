@@ -125,9 +125,15 @@ class PlaybackStatusProvider with ChangeNotifier {
 
   bool _hasPendingNotification = false;
 
+  /// What the library of an item declares about its color; available when it
+  /// declares nothing.
+  final RequestCapability Function(PlayingItem item) _colorCapability;
+
   PlaybackStatusProvider({
     Stream<RustSignalPack<PlaybackStatus>>? statusStream,
-  }) {
+    RequestCapability Function(PlayingItem item)? colorCapability,
+  }) : _colorCapability =
+           colorCapability ?? ((_) => const RequestCapabilityAvailable()) {
     statusSubscription = (statusStream ?? PlaybackStatus.rustSignalStream)
         .listen(_updatePlaybackStatus);
   }
@@ -191,7 +197,10 @@ class PlaybackStatusProvider with ChangeNotifier {
 
         if (isNewTrack) {
           if (newPlayingItem != null) {
-            ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+            ThemeColorManager().handleCoverArtColorChange(
+              newPlayingItem,
+              _colorCapability(newPlayingItem),
+            );
           }
           if (newStatus.index != null) {
             SettingsManager().setValue(kLastQueueIndexKey, newStatus.index!);

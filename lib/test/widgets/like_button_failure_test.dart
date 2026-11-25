@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../bindings/bindings.dart';
 import '../../providers/library_open_state.dart';
+import '../../providers/playing_item_capabilities.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/playing_item.dart';
 import '../../widgets/playback_controller/like_button.dart';
@@ -49,6 +50,145 @@ void main() {
       expect(escaped, [same(failure)]);
     });
   }
+
+  const serviceRef = PlayingItemRefLibraryTrack(
+    libraryId: 'service-record',
+    track: 't1',
+  );
+  final serviceItem = PlayingItem.fromRequest(serviceRef);
+  Widget likeButton({
+    required Future<bool> Function(PlayingItem item) fetch,
+    PlayingItemCapabilitiesProvider? capabilities,
+  }) => MultiProvider(
+    providers: [
+      ChangeNotifierProvider<LibraryOpenStateProvider>(
+        create: (_) => _LibraryOpenStateProvider(),
+      ),
+      if (capabilities != null)
+        ChangeNotifierProvider<PlayingItemCapabilitiesProvider>.value(
+          value: capabilities,
+        ),
+    ],
+    child: FluentApp(
+      home: LikeButton(item: serviceItem, fetchLikedStatus: fetch),
+    ),
+  );
+  double? heartFill(WidgetTester tester) =>
+      tester.widget<Icon>(find.byIcon(Symbols.favorite)).fill;
+
+  testWidgets('a like asked of a library needing a sign-in stays unknown', (
+    tester,
+  ) async {
+    const failure = RequestFailure(
+      'GetLikedRequest',
+      RequestErrorKind.permissionDenied,
+      'needs a new sign-in',
+      RequestFailureCauseServiceSignInRequired(recordId: 'service-record'),
+    );
+    final escaped = <Object>[];
+    await runZonedGuarded(() async {
+      await tester.pumpWidget(likeButton(fetch: (_) async => throw failure));
+      await tester.pump();
+    }, (error, _) => escaped.add(error));
+
+    expect(escaped, isEmpty);
+    expect(heartFill(tester), 0);
+  });
+
+  testWidgets('the like is asked for again once the library answers', (
+    tester,
+  ) async {
+    final declarations = StreamController<PlayingItemCapabilities>();
+    addTearDown(declarations.close);
+    PlayingItemCapabilities declared(RequestCapability likes) =>
+        PlayingItemCapabilities(
+          item: serviceRef,
+          setLikedRequest: likes,
+          getLikedRequest: likes,
+          getLyricByTrackIdRequest: const RequestCapabilityHidden(),
+          getPrimaryColorByTrackIdRequest: const RequestCapabilityAvailable(),
+        );
+    final capabilities = PlayingItemCapabilitiesProvider(
+      changes: declarations.stream,
+      initial: declared(
+        const RequestCapabilityDisabled(
+          reason: CapabilityReason.accountRoleMissing,
+        ),
+      ),
+    );
+    addTearDown(capabilities.dispose);
+    var asked = 0;
+    await tester.pumpWidget(
+      likeButton(
+        capabilities: capabilities,
+        fetch: (_) async {
+          asked += 1;
+          return true;
+        },
+      ),
+    );
+    await tester.pump();
+
+    // Until the library answers there is nothing to ask and nothing to like.
+    expect(asked, 0);
+    expect(find.byIcon(Symbols.favorite), findsNothing);
+
+    declarations.add(declared(const RequestCapabilityAvailable()));
+    await tester.pumpAndSettle();
+    expect(asked, 1);
+    expect(heartFill(tester), 1);
+  });
+
+  testWidgets('the next track declared first leaves this one waiting', (
+    tester,
+  ) async {
+    final declarations = StreamController<PlayingItemCapabilities>();
+    addTearDown(declarations.close);
+    final capabilities = PlayingItemCapabilitiesProvider(
+      changes: declarations.stream,
+      initial: PlayingItemCapabilities(
+        item: serviceRef,
+        setLikedRequest: const RequestCapabilityDisabled(
+          reason: CapabilityReason.accountRoleMissing,
+        ),
+        getLikedRequest: const RequestCapabilityDisabled(
+          reason: CapabilityReason.accountRoleMissing,
+        ),
+        getLyricByTrackIdRequest: const RequestCapabilityHidden(),
+        getPrimaryColorByTrackIdRequest: const RequestCapabilityAvailable(),
+      ),
+    );
+    addTearDown(capabilities.dispose);
+    var asked = 0;
+    await tester.pumpWidget(
+      likeButton(
+        capabilities: capabilities,
+        fetch: (_) async {
+          asked += 1;
+          return true;
+        },
+      ),
+    );
+    await tester.pump();
+
+    // Rust declares the next track, which can be liked, before the status
+    // that names it: this one still waits for its library.
+    declarations.add(
+      const PlayingItemCapabilities(
+        item: PlayingItemRefLibraryTrack(
+          libraryId: 'service-record',
+          track: 't2',
+        ),
+        setLikedRequest: RequestCapabilityAvailable(),
+        getLikedRequest: RequestCapabilityAvailable(),
+        getLyricByTrackIdRequest: RequestCapabilityHidden(),
+        getPrimaryColorByTrackIdRequest: RequestCapabilityAvailable(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(asked, 0);
+    expect(find.byIcon(Symbols.favorite), findsNothing);
+  });
 }
 
 class _LibraryOpenStateProvider extends ChangeNotifier

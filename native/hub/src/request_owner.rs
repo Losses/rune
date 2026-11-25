@@ -23,7 +23,7 @@ use crate::{
     node::NodeContext,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
-    service::{ServiceBinding, ServicePlayer},
+    service::{ServiceBinding, ServicePlayer, item_slots},
     utils::{GlobalParams, ParamsExtractor},
     visualizer::RANDOM_COVERS,
 };
@@ -208,6 +208,23 @@ impl Implementation {
             Self::Service(binding) => binding.slots(),
             #[cfg(test)]
             Self::TestOverride { slots, .. } => *slots,
+        }
+    }
+
+    /// How this implementation answers the requests routed by item about the items of its own
+    /// library. The slots of other requests mean nothing here. An open service library leaves
+    /// those requests to the library of each item named, while its own items have what the
+    /// service declares for them.
+    pub(crate) fn item_slots(&self) -> RequestSlots {
+        match self {
+            Self::Service(binding) => item_slots(binding.service()),
+            // A Rune library answers about its items as it answers as the open library: here,
+            // or through the device that holds it. The session resolves each item it plays to
+            // the library this device holds of it, so a peer's slots apply only to an item a
+            // peer answers for.
+            Self::Local | Self::LocalBeside(_) | Self::RunePeer { .. } => self.slots(),
+            #[cfg(test)]
+            Self::TestOverride { implementation, .. } => implementation.item_slots(),
         }
     }
 

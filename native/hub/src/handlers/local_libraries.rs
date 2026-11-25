@@ -225,6 +225,8 @@ impl Signal for RemoveLibraryRecordRequest {
         if let Some(library_id) = subsonic_library_id {
             delete_service_cover_cache(config, library_id).await?;
         }
+        // The item playing here may belong to the library that went away.
+        node.item_capabilities_changed();
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse { call_id: None }))
     }

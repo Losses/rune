@@ -23,8 +23,8 @@ pub enum ExpectedRequestError {
     Reconnecting { alias: String },
     #[error("{what} unavailable")]
     Unavailable { what: &'static str },
-    #[error("Subsonic account is not authorized for this request")]
-    SubsonicNotAuthorized,
+    #[error("The streaming service of library {record_id} needs a new sign-in")]
+    ServiceSignInRequired { record_id: String },
     #[error("{request} is unsupported by this target: {reason}")]
     Unsupported {
         request: &'static str,
@@ -200,7 +200,9 @@ pub fn classify(error: &Error) -> RequestErrorKind {
                 ExpectedRequestError::Unavailable { .. }
                 | ExpectedRequestError::Reconnecting { .. }
                 | ExpectedRequestError::Unsupported { .. } => RequestErrorKind::Unavailable,
-                ExpectedRequestError::SubsonicNotAuthorized => RequestErrorKind::PermissionDenied,
+                ExpectedRequestError::ServiceSignInRequired { .. } => {
+                    RequestErrorKind::PermissionDenied
+                }
                 ExpectedRequestError::CertificateMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::PublicKeyMismatch => RequestErrorKind::InvalidInput,
                 ExpectedRequestError::RegistrationConflict
@@ -322,8 +324,10 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                         peer_version: peer_version.map(|version| version.to_string()),
                     });
                 }
-                ExpectedRequestError::SubsonicNotAuthorized => {
-                    return Some(RequestFailureCause::SubsonicNotAuthorized);
+                ExpectedRequestError::ServiceSignInRequired { record_id } => {
+                    return Some(RequestFailureCause::ServiceSignInRequired {
+                        record_id: record_id.clone(),
+                    });
                 }
                 ExpectedRequestError::LicenseInvalid => {
                     return Some(RequestFailureCause::LicenseInvalid);
@@ -348,6 +352,12 @@ pub fn request_failure_cause(error: &Error) -> Option<RequestFailureCause> {
                 ExpectedRequestError::FileDialog { failure } => {
                     return Some(RequestFailureCause::FileDialogFailed { failure: *failure });
                 }
+                ExpectedRequestError::Unsupported {
+                    reason: UnsupportedReason::NotImplemented,
+                    ..
+                } => {
+                    return Some(RequestFailureCause::Unsupported);
+                }
                 _ => {}
             }
         }
@@ -364,6 +374,7 @@ mod tests {
     use crate::messages::{
         CastLibraryState, LibraryTaskKind, RequestErrorKind, RequestFailureCause,
     };
+    use crate::rpc::UnsupportedReason;
     use sea_orm::{
         ConnectionTrait, SqlxSqliteConnector,
         sqlx::{SqlitePool, sqlite::SqliteConnectOptions},
@@ -439,6 +450,50 @@ mod tests {
             })
         );
         assert!(format!("{error:#}").contains("scan is running"));
+    }
+
+    #[test]
+    fn service_sign_in_required_is_a_typed_permission_failure_after_context() {
+        let error = Error::new(ExpectedRequestError::ServiceSignInRequired {
+            record_id: "record-a".into(),
+        })
+        .context("FetchMediaFilesRequest");
+        assert_eq!(classify(&error), RequestErrorKind::PermissionDenied);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::ServiceSignInRequired {
+                record_id: "record-a".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn only_a_request_not_implemented_says_so() {
+        let unsupported = |reason| {
+            Error::new(ExpectedRequestError::Unsupported {
+                request: "GetLyricByTrackIdRequest",
+                reason,
+            })
+            .context("lyrics of a streaming item")
+        };
+        let error = unsupported(UnsupportedReason::NotImplemented);
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::Unsupported)
+        );
+        // Whatever else keeps the request from running may change: it says nothing more.
+        for reason in [
+            UnsupportedReason::OwnerOnly,
+            UnsupportedReason::PeerTooOld,
+            UnsupportedReason::AccountRoleMissing,
+        ] {
+            assert_eq!(
+                request_failure_cause(&unsupported(reason)),
+                None,
+                "{reason:?}"
+            );
+        }
     }
 
     #[test]

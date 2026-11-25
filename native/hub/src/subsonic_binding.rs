@@ -25,6 +25,7 @@ use visualizer::{Visualizer, VisualizerInputs};
 
 use anyhow::Result;
 use database::credentials::Credential;
+use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
 use futures::{SinkExt, StreamExt, future::BoxFuture};
 use playback::player::{
@@ -636,7 +637,9 @@ impl SubsonicBinding {
                     call_id: None,
                     kind: RequestErrorKind::PermissionDenied,
                     detail: "Subsonic account is not authorized for this request".into(),
-                    cause: Some(RequestFailureCause::SubsonicNotAuthorized),
+                    cause: Some(RequestFailureCause::ServiceSignInRequired {
+                        record_id: self.library_id.to_string(),
+                    }),
                 });
             }
         }
@@ -647,7 +650,7 @@ impl SubsonicBinding {
             .client
             .jukebox_get()
             .await
-            .map_err(jukebox_error_for_refresh)?;
+            .map_err(|error| jukebox_error_for_refresh(self, error))?;
         let cover_id = current_cover_id(&jukebox);
         let cover = match cover_id {
             Some(id) => self.covers.cached_path(id).await.ok().flatten(),
@@ -749,6 +752,10 @@ impl ServiceBinding for SubsonicBinding {
 
     fn slots(&self) -> RequestSlots {
         RequestSlots::subsonic(&self.probe)
+    }
+
+    fn service(&self) -> ServiceKind {
+        ServiceKind::Subsonic
     }
 
     fn item_metadata<'a>(

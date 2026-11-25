@@ -624,6 +624,15 @@ impl NodeContext {
             .context("Node session is not initialized")
     }
 
+    /// What the item this device plays supports may have changed without a status from the
+    /// player: the UI opened or closed a library, or a library record went away. The UI hears it
+    /// again.
+    pub(crate) fn item_capabilities_changed(&self) {
+        if let Ok(session) = self.session() {
+            session.item_capabilities_changed();
+        }
+    }
+
     /// Starts a handoff. Any pause retry left by an earlier handoff stops at its
     /// next attempt, so it never pauses a source this handoff starts again.
     pub(crate) async fn begin_handoff(&self) -> u64 {
@@ -1434,6 +1443,8 @@ impl NodeContext {
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities on UI attach: {error:#}");
         }
+        // A file played by its path is read through the UI's local library, if it has one.
+        self.item_capabilities_changed();
     }
 
     async fn release_ui(params: &GlobalParams) {
@@ -1525,6 +1536,7 @@ impl NodeContext {
         if let Some(params) = params {
             self.leave_remote_ui().await;
             Self::release_ui(&params).await;
+            self.item_capabilities_changed();
         }
     }
 

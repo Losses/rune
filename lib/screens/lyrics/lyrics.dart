@@ -10,12 +10,16 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
+import '../../providers/playing_item_capabilities.dart';
 
 import 'band_screen_lyrics.dart';
 import 'widgets/lyrics_layout.dart';
 
 class LyricsPage extends StatefulWidget {
-  const LyricsPage({super.key});
+  const LyricsPage({super.key, this.loadLyrics});
+
+  /// Reads the lyrics of an item; the hub's by default.
+  final Future<List<LyricContentLine>> Function(PlayingItem? item)? loadLyrics;
 
   @override
   State<LyricsPage> createState() => _LyricsPageState();
@@ -37,11 +41,21 @@ class _LyricsPageState extends State<LyricsPage>
   Future<List<LyricContentLine>>? _lyric;
   List<LyricContentLine> _rawLyrics = [];
 
+  // What the playing item's library declares about its lyrics.
+  RequestCapability _offered = const RequestCapabilityAvailable();
+  // Counts the loads of lyrics. Only the latest load's answer is kept, as an
+  // earlier one for the same song may answer after it.
+  int _lyricLoad = 0;
+  PlayingItemCapabilitiesProvider? _capabilities;
+
   List<LyricContentLine> _normalizedLyrics = [];
   List<LyricContentLine>? _normalizedSource;
   int _normalizedDuration = -1;
 
   late PlaybackStatusProvider playbackStatus;
+  // Whether [playbackStatus] has the listener, which is added once however
+  // often the dependencies change.
+  bool _listeningToStatus = false;
 
   // Playback position in milliseconds, extrapolated between the 100 ms status
   // updates. Only the active line's sections listen to it.
@@ -57,16 +71,32 @@ class _LyricsPageState extends State<LyricsPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    playbackStatus =
-        Provider.of<PlaybackStatusProvider>(context, listen: false);
+    final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
+    if (_listeningToStatus && !identical(status, playbackStatus)) {
+      playbackStatus.removeListener(_handlePlaybackStatusUpdate);
+      _listeningToStatus = false;
+    }
+    playbackStatus = status;
+    final capabilities = Provider.of<PlayingItemCapabilitiesProvider?>(
+      context,
+      listen: false,
+    );
+    if (!identical(capabilities, _capabilities)) {
+      _capabilities?.removeListener(_handlePlaybackStatusUpdate);
+      _capabilities = capabilities?..addListener(_handlePlaybackStatusUpdate);
+    }
 
-    playbackStatus.addListener(_handlePlaybackStatusUpdate);
+    if (!_listeningToStatus) {
+      playbackStatus.addListener(_handlePlaybackStatusUpdate);
+      _listeningToStatus = true;
+    }
     _handlePlaybackStatusUpdate();
   }
 
   @override
   void dispose() {
     playbackStatus.removeListener(_handlePlaybackStatusUpdate);
+    _capabilities?.removeListener(_handlePlaybackStatusUpdate);
     _ticker.dispose();
     _interpolatedTime.dispose();
     super.dispose();
@@ -152,17 +182,29 @@ class _LyricsPageState extends State<LyricsPage>
   _handlePlaybackStatusUpdate() {
     _syncInterpolatedTime();
 
-    if (_cachedPlayingItem != playbackStatus.playingItem) {
+    final item = playbackStatus.playingItem;
+    final offered =
+        _capabilities?.capabilityFor(
+          item,
+          (capabilities) => capabilities.getLyricByTrackIdRequest,
+        ) ??
+        const RequestCapabilityAvailable();
+    if (_cachedPlayingItem != item || _offered != offered) {
       setState(() {
-        final item = playbackStatus.playingItem;
         _cachedPlayingItem = item;
+        _offered = offered;
         _rawLyrics = [];
-        _lyric = getLyricByTrackId(item).then((lyrics) {
-          if (mounted && _cachedPlayingItem == item) {
-            _rawLyrics = lyrics;
-          }
-          return lyrics;
-        });
+        final load = ++_lyricLoad;
+        // Only an item whose library answers about its lyrics is asked: the
+        // page stays empty for the others.
+        _lyric = offered is RequestCapabilityAvailable
+            ? (widget.loadLyrics ?? getLyricByTrackId)(item).then((lyrics) {
+                if (mounted && load == _lyricLoad) {
+                  _rawLyrics = lyrics;
+                }
+                return lyrics;
+              })
+            : null;
       });
     }
   }

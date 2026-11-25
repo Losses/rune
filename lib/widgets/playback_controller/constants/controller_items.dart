@@ -24,6 +24,7 @@ import '../../../providers/responsive_providers.dart';
 import '../../../providers/visualizer_lab.dart';
 import '../../../providers/renderer_attachment.dart';
 import '../../../providers/request_capabilities.dart';
+import '../../../providers/playing_item_capabilities.dart';
 import '../../../providers/library_open_state.dart';
 import '../../../utils/visualizer_supported.dart';
 
@@ -602,6 +603,12 @@ List<ControllerEntry> controllerItems = [
   ),
   ControllerEntry(
     id: 'lyric',
+    // An item whose library has no lyrics for it offers none.
+    capability: (context, listen) => playingItemCapability(
+      context,
+      (capabilities) => capabilities.getLyricByTrackIdRequest,
+      listen: listen,
+    ),
     icon: (context) => Symbols.lyrics,
     titleBuilder: (context) => S.of(context).lyrics,
     subtitleBuilder: (context) => S.of(context).lyricsSubtitle,
