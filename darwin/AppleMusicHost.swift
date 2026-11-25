@@ -697,7 +697,15 @@ private final class SongLookups {
     // Offline the catalogue cannot be asked, and a song that is not downloaded cannot play.
     guard !missing.isEmpty, NetworkReach.shared.isOnline else { return results }
     let catalogueIDs = await catalogueIDs(of: missing.map(\.0))
-    let standIns = missing.compactMap { libraryID, id in catalogueIDs[libraryID].map { ($0, id) } }
+    var standIns: [(MusicItemID, String)] = []
+    for (libraryID, id) in missing {
+      switch catalogueIDs[libraryID] {
+      case .success(let catalogueID): standIns.append((catalogueID, id))
+      // Not told which catalogue song it is, the song is not taken for one nobody has.
+      case .failure(let error): results[id] = .failure(error)
+      case nil: break
+      }
+    }
     guard !standIns.isEmpty else { return results }
     NSLog(
       "%@",
@@ -712,12 +720,12 @@ private final class SongLookups {
   }
 
   /// The catalogue songs of library songs, by library song, as the library in Apple Music names
-  /// them. A song it names none for, as an upload, is left out, and so is every song of a request
-  /// that fails.
+  /// them. A song it names none for, as an upload, is left out. Every song of a request that
+  /// fails has its failure.
   nonisolated private static func catalogueIDs(of libraryIDs: [MusicItemID]) async
-    -> [MusicItemID: MusicItemID]
+    -> [MusicItemID: Result<MusicItemID, Error>]
   {
-    var found: [MusicItemID: MusicItemID] = [:]
+    var found: [MusicItemID: Result<MusicItemID, Error>] = [:]
     for start in stride(from: 0, to: libraryIDs.count, by: perRequest) {
       let chunk = libraryIDs[start..<min(start + perRequest, libraryIDs.count)]
       var components = URLComponents()
@@ -734,11 +742,14 @@ private final class SongLookups {
         let answer = try JSONDecoder().decode(LibrarySongsAnswer.self, from: response.data)
         for song in answer.data {
           if let catalogueID = song.catalogueID {
-            found[MusicItemID(song.id)] = MusicItemID(catalogueID)
+            found[MusicItemID(song.id)] = .success(MusicItemID(catalogueID))
           }
         }
       } catch {
         NSLog("%@", "Apple Music host: the library named no catalogue songs: \(error)")
+        for libraryID in chunk {
+          found[libraryID] = .failure(error)
+        }
       }
     }
     return found
