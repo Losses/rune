@@ -659,9 +659,8 @@ impl SubsonicBinding {
 
     /// Takes what the check of the server, made under the sign-in the library opened with,
     /// found, unless the sign-in was renewed or the library closed since: a probe replaces the
-    /// kept one, on disk too,
-    /// and a sign-in the server rejects asks for a new one. A probe that grants the jukebox role
-    /// starts following the jukebox, where it is followed. Says whether the probe changed.
+    /// kept one, on disk too, and a sign-in the server rejects asks for a new one. A jukebox that
+    /// is followed is followed again as the probe has it now. Says whether the probe changed.
     pub(crate) fn take_check(
         self: &Arc<Self>,
         probed: Result<SubsonicProbe, SubsonicError>,
@@ -675,13 +674,17 @@ impl SubsonicBinding {
         match probed {
             Ok(probe) => {
                 let changed = *kept != probe;
-                let granted = probe.roles.jukebox_role && !kept.roles.jukebox_role;
+                let follow_again = probe.roles.jukebox_role != kept.roles.jukebox_role
+                    || probe.supports_rune_visualizer_feed()
+                        != kept.supports_rune_visualizer_feed();
                 *kept = probe.clone();
                 // Kept on disk under the lock, so a renewal to another account clears it after.
                 self.lists.kept.keep(PROBE, probe);
                 drop(kept);
-                if granted && self.followed.load(Ordering::Acquire) {
-                    // The poll found no role when the jukebox became the UI's player.
+                if follow_again && self.followed.load(Ordering::Acquire) {
+                    // Followed again as the probe has it now: polled, with the feed the server
+                    // declares, while the account has the role, and not at all without it.
+                    self.stop_jukebox_polling();
                     self.start_jukebox_polling();
                     // A close meanwhile stops what this started.
                     if !self.followed.load(Ordering::Acquire) {
@@ -2543,5 +2546,61 @@ mod visualizer_feed_tests {
             assert!(asked_for_sign_in(&signals), "{status} asked for no sign-in");
             server.abort();
         }
+    }
+
+    #[tokio::test]
+    async fn a_feed_the_server_check_finds_declared_starts_for_the_followed_jukebox() {
+        use crate::service::ServicePlayer;
+
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        let declared = binding.client.probe().await.unwrap();
+        // The library opens from a probe kept before the server declared the feed.
+        binding
+            .probe
+            .lock()
+            .unwrap()
+            .extensions
+            .retain(|(name, _)| name != "runeVisualizerFeed");
+        Arc::clone(&binding).follow();
+        tokio_time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(state.connections.load(Ordering::SeqCst), 0);
+
+        binding.take_check(Ok(declared));
+        wait_until("the feed of the followed jukebox", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        binding.stop_jukebox_polling();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_jukebox_whose_role_the_server_check_finds_taken_stops_being_followed() {
+        use crate::service::ServicePlayer;
+
+        let (url, state, server) = server(true, true).await;
+        let root = TempDir::new().unwrap();
+        let binding = open_binding(url, &root, Arc::new(Signals::default())).await;
+        Arc::clone(&binding).follow();
+        wait_until("the feed of the followed jukebox", || async {
+            Ok((state.connections.load(Ordering::SeqCst) == 1).then_some(()))
+        })
+        .await
+        .unwrap();
+        state.feed_release.notify_one();
+
+        let mut taken = binding.probe();
+        taken.roles.jukebox_role = false;
+        binding.take_check(Ok(taken));
+        wait_until("the feed closed", || async {
+            Ok(state.closed.load(Ordering::SeqCst).then_some(()))
+        })
+        .await
+        .unwrap();
+        assert!(binding.jukebox_poll.lock().unwrap().is_none());
+        server.abort();
     }
 }
