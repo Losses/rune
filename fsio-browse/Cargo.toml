@@ -1,0 +1,64 @@
+[package]
+name = "fsio_browse"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "fsio_browse"
+path = "src/lib.rs"
+
+[dependencies]
+fsio = { version = "0.1.0", path = "../fsio" }
+anyhow = "1.0.98"
+thiserror = "1.0"
+log = "0.4.27"
+tokio = { version = "1", features = ["rt", "macros"] }
+image = "0.25.5"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+directories = "6.0.0"
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+sysinfo = { version = "0.31.4", default-features = false, features = ["disk", "apple-app-store"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+md5 = "0.7.0"
+png = "0.17"
+tempfile = "3.20.0"
+zbus = "3.15"
+
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", default-features = false, features = [
+    "std",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemServices",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSCoder", "NSData", "NSDictionary", "NSError", "NSKeyedArchiver", "NSObject", "NSSet", "NSString", "NSURL", "NSValue"] }
+objc2-quick-look-thumbnailing = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "objc2-core-foundation", "objc2-core-graphics", "QLThumbnailGenerationRequest", "QLThumbnailGenerator", "QLThumbnailRepresentation"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.11" }
+
+[dev-dependencies]
+tempfile = "3.20.0"
+
+[lints]
+workspace = true

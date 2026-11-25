@@ -1,0 +1,949 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>rune</id>
+
+  <name>Rune</name>
+  <summary>The player that blends classic design with modern technology</summary>
+  <url type="homepage">https://rune.not.ci</url>
+
+  <metadata_license>CC-BY-SA-4.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+
+  <developer_name>NOT CI</developer_name>
+
+  <description>
+    <p>
+      Experience timeless melodies with a music player that blends classic design with modern
+      technology
+    </p>
+  </description>
+
+  <content_rating type="oars-1.1" />
+
+  <launchable type="desktop-id">rune.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/00.png</image>
+      <caption>Main window</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/01.png</image>
+      <caption>Track list</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/02.png</image>
+      <caption>Cover Art Wall</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/03.png</image>
+      <caption>Search</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/04.png</image>
+      <caption>About Page</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="2.0.0-alpha.16" date="2026-10-31">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Make the cover wall a visualizer scene, list scenes under Theme settings, and support importing .runescene files.</li>
+          <li>Use the new Liquid Glass app icon on macOS and iOS.</li>
+          <li>Support persistent interface scaling across layout and rendering.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Select Skia and precompile acrylic shaders to prevent popup menu stalls on Linux.</li>
+          <li>Show the build&apos;s git hash and commit date on the About page.</li>
+          <li>Recommend tracks with exact search over analysis data instead of LMDB.</li>
+          <li>Accelerate audio processing kernels, CRC, and library database lookups.</li>
+          <li>Standardize English settings names and descriptions.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.15" date="2026-10-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Keep androidx.documentfile for ndk-saf JNI lookups on Android.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.14" date="2026-10-26">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Keep a deleted library folder from stopping Rune from starting on macOS.</li>
+          <li>Support opening the library database on a network path on Windows.</li>
+          <li>Unmount branding animation after it finishes, and reuse lens flare shaders to avoid memory pressure and unnecessary frame scheduling.</li>
+          <li>Release lens flare shader when the widget is removed before it loads.</li>
+          <li>Prevent Android build timeout and improve release upload robustness in CI.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.13" date="2026-10-23">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Keep items fetched by ID in the order they were requested.</li>
+          <li>Keep the search page in step with the search box and clear results when search text is cleared.</li>
+          <li>Keep the mix editor's suggestions in step with typed text and recover from failed searches.</li>
+          <li>Fix Windows CI build with offline vendored crates and preserve pre-release status during release asset uploads.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Support searching for genres in library search.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.12" date="2026-10-22">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Show only the playing track's lyrics and keep the current line centred.</li>
+          <li>Parse lyrics leniently (LRC, TTML, WebVTT, SRT) and preserve timing.</li>
+          <li>Match search words in any order with prefix matching.</li>
+          <li>Ignore stored settings of unexpected types.</li>
+          <li>Handle Genre in collection type conversions.</li>
+          <li>Improve audio packet decoding and empty buffer handling.</li>
+          <li>Support macOS and iOS builds with Xcode 27.1 and SDK 27.</li>
+          <li>Fix Android NDK build compatibility for fdk-aac.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Build native Windows ARM64 application and installer artifacts.</li>
+          <li>Leave full screen, lyrics, and the cover wall with Esc.</li>
+          <li>Reproducible Nix-based build matrix for Windows CI.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.11" date="2026-10-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix Apple App Store code signing configuration.</li>
+          <li>Update Android SAF dependency for improved stability.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Support additional audio codecs (Opus via libopus, AAC via fdk-aac).</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.10" date="2026-09-22">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix Android SAF file access, metadata scanning, and playback under scoped storage.</li>
+          <li>Disable GTK header bar by default on Linux.</li>
+          <li>Fix track list scroll bar behavior in certain circumstances.</li>
+          <li>Fix save button in Mix Studio.</li>
+          <li>Fix collection displaying and editing issues.</li>
+          <li>Enhanced LRC parsing.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Upgrade Flutter to 3.47 and Rust toolchain to 1.98.</li>
+          <li>High-performance cached SAF filesystem for Android with on-device self-test diagnostics.</li>
+          <li>Support preference for tray icon color schema.</li>
+          <li>CLI integration for client ID.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.9" date="2025-10-10">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>When scanning cover-art, already scanned files will not be skipped.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Frameless window option for Linux.</li>
+          <li>A scroll bar to the tracks list by @baiyuanneko in https://github.com/Losses/rune/pull/283.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.8" date="2025-09-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Linux build broken.</li>
+          <li>Android build broken.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.7" date="2025-09-02">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix incorrect migration config and data generation for the sync package.</li>
+          <li>Downgrade build runner to use Ubuntu 22.04 by @abc1763613206 in
+            https://github.com/Losses/rune/pull/277.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Upgrade flutter to 3.35.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Bump macOS deployment target to 10.15 by @laosb in
+            https://github.com/Losses/rune/pull/273.</li>
+          <li>Bump iOS deployment target to 14.0 by @laosb in
+            https://github.com/Losses/rune/pull/274.</li>
+          <li>Bump tracing-subscriber from 0.3.19 to 0.3.20 by @dependabot[bot] in
+            https://github.com/Losses/rune/pull/275.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.6" date="2025-08-20">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix the iOS publishing CI.</li>
+          <li>Fixed the Android CI.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Implemented the Android TF Card file reading support.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.5" date="2025-08-10">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Using zbus for mpris backend by @baiyuanneko in
+            https://github.com/Losses/rune/pull/268.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>For macOS, replace with opaque tinted icon by @laosb in
+            https://github.com/Losses/rune/pull/259.</li>
+          <li>Implement the database sync protocol.</li>
+          <li>Improve the performance while users are not interacting with the program.</li>
+          <li>Update Japanese Translation by @NovaDNG in https://github.com/Losses/rune/pull/267.</li>
+          <li>Update Chinese Translation.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Bump openssl from 0.10.70 to 0.10.72 by @dependabot[bot] in
+            https://github.com/Losses/rune/pull/262.</li>
+          <li>Bump tokio from 1.44.1 to 1.44.2 by @dependabot[bot] in
+            https://github.com/Losses/rune/pull/263.</li>
+          <li>Bump crossbeam-channel from 0.5.13 to 0.5.15 by @dependabot[bot] in
+            https://github.com/Losses/rune/pull/264.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.4" date="2025-03-19">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Light mode not working on iOS issue by @XMLHexagram.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Add CI scripts for iOS App Store build by @laosb.</li>
+          <li>Adding track de-duplication.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.3" date="2025-03-12">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Return operation does not close Context Menu.</li>
+          <li>Clicking the Cover Art next to the playback progress bar does not open the Cover Art
+            Wall.</li>
+          <li>Event listeners are not destroyed after the FFT visualization component is destroyed.</li>
+          <li>The background color tinting feature of the Cover Art Wall is not working properly.</li>
+          <li>Android version cannot be compiled normally.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Added classification by Genres functionality.</li>
+          <li>Clicking the song name above the playback progress bar can open the Cover Art Wall.</li>
+          <li>Added server authentication status detection process for device pairing.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.2" date="2025-02-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Android CI not working.</li>
+          <li>Linux ARM CI not working.</li>
+          <li>macOS permission not configurated correctly by @laosb.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.1" date="2025-02-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon not working on Flatpak for Linux by @Fei1Yang.</li>
+          <li>Add `type` field to all placeholders in arb by @balthild.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Implementing the remote control protocol.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-rc.2" date="2025-01-10">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon not working on Flatpak for Linux by @Fei1Yang.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-rc.1" date="2025-01-06">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update Translation files by @NovaDNG.</li>
+          <li>Optimize analyze performance.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.3" date="2025-01-05">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Prevent multiple events being triggered in the navigation bar.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.2" date="2024-12-31">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Updated translation files by @123Duo3.</li>
+          <li>Improved randomness of the cover art wall.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Enhanced image rendering quality by setting filter quality to high.</li>
+          <li>Fixed issue where switching among playback modes was not possible when there were
+            insufficient enabled modes.</li>
+          <li>Resolved issue where the navigation back text was not clickable on the bottom side.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.1" date="2024-12-26">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Clicking on lyrics now seeks to the corresponding timestamp.</li>
+          <li>Added functionality to copy lyrics.</li>
+          <li>Added new localization entries.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Blank cover art not displaying metadata on the lyrics page.</li>
+          <li>Playback status disappeared after audio finished playing.</li>
+          <li>The online service error recovery menu not appearing.</li>
+          <li>Scrobble login status detection.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.6" date="2024-12-25">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added logging capability for internal decoder errors.</li>
+          <li>Added support for parsing .lrcx lyric files.</li>
+          <li>Added Mild Spectrum settings and integrate with FFT visualizer.</li>
+          <li>Update translation files by @NovaDNG.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Normalize lyrics based on track duration and improve playback status handling.</li>
+          <li>Update makeLatest condition to exclude alpha and beta branches by @Ovler-Young.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.5" date="2024-12-22">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added support for SRT format lyrics files.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Opening files via keyboard shortcuts would cause the UI to freeze.</li>
+          <li>Scrobbling was not possible after switching Libraries.</li>
+          <li>Dragging the main window would incorrectly trigger navigation actions.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.4" date="2024-12-21">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Enhanced cover art extraction with `cover.png`, `folder.png`</li>
+          <li>Added support for TTML (Timed Text Markup Language) file parsing in audio lyrics</li>
+          <li>Implemented VTT (Web Video Text Tracks) file parsing alongside existing .lrc support</li>
+          <li>Adding Control + O shortcut to open files</li>
+          <li>Updated Japanese and Chinese localization for improved consistency by @NovaDNG and
+            @123Duo3 </li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Updated navigation logic for cover wall and lyrics display</li>
+          <li>Removed experimental flag from Traditional Chinese language option</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.3" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Add config buttons on mobile devices for scrobbling services</li>
+          <li>Update lyric scroll scheduling logic</li>
+          <li>Update JA, JA_Kana and JA_Nise translation by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>macOS build is broken by @laosb</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.2" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implementing last.fm, libre.fm, ListenBrainz integration</li>
+          <li>Updated pseudo Chinese translation by @NovaDNG</li>
+          <li>Add actual language placeholder files by @laosb</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.1" date="2024-12-18">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implemented lyrics display interface</li>
+          <li>Added lyrics viewing capability for the music player</li>
+          <li>Introduced file drag-and-drop functionality for window playback</li>
+          <li>Implemented pseudo Chinese translation support by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed compilation errors on the Steam Sniper platform</li>
+          <li>Add ja, zh-Hans and lzh to xcodeproj by @laosb</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-rc.2" date="2024-12-12">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added support for Bandcamp platform licensing authentication</li>
+          <li>Hidden window control buttons in the Cover Art Wall interface on macOS by @XMLHexagram</li>
+          <li>Prepare for the unofficial FlatHub release by @Fei1Yang</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed conflict issues between playback control buttons and touch gestures in the
+            library home settings interface</li>
+          <li>Resolved incorrect page margin issues in the search interface on Android</li>
+          <li>Fixed difficulty in triggering navigation bar text on touchscreens</li>
+          <li>Improved margin calculation for icon buttons in Band View</li>
+          <li>Corrected navigation bar positioning issues on Android</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-rc.1" date="2024-12-10">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Make cover art wall background black</li>
+          <li>Add activation instruction</li>
+          <li>Polish the design of the welcome screen</li>
+          <li>Update translation files</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed the like button not being clickable</li>
+          <li>Resolved window control buttons not working on Windows</li>
+          <li>Fixed readonly mode breaking</li>
+          <li>Corrected branding animation config initialization</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.5" date="2024-12-07">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Optimized the drag-and-drop animation for rotating disks.</li>
+          <li>Updated LZH and Hans translations.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed the issue with misaligned window control buttons.</li>
+          <li>Resolved the lag problem when dragging the progress bar in pause mode.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.4" date="2024-12-06">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implemented track switching by sliding left or right on the disc.</li>
+          <li>Implemented Adaptive Switching.</li>
+          <li>Hide window control buttons in band and dock sizes by @XMLHexagram in #182</li>
+          <li>Added necessary files for Flatpak support by @Fei1Yang in #181</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed an issue where non-square album covers were not rendering correctly.</li>
+          <li>Fixed problems preventing the Android version of the app from starting properly by
+            @Rachel030219 in #183</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.3" date="2024-12-05">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Tweak the icon size of the playback buttons</li>
+          <li>Add Reveal highlight to some new buttons</li>
+          <li>Add a context menu to the rotating cover art disk</li>
+          <li>Improve the rotating effect to the rotating cover art disk</li>
+          <li>エクスペリメンタルのかなローカリゼーションをアップロード by @NovaDNG in #176, #177</li>
+          <li>Simplify artifact naming in CircleCI configuration by @Ovler-Young in #178</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Seeking is not working</li>
+          <li>Language parsing is not always working</li>
+          <li>Rune stack is not working properly</li>
+          <li>Improve the dragging widget style</li>
+          <li>Some entries in the playback controller context menu are not available on small screen</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.2" date="2024-12-04">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implement force scan for database version updating</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Tweak the sorting behavior of the library settings page</li>
+          <li>License check not working</li>
+          <li>Remove unused network.server entitlement. by @laosb in #174</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.1" date="2024-12-04">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Adding single instance support for Windows</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>The player crashes while playing a non-exist track file</li>
+          <li>App store validation is not working</li>
+          <li>Album title is not aligned properly by @XMLHexagram in #170</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.23" date="2024-12-04">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Unable to popup library mode modal</li>
+          <li>Router redirect unexpectedly after clicking the initializing button</li>
+          <li>Move cleanup step to the correct position in the build workflow by @Ovler-Young in
+            #164</li>
+          <li>Replace core-graphics to prevent private api usage by @XMLHexagram in #165</li>
+          <li>Ablum title offset on macOS by @XMLHexagram in #166</li>
+          <li>Window controls reset after showing file seletor by @XMLHexagram in #168</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.22" date="2024-12-03">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update Japanese translation by @NovaDNG in #161</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Dynamic theme not working</li>
+          <li>Resolve filename conflict and remove nested ZIP structure for DMG by @Ovler-Young in
+            #160</li>
+          <li>Exit button in tray menu not working on macOS by @XMLHexagram in #158</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.21" date="2024-12-03">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update LZH Translation</li>
+          <li>Optimize artifact handling to avoid redundant operations by @Ovler-Young in #153</li>
+          <li>Delivering build to App Store and making build for Steam by @XMLHexagram in #154, #157</li>
+          <li>Add linter CI and lint all codes by @XMLHexagram in #156</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Samples missed while playing audio</li>
+          <li>Crash happens while generating the recommendation list</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.20" date="2024-12-02">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>New cover art style for the album view</li>
+          <li>Notarized build use Developer ID by @laosb in #142, #146</li>
+          <li>Support license check for App Store by @XMLHexagram in #143, #144</li>
+          <li>Normalize archive naming conventions for tag and manual builds by @Ovler-Young in #147</li>
+          <li>Only run build-and-release-mac-app-store if releasing new version by @Ovler-Young in
+            #149</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Window control not working correctly on Windows while switching the full screen status</li>
+          <li>Avoid BSOD on decoding failed</li>
+          <li>Tray menu not working correctly on Windows</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.19" date="2024-12-01">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Publish to Mac App Store via GitHub Actions by @laosb in #139</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon is not working correctly on Windows</li>
+          <li>Tray item is not rendered correctly on macOS by @XMLHexagram in #140</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.18" date="2024-12-01">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Better disk number and track number parsing method</li>
+          <li>Update LLM translated entries for various languages</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Navigation bar was broken in release mode by @XMLHexagram in #136</li>
+          <li>Window control buttons isn’t vertical in first time open by @XMLHexagram in #137</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.17" date="2024-11-30">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Support importing M3U8 format playlists</li>
+          <li>Integrate Microsoft Store's official verification system</li>
+          <li>Add a bubble prompt when closing the window for the first time, informing the user
+            that the software is running in the background</li>
+          <li>Implement an verification system for open-source software repositories</li>
+          <li>Playlist now sorts according to the order of addition</li>
+          <li>Updated translations (Japanese, Traditional Chinese, and Simplified Chinese) by
+            @NovaDNG in #130 #133, @123Duo3 in #134</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed dragging and moving window issues on macOS by @XMLHexagram in #131</li>
+          <li>Fixed the position of window control buttons (Traffic Light) after exiting fullscreen
+            on macOS by @XMLHexagram in #132</li>
+          <li>Corrected typography issues in some prompt texts</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.16" date="2024-11-28">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implement an alternative media library storage mode</li>
+          <li>Provide a theme option to remember window size</li>
+          <li>Update lzh, hans, and ja translation by @123Duo3 in #126, #128 and @NovaDNG in #127</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Blocks with no entries in the Library Home will now be hidden</li>
+          <li>Issue with high CPU usage after switching libraries</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.15" date="2024-11-27">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implement reminder modal for non-genuine users</li>
+          <li>Added Reveal Highlight to track list in Zune mode</li>
+          <li>Better search query builder</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed font loading error when system language is set</li>
+          <li>Resolved issue with Reveal Highlight effect not loading properly after mouse release</li>
+          <li>Window control buttons not working by @XMLHexagram in #124</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.14" date="2024-11-27">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Optimize the search query condition building process</li>
+          <li>Optimize the window drag area for Windows self-drawing windows</li>
+          <li>Optimize the search interface layout on Windows</li>
+          <li>Redesign macOS move area by @XMLHexagram in #121</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed the issue where the Playback Control menu was not refreshing in time</li>
+          <li>Fixed the problem of inability to add new tracks to the playlist</li>
+          <li>Fixed the full-screen functionality not working correctly on Windows</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.13" date="2024-11-26">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update lzh and hans by @123Duo3 in #114</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Memory usage issue on the cover art page</li>
+          <li>CJK Font issue on Windows</li>
+          <li>FLAC tracks are not seekable</li>
+          <li>Improve window related configurations macOS by @XMLHexagram in #117 #119</li>
+          <li>Switch to shuffle mode breaks the app when there is only one song in the list by
+            @XMLHexagram in #115</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.12" date="2024-11-25">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update JA translation by @NovaDNG in #113</li>
+          <li>Implement Reveal Highlight</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Self painted window controls on Windows 10 not rendered correctly</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.11" date="2024-11-24">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Memory usage optimization for cover wall rendering</li>
+          <li>Grouped Playlist and Mix, moved Rune to the front</li>
+          <li>Sorted Collection List by name</li>
+          <li>Changed Collection List to vertical layout</li>
+          <li>Improved window frame for Windows</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Cache not cleared after switching library</li>
+          <li>WAV format tracks not showing up in search results</li>
+          <li>Polish Simplified Chinese translation by @123Duo3 in #109</li>
+          <li>Cargo documentation tests failed by @XMLHexagram in #111</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.10" date="2024-11-23">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update Wenyan translation by @123Duo3 in #101</li>
+          <li>Enable system tray for macOS by @XMLHexagram in #104</li>
+          <li>Add default parameters to the modal for creating playlists and mixes</li>
+          <li>Export playlists in M3U8 format for use in other players</li>
+          <li>Export cover art wall</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Cover art scanning cannot be terminated</li>
+          <li>Roaming feature does not check for non-roamable cases</li>
+          <li>Window not moveable in macOS by background by @XMLHexagram in #106</li>
+          <li>Unable to build Linux package by @abc1763613206 in #107</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.9" date="2024-11-23">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implement system tray support for Windows and Linux platforms</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed the issue of windows turning black on the Windows platform.</li>
+          <li>Escape search keyword per FTS5 by @outloudvi in #94</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.8" date="2024-11-22">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Improve macos dev install script by @laosb in #95</li>
+          <li>Refreshed window control buttons design by @laosb in #96</li>
+          <li>Enable SIMD for audio decoding by @XMLHexagram in #92</li>
+          <li>Add Japanese translation for the Home Section by @NovaDNG in #97</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Clicking on a track in the recommended projects on the homepage created a play queue
+            in the wrong order.</li>
+          <li>The Library Home title didn't navigate to the correct page.</li>
+          <li>Added refresh and personalized context menu to Library Home.</li>
+          <li>Implemented rate limiting for volume adjustment and seek requests to prevent message
+            queue blockage.</li>
+          <li>Unable to handle empty search condition by @XMLHexagram in #91</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.7" date="2024-11-21">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Library Home now supports custom layouts and content structures.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>The Play Controller's context menu does not follow system language changes.</li>
+          <li>Shortcut tag on macOS by @XMLHexagram in #87</li>
+          <li>Update format for the Japanese l10n file by @NovaDNG in #88</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.6" date="2024-11-18">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Wenyan translation by @123Duo3, @Wenbobobo and @XMLHexagram in #83</li>
+          <li>Simplified Chinese translation by @MoTIEdsuNe in #85</li>
+          <li>Added a scan log interface for media files</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Optimize analyze performance by @XMLHexagram in #82</li>
+          <li>Re-implemented Cover Wall to reduce memory usage</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.5" date="2024-11-16">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Configure CI for Steam Sniper container by @abc1763613206 in #76</li>
+          <li>Speed up analysis functionality by @XMLHexagram in #77</li>
+          <li>Implement refresh list feature</li>
+          <li>Add "Create Mix" and "Create Playlist" options to the context menu</li>
+          <li>Add a confirmation modal for the delete library list feature</li>
+          <li>Implement multi-language selection</li>
+          <li>Add official support for Japanese and Traditional Chinese by @NovaDNG in #78</li>
+          <li>Add experimental support for German, French, Italian, Korean, Ukrainian, Hokkien, and
+            Cantonese</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fix Android compilation errors</li>
+          <li>Insert checks in the "Favorites" track API to prevent write errors</li>
+          <li>Play Next option in Add to Queue setting not working by @XMLHexagram in #80</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.4" date="2024-11-13">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Color mode not working on macOS by @XMLHexagram in #74</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.3" date="2024-11-13">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Stop all automatic analysis behaviors</li>
+          <li>Added number scrolling animation to the scan page</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Some file formats cannot be stored in the database</li>
+          <li>Incorrectly plays startup sound during initial scan</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.2" date="2024-11-12">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Click "Rune" to return to the library page</li>
+          <li>Turn application to background mode while closing the window for macOS by @XMLHexagram
+            in #71</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>The light/dark theme toggle is malfunctioning on some operating systems</li>
+          <li>Unable to switch performance mode in the settings interface</li>
+          <li>Text of the analysis button in the modal is not centered</li>
+          <li>Cache does not refresh after creating a new Mix and Playlist</li>
+          <li>Submitting an empty Mix in Mix Studio causes the modal to freeze</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.0.0-alpha.1" date="2024-11-11">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Move configuration files to the correct location</li>
+          <li>Save the queue position of the last played track</li>
+          <li>Return to the navigation interface when database initialization fails</li>
+          <li>Hide .rune directory on Windows</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Unable to complete compilation on Windows platform</li>
+          <li>Starting the program with an empty queue causes a crash</li>
+          <li>GPU initializer starts when using CPU scanning</li>
+          <li>Unable to save Library Path on macOS</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

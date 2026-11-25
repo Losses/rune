@@ -1,0 +1,1808 @@
+{
+  "@@locale": "de",
+  "rune": "Rune",
+  "@rune": {
+    "description": "Der Markenname der Software, der nicht übersetzt werden sollte."
+  },
+  "runePlayer": "Rune Player",
+  "@runePlayer": {
+    "description": "Der vollständige Name der Software. Der Teil 'Player' sollte normal übersetzt werden, aber 'Rune' als Markenname sollte nicht übersetzt werden."
+  },
+  "copyright": "Urheberrecht",
+  "@copyright": {
+    "description": "Dies ist der Titel eines Eintrags, der in der Einstellungsoberfläche unter dem Abschnitt Urheberrecht erscheint."
+  },
+  "copyrightAnnouncement": "Urheberrecht © 2024 Rune Player Entwickler.",
+  "@copyrightAnnouncement": {
+    "description": "Die vollständige Urheberrechtserklärung."
+  },
+  "licenseAnnouncement": "Dieses Produkt ist unter der MPL-Lizenz lizenziert.",
+  "@licenseAnnouncement": {
+    "description": "Die vollständige Software-Lizenzierungserklärung."
+  },
+  "factoryReset": "Werkseinstellungen",
+  "@factoryReset": {
+    "description": "Der Titel des Buttons auf der Einstellungsseite, der die Aktion 'Bibliothekshistorie zurücksetzen' auslöst."
+  },
+  "factoryResetSubtitle": "Alle Elemente aus der Bibliotheksliste entfernen.",
+  "@factoryResetSubtitle": {
+    "description": "Der beschreibende Text für den 'Werkseinstellungen'-Button in der Einstellungsoberfläche."
+  },
+  "bsodBody": "Ihr Player hat ein Problem festgestellt und muss neu gestartet werden. Wir respektieren Ihre Privatsphäre und sammeln keine Daten.",
+  "@bsodBody": {
+    "description": "Auf der Bluescreen-Oberfläche erklärt dies dem Benutzer, dass die Software einen schwerwiegenden Fehler festgestellt hat. Der zweite Satz spricht humorvoll die weit verbreiteten Datenschutzbedenken in der modernen Softwareentwicklung an. Gerne spielerisch halten."
+  },
+  "artists": "Künstler",
+  "@artists": {},
+  "albums": "Alben",
+  "@albums": {},
+  "playlists": "Wiedergabelisten",
+  "@playlists": {},
+  "unknownAlbum": "Unbekanntes Album",
+  "@unknownAlbum": {},
+  "unknownTrack": "Unbekannter Titel",
+  "@unknownTrack": {},
+  "unknownArtist": "Unbekannter Künstler",
+  "@unknownArtist": {},
+  "selectDirectory": "Verzeichnis auswählen",
+  "@selectDirectory": {},
+  "noDataAvailable": "Keine Daten verfügbar",
+  "@noDataAvailable": {},
+  "start": "Start",
+  "@start": {
+    "description": "Dekorativer Text, der in der Nähe der Bibliothekshome-Funktionsliste erscheint."
+  },
+  "search": "Suche",
+  "@search": {},
+  "tracks": "Titel",
+  "@tracks": {},
+  "system": "System",
+  "@system": {},
+  "operatingSystem": "Betriebssystem",
+  "@operatingSystem": {
+    "description": "Einer der Titel für Softwareinformations-Einträge auf der Über-Seite."
+  },
+  "systemVersion": "Systemversion",
+  "@systemVersion": {
+    "description": "Einer der Titel für Softwareinformations-Einträge auf der Über-Seite."
+  },
+  "kernelVersion": "Kernelversion",
+  "@kernelVersion": {
+    "description": "Ein Eintrag auf der Über-Seite, der normalerweise die Version des Betriebssystemkernels zu Diagnosezwecken angibt."
+  },
+  "hostName": "Host-Name",
+  "@hostName": {
+    "description": "Ein Eintrag auf der Über-Seite, der normalerweise den Namen des Computers angibt."
+  },
+  "player": "Player",
+  "@player": {
+    "description": "Ein Abschnittstitel für Software-Metadaten auf der Über-Seite, der einen Überblick über die Versionsinformationen der Software bietet."
+  },
+  "buildHash": "Build-Hash",
+  "@buildHash": {},
+  "buildDate": "Build-Datum",
+  "@buildDate": {},
+  "commitDate": "Commit-Datum",
+  "@commitDate": {},
+  "rustcVersion": "Rustc-Version",
+  "@rustcVersion": {},
+  "activation": "Aktivierung",
+  "@activation": {},
+  "runeIsActivated": "Rune ist aktiviert",
+  "@runeIsActivated": {
+    "description": "Informiert den Benutzer, dass die Software derzeit aktiviert ist. Tatsächlich ist die Software unter allen Umständen immer aktiviert."
+  },
+  "productId": "Produkt-ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Sie könnten Opfer einer echten Software sein.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "Dieser Satz ist ein Easter Egg, das satirisch darauf hinweist, dass Anti-Piraterie-Maßnahmen oft das Erlebnis für legitime Benutzer schlechter machen als für diejenigen, die Raubkopien verwenden. Gerne spielerisch halten."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "Die Designforschungsorganisation, die dieses Projekt unterstützt. Sie sollten den Namen unverändert lassen, ohne Übersetzung."
+  },
+  "computingDevice": "Rechengerät",
+  "@computingDevice": {
+    "description": "Ein Einstellungs-Eintragstitel, der es Benutzern ermöglicht, das Hardwaregerät auszuwählen, das für die Durchführung von Audioanalyzeaufgaben verantwortlich ist."
+  },
+  "computingDeviceSubtitle": "Wählen Sie GPU oder CPU für schnellere oder effizientere Verarbeitung.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Leistungsstufe",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Wählen Sie, wie viele Aufgaben gleichzeitig ausgeführt werden sollen.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Leistung",
+  "@performance": {
+    "description": "Hochleistungsmodus, der verfügbare Hardware-Ressourcen nutzt, um Berechnungen so schnell wie möglich abzuschließen."
+  },
+  "balance": "Balance",
+  "@balance": {
+    "description": "Ausgewogener Modus, der Ressourcen gleichmäßig verteilt, um zu verhindern, dass Berechnungsaufgaben das System überlasten und Verzögerungen verursachen."
+  },
+  "batterySaving": "Energiesparen",
+  "@batterySaving": {
+    "description": "Energiesparmodus, der den Ressourcenverbrauch minimiert, um Überhitzung zu verhindern, geeignet für weniger leistungsstarke Geräte."
+  },
+  "switchTo": "Wechseln zu",
+  "@switchTo": {
+    "description": "Button-Aufforderungstext zum Wechseln von Mediatheken. Durch Drücken dieser Taste wird die aktuelle Bibliothek geschlossen und eine neue geöffnet."
+  },
+  "removeLibrary": "Entfernen",
+  "@removeLibrary": {
+    "description": "Button-Aufforderungstext zum Entfernen einer Mediathek. Durch Drücken dieser Taste wird der Bibliothekseintrag aus der Historie gelöscht."
+  },
+  "localFolder": "Lokaler Ordner",
+  "localFolderSubtitle": "Wähle einen Ordner auf diesem Gerät.",
+  "runeDevice": "Rune-Gerät",
+  "runeDeviceSubtitle": "Verbinde dich mit einem anderen Rune-Gerät.",
+  "addLibrary": "Bibliothek hinzufügen",
+  "@addLibrary": {
+    "description": "Button-Aufforderungstext in der Einstellungsoberfläche zum Erstellen einer neuen Mediathek. Durch Drücken dieser Taste wird der Benutzer dazu geführt, ein Verzeichnis auszuwählen und eine Bibliothek zu erstellen."
+  },
+  "addLibrarySubtitle": "Eine neue Bibliothek hinzufügen und vorhandene Dateien scannen.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Aktionsmenü",
+  "@actionMenu": {
+    "description": "Ein Trenner in der Einstellungsoberflächen-Elementliste. Alle Elemente unter diesem Trenner werden in einem Pop-up-Button anstelle der direkten Anzeige auf dem Bildschirm ausgeblendet."
+  },
+  "addToQueue": "Zur Warteschlange hinzufügen",
+  "@addToQueue": {
+    "description": "Ein Eintrag im Kontextmenü. Durch Drücken dieses Eintrags wird der entsprechende Titel oder das Album zur Wiedergabewarteschlange hinzugefügt."
+  },
+  "addToQueueSubtitle": "Wie neue Elemente zur Wiedergabewarteschlange hinzugefügt werden.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Als nächstes abspielen",
+  "@playNext": {
+    "description": "Eine Aktion, die einen Titel oder ein Album in der Wiedergabeliste als nächstes abspielt."
+  },
+  "addToEnd": "Zum Ende hinzufügen",
+  "@addToEnd": {
+    "description": "Eine Aktion, die einen Titel oder ein Album ans Ende der Wiedergabeliste stellt."
+  },
+  "middleClickAction": "Mittelklick-Aktion",
+  "@middleClickAction": {
+    "description": "Ein Titel in der Einstellungsoberfläche, der das Verhalten steuert, wenn der Benutzer mit der mittleren Maustaste auf einen Titel oder ein Album klickt."
+  },
+  "middleClickActionSubtitle": "Aktion, die beim Mittelklicken auf einen Titel oder eine Sammlung ausgeführt werden soll.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Wiedergabe starten",
+  "@startPlaying": {
+    "description": "Eine Aktion, die der Benutzer auslösen kann, um mit der Musikwiedergabe zu beginnen."
+  },
+  "startRoaming": "Roaming starten",
+  "@startRoaming": {
+    "description": "Eine Aktion, die der Benutzer auslösen kann, um Musik abzuspielen, die dem aktuellen Titel oder Album ähnlich ist."
+  },
+  "playbackMode": "Wiedergabemodus",
+  "@playbackMode": {
+    "description": "Ein Titel in der Einstellungsoberfläche, der Benutzern hilft, den gewünschten Wiedergabemodus auszuwählen, wie z.B. Shuffle oder sequentielle Wiedergabe."
+  },
+  "playbackModeSubtitle": "Bevorzugter Wiedergabemodus für die Musikwiedergabe",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Farbmodus",
+  "@colorMode": {
+    "description": "Ein Einstellungs-Eintrag, der Benutzern hilft, den Farbmodus der Benutzeroberfläche auszuwählen, einschließlich heller und dunkler Modi."
+  },
+  "colorModeSubtitle": "Ändern Sie den Farbmodus, der in Rune erscheint.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "System",
+  "@systemColorMode": {
+    "description": "Ein Farbeinstellungs-Eintrag, der, wenn aktiviert, den Licht- oder Dunkelmodus der Software mit den Systemeinstellungen abgleicht."
+  },
+  "dark": "Dunkel",
+  "@dark": {
+    "description": "Ein Farbeinstellungs-Eintrag, der den Dunkelmodus aktiviert, wenn er ausgewählt ist."
+  },
+  "light": "Hell",
+  "@light": {
+    "description": "Ein Farbeinstellungs-Eintrag, der den Hellmodus aktiviert, wenn er ausgewählt ist."
+  },
+  "themeColor": "Themenfarbe",
+  "@themeColor": {
+    "description": "Ein Einstellungs-Eintrag, der es Benutzern ermöglicht, ihre bevorzugte Themenfarbe auszuwählen."
+  },
+  "themeColorSubtitle": "Wählen Sie eine Farbe, um Ihrem Rune ein neues Aussehen und Gefühl zu verleihen.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Systemthema folgen",
+  "@followSystemTheme": {
+    "description": "Ein Eintrag in den Themenfarbeneinstellungen. Wenn aktiviert, folgt die Themenfarbe der Software den Systemeinstellungen."
+  },
+  "dynamicColors": "Dynamische Farben",
+  "@dynamicColors": {
+    "description": "Ein Farbeinstellungs-Eintrag. Wenn aktiviert, ändert sich die Themenfarbe der Software basierend auf dem Cover des aktuell gespielten Titels."
+  },
+  "dynamicColorsSubtitle": "Passen Sie die Themenfarben von Rune basierend auf dem Cover des gespielten Titels an.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Branding-Animation",
+  "@brandingAnimation": {
+    "description": "Ein Einstellungs-Eintrag, der es Benutzern ermöglicht zu steuern, ob eine Willkommensanimation beim Start der Software abgespielt wird."
+  },
+  "brandingAnimationSubtitle": "Branding-Animation abspielen, wenn Rune startet.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Dies könnte einige Minuten dauern.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Titel auf dem Wartebildschirm beim Scannen, um Benutzer daran zu erinnern, geduldig zu sein."
+  },
+  "tracksFound": " Titel gefunden",
+  "@tracksFound": {
+    "description": "Aufforderungstext auf dem Wartebildschirm beim Scannen, der Benutzer darüber informiert, wie viele Titel gescannt wurden."
+  },
+  "albumCoversCollected": " Albumcover gesammelt",
+  "@albumCoversCollected": {
+    "description": "Aufforderungstext auf dem Wartebildschirm beim Scannen, der Benutzer darüber informiert, wie viele Albumcover gescannt wurden."
+  },
+  "editPlaylist": "Wiedergabeliste bearbeiten",
+  "@editPlaylist": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, die Metadaten einer Wiedergabeliste zu bearbeiten."
+  },
+  "editMix": "Mix bearbeiten",
+  "@editMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, die Metadaten eines Mixes, einer intelligenten Wiedergabeliste, zu bearbeiten. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "edit": "Bearbeiten",
+  "@edit": {
+    "description": "Ein Verb im Kontextmenü als Fallback-Text, der Benutzer dazu anleitet, Inhalte zu bearbeiten, wenn die Software nicht identifizieren kann, was bearbeitet werden soll."
+  },
+  "remove": "Entfernen",
+  "@remove": {
+    "description": "Ein Verb im Kontextmenü als Fallback-Text, der Benutzer dazu anleitet, Inhalte zu entfernen, wenn die Software nicht identifizieren kann, was entfernt werden soll."
+  },
+  "removePlaylist": "Wiedergabeliste entfernen",
+  "@removePlaylist": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, eine Wiedergabeliste zu löschen."
+  },
+  "removeMix": "Mix entfernen",
+  "@removeMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen Mix, eine intelligente Wiedergabeliste, zu löschen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "addToMix": "Zum Mix hinzufügen",
+  "@addToMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen Titel oder ein Album zu einem Mix, einer intelligenten Wiedergabeliste, hinzuzufügen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "newMix": "Neuer Mix",
+  "@newMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen neuen Mix, eine intelligente Wiedergabeliste, zu erstellen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "selectAGroup": "Gruppe auswählen",
+  "@selectAGroup": {
+    "description": "Platzhaltertext im Eingabefeld im Bearbeitungsmodal für Mix oder Wiedergabeliste, der Benutzer anleitet, eine Inhaltsgruppe auszuwählen."
+  },
+  "likedOnly": "Nur Gefällt mir",
+  "@likedOnly": {
+    "description": "Ein Eintrag in der Mix-Bearbeitungsoberfläche, eine Kontrollkästchenoption, um nur Titel zu filtern und zu behalten, die der Benutzer 'geliked' hat."
+  },
+  "allTracks": "Alle Titel",
+  "@allTracks": {
+    "description": "Ein Eintrag in der Mix-Bearbeitungsoberfläche, eine Kontrollkästchenoption, um alle Titel zu filtern und zu behalten, nicht nur die, die der Benutzer 'geliked' hat."
+  },
+  "defaultMode": "Standard",
+  "@defaultMode": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, wobei das aktuelle Systemverhalten ohne Angabe eines Modus beibehalten wird."
+  },
+  "sequential": "Sequenziell",
+  "@sequential": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie der Reihe nach von Anfang bis Ende abgespielt werden."
+  },
+  "repeatAll": "Alle wiederholen",
+  "@repeatAll": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie nach dem Ende von vorne wiederholt werden."
+  },
+  "repeatOne": "Einen wiederholen",
+  "@repeatOne": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem ein Titel kontinuierlich wiederholt wird."
+  },
+  "shuffle": "Zufällig",
+  "@shuffle": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie in zufälliger Reihenfolge abgespielt werden."
+  },
+  "title": "Titel",
+  "@title": {
+    "description": "Ein Eintrag im Bearbeitungsmodal für Wiedergabeliste oder Mix, der Benutzer anleitet, dessen Titel zu bearbeiten."
+  },
+  "group": "Gruppe",
+  "@group": {
+    "description": "Ein Eintrag im Bearbeitungsmodal für Wiedergabeliste oder Mix, der Benutzer anleitet, dessen Gruppe zu bearbeiten."
+  },
+  "save": "Speichern",
+  "@save": {
+    "description": "Eine Aktionstaste im Modal, die Änderungen speichert, wenn sie gedrückt wird."
+  },
+  "create": "Erstellen",
+  "@create": {
+    "description": "Eine Aktionstaste im Modal, die einen neuen Eintrag erstellt, wenn sie gedrückt wird."
+  },
+  "cancel": "Abbrechen",
+  "@cancel": {
+    "description": "Eine Aktionstaste im Modal, die das Modal ohne Änderungen schließt."
+  },
+  "noRecommendation": "Keine Empfehlung",
+  "@noRecommendation": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option zeigt die Absicht des Benutzers an, Empfehlungen nicht auf Abfrageergebnissen zu basieren."
+  },
+  "basedOnAll": "Basierend auf allen",
+  "@basedOnAll": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option empfiehlt ähnliche Titel basierend auf dem gesamten Satz von Abfrageergebnissen."
+  },
+  "group1": "Gruppe 1",
+  "@group1": {},
+  "group2": "Gruppe 2",
+  "@group2": {},
+  "group3": "Gruppe 3",
+  "@group3": {},
+  "group4": "Gruppe 4",
+  "@group4": {},
+  "group5": "Gruppe 5",
+  "@group5": {},
+  "group6": "Gruppe 6",
+  "@group6": {},
+  "group7": "Gruppe 7",
+  "@group7": {},
+  "group8": "Gruppe 8",
+  "@group8": {},
+  "group9": "Gruppe 9",
+  "@group9": {},
+  "ascending": "Aufsteigend",
+  "@ascending": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option sortiert Abfrageergebnisse in aufsteigender Reihenfolge."
+  },
+  "descending": "Absteigend",
+  "@descending": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option sortiert Abfrageergebnisse in absteigender Reihenfolge."
+  },
+  "lastModified": "Zuletzt geändert",
+  "@lastModified": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der letzten Änderungszeit der Dateimetadaten zu sortieren."
+  },
+  "duration": "Dauer",
+  "@duration": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach Audiolänge zu sortieren."
+  },
+  "timesPlayedThrough": "Anzahl der vollständigen Wiedergaben",
+  "@timesPlayedThrough": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der Anzahl der vollständigen Wiedergaben zu sortieren."
+  },
+  "timesSkipped": "Anzahl der Überspringungen",
+  "@timesSkipped": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der Anzahl der Überspringungen zu sortieren."
+  },
+  "pickDirectory": "Verzeichnis auswählen",
+  "@pickDirectory": {
+    "description": "Button-Aufforderungstext im Mix-Bearbeitungsmodal. Durch Drücken dieser Taste wird ein Modal geöffnet, um Benutzer bei der Auswahl eines Verzeichnisses zu führen."
+  },
+  "oneDirectory": "1 Verzeichnis",
+  "@oneDirectory": {
+    "description": "Statusanzeige, die angibt, dass ein Verzeichnis ausgewählt wurde."
+  },
+  "manyDirectories": "{count} Verzeichnisse",
+  "@manyDirectories": {
+    "description": "Statusanzeige, die angibt, dass mehrere Verzeichnisse ausgewählt wurden.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "Bestätigen",
+  "@confirm": {
+    "description": "Aktionstext in der Modal, der die Absicht des Benutzers angibt, eine Aktion zu bestätigen."
+  },
+  "directories": "Verzeichnisse",
+  "@directories": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen zum Filtern von Titeln nach Ordner sind."
+  },
+  "allDirectories": "Alle Verzeichnisse",
+  "@allDirectories": {
+    "description": "Aufforderung, dass alle Verzeichnisse ausgewählt wurden."
+  },
+  "randomTracks": "Zufällige Titel",
+  "@randomTracks": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen zum Auswählen einer Anzahl von zufälligen Titeln sind."
+  },
+  "amount": "Menge",
+  "@amount": {
+    "description": "Aufforderungstext im Modal, der die Anzahl der über Schieberegler oder Eingabefeld ausgewählten Titel angibt."
+  },
+  "mode": "Modus",
+  "@mode": {
+    "description": "Der Wiedergabemodus für Titel."
+  },
+  "recommendation": "Empfehlung",
+  "@recommendation": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen das Empfehlungsverhalten des Players steuern."
+  },
+  "sortBy": "Sortieren nach",
+  "@sortBy": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen die Sortiermethode für Titel steuern."
+  },
+  "sortOrder": "Sortierreihenfolge",
+  "@sortOrder": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen die Sortierrichtung für Titel steuern."
+  },
+  "liked": "Gefällt mir",
+  "@liked": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen Titel filtern, die vom Benutzer als 'Gefällt mir' markiert wurden."
+  },
+  "noRoamingCollection": "Roaming kann nicht gestartet werden. Titel in der Sammlung wurden noch nicht analysiert.",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "Roaming kann nicht gestartet werden. Dieser Titel wurde noch nicht analysiert.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyze durchgeführt werden.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} Die Bibliothek wird analysiert; bitte warten Sie, bis der Vorgang abgeschlossen ist.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} Bitte analysieren Sie Ihre Bibliothek für das beste Erlebnis.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "Nicht bereit",
+  "@notReady": {
+    "description": "Modaltitel, der anzeigt, dass Titel nicht analysiert wurden und Empfehlungen nicht gemacht werden können."
+  },
+  "createPlaylist": "Wiedergabeliste erstellen",
+  "@createPlaylist": {
+    "description": "Modaltitel zum Erstellen einer Wiedergabeliste."
+  },
+  "scanLibrary": "Bibliothek scannen",
+  "@scanLibrary": {
+    "description": "Aktionsknopftext im Modal, der beim Drücken einen Medienbibliothek-Scan einleitet."
+  },
+  "analyzeTracks": "Titel analysieren",
+  "@analyzeTracks": {
+    "description": "Aktionsknopftext im Modal, der beim Drücken die Analyze aller Titel in der Medienbibliothek einleitet."
+  },
+  "scan": "Scannen",
+  "@scan": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken einen Medienbibliothek-Scan einleitet."
+  },
+  "scanning": "Scannen",
+  "@scanning": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit gescannt wird."
+  },
+  "analyze": "Analysieren",
+  "@analyze": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken die Analyze aller Titel in der Medienbibliothek einleitet."
+  },
+  "analyzing": "Analysieren",
+  "@analyzing": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit analysiert wird."
+  },
+  "tryCreatingYourOwnCollection": "Versuchen Sie, Ihre eigene Sammlung zu erstellen",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text auf einer leeren Seite in der Sammlungsansicht, der Benutzer dazu auffordert, eine neue Sammlung zu erstellen."
+  },
+  "theseActionsMayHelp": "Diese Aktionen könnten helfen",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Versuchen Sie, neue Dateien zu scannen",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Keine Sammlung gefunden",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Keine Elemente in der Wiedergabeliste",
+  "@noItemsInPlaylist": {},
+  "previous": "Zurück",
+  "@previous": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zum vorherigen Titel zu springen."
+  },
+  "previousSubtitle": "Zum vorherigen Titel gehen",
+  "@previousSubtitle": {},
+  "playPause": "Wiedergabe/Pause",
+  "@playPause": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zwischen Wiedergabe- und Pausenzuständen zu wechseln."
+  },
+  "playPauseSubtitle": "Zwischen Wiedergabe und Pause umschalten",
+  "@playPauseSubtitle": {},
+  "next": "Weiter",
+  "@next": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zum nächsten Titel zu springen."
+  },
+  "nextSubtitle": "Zum nächsten Titel gehen",
+  "@nextSubtitle": {},
+  "volume": "Lautstärke",
+  "@volume": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Lautstärke anzupassen."
+  },
+  "volumeSubtitle": "Die Lautstärke anpassen",
+  "@volumeSubtitle": {},
+  "playlist": "Wiedergabeliste",
+  "@playlist": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Wiedergabeliste anzuzeigen."
+  },
+  "playlistSubtitle": "Die Wiedergabewarteschlange anzeigen",
+  "@playlistSubtitle": {},
+  "hidden": "Versteckt",
+  "@hidden": {
+    "description": "Button-Aufforderungstext, der einen versteckten Button anzeigt; dieser Text wird normalerweise nicht verwendet."
+  },
+  "hiddenSubtitle": "Inhalte unten werden in der anderen Liste versteckt",
+  "@hiddenSubtitle": {},
+  "coverWall": "Cover-Wand",
+  "@coverWall": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zur Cover-Wand-Seite zu wechseln, einer dekorativen Seite, die aus Albumcovern besteht."
+  },
+  "coverWallSubtitle": "Cover-Art für eine einzigartige Atmosphäre anzeigen",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Vollbild",
+  "@fullscreen": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um den Vollbildmodus umzuschalten."
+  },
+  "fullscreenSubtitle": "Vollbildmodus ein- oder ausschalten",
+  "@fullscreenSubtitle": {},
+  "pause": "Pause",
+  "@pause": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um den aktuell abgespielten Titel zu pausieren."
+  },
+  "play": "Abspielen",
+  "@play": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Wiedergabe aus einem Pausenzustand fortzusetzen."
+  },
+  "enable": "Aktivieren",
+  "@enable": {
+    "description": "Radio-Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass eine Funktion aktiviert ist."
+  },
+  "disable": "Deaktivieren",
+  "@disable": {
+    "description": "Radio-Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass eine Funktion nicht aktiviert ist."
+  },
+  "noTracksFound": "Keine Titel gefunden",
+  "@noTracksFound": {},
+  "library": "Bibliothek",
+  "@library": {
+    "description": "Titel der Medienbibliothek-Einstellungen-Oberfläche."
+  },
+  "artistQuery": "Künstlerabfrage",
+  "@artistQuery": {},
+  "playlistQuery": "Wiedergabelistenabfrage",
+  "@playlistQuery": {},
+  "mixes": "Mixes",
+  "@mixes": {
+    "description": "Titel der Mix-Oberfläche, bezieht sich auf eine Art intelligente Wiedergabeliste. Nicht mit 'Remix' verwechseln."
+  },
+  "mixQuery": "Mix-Abfrage",
+  "@mixQuery": {},
+  "settings": "Einstellungen",
+  "@settings": {
+    "description": "Titel der Einstellungen-Oberfläche."
+  },
+  "analysis": "Analyze",
+  "@analysis": {
+    "description": "Titel der Analyze-Einstellungen-Oberfläche."
+  },
+  "playback": "Wiedergabe",
+  "@playback": {
+    "description": "Titel der Wiedergabe-Einstellungen-Oberfläche."
+  },
+  "theme": "Thema",
+  "@theme": {
+    "description": "Titel der Themen-Einstellungen-Oberfläche."
+  },
+  "controller": "Controller",
+  "@controller": {
+    "description": "Titel der Wiedergabesteuerungsschaltflächen-Einstellungen-Oberfläche."
+  },
+  "about": "Über",
+  "@about": {
+    "description": "Titel der Über-Oberfläche."
+  },
+  "selectLibraryDirectorySubtitle": "Wählen Sie Ihr Audio-Bibliotheksverzeichnis aus, und wir scannen und analysieren alle darin enthaltenen Titel.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Bibliothek zurücksetzen",
+  "@resetLibrary": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass der Benutzer die Bibliothek zurücksetzen möchte."
+  },
+  "resetLibraryQuestion": "Bibliothek zurücksetzen",
+  "@resetLibraryQuestion": {
+    "description": "Modaltitel, der Benutzer fragt, ob sie die Bibliothek zurücksetzen möchten."
+  },
+  "resetLibrarySubtitle": "Das Zurücksetzen der Bibliothek löscht Ihren Dateiverlauf. Ihre bestehende Medienbibliothek bleibt unverändert. Möchten Sie fortfahren?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Nicht verfügbar",
+  "@unavailable": {
+    "description": "Kontextmenüelement, das nicht verfügbar ist und nur bei einem Fehler angezeigt wird."
+  },
+  "goToArtist": "Zum Künstler",
+  "@goToArtist": {
+    "description": "Kontextmenüelement, das Benutzer zur Künstlerseite führt."
+  },
+  "goToAlbum": "Zum Album",
+  "@goToAlbum": {
+    "description": "Kontextmenüelement, das Benutzer zur Albumseite führt."
+  },
+  "addToPlaylist": "Zur Wiedergabeliste hinzufügen",
+  "@addToPlaylist": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, einen Titel oder ein Album zu einer Wiedergabeliste hinzuzufügen."
+  },
+  "newPlaylist": "Neue Wiedergabeliste",
+  "@newPlaylist": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, eine neue Wiedergabeliste zu erstellen."
+  },
+  "unableToOpenLibrary": "Bibliothek kann nicht geöffnet werden",
+  "@unableToOpenLibrary": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass die Bibliothek nicht geöffnet werden kann."
+  },
+  "unableToOpenLibrarySubtitle": "Die Bibliothek konnte aufgrund des folgenden Fehlers nicht geöffnet werden:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Unbekannter Fehler",
+  "@unknownError": {
+    "description": "Modalfehlerinhalt, der auf einen unbekannten Fehler hinweist."
+  },
+  "close": "Schließen",
+  "@close": {
+    "description": "Aktionsknopf im Modal, der Benutzer dazu anleitet, es zu schließen."
+  },
+  "queue": "Warteschlange",
+  "@queue": {
+    "description": "Titel des Wiedergabelistenmodals."
+  },
+  "createMix": "Mix erstellen",
+  "@createMix": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, einen neuen Mix, eine Art intelligente Wiedergabeliste, zu erstellen. Nicht mit 'Remix' verwechseln."
+  },
+  "removeMixTitle": "Mix entfernen",
+  "@removeMixTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, einen Mix, eine Art intelligente Wiedergabeliste, zu löschen. Nicht mit 'Remix' verwechseln."
+  },
+  "removeMixSubtitle": "Wenn Sie diesen Mix löschen, können Sie ihn nicht wiederherstellen. Möchten Sie ihn löschen?",
+  "@removeMixSubtitle": {},
+  "delete": "Löschen",
+  "@delete": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken Informationen löscht."
+  },
+  "removePlaylistTitle": "Wiedergabeliste entfernen",
+  "@removePlaylistTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, eine Wiedergabeliste zu löschen."
+  },
+  "removePlaylistSubtitle": "Wenn Sie diese Wiedergabeliste löschen, können Sie sie nicht wiederherstellen. Möchten Sie sie löschen?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Aufgabe abbrechen",
+  "@cancelTaskTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, eine Aufgabe abzubrechen."
+  },
+  "cancelTaskSubtitle": "Wenn Sie diese Aufgabe abbrechen, wird sie im aktuellen Abschlusszustand gestoppt. Möchten Sie sie abbrechen?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Aufgabe abbrechen",
+  "@cancelTask": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken die Aufgabe abbricht."
+  },
+  "continueTask": "Fortsetzen",
+  "@continueTask": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken die Aufgabe fortsetzt."
+  },
+  "refresh": "Aktualisieren",
+  "@refresh": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, die Informationen der aktuellen Seite zu aktualisieren."
+  },
+  "explore": "Entdecken",
+  "@explore": {
+    "description": "Titel eines Funktionsbereichs."
+  },
+  "language": "Sprache",
+  "@language": {
+    "description": "Titel der Sprach-Einstellungsseite."
+  },
+  "followSystemLanguage": "Systemsprache",
+  "@followSystemLanguage": {
+    "description": "Aktionsknopftext in den Einstellungen, der anzeigt, dass die Sprache von Rune der des Betriebssystems folgen soll."
+  },
+  "followSystemLanguageSubtitle": "Folgen Sie Ihren Systemeinstellungen für die Sprache, ohne spezielle Einstellungen.",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "Fenstergröße",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Wählen Sie die bevorzugte Fenstergröße für die Anwendung.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normal",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Schmal",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Breit",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Protokoll",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Protokolldetails",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Protokoll löschen",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "Wenn Sie dieses Protokoll löschen, können Sie es nicht wiederherstellen. Möchten Sie es löschen?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Alle Protokolle löschen",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "Wenn Sie alle Protokolle löschen, können Sie sie nicht wiederherstellen. Möchten Sie sie löschen?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Alles löschen",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "Keine Protokolle verfügbar",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Startseite",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Neueste",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Älteste",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Zufällig",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Meist gespielt",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "Personalisieren",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "Entdecken und erkunden Sie die Welt Ihrer Lieblingskünstler",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "Tauchen Sie ein in Alben talentierter Künstler",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "Gestalten Sie Ihre eigene personalisierte Hörerfahrung",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "Tauchen Sie ein in die Titel, die Sie kennen und lieben",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "Erleben Sie Ihre Lieblingstitel noch einmal",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "Hören Sie die Melodien, die Sie immer wieder fesseln",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Rune anzeigen",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Beenden",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Zurück",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Exportieren als",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Playlist-Datei",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Cover-Wand",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "noCoverArtToExport": "Es sind keine Cover zum Exportieren vorhanden.",
+  "ratio": "Verhältnis",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Rahmen",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Hintergrund",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Evaluierungsmodus",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune ist kein kostenloses Bier. Wir empfehlen Ihnen, eine echte Lizenz im App Store zu erwerben.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Lizenzierte Benutzer profitieren von automatischen Updates durch den App Store und haben das Privileg, den Entwicklern direkt neue Funktionen vorzuschlagen.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "Sie können diese Erinnerung für 180 Tage ausblenden, und wir werden Sie später erneut erinnern.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Später erinnern",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Geheimnisvoller Knopf",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Knarren",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "Es scheint, Sie haben einen geheimnisvollen Mechanismus ausgelöst. Die Struktur des Raums scheint sich verändert zu haben und offenbart neue Bereiche zum Erkunden.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Labor",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "Bibliothek-Setup",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "Wir müssen etwas mehr über Ihre Bibliothek wissen. Wo sind Ihre Mediendateien gespeichert?",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "Lokale Festplatte",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "Wir speichern Ihren Medienindex zusammen im Bibliotheksordner.",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "In der Cloud",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "Wir speichern Ihren Medienindex im Konfigurationsverzeichnis von Rune.",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Fenstergröße merken",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Speichern Sie Ihre Fenstergröße während der Anpassung und starten Sie das Programm beim nächsten Mal mit denselben Abmessungen.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune läuft noch",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune läuft derzeit im Hintergrund. Sie finden es im System-Tray.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Registrieren",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "Sie können eine Musikdatei als Registrierungsschlüssel im Store unten erwerben. Klicken Sie auf \"Registrieren\", um Ihren Original-Status zu überprüfen.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Registrieren",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Fehlgeschlagen",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "Während der Überprüfung ist ein Fehler aufgetreten.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Abgeschlossen",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Glückwunsch! Ihre Software wurde erfolgreich registriert. Danke, dass Sie sich für Rune entschieden haben.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Ungültiger Schlüssel",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "Die von Ihnen bereitgestellte Schlüsseldatei ist ungültig. Bitte überprüfen Sie die Datei und versuchen Sie es erneut.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8AmbiguousSubtitle": "Ihre Titel wurden importiert, aber einige Einträge passten zu mehreren Dateien. Rune hat für jeden Eintrag eine Übereinstimmung importiert.",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "Mehrere Dateien gefunden",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "Nicht gefunden",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "Teilweise erfolgreich",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Ihre Titel wurden importiert, aber einige wurden nicht gefunden.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Import fehlgeschlagen",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "Während des Importvorgangs ist ein Fehler aufgetreten.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Playlist importieren",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adaptives Umschalten",
+  "@adaptiveSwitching": {
+    "description": "Einstellungstitel eines Eintrags auf der Wiedergabeeinstellungsseite"
+  },
+  "adaptiveSwitchingSubtitle": "Startet von vorne, wenn Sie nach mehr als drei Sekunden Wiedergabe des aktuellen Titels zurückschalten.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Einstellungsbeschreibung eines Eintrags auf der Wiedergabeeinstellungsseite"
+  },
+  "considerPurchase": "Bitte ziehen Sie den Kauf einer echten Lizenz in Betracht.",
+  "@considerPurchase": {
+    "description": "Hinweis auf der Informationsseite, der den Benutzer zum Kauf einer Lizenz auffordert"
+  },
+  "lyrics": "Songtext",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Zeige den vollständigen Songtext an",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Online-Dienste",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Anmelden",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Anmeldung fehlgeschlagen",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Bei der Anmeldung ist ein Fehler aufgetreten",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "scrobbleCredentialsRejected": "Der Dienst hat diese Anmeldedaten abgelehnt. Überprüfe deinen Benutzernamen und dein Passwort oder Token.",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "Der Dienst konnte nicht erreicht werden. Überprüfe deine Verbindung und versuche es erneut.",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Dein Last.fm-{field} fehlt.",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "API-Schlüssel"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm hat den API-Schlüssel oder das API-Geheimnis abgelehnt. Überprüfe deine API-Zugangsdaten und versuche es erneut.",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "Erhalte detaillierte Einblicke in dein Hörverhalten mit diesem Musik-Tracking-Dienst.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Eine kostenlose und offene Plattform zum Teilen deines Musikgeschmacks.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Trage zu einer Open-Source-Datenbank bei, während du deine Hörgewohnheiten verfolgst.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Beheben",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Abmeldung bestätigen",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Bist du sicher, dass du dich abmelden möchtest? Alle lokal gespeicherten Anmeldedaten werden gelöscht.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Anmeldung wiederholen",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Abmelden",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Kopieren",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Benutzername",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Passwort",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-Schlüssel",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API-Geheimnis",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Benutzer-Token",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "Hostname",
+  "@hostname": {
+    "description": "Der Hostname-Teil einer URL."
+  },
+  "port": "Port",
+  "@port": {
+    "description": "Der Port-Teil einer URL."
+  },
+  "addConnection": "Verbindung hinzufügen",
+  "@addConnection": {
+    "description": "Der Aktions-Button des Dialogs."
+  },
+  "neighbors": "Nachbarn",
+  "@neighbors": {
+    "description": "Die Einstellungsseite, die Benutzern helfen kann, sich miteinander zu verbinden."
+  },
+  "searchNeighbors": "Nachbarn suchen",
+  "@searchNeighbors": {
+    "description": "Das Element auf der Nachbarn-Einstellungsseite, um Geräte im lokalen Netzwerk zu entdecken."
+  },
+  "searchNeighborsSubtitle": "Finden und verbinden Sie sich mit Rune-Geräten in Ihrem lokalen Netzwerk.",
+  "@searchNeighborsSubtitle": {
+    "description": "Der Untertitel des Nachbarn-Sucheinstellungselements"
+  },
+  "editDeviceInformation": "Geräteinformationen bearbeiten",
+  "@editDeviceInformation": {
+    "description": "Erscheint in den Geräteeinstellungen. Bezieht sich auf Details, die anderen Benutzern während des Scannens angezeigt werden."
+  },
+  "editDeviceInformationSubtitle": "Passen Sie die Details an, die anderen Geräten während der Scans angezeigt werden.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Betont, dass Änderungen die Sichtbarkeit in den Scan-Listen anderer beeinflussen. Vermeidet technische Begriffe. Fokussiert auf 'Scans' als Interaktionskontext."
+  },
+  "enableBroadcast": "Broadcast aktivieren",
+  "@enableBroadcast": {
+    "description": "'Broadcast' impliziert aktives Senden von Geräteinformationen. Wenn die Zielsprache keine direkte Entsprechung hat, priorisieren Sie 'sichtbar machen' oder 'Verfügbarkeit teilen'."
+  },
+  "enableBroadcastSubtitle": "Teilen Sie Ihre Geräteinformationen öffentlich, damit andere sie entdecken können.",
+  "@enableBroadcastSubtitle": {
+    "description": "Vermeidet Mehrdeutigkeit: 'öffentlich' = für Benutzer im lokalen Netzwerk, nicht das gesamte Internet."
+  },
+  "addNeighborManually": "Nachbar manuell hinzufügen",
+  "@addNeighborManually": {
+    "description": "'Nachbar' bezieht sich auf Geräte im selben lokalen Netzwerk. Wenn Platz vorhanden ist, ist 'Nachbar manuell hinzufügen' akzeptabel. Priorisiert Kürze."
+  },
+  "addNeighborManuallySubtitle": "Geben Sie die lokalen Netzwerkinformationen eines Geräts manuell ein, um sich zu verbinden.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Klarstellt 'lokales Netzwerk' ≠ öffentliches Internet (z.B. IP/Port innerhalb LAN). 'verbinden' impliziert das Herstellen einer direkten Verbindung, nicht nur Sichtbarkeit."
+  },
+  "stop": "Stopp",
+  "@stop": {
+    "description": "Aktions-Button zum Beenden einer aktiven Aktion."
+  },
+  "deviceFingerprint": "Geräte-Fingerabdruck",
+  "@deviceFingerprint": {
+    "description": "Ein eindeutiger Identifikator für das Gerät, verwendet für sichere Identifikation und Verbindung."
+  },
+  "deviceName": "Gerätename",
+  "@deviceName": {
+    "description": "Der benutzerdefinierte Name des Geräts, angezeigt für andere Benutzer während des Scannens und der Verbindung."
+  },
+  "noDevicesFound": "Keine Geräte gefunden",
+  "@noDevicesFound": {
+    "description": "Nachricht angezeigt, wenn keine Geräte während des Scannens entdeckt werden"
+  },
+  "error": "Fehler: {error}",
+  "@error": {
+    "description": "Fehlermeldung angezeigt, wenn Geräteerkennung fehlschlägt",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Berechtigung verweigert"
+      }
+    }
+  },
+  "model": "Modell",
+  "@model": {
+    "description": "Beschriftung für Gerätemodell-Informationen"
+  },
+  "type": "Typ",
+  "@type": {
+    "description": "Beschriftung für Gerätetyp-Informationen"
+  },
+  "fingerprint": "Fingerabdruck",
+  "@fingerprint": {
+    "description": "Beschriftung für Geräte-Fingerabdruck-Informationen"
+  },
+  "lastSeen": "Zuletzt gesehen",
+  "@lastSeen": {
+    "description": "Beschriftung für wann das Gerät zuletzt erkannt wurde"
+  },
+  "ipAddresses": "IP-Adressen",
+  "@ipAddresses": {
+    "description": "Beschriftung für Geräte-IP-Adressen"
+  },
+  "pair": "Koppeln",
+  "@pair": {
+    "description": "Button-Text zum Starten der Gerätekopplung"
+  },
+  "pairingWith": "Kopplung mit {deviceName}...",
+  "@pairingWith": {
+    "description": "Nachricht angezeigt, wenn der Kopplungsprozess startet",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Wohnzimmer-TV"
+      }
+    }
+  },
+  "server": "Server",
+  "@server": {
+    "description": "Der Titel der Einstellungsseite zur Steuerung der Mediaplayer-Freigabeverhalten. Beinhaltet die Verwaltung autorisierter Benutzer und das Übertragen der Gerätepräsenz."
+  },
+  "serverControl": "Server-Steuerung",
+  "@serverControl": {
+    "description": "Abschnittstitel zur Steuerung des lokalen Netzwerkservers. 'Server' bezieht sich hier auf den Hintergrunddienst, der die Geräteerkennung verwaltet."
+  },
+  "serverControlSubtitle": "Starten Sie den Server, damit andere Geräte dieses Gerät im lokalen Netzwerk entdecken können.",
+  "@serverControlSubtitle": {
+    "description": "Klarstellt, dass der Server nur im lokalen Netzwerk operiert. Betont, dass das Starten die Sichtbarkeit für andere ermöglicht."
+  },
+  "selectInterface": "Netzwerkschnittstelle",
+  "@selectInterface": {
+    "description": "Beschriftung zur Auswahl der Netzwerkschnittstelle, an die der Server gebunden werden soll. Technisch aber klar halten."
+  },
+  "approvedStatus": "Genehmigt",
+  "@approvedStatus": {
+    "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt an, dass das Gerät vollständig autorisiert ist. Verwenden Sie bestätigende Begriffe wie 'Verifiziert' oder 'Bestätigt', wenn natürlicher."
+  },
+  "pendingStatus": "Ausstehend",
+  "@pendingStatus": {
+    "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt Warten auf Genehmigung an. Bevorzugen Sie Begriffe, die 'wartende Aktion' implizieren über technische Begriffe wie 'In Warteschlange'."
+  },
+  "blockedStatus": "Blockiert",
+  "@blockedStatus": {
+    "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt explizite Verweigerung des Zugriffs an. Verwenden Sie starke Begriffe wie 'Gesperrt' oder 'Verweigert', wo angemessen, aber vermeiden Sie übermäßig aggressive Vokabeln."
+  },
+  "unknownStatus": "Unbekannt",
+  "@unknownStatus": {
+    "description": "Angezeigt als Benutzer-/Client-Status-Badge. Zeigt an, dass der Status nicht erkannt oder undefiniert ist. Schlagen Sie Begriffe wie 'Nicht erkannt' oder 'Undefiniert' vor, aber behalten Sie einen neutralen Ton bei, ohne Fehler zu implizieren. Mit neutralen Farben wie Grau in der Benutzeroberfläche verbunden."
+  },
+  "review": "Überprüfen",
+  "@review": {
+    "description": "Button zur Überprüfung ausstehender Geräteverbindungsanfragen. Löst ein Modal aus, um das Gerät zu genehmigen oder zu blockieren."
+  },
+  "reviewRequestTitle": "Verbindungsanfrage",
+  "@reviewRequestTitle": {
+    "description": "Titel angezeigt im Modal bei der Überprüfung einer Geräteverbindung. Kurz halten, auf erforderliche Aktion fokussieren."
+  },
+  "blockDevice": "Gerät blockieren",
+  "@blockDevice": {
+    "description": "Aktion zum dauerhaften Verweigern des Zugriffs. Verwenden Sie starke Verben wie 'Sperren', wenn kulturell angemessener, aber vermeiden Sie negative Konnotationen."
+  },
+  "connectionVerificationMessage": "Um dem Gerät {alias} ({model}) die Verbindung zu erlauben, teilen Sie den unten stehenden Kommunikationsschlüssel-Fingerabdruck, um Ihre Identität zu verifizieren.",
+  "@connectionVerificationMessage": {
+    "description": "Anweisungstext im Modal zum Aufbau von Vertrauen. Betont das Teilen von Sicherheitsanmeldeinformationen (Fingerabdruck) zur Authentifizierung von Verbindungen. Verwenden Sie Begriffe wie 'validieren' oder 'authentifizieren', wenn in der Zielsprache bevorzugt.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "Benutzerdefinierter Gerätespitzname"
+      },
+      "model": {
+        "type": "String",
+        "description": "Herstellergerätemodell-Identifikator"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "Zukünftige Verbindung verhindern. Sie können dieses Gerät jederzeit entsperren.",
+  "@blockDeviceSubtitle": {
+    "description": "Erklärt Blockierungskonsequenzen und Umkehrbarkeit. Verwenden Sie 'Sperren' oder 'Verweigern' als Alternativen. Formulieren Sie 'in den Einstellungen' kontextuell (z.B., 'über Geräteverwaltung', wenn sich die Benutzeroberfläche unterscheidet)."
+  },
+  "removeTrust": "Berechtigung entfernen",
+  "@removeTrust": {
+    "description": "Modal-Titel zum Löschen der Berechtigungshistorie eines Geräts. Betont dauerhafte Entfernung sowohl der erlaubten/blockierten Status als auch die Notwendigkeit einer erneuten Registrierung."
+  },
+  "removeTrustSubtitle": "Dies wird den Berechtigungseintrag dauerhaft löschen. Das Gerät verliert alle Zugriffsstatus (Genehmigt/Blockiert) und muss eine neue Registrierungsanfrage senden, um wieder in der Liste zu erscheinen.",
+  "@removeTrustSubtitle": {
+    "description": "Erklärt, dass das Löschen alle historischen Status entfernt und eine neue Registrierung erfordert. Verwenden Sie Begriffe wie 'löschen' oder 'Verlauf löschen', wenn natürlicher, aber behalten Sie Konsistenz mit der 'removeTrust'-Aktion bei."
+  },
+  "pairingTitle": "Kopplung",
+  "@pairingTitle": {
+    "description": "Titel für sicheren Gerätekopplungsdialog. Sollte gegenseitigen Authentifizierungsprozess betonen."
+  },
+  "pairingLoading": "Geräte-Fingerabdruck wird abgerufen...",
+  "@pairingLoading": {
+    "description": "Statustext angezeigt während Fingerabdruck-Verifizierung. Zeigt laufende Sicherheitsprüfung an."
+  },
+  "pairingInstructions": "Zur Sicherheitsverifizierung wählen Sie die Zeichen aus, die den auf Ihrem Partner-Gerät angezeigten Fingerabdruck vervollständigen. Dies bestätigt, dass Sie sich mit dem richtigen Gerät verbinden.",
+  "@pairingInstructions": {
+    "description": "Erklärt den partiellen Fingerabdruck-Verifizierungsprozess. Verwendet 'Sicherheitsverifizierung' anstelle technischer MITM-Begriffe."
+  },
+  "pairingFailureTitle": "Kopplung fehlgeschlagen",
+  "@pairingFailureTitle": {
+    "description": "Titel für Fingerabdruck-Nichtübereinstimmung. Gibt Ergebnis an, ohne unnötigen Alarm zu verursachen."
+  },
+  "pairingFailureMessage": "Der Fingerabdruck stimmt nicht überein. Bitte stellen Sie sicher, dass Sie sich mit dem richtigen Gerät verbinden und versuchen Sie die Verifizierung erneut.",
+  "@pairingFailureMessage": {
+    "description": "Leitet den Benutzer zum erneuten Versuch an, anstatt Netzwerkprüfungen zu suggerieren. Fokussiert auf Geräteverifizierung."
+  },
+  "closingWindowBehaviorTitle": "Verhalten beim Schließen des Fensters",
+  "@closingWindowBehaviorTitle": {
+    "description": "Titeltext für den Abschnitt der Fensterschließ-Verhaltenseinstellungen. Betont Benutzerkontrolle darüber, wie die Anwendung schließt."
+  },
+  "closingWindowBehaviorSubtitle": "Wählen Sie, wie sich die Anwendung verhält, wenn Sie auf den Schließen-Button klicken.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Erklärt, dass Benutzer das Schließen-Button-Verhalten anpassen können. Verwenden Sie 'anpassen' oder 'konfigurieren' als Alternativen."
+  },
+  "minimizeToTray": "In Taskleiste minimieren",
+  "@minimizeToTray": {
+    "description": "Optionstext, der angibt, dass das Programm weiterhin im Hintergrund läuft, wenn das Fenster geschlossen wird. Verwenden Sie 'In Taskleiste ausblenden' oder 'Weiter ausführen' als alternative Formulierung."
+  },
+  "exitProgram": "Komplett beenden",
+  "@exitProgram": {
+    "description": "Optionstext, der angibt, dass das Programm komplett terminiert, wenn das Fenster geschlossen wird. Verwenden Sie 'Anwendung schließen' oder 'App beenden' als alternative Formulierung."
+  },
+  "systemTabTitle": "System",
+  "@systemTabTitle": {
+    "description": "Navigationsregisterkarten-Titel für den Systemeinstellungsabschnitt. Zeigt eine Sammlung von systemebenen Konfigurationsoptionen an."
+  },
+  "removeFromPlaylist": "Aus Playlist entfernen",
+  "@removeFromPlaylist": {
+    "description": "Aktion zum Entfernen eines Titels aus der aktuellen Playlist. Erscheint als Menüoption beim Rechtsklick auf ein Lied. Verwenden Sie Verben wie 'Löschen' oder 'Entfernen' basierend darauf, was in der Zielsprache natürlicher ist."
+  },
+  "waitForApprove": "Warten darauf, dass der Server diese Anfrage genehmigt...",
+  "@waitForApprove": {
+    "description": "Lademeldung angezeigt während des Server-Verbindungsverifizierungsprozesses."
+  },
+  "clientBlockedTitle": "Verbindung blockiert",
+  "@clientBlockedTitle": {
+    "description": "Fehlertitel, der anzeigt, dass das entfernte Gerät die Verbindungsversuche dieses Clients blockiert hat."
+  },
+  "clientBlockedMessage": "Das entfernte Gerät hat Ihren Client von der Verbindung blockiert. Sie benötigen die Erlaubnis vom Gerätebesitzer, um eine Verbindung herzustellen.",
+  "@clientBlockedMessage": {
+    "description": "Erklärt, dass der Verbindungsversuch des Benutzers abgelehnt wurde, weil ihr Client vom entfernten Gerät blockiert wurde. Schlägt vor, dass der Benutzer den Gerätebesitzer zur Lösung kontaktieren muss."
+  },
+  "genres": "Genres",
+  "@genres": {
+    "description": "Kopfzeile oder Abschnittstitel für eine Liste von Musikkategorien/-stilen. Könnte in der Musikbibliotheksorganisation, Filteroptionen oder Musikpräferenzeinstellungen verwendet werden. Alternative Formulierungen könnten 'Musikkategorien', 'Musikstile' oder 'Musikarten' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "genreQuery": "Genre-Abfrage",
+  "@genreQuery": {},
+  "deduplicate": "Duplikate entfernen",
+  "@deduplicate": {
+    "description": "Button-Beschriftung zum Entfernen doppelter Titel aus einer Musikbibliothek oder Playlist. Bezieht sich auf die Funktion der Identifizierung und Entfernung doppelter Songs. Alternative Formulierungen könnten 'Duplikate entfernen' oder 'Duplikate bereinigen' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "deduplicateThresholdTitle": "Duplikate-Entfernungs-Schwellenwert",
+  "@deduplicateThresholdTitle": {
+    "description": "Titel für die Audio-Ähnlichkeitsschwellenwert-Einstellung. Zeigt an, wo Benutzer anpassen können, wie streng Audio-Titel für Duplikatserkennung verglichen werden."
+  },
+  "deduplicateThresholdSubtitle": "Passen Sie die Empfindlichkeitsstufe für die Erkennung ähnlicher Audio-Titel an.",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Kurze Erklärung dessen, was die Audio-Ähnlichkeitsschwellenwert-Einstellung steuert. Hilft Benutzern, den Zweck dieser Konfigurationsoption zu verstehen."
+  },
+  "nearlyIdentical": "Nahezu identisch",
+  "@nearlyIdentical": {
+    "description": "Höchste Stufe des Audio-Ähnlichkeitsschwellenwerts, die Titel anzeigt, die fast genau gleich sind. Verwendet bei der Konfiguration von Duplikaterkennungseinstellungen. Alternative Formulierungen könnten 'Exakte Übereinstimmung' oder 'Perfekte Übereinstimmung' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "highlySimiar": "Sehr ähnlich",
+  "@highlySimiar": {
+    "description": "Zweithöchste Stufe des Audio-Ähnlichkeitsschwellenwerts, die Titel anzeigt, die sehr wenige Unterschiede haben. Verwendet bei der Konfiguration von Duplikaterkennungseinstellungen. Alternative Formulierungen könnten 'Sehr ähnlich' oder 'Fast identisch' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "moderatelySimilar": "Mäßig ähnlich",
+  "@moderatelySimilar": {
+    "description": "Mittlere Stufe des Audio-Ähnlichkeitsschwellenwerts, die Titel anzeigt, die merkliche aber keine großen Unterschiede haben. Verwendet bei der Konfiguration von Duplikaterkennungseinstellungen. Alternative Formulierungen könnten 'Etwas ähnlich' oder 'Teilweise übereinstimmend' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "slightlySimilar": "Leicht ähnlich",
+  "@slightlySimilar": {
+    "description": "Niedrigste Stufe des Audio-Ähnlichkeitsschwellenwerts, die Titel anzeigt, die einige Eigenschaften teilen, aber signifikante Unterschiede haben. Verwendet bei der Konfiguration von Duplikaterkennungseinstellungen. Alternative Formulierungen könnten 'Minimal ähnlich' oder 'Kaum übereinstimmend' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "deduplicating": "Duplikate werden entfernt",
+  "@deduplicating": {
+    "description": "Beschriftung, die anzeigt, dass der Duplikate-Entfernungs-Prozess derzeit aktiv ist. Angezeigt für Benutzer, während doppelte Titel aus ihrer Musikbibliothek oder Playlist entfernt werden. Alternative Formulierungen könnten 'Duplikate entfernen läuft' oder 'Duplikate-Entfernung läuft' sein, je nachdem, was in der Zielsprache am natürlichsten ist."
+  },
+  "interfaceScale": "Oberflächenskalierung",
+  "interfaceScaleSubtitle": "Passt die Größe von Text und Rune-Inhalten an.",
+  "interfaceScaleSaveError": "Oberflächenskalierung konnte nicht gespeichert werden",
+  "linuxCustomWindowControls": "Benutzerdefinierte Fenstersteuerung",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "Benutzerdefinierte Fenstersteuerung für ein rahmenloses Fenster wie im Windows-Modus aktivieren.",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "Offline-Verfügbarkeit",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "Offline verfügbar halten",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "Nicht mehr offline verfügbar halten",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "Offline-Auswahl gespeichert",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "Automatische Downloads gestoppt",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "Offline-Auswahl konnte nicht gespeichert werden",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "Passende Titel werden heruntergeladen, sobald ein gekoppeltes Gerät verfügbar ist.",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "Vorhandene lokale Dateien bleiben erhalten.",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "Audio nicht verfügbar",
+  "allowPairedSync": "Gerätesynchronisierung erlauben",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "Ausschalten, damit sich keine anderen Geräte mehr mit diesem Gerät verbinden können.",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "Nicht mehr benötigte Downloads löschen",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "Wählen Sie, ob nicht mehr offline benötigte Downloads gelöscht werden sollen.",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "Auch nicht mehr benötigte heruntergeladene Dateien löschen",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "Offline-Auswahl aktualisiert und Bereinigung versucht.",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "remoteOpenUntrusted": "Dieses Gerät vertraut dem Server noch nicht. Kopple es zuerst.",
+  "remoteOpenNotAuthorized": "Das andere Gerät hat dieses Gerät noch nicht zugelassen oder blockiert.",
+  "remoteOpenUnreachable": "Das Gerät ist nicht erreichbar. Prüfe, ob es eingeschaltet und im selben Netzwerk ist.",
+  "remoteOpenProtocol": "Das Gerät antwortet nicht wie erwartet. Beide Geräte benötigen dieselbe Rune-Version.",
+  "remoteLossRevoked": "Der Zugriff dieses Geräts wurde entfernt.",
+  "remoteLossDetached": "Der Renderer hat diesen Controller getrennt.",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "Das andere Gerät hat die Freigabe beendet.",
+  "remoteLossNetworkLost": "Die Verbindung wurde unterbrochen.",
+  "syncToThisDevice": "Auf Dieses Gerät Synchronisieren",
+  "libraryNotShared": "Nicht freigegeben",
+  "controlPermissionRequired": "Keine Wiedergabesteuerung",
+  "deviceLibraries": "Bibliotheken",
+  "addSharedLibrary": "Hinzufügen",
+  "sharedLibraryAdded": "Hinzugefügt",
+  "openSharedLibrary": "Öffnen",
+  "noSharedLibraries": "Dieses Gerät hat keine Bibliotheken zum Teilen",
+  "libraryFromDevice": "Von {device}",
+  "backgroundLibrarySync": "Im Hintergrund synchron halten",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "Dieses Element existiert nicht mehr",
+  "requestInvalid": "Die Anfrage war ungültig",
+  "requestCertificateMismatch": "Das Zertifikat dieses Geräts stimmt nicht überein",
+  "requestUnavailable": "Dies ist derzeit nicht verfügbar",
+  "requestStorageBusy": "Der Speicher ist belegt. Bitte versuchen Sie es erneut.",
+  "mixNoLongerExists": "Dieser Mix existiert nicht mehr",
+  "devices": "Geräte",
+  "playOn": "Wiedergeben auf",
+  "playOnSubtitle": "Wähle, wo die Wiedergabe erfolgt.",
+  "playOnFixedToRemote": "Auf dieses Remotegerät festgelegt",
+  "playOnPlayingOn": "Wiedergabe auf {alias}",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "Ohne Netz",
+  "playOnNotApproved": "Dieses Gerät hat dich noch nicht zugelassen",
+  "playOnNoControl": "Dieses Gerät kann nicht gesteuert werden",
+  "playOnCantPlay": "{library} kann nicht wiedergegeben werden",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "Erneut versuchen",
+  "castTrackMode": "Beim Übertragen eines Titels",
+  "castTrackReplace": "Warteschlange ersetzen",
+  "castTrackPlayNext": "Als Nächstes abspielen",
+  "castControlRenderer": "Nach dem Übertragen",
+  "castKeepControlling": "Dieses Gerät weiter steuern",
+  "castControlCastDevice": "Das Zielgerät steuern",
+  "castTrackModeSubtitle": "Lege fest, wie sich die Warteschlange des Wiedergabegeräts ändert.",
+  "castControlRendererSubtitle": "Lege fest, welches Gerät weiter gesteuert wird.",
+  "castNotPossible": "{alias} kann {library} nicht wiedergeben",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, one{{count} Track ist auf {alias} noch nicht vorhanden und wurde nicht hinzugefügt.} other{{count} Tracks sind auf {alias} noch nicht vorhanden und wurden nicht hinzugefügt.}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "Dieses Gerät",
+  "devicesThatCanConnect": "Verbindbare Geräte",
+  "otherDevices": "Andere Geräte",
+  "myDevice": "Mein Gerät",
+  "controllingNow": "Steuert dieses Gerät gerade",
+  "waitingForApproval": "Wartet auf Bestätigung",
+  "guest": "Gast",
+  "myDeviceAccessDescription": "Kann deine Mediatheken abspielen, durchsuchen und synchronisieren",
+  "guestAccessDescription": "Kann die Wiedergabe steuern und dabei browsen",
+  "customDeviceAccess": "Benutzerdefiniert",
+  "customizeDevice": "Anpassen",
+  "disconnect": "Trennen",
+  "controlPlayback": "Wiedergabe steuern",
+  "controlPlaybackDescription": "Kann auf diesem Gerät abspielen, pausieren, Titel einreihen und übertragen",
+  "deviceAccessLibraries": "Mediatheken",
+  "deviceAccessNotShared": "Nicht freigegeben",
+  "deviceAccessReadWrite": "Lesen und Schreiben",
+  "requestConflict": "Die Warteschlange hat sich geändert, bitte erneut versuchen",
+  "requestPermissionDenied": "Dieses Gerät darf das nicht tun",
+  "readOnly": "Schreibgeschützt",
+  "queueUnavailableAccessRevoked": "Der Zugriff wurde widerrufen",
+  "queueUnavailableLibraryUnavailable": "Die Bibliothek ist nicht verfügbar",
+  "queueUnavailableSourceUnreachable": "Die Quelle ist nicht erreichbar",
+  "queueUnavailableUnreadable": "Die Audiodatei ist nicht lesbar",
+  "rendererLinkLost": "Verbindung zu {alias} verloren",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "Der Geräteschlüssel passt nicht zum Fingerabdruck",
+  "requestRegistrationConflict": "Ein Gerät mit diesem Fingerabdruck ist bereits registriert",
+  "remoteLibraryReconnecting": "Verbindung zu {alias} wird wiederhergestellt…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "Dieses Gerät unterstützt diese Steuerung nicht",
+  "capabilityOwnerOnly": "Nur das besitzende Gerät kann das tun",
+  "requestOtherDeviceName": "das andere Gerät",
+  "requestPeerNeedsUpdatePeer": "{alias} benötigt ein Rune-Update, um eine Verbindung herzustellen.",
+  "requestPeerNeedsUpdateThisDevice": "Aktualisieren Sie Rune auf diesem Gerät, um eine Verbindung mit {alias} herzustellen.",
+  "remoteLossProtocolIncompatible": "Die Rune-Versionen stimmen nicht mehr überein. Aktualisiere Rune auf beiden Geräten, um die Verbindung wiederherzustellen.",
+  "capabilityPeerTooOld": "Aktualisiere Rune auf dem anderen Gerät, um dies zu verwenden.",
+  "requestPeerNeedsUpdateFallback": "Aktualisiere Rune auf beiden Geräten, um eine Verbindung herzustellen.",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "Dein Konto auf diesem Server darf diese Aktion nicht ausführen.",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "Die Einstellungen dieser Bibliothek können nicht gelesen werden.",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "Diese Bibliothek ist nicht mehr vorhanden.",
+  "libraryRecordIsOpen": "Schließen Sie die Bibliothek, bevor Sie sie entfernen.",
+  "libraryMediaFolderMissing": "Der Bibliotheksordner fehlt.",
+  "libraryUntrusted": "Diesem Gerät wird nicht vertraut.",
+  "libraryInvalidSource": "Dieser Ordner kann nicht als Bibliothek verwendet werden.",
+  "libraryStorageFailure": "Die Bibliothek konnte nicht gespeichert werden.",
+  "libraryNewerVersion": "Diese Bibliothek wurde mit einer neueren Version von Rune erstellt. Aktualisieren Sie Rune auf diesem Gerät, um sie zu öffnen.",
+  "libraryShareStoreUnavailable": "Der gemeinsame Speicher ist nicht erreichbar. Die Synchronisierung wird automatisch wiederholt.",
+  "libraryRemoteNotAuthorized": "Das Gerät hat diese Verbindung nicht autorisiert.",
+  "libraryRemoteUnreachable": "Das Gerät ist nicht erreichbar.",
+  "libraryRemoteProtocolFailure": "Das Gerät hat eine inkompatible Antwort gesendet.",
+  "libraryProtocolIncompatible": "Dieses Gerät verwendet eine inkompatible Protokollversion.",
+  "libraryNotSupportedYet": "Dieser Bibliothekstyp wird noch nicht unterstützt.",
+  "onMyIPhone": "Auf meinem iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "Auf meinem iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "Farbe des Taskleistensymbols",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "Farbe des Symbols in der Taskleiste wählen.",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "Automatisch",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "Mit anderer Audioausgabe wiedergeben",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "Andere Audiowiedergabe läuft weiter, während Rune Musik abspielt.",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "Szenen",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "Szenen für das Cover-Wall-Menü wählen. Ziehen zum Sortieren.",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name} importiert",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name} konnte nicht importiert werden",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "Szene löschen",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name} löschen? Zum Wiederherstellen erneut importieren.",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "Visualisierung",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "Musikvisualisierung",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "Visualisierungslabor",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "Labor über der Visualisierung anzeigen.",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "Textgröße übernehmen",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "turnOnBackgroundSync": "Hintergrundsynchronisierung Einschalten",
+  "turnOffBackgroundSync": "Hintergrundsynchronisierung Ausschalten",
+  "shareLibraryModeSubtitle": "Wo soll Rune Ihren Medienindex speichern?",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "Im freigegebenen Ordner",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "Wir speichern Ihren Medienindex im freigegebenen Ordner, damit Ihre anderen Geräte ihn synchronisieren können.",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "Auf diesem Gerät",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "Stelle eine Verbindung zu einem Ordner auf einem WebDAV-Server her.",
+  "s3": "S3",
+  "s3Subtitle": "Stelle eine Verbindung zu einem Ordner in einem S3-Bucket her.",
+  "folder": "Ordner",
+  "bucket": "Bucket",
+  "region": "Region",
+  "accessKeyId": "Zugriffsschlüssel-ID",
+  "secretAccessKey": "Geheimer Zugriffsschlüssel",
+  "libraryOpenDalAuthenticationRejected": "Überprüfe Benutzername und Passwort.",
+  "libraryOpenDalUnreachable": "Überprüfe die Serveradresse und die Netzwerkverbindung.",
+  "libraryOpenDalNotFolder": "Überprüfe, ob der ausgewählte Ordner vorhanden und zugänglich ist.",
+  "libraryOpenDalReadOnly": "Wähle einen beschreibbaren Ordner, um den Medienindex in der Freigabe zu speichern.",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Mit einem Subsonic-Musikserver verbinden.",
+  "playOnThisDevice": "Auf diesem Gerät abspielen",
+  "controlServerPlayer": "Serverplayer steuern",
+  "howDoYouWantToUseIt": "Wie möchten Sie es verwenden?",
+  "fileDialogOpenTitle": "Öffnen",
+  "fileDialogSaveTitle": "Speichern unter",
+  "fileDialogFolderTitle": "Ordner auswählen",
+  "fileDialogOpen": "Öffnen",
+  "fileDialogSelectFolder": "Ordner auswählen",
+  "fileDialogFileName": "Dateiname",
+  "fileDialogSaveAsType": "Dateityp",
+  "fileDialogFileTypes": "Dateitypen",
+  "fileDialogAllFiles": "Alle Dateien",
+  "fileDialogForward": "Vorwärts",
+  "fileDialogRecentLocations": "Zuletzt besuchte Orte",
+  "fileDialogUp": "Nach oben",
+  "fileDialogAddress": "Adresse",
+  "fileDialogSearchIn": "{folder} durchsuchen",
+  "fileDialogNewFolder": "Neuer Ordner",
+  "fileDialogView": "Ansicht",
+  "fileDialogExtraLargeIcons": "Extra große Symbole",
+  "fileDialogLargeIcons": "Große Symbole",
+  "fileDialogMediumIcons": "Mittelgroße Symbole",
+  "fileDialogSmallIcons": "Kleine Symbole",
+  "fileDialogList": "Liste",
+  "fileDialogDetails": "Details",
+  "fileDialogTiles": "Kacheln",
+  "fileDialogContent": "Inhalt",
+  "fileDialogHiddenItems": "Ausgeblendete Elemente",
+  "fileDialogName": "Name",
+  "fileDialogDateModified": "Änderungsdatum",
+  "fileDialogSize": "Größe",
+  "fileDialogAscending": "Aufsteigend",
+  "fileDialogDescending": "Absteigend",
+  "fileDialogFileFolder": "Dateiordner",
+  "fileDialogFileOfType": "{extension}-Datei",
+  "fileDialogFile": "Datei",
+  "fileDialogQuickAccess": "Schnellzugriff",
+  "fileDialogThisDevice": "Dieses Gerät",
+  "fileDialogDesktop": "Desktop",
+  "fileDialogDocuments": "Dokumente",
+  "fileDialogDownloads": "Downloads",
+  "fileDialogMusic": "Musik",
+  "fileDialogPictures": "Bilder",
+  "fileDialogVideos": "Videos",
+  "fileDialogLocalDisk": "Lokaler Datenträger",
+  "fileDialogRemovableDisk": "Wechseldatenträger",
+  "fileDialogOpticalDrive": "Optisches Laufwerk",
+  "fileDialogNetworkDrive": "Netzlaufwerk",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{free} frei von {total}",
+  "fileDialogCopyAsPath": "Als Pfad kopieren",
+  "fileDialogRename": "Umbenennen",
+  "fileDialogEmptyFolder": "Dieser Ordner ist leer.",
+  "fileDialogNoMatches": "Keine Elemente entsprechen der Suche.",
+  "fileDialogNotFound": "{location} wurde nicht gefunden. Schreibweise prüfen und erneut versuchen.",
+  "fileDialogFileNotFound": "Die Datei {name} wurde nicht gefunden. Dateinamen prüfen und erneut versuchen.",
+  "fileDialogPathNotFound": "Der Pfad {name} existiert nicht. Pfad prüfen und erneut versuchen.",
+  "fileDialogFolderNotFound": "Der Ordner {name} existiert nicht. Ordnernamen prüfen und erneut versuchen.",
+  "fileDialogSizeColumnToFit": "Spaltenbreite anpassen",
+  "fileDialogSizeAllColumnsToFit": "Alle Spaltenbreiten anpassen",
+  "fileDialogChangeView": "Ansicht ändern",
+  "fileDialogMoreOptions": "Weitere Optionen",
+  "fileDialogPermissionDenied": "Keine Berechtigung für den Zugriff auf {location}.",
+  "fileDialogUnavailable": "{location} ist nicht verfügbar. Prüfen, ob das Laufwerk verbunden ist, und erneut versuchen.",
+  "fileDialogNotAFolder": "{location} ist eine Datei und kann nicht als Ordner geöffnet werden.",
+  "fileDialogAlreadyExists": "An diesem Ort gibt es bereits ein Element namens {name}.",
+  "fileDialogInvalidName": "{name} kann hier nicht als Name verwendet werden.",
+  "fileDialogConfirmSaveAs": "Speichern unter bestätigen",
+  "fileDialogReplacePrompt": "{name} ist bereits vorhanden. Ersetzen?",
+  "fileDialogReplace": "Ersetzen",
+  "fileDialogItemCount": "{count, plural, =1{1 Element} other{{count} Elemente}}",
+  "fileDialogNavigationPane": "Navigationsbereich",
+  "fileDialogItems": "Elemente"
+}

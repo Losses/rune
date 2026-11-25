@@ -1,0 +1,1092 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target pipeline to run"
+        required: true
+        default: "windows"
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - embedded-linux
+          - macos
+          - steam-sniper
+          - mac-app-store
+          - ios-app-store
+          - ios-unsigned
+          - check-apple-secrets
+  push:
+    tags:
+      - v*
+
+jobs:
+  # Nix-based Windows build (x64 + arm64): replaces the former subosito/
+  # dtolnay/vcpkg pipeline. Rust, Flutter, CMake/Ninja and Inno Setup all come
+  # from nix/platforms/windows via nova-nix for reproducibility; the actual
+  # build + CargoKit interception lives in scripts/windows_build.ps1, the
+  # same script exercised by .github/workflows/windows-test-build.yml.
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            system: x86_64-windows
+            rust_target: x86_64-pc-windows-msvc
+            release_suffix: amd64
+          - arch: arm64
+            runner: windows-11-arm
+            system: aarch64-windows
+            rust_target: aarch64-pc-windows-msvc
+            release_suffix: arm64
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Test Windows command monitor
+        shell: pwsh
+        timeout-minutes: 3
+        run: ./scripts/test_windows_monitor.ps1
+
+      # 1. Install nova-nix (Native Windows Nix engine)
+      - name: Setup nova-nix
+        shell: pwsh
+        run: |
+          $dest = "$env:USERPROFILE\.nova-nix"
+          $zip = "$dest\nova-nix.zip"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/Novavero-AI/nova-nix/releases/download/v0.7.0.0/nova-nix-windows-x64.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Remove-Item $zip
+          $novaBin = "$dest\nova-nix-windows-x64\bin"
+          Add-Content $env:GITHUB_PATH "$novaBin"
+          Write-Host "nova-nix installed successfully to $novaBin"
+
+      # 2. Nix Store Cache (C:\nix\store)
+      - name: Cache Nix Store
+        uses: actions/cache@v4
+        with:
+          path: C:\nix\store
+          key: nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-${{ hashFiles('nix/platforms/windows/**', 'windows.nix') }}
+          restore-keys: |
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-${{ matrix.arch }}-
+            nova-nix-store-${{ runner.os }}-${{ runner.arch }}-
+
+      # 3. Flutter Pub Dependencies Cache
+      - name: Cache Flutter Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\Pub\Cache
+          key: pub-cache-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            pub-cache-${{ runner.os }}-
+
+      # 4. Evaluate and verify Windows platform derivations with nova-nix
+      - name: Evaluate Platform Nix Derivations
+        shell: pwsh
+        run: |
+          nova-nix eval windows.nix
+          nova-nix eval --expr '(import ./nix/platforms/windows/default.nix { system = "${{ matrix.system }}"; }).devShells.default.name'
+
+      # 5. Build all toolchains from Nix store via nova-nix
+      #    (Rust and Flutter now come from Nix, replacing external actions)
+      - name: Realize Toolchains from Nix Store
+        shell: pwsh
+        run: |
+          # nova-nix v0.7.0.0's `build` only accepts a .nix file as its target
+          # (`--expr` exists for `eval` only), so wrap the attribute paths in files.
+          #
+          # Helper: build a .nix attr file and return the store path.
+          # On failure, prints the FULL nova-nix output before throwing.
+          function Get-NixStorePath {
+            param([string]$AttrFile, [string]$Label)
+            $out = nova-nix build $AttrFile 2>&1
+            $path = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+            if (-not $path) {
+              Write-Host "=== nova-nix build $AttrFile ($Label) FULL OUTPUT ==="
+              $out | ForEach-Object { Write-Host $_ }
+              throw "nova-nix build did not report a store path for $Label (see output above)"
+            }
+            Write-Host "$Label in Nix store: $path"
+            return $path
+          }
+
+          Set-Content -Path ".\cmake-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.cmake"
+          Set-Content -Path ".\ninja-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).tools.ninja"
+          $cmakeOut = Get-NixStorePath -AttrFile ".\cmake-attr.nix" -Label "CMake"
+          $ninjaOut = Get-NixStorePath -AttrFile ".\ninja-attr.nix" -Label "Ninja"
+          Add-Content $env:GITHUB_PATH "$cmakeOut\bin"
+          Add-Content $env:GITHUB_PATH "$ninjaOut"
+
+          # Fail fast on immutable Flutter integration before realizing Rust.
+          Set-Content -Path ".\flutter-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"${{ matrix.system }}`"; }).flutter.package"
+          $flutterOut = Get-NixStorePath -AttrFile ".\flutter-attr.nix" -Label "Flutter"
+          Add-Content $env:GITHUB_PATH "$flutterOut\flutter\bin"
+          ./scripts/test_windows_flutter.ps1 -Package $flutterOut
+
+          # Build Rust toolchain (x64 host via tar.xz derivation; aarch64
+          # binaries cannot run on x64).  The derivation fetches the
+          # standalone tar.xz, extracts it with tar.exe, and xcopies
+          # rust-std-<target>/ into rustc/ — all inside the sandbox.  The
+          # output is the fully assembled toolchain store path.  No msiexec
+          # needed; two bin dirs (rustc/bin + cargo/bin) both go on PATH.
+          #
+          # The standalone tarball ships rustc and cargo in SEPARATE
+          # top-level dirs (not the merged flat layout of rustup) so BOTH
+          # must appear on PATH for cargo to locate rustc.
+          Set-Content -Path ".\rust-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rust.package"
+          $rustOut = Get-NixStorePath -AttrFile ".\rust-attr.nix" -Label "Rust"
+          Write-Host "Rust toolchain in Nix store: $rustOut"
+          $rustcBin = "$rustOut\rustc\bin"
+          $cargoBin = "$rustOut\cargo\bin"
+          if (-not (Test-Path "$rustcBin\rustc.exe")) { throw "rustc.exe not found at $rustcBin" }
+          if (-not (Test-Path "$cargoBin\cargo.exe")) { throw "cargo.exe not found at $cargoBin" }
+          $env:PATH = "$cargoBin;$rustcBin;" + $env:PATH
+          Write-Host "Rust bin dirs added to PATH: $cargoBin; $rustcBin"
+
+          # ARM64 cross-compile: the x64 tar.xz ships only the x86_64 std
+          # (the aarch64 tar.xz has aarch64 binaries that cannot run here).
+          # Fetch the aarch64 std component tarball (same pinned 1.99.0) and
+          # drop its lib/rustlib/aarch64-pc-windows-msvc into the sysroot so
+          # that `cargo build --target aarch64-pc-windows-msvc` finds rlibs.
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            Write-Host "Fetching aarch64-pc-windows-msvc std for cross-compile..."
+            $stdArchive = "$env:RUNNER_TEMP\rust-std-aarch64.tar.xz"
+            $stdExtract = "$env:RUNNER_TEMP\rust-std-aarch64"
+            Invoke-WebRequest -Uri "https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-pc-windows-msvc.tar.xz" -OutFile $stdArchive
+            New-Item -ItemType Directory -Force -Path "$stdExtract" | Out-Null
+            tar.exe -xf $stdArchive -C "$stdExtract"
+            if ($LASTEXITCODE -ne 0) { throw "tar.exe failed to extract aarch64 std tarball" }
+            $stdTarget = Get-ChildItem -Recurse -Path "$stdExtract" -Directory -Filter "aarch64-pc-windows-msvc" | Select-Object -First 1
+            if (-not $stdTarget) { throw "aarch64-pc-windows-msvc dir not found in std tarball" }
+            # After the xcopy merge in the derivation, target std lives under
+            # rustc\lib\rustlib (alongside the x64 std).  Drop the aarch64
+            # std next to it.
+            $destDir = "$rustOut\rustc\lib\rustlib\aarch64-pc-windows-msvc"
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+            Copy-Item -Recurse -Force "$($stdTarget.FullName)\*" "$destDir\"
+            Write-Host "Installed aarch64 std to: $destDir"
+          }
+
+          # Publish the Rust bin dirs for downstream steps.  Two entries:
+          # cargo/bin and rustc/bin (the standalone tarball keeps them
+          # separate).  cargo resolves rustc from PATH.
+          Add-Content $env:GITHUB_PATH "$cargoBin"
+          Add-Content $env:GITHUB_PATH "$rustcBin"
+
+          # Inno Setup: fetchurl the verified installer .exe from Nix store,
+          # then silent-install it for both target architectures.
+          Set-Content -Path ".\inno-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).innosetup.package"
+          $innoExe = Get-NixStorePath -AttrFile ".\inno-attr.nix" -Label "Inno Setup"
+          $innoOut = "$env:RUNNER_TEMP\inno-setup"
+          New-Item -ItemType Directory -Force -Path "$innoOut" | Out-Null
+          Write-Host "Installing Inno Setup from: $innoExe"
+          $proc = Start-Process -FilePath $innoExe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$innoOut`"" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) { throw "Inno Setup silent install failed (exit $($proc.ExitCode)) on $innoExe" }
+          $iscc = Join-Path $innoOut "ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found under $innoOut after Inno Setup install" }
+          Write-Host "Inno Setup installed to: $innoOut"
+          Add-Content $env:GITHUB_PATH "$innoOut"
+
+          # DirectX Shader Compiler: wgpu loads dxcompiler.dll from the app folder
+          # on arm64 (x64 links DXC statically), else it falls back to slow FXC.
+          # windows_build.ps1 copies it into the release folder, so the zip, the
+          # Inno installer and the MSIX all get it.
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            Set-Content -Path ".\dxc-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).dxc.package"
+            $dxcOut = Get-NixStorePath -AttrFile ".\dxc-attr.nix" -Label "DirectX Shader Compiler"
+            Add-Content $env:GITHUB_ENV "RUNE_DXC_DIR=$dxcOut"
+          }
+
+      # 6. Cache compiled Rust build artifacts (target/), keyed per
+      #    architecture since x64 and arm64 both build under
+      #    target/<rust_target>/release. This is on top of (not a
+      #    replacement for) the Cargo registry/git source cache that
+      #    Swatinem/rust-cache also manages; it is what actually skips
+      #    recompiling hub's dependency graph between runs. Placed after
+      #    Rust is realized from Nix (needs rustc/cargo on PATH to key
+      #    itself) and before the cargo build inside windows_build.ps1.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: ${{ matrix.arch }}
+          cache-targets: "true"
+
+      # 7. Build rinf CLI from Nix store (source-build via hash-verified .crate)
+      #    Replaces the previous `cargo install rinf_cli` so the binary is
+      #    reproducible and pinned.  The derivation fetches the .crate, unpacks
+      #    it, and runs cargo install --path --locked inside the sandbox.
+      - name: Build Rinf CLI from Nix Store
+        shell: pwsh
+        run: |
+          Set-Content -Path ".\rinf-attr.nix" -Value "(import ./nix/platforms/windows/default.nix { system = `"x86_64-windows`"; }).rinf.package"
+          $out = nova-nix build .\rinf-attr.nix 2>&1
+          $rinfPath = $out | Where-Object { $_ -match '^C:\\nix\\store\\' } | Select-Object -Last 1
+          if (-not $rinfPath) {
+            Write-Host "=== nova-nix build rinf FULL OUTPUT ==="
+            $out | ForEach-Object { Write-Host $_ }
+            throw "nova-nix build did not report a store path for rinf (see output above)"
+          }
+          Write-Host "Rinf in Nix store: $rinfPath"
+          Add-Content $env:GITHUB_PATH "$rinfPath\bin"
+
+      # 8. Run One-Click Windows Build (MSVC + CargoKit Shim + Runner + Inno Setup)
+      - name: Run Windows One-Click Build
+        # Stage maxima total 125 minutes; leave cleanup and artifact upload room.
+        timeout-minutes: 135
+        shell: pwsh
+        run: |
+          .\scripts\windows_build.ps1 -Arch ${{ matrix.arch }} -BuildInstaller
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Compute artifact identity
+        id: artifact
+        shell: pwsh
+        run: |
+          # Sanitize the ref name: unlike tag pushes, workflow_dispatch can
+          # run from a branch name containing "/" (e.g. ci/windows-diagnostics),
+          # which upload-artifact rejects outright.
+          $safeRef = $env:GITHUB_REF_NAME -replace '[^A-Za-z0-9._-]', '-'
+          $suffix = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { "-$($env:SHORT_SHA)" } else { "" }
+          "prefix=Rune-$safeRef$suffix-windows" >> $env:GITHUB_OUTPUT
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Upload Portable Application Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}
+          path: build/windows/${{ matrix.arch }}/runner/Release/
+          if-no-files-found: error
+
+      - name: Build MSIX from existing application
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          # msix 3.16.12: configuration.dart defines both options; no second Flutter build.
+          dart run msix:create --release --build-windows false --architecture ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { throw "MSIX packaging failed (exit $LASTEXITCODE)" }
+          ./scripts/test_windows_msix.ps1 -Arch ${{ matrix.arch }}
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-msix
+          path: build/windows/${{ matrix.arch }}/runner/Release/rune.msix
+          if-no-files-found: error
+
+      # Retain the direct-install Inno package alongside the reference MSIX output.
+      - name: Upload Inno Setup Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.prefix }}-${{ matrix.arch }}-installer
+          path: Output/Rune-${{ matrix.arch }}-Setup.exe
+          if-no-files-found: error
+
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.zip
+          directory: build/windows/${{ matrix.arch }}/runner/Release/
+
+      - name: Rename MSIX and Installer for Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          Move-Item -Force "build/windows/${{ matrix.arch }}/runner/Release/rune.msix" "build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.msix"
+          Move-Item -Force "Output/Rune-${{ matrix.arch }}-Setup.exe" "Output/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}-Setup.exe"
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.zip,build/windows/${{ matrix.arch }}/runner/Release/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}.msix,Output/Rune-${{ github.ref_name }}-windows-${{ matrix.release_suffix }}-Setup.exe"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-linux:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'linux'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Rust dependencies
+        run: cargo install rinf_cli --version 8.11.0 --locked
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf gen
+
+      - name: Build linux
+        run: flutter build linux --release --verbose
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Add assets
+        run: |
+          mkdir -p build/linux/x64/release/bundle/assets
+          cp -r assets/icons/Papirus build/linux/x64/release/bundle/assets/icons
+          cp assets/source/linux/* build/linux/x64/release/bundle/assets
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/linux/x64/release/bundle/
+          name: ${{ steps.artifact.outputs.prefix }}-linux
+
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-linux-amd64.zip
+          directory: build/linux/x64/release/bundle/
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-linux-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-embedded-linux:
+    name: Build Embedded Linux (${{ matrix.arch }})
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'embedded-linux'
+    runs-on: ${{ matrix.runner }}
+    # Debian 12 links the bundle against glibc 2.36, so it runs on Raspberry
+    # Pi OS, DietPi and other bookworm systems; the Ubuntu runners' glibc would
+    # rule them out.
+    container: debian:bookworm
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            flutter_arch: arm64
+            release_suffix: arm64
+            deb_arch: arm64
+          - arch: armhf
+            runner: ubuntu-24.04
+            rust_target: armv7-unknown-linux-gnueabihf
+            flutter_arch: armhf
+            release_suffix: armhf
+            deb_arch: armhf
+    steps:
+      - name: Install system dependencies
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          if [ "$DEB_ARCH" = armhf ]; then
+            dpkg --add-architecture armhf
+            CROSS="crossbuild-essential-armhf"
+          else
+            CROSS=""
+          fi
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git jq xz-utils unzip zip file \
+            build-essential clang cmake ninja-build pkg-config $CROSS \
+            libasound2-dev:$DEB_ARCH libssl-dev:$DEB_ARCH \
+            libdrm-dev:$DEB_ARCH libgbm-dev:$DEB_ARCH libgles2-mesa-dev:$DEB_ARCH \
+            libegl1-mesa-dev:$DEB_ARCH libsystemd-dev:$DEB_ARCH libinput-dev:$DEB_ARCH \
+            libudev-dev:$DEB_ARCH libxkbcommon-dev:$DEB_ARCH libseat-dev:$DEB_ARCH
+          git config --global --add safe.directory '*'
+
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git $HOME/flutter
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+          echo "$HOME/flutter/bin/cache/dart-sdk/bin" >> $GITHUB_PATH
+          $HOME/flutter/bin/flutter --version
+          $HOME/flutter/bin/flutter precache --linux
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.rust_target }}-bookworm
+
+      - name: Build Embedded Package
+        run: |
+          ./scripts/build_embedded.sh --arch=${{ matrix.flutter_arch }}
+
+      - name: Check the bundle against the target system
+        env:
+          DEB_ARCH: ${{ matrix.deb_arch }}
+        run: |
+          bundle=build/embedded/rune-embedded-$DEB_ARCH
+          for binary in "$bundle/bin/flutter-pi" "$bundle/lib/libhub.so" "$bundle/data/libflutter_engine.so"; do
+            file "$binary"
+            newest=$(readelf --dyn-syms -W "$binary" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)
+            echo "$binary needs $newest"
+          done
+          test -f "$bundle/data/app.so"
+          test -f "$bundle/bin/rune-gpu-devfreq"
+          test -f "$bundle/bin/rune-cpu-cpufreq"
+          test -f "$bundle/bin/rune-unused-devices"
+          test -f "$bundle/bin/rune-soc-profile"
+          test -f "$bundle/soc/rockchip,rk3566.conf"
+          test -f "$bundle/rune-kiosk.conf"
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz
+          name: ${{ steps.artifact.outputs.prefix }}-embedded-${{ matrix.release_suffix }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/embedded/Rune-*-embedded-${{ matrix.arch }}.tar.gz"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-steam-sniper:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'steam-sniper'
+    runs-on: ubuntu-latest
+    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:beta
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+
+      - name: Patch Environment
+        run: |
+          # https://github.com/actions/runner/issues/2033
+          chown -R $(id -u):$(id -g) $PWD
+          git config --global --add safe.directory '*'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Rust dependencies
+        run: cargo install rinf_cli --version 8.11.0 --locked
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf gen
+
+      - name: Build linux
+        run: flutter build linux --release --verbose
+
+      - name: Copy required libraries
+        run: |
+          mkdir -p build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libayatana-indicator3.so.7 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libayatana-ido3-0.4.so.0 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-glib.so.4 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-gtk3.so.4 build/linux/x64/release/bundle/lib/
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Copy Steam Launch Scripts
+        run: |
+          chmod +x scripts/steam/*
+          cp -r scripts/steam/* build/linux/x64/release/bundle/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/linux/x64/release/bundle/
+          name: ${{ steps.artifact.outputs.prefix }}-steam-sniper
+
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-steam-sniper-amd64.zip
+          directory: build/linux/x64/release/bundle/
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-steam-sniper-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  build-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos'
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the DMG and ZIP
+        id: artifact
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which create-dmg and upload-artifact reject.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "ref=$safe_ref" >> "$GITHUB_OUTPUT"
+          echo "prefix=Rune-$safe_ref$suffix" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Install certificates
+        env:
+          DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_NOTARIZED_PROVISION_PROFILE: ${{ secrets.BUILD_NOTARIZED_PROVISION_PROFILE }}
+        run: |
+          # create variables
+          DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH=$RUNNER_TEMP/build_developerID_application_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_Notarized.provisionprofile
+
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH" P12_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_NOTARIZED_PROVISION_PROFILE "$PP_PATH" "Rune Notarized" || failed=1
+          [ "$failed" = 0 ]
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          # security default-keychain -s $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: All
+        run: |
+          brew install just
+          just macos-ci-all
+        env:
+          DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REF_NAME: ${{ steps.artifact.outputs.ref }}
+          SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: Rename DMG
+        run: |
+          mv temp_macos/*.dmg "temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.dmg"
+
+      - name: Rename ZIP
+        run: |
+          mv temp_macos/*.zip "temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.zip"
+
+      - name: Upload artifact macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          path: temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.dmg
+          name: ${{ steps.artifact.outputs.prefix }}-macOS.dmg
+
+      - name: Upload artifact macOS ZIP
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          path: temp_macos/${{ steps.artifact.outputs.prefix }}-macOS.zip
+          name: ${{ steps.artifact.outputs.prefix }}-macOS.zip
+
+      - name: Release DMG
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+      - name: Release ZIP
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          command -v just &>/dev/null && just macos-ci-clean || true
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
+
+  build-and-release-mac-app-store:
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    # A workflow_dispatch run from a branch is a rehearsal: built and signed as for a release, validated, not uploaded.
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'mac-app-store'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Install certificates
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE }}
+          APPLE_DISTRIBUTION_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_PASSWORD }}
+          APPLE_DISTRIBUTION_SIGNING_IDENTITY: ${{ secrets.APPLE_DISTRIBUTION_SIGNING_IDENTITY }}
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE: ${{ secrets.MAC_DEVELOPER_INSTALLER_CERTIFICATE }}
+          MAC_DEVELOPER_INSTALLER_PASSWORD: ${{ secrets.MAC_DEVELOPER_INSTALLER_PASSWORD }}
+          MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_APP_STORE_PROVISION_PROFILE }}
+        run: |
+          # create variables
+          APPLE_DISTRIBUTION_CERTIFICATE_PATH=$RUNNER_TEMP/build_apple_distribution_certificate.p12
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH=$RUNNER_TEMP/build_mac_developer_installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_App_Store.provisionprofile
+
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh MAC_DEVELOPER_INSTALLER_CERTIFICATE "$MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH" MAC_DEVELOPER_INSTALLER_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_APP_STORE_PROVISION_PROFILE "$PP_PATH" "Rune App Store" || failed=1
+          scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
+          [ "$failed" = 0 ]
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          # security default-keychain -s $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $APPLE_DISTRIBUTION_CERTIFICATE_PATH -P "$APPLE_DISTRIBUTION_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH -P "$MAC_DEVELOPER_INSTALLER_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: All
+        run: |
+          RUNE_APPSTORE_BUILD_VERSION="$(scripts/apple/ci_appstore_version.sh)"
+          export RUNE_APPSTORE_BUILD_VERSION
+          echo "App Store version $RUNE_APPSTORE_BUILD_VERSION ($RUNE_APPSTORE_BUILD_NUMBER), upload: $RUNE_APPSTORE_UPLOAD"
+          brew install just
+          just macos-ci-all-appstore
+        env:
+          APPLE_DISTRIBUTION_SIGNING_IDENTITY: ${{ secrets.APPLE_DISTRIBUTION_SIGNING_IDENTITY }}
+          MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ steps.short-sha.outputs.sha }}
+          RUNE_APPSTORE_BUILD_NUMBER: ${{ github.run_number }}
+          # Only a tag build uploads. Any other run validates with App Store Connect instead.
+          RUNE_APPSTORE_UPLOAD: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          command -v just &>/dev/null && just macos-ci-clean || true
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
+          rm -f $RUNNER_TEMP/*.p8
+  build-and-release-ios-app-store:
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    # A workflow_dispatch run from a branch is a rehearsal: built and signed as for a release, validated, not uploaded.
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios-app-store'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install certificates
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE }}
+          APPLE_DISTRIBUTION_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_IOS_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_IOS_APP_STORE_PROVISION_PROFILE }}
+        run: |
+          # create variables
+          APPLE_DISTRIBUTION_CERTIFICATE_PATH=$RUNNER_TEMP/build_apple_distribution_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_iOS_App_Store.mobileprovision
+
+          # decode and check every secret, so one run names all the bad ones
+          failed=0
+          scripts/apple/ci_decode_secret.sh APPLE_DISTRIBUTION_CERTIFICATE "$APPLE_DISTRIBUTION_CERTIFICATE_PATH" APPLE_DISTRIBUTION_PASSWORD || failed=1
+          scripts/apple/ci_decode_secret.sh BUILD_IOS_APP_STORE_PROVISION_PROFILE "$PP_PATH" "Rune iOS App Store" || failed=1
+          scripts/apple/ci_decode_secret.sh APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8" || failed=1
+          [ "$failed" = 0 ]
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          # security default-keychain -s $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $APPLE_DISTRIBUTION_CERTIFICATE_PATH -P "$APPLE_DISTRIBUTION_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: All
+        run: |
+          RUNE_APPSTORE_BUILD_VERSION="$(scripts/apple/ci_appstore_version.sh)"
+          export RUNE_APPSTORE_BUILD_VERSION
+          echo "App Store version $RUNE_APPSTORE_BUILD_VERSION ($RUNE_APPSTORE_BUILD_NUMBER), upload: $RUNE_APPSTORE_UPLOAD"
+          brew install just
+          just ios-ci-all-appstore
+        env:
+          APPLE_DISTRIBUTION_SIGNING_IDENTITY: ${{ secrets.APPLE_DISTRIBUTION_SIGNING_IDENTITY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          REF_NAME: ${{ github.ref_name }}
+          RUNE_APPSTORE_BUILD_NUMBER: ${{ github.run_number }}
+          # Only a tag build uploads. Any other run validates with App Store Connect instead.
+          RUNE_APPSTORE_UPLOAD: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
+          rm -f $RUNNER_TEMP/*.p8
+
+  build-ios-unsigned:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'ios-unsigned'
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Name the IPA
+        id: ipa
+        run: |
+          # A workflow_dispatch run can come from a branch name with "/", which upload-artifact rejects.
+          safe_ref=$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')
+          suffix=""
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then suffix="-$SHORT_SHA"; fi
+          echo "name=Rune-$safe_ref$suffix-iOS-unsigned.ipa" >> "$GITHUB_OUTPUT"
+        env:
+          SHORT_SHA: ${{ steps.short-sha.outputs.sha }}
+
+      - name: All
+        run: |
+          brew install just
+          just ios-ci-unsigned "build/ios/ipa/${{ steps.ipa.outputs.name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/ios/ipa/${{ steps.ipa.outputs.name }}
+          name: ${{ steps.ipa.outputs.name }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/ios/ipa/${{ steps.ipa.outputs.name }}"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev') }}
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'dev')) }}
+
+  # Checks every Apple signing secret without building, signing or uploading anything.
+  check-apple-secrets:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'check-apple-secrets'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Apple signing secrets
+        env:
+          DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_NOTARIZED_PROVISION_PROFILE: ${{ secrets.BUILD_NOTARIZED_PROVISION_PROFILE }}
+          APPLE_DISTRIBUTION_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE }}
+          APPLE_DISTRIBUTION_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_PASSWORD }}
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE: ${{ secrets.MAC_DEVELOPER_INSTALLER_CERTIFICATE }}
+          MAC_DEVELOPER_INSTALLER_PASSWORD: ${{ secrets.MAC_DEVELOPER_INSTALLER_PASSWORD }}
+          BUILD_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_APP_STORE_PROVISION_PROFILE }}
+          BUILD_IOS_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_IOS_APP_STORE_PROVISION_PROFILE }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          failed=0
+          check() { scripts/apple/ci_decode_secret.sh "$@" || failed=1; }
+          check DEVELOPER_ID_APPLICATION_P12_BASE64_MAC "$RUNNER_TEMP/check_developer_id_application.p12" P12_PASSWORD
+          check BUILD_NOTARIZED_PROVISION_PROFILE "$RUNNER_TEMP/check_notarized.provisionprofile" "Rune Notarized"
+          check APPLE_DISTRIBUTION_CERTIFICATE "$RUNNER_TEMP/check_apple_distribution.p12" APPLE_DISTRIBUTION_PASSWORD
+          check MAC_DEVELOPER_INSTALLER_CERTIFICATE "$RUNNER_TEMP/check_mac_developer_installer.p12" MAC_DEVELOPER_INSTALLER_PASSWORD
+          check BUILD_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_app_store.provisionprofile" "Rune App Store"
+          check BUILD_IOS_APP_STORE_PROVISION_PROFILE "$RUNNER_TEMP/check_ios_app_store.mobileprovision" "Rune iOS App Store"
+          check APP_STORE_CONNECT_API_KEY "$RUNNER_TEMP/check_AuthKey.p8"
+          [ "$failed" = 0 ]
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP"/check_*

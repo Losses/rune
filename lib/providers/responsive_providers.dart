@@ -1,0 +1,587 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import '../utils/kept_clear.dart';
+import '../utils/settings_manager.dart';
+import 'app_scale.dart';
+import '../constants/configurations.dart';
+
+enum DeviceOrientation { vertical, horizontal }
+
+enum DeviceType {
+  dock(
+    priority: 5,
+    orientation: DeviceOrientation.vertical,
+    start: 0,
+    end: 120,
+  ),
+  zune(
+    priority: 4,
+    orientation: DeviceOrientation.vertical,
+    start: 121,
+    end: 340,
+  ),
+  phone(
+    priority: 1,
+    orientation: DeviceOrientation.vertical,
+    start: 341,
+    end: 480,
+  ),
+  mobile(
+    priority: 1,
+    orientation: DeviceOrientation.vertical,
+    start: 481,
+    end: 650,
+  ),
+  tablet(
+    priority: 1,
+    orientation: DeviceOrientation.vertical,
+    start: 651,
+    end: 800,
+  ),
+  desktop(
+    priority: 1,
+    orientation: DeviceOrientation.vertical,
+    start: 801,
+    end: 1920,
+  ),
+  tv(
+    priority: 1,
+    orientation: DeviceOrientation.vertical,
+    start: 1921,
+    end: double.infinity,
+  ),
+  band(
+    priority: 6,
+    orientation: DeviceOrientation.horizontal,
+    start: 0,
+    end: 148,
+  ),
+  belt(
+    priority: 5,
+    orientation: DeviceOrientation.horizontal,
+    start: 149,
+    end: 240,
+  ),
+  fish(
+    priority: 3,
+    orientation: DeviceOrientation.horizontal,
+    start: 241,
+    end: 300,
+  ),
+  car(
+    priority: 2,
+    orientation: DeviceOrientation.horizontal,
+    start: 301,
+    end: 340,
+  ),
+  station(
+    priority: 0,
+    orientation: DeviceOrientation.horizontal,
+    start: 341,
+    end: double.infinity,
+  );
+
+  @override
+  toString() {
+    return name;
+  }
+
+  static DeviceType fromString(String x) {
+    return DeviceType.values.firstWhere(
+      (type) => type.name == x,
+      orElse: () => throw ArgumentError('Invalid DeviceType name: $x'),
+    );
+  }
+
+  final int priority;
+  final DeviceOrientation orientation;
+
+  final double start;
+  final double end;
+
+  const DeviceType({
+    required this.priority,
+    required this.orientation,
+    required this.start,
+    required this.end,
+  });
+
+  static DeviceType _determineDeviceType({
+    double? size,
+    DeviceOrientation? orientation,
+  }) {
+    assert(
+      size != null || orientation != null,
+      'At least one of size or orientation must be provided',
+    );
+
+    return DeviceType.values
+        .where((type) => orientation == null || type.orientation == orientation)
+        .firstWhere(
+          (type) =>
+              size == null ||
+              (size >= type.start &&
+                  (type.end == double.infinity || size < type.end + 1)),
+          orElse: () => DeviceType.values.firstWhere(
+            (type) =>
+                (orientation == null || type.orientation == orientation) &&
+                type.end == double.infinity,
+          ),
+        );
+  }
+
+  DeviceType? _getActiveForOrientation(List<DeviceType> filteredDeviceTypes) {
+    if (filteredDeviceTypes.isEmpty) return null;
+
+    DeviceType? result;
+
+    for (final entry in filteredDeviceTypes.reversed) {
+      final a = this;
+      final b = entry;
+
+      if (a.start > b.start) {
+        return result;
+      }
+
+      result = entry;
+    }
+
+    return filteredDeviceTypes.first;
+  }
+}
+
+/// The upright layout a window of [size] has by its width, the lying one by
+/// its height, and of the two the one a [ResponsiveProvider] picks: the one
+/// of the higher priority, the upright one on a tie.
+({DeviceType vertical, DeviceType horizontal, DeviceType active})
+deviceTypesFor(Size size) {
+  final vertical = DeviceType._determineDeviceType(
+    size: size.width,
+    orientation: DeviceOrientation.vertical,
+  );
+  final horizontal = DeviceType._determineDeviceType(
+    size: size.height,
+    orientation: DeviceOrientation.horizontal,
+  );
+  return (
+    vertical: vertical,
+    horizontal: horizontal,
+    active: vertical.priority >= horizontal.priority ? vertical : horizontal,
+  );
+}
+
+/// Whether a window of [layoutSize] has one of the layouts a phone is made
+/// for: zune, or an upright layout wider than it. The strip layouts and the
+/// dock are for the smallest windows, where most pages show little or
+/// nothing.
+bool isPhoneLayoutSize(Size layoutSize) {
+  final type = deviceTypesFor(layoutSize).active;
+  return type.orientation == DeviceOrientation.vertical &&
+      type.start >= DeviceType.zune.start;
+}
+
+Future<Size?> getSavedWindowSize() async {
+  final savedSize = await SettingsManager().getValue<String>(
+    kRememberdWindowSizeKey,
+  );
+
+  if (savedSize == null) return null;
+
+  try {
+    final parts = savedSize.split(',');
+    if (parts.length == 2) {
+      final width = double.parse(parts[0]);
+      final height = double.parse(parts[1]);
+      if (width.isFinite && height.isFinite && width > 0 && height > 0) {
+        return Size(width, height);
+      }
+    }
+  } catch (e) {
+    debugPrint('Error parsing saved window size: $e');
+  }
+  return null;
+}
+
+class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
+  ScreenSizeProvider([AppScaleProvider? scale])
+    : this.withWriter(
+        scale,
+        (size) =>
+            SettingsManager().setValue<String>(kRememberdWindowSizeKey, size),
+      );
+
+  ScreenSizeProvider.withWriter(this._scale, this._writeSize) {
+    _scale?.addListener(_scaleChanged);
+    WidgetsBinding.instance.addObserver(this);
+    _updateScreenSize();
+  }
+
+  final AppScaleProvider? _scale;
+  final Future<void> Function(String) _writeSize;
+  Future<void> _writes = Future.value();
+  Size _rawWindowSize = Size.zero;
+  EdgeInsets _keptClear = EdgeInsets.zero;
+  Timer? _debounceTimer;
+  Size get rawWindowSize => _rawWindowSize;
+
+  /// The whole window at the interface scale, for what is sized by it.
+  Size get screenSize => _rawWindowSize / (_scale?.scaleFactor ?? 1);
+
+  /// The size layouts are chosen by: the window less the insets content keeps
+  /// clear of ([keptClearOf]), at the interface scale.
+  Size get layoutSize =>
+      Size(
+        math.max(0.0, _rawWindowSize.width - _keptClear.horizontal),
+        math.max(0.0, _rawWindowSize.height - _keptClear.vertical),
+      ) /
+      (_scale?.scaleFactor ?? 1);
+
+  void _scaleChanged() => notifyListeners();
+
+  @override
+  void didChangeMetrics() => _updateScreenSize();
+
+  void _updateScreenSize() {
+    // Rune owns one application window; use its first (and only) view.
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final view = views.first;
+    if (view.devicePixelRatio <= 0) return;
+    final size = view.physicalSize / view.devicePixelRatio;
+    final keptClear = keptClearOf(
+      EdgeInsets.fromViewPadding(view.viewPadding, view.devicePixelRatio),
+    );
+    // A rotation changes both at once, and notifies once.
+    final insetsChanged = keptClear != _keptClear;
+    _keptClear = keptClear;
+    if (size != _rawWindowSize) {
+      _rawWindowSize = size;
+      notifyListeners();
+      _debounceTimer?.cancel();
+      // Minimized windows must not overwrite the last usable size.
+      if (size.width > 0 && size.height > 0) {
+        _debounceTimer = Timer(const Duration(seconds: 1), () {
+          _writes = _writes
+              .then((_) => _writeSize('${size.width},${size.height}'))
+              .catchError((Object error) {
+                debugPrint('Could not save window size: $error');
+              });
+        });
+      }
+    } else if (insetsChanged) {
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _scale?.removeListener(_scaleChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+}
+
+class ResponsiveProvider extends ChangeNotifier {
+  DeviceType _currentVerticalDeviceType = DeviceType.desktop;
+  DeviceType _currentHorizontalDeviceType = DeviceType.station;
+  DeviceType _currentDeviceType = DeviceType.desktop;
+  DeviceType? _forceDeviceType;
+
+  get currentDeviceType => _forceDeviceType ?? _currentDeviceType;
+
+  final ScreenSizeProvider _screenSizeProvider;
+  final Future<String?> Function() _readForceLayout;
+  bool _disposed = false;
+
+  ResponsiveProvider(
+    this._screenSizeProvider, [
+    Future<String?> Function()? readForceLayout,
+  ]) : _readForceLayout =
+           readForceLayout ??
+           (() => SettingsManager().getValue<String>(kForceLayoutModeKey)) {
+    _screenSizeProvider.addListener(_updateDeviceTypes);
+    _updateDeviceTypes();
+    updateForceLayoutConfig();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _screenSizeProvider.removeListener(_updateDeviceTypes);
+    super.dispose();
+  }
+
+  Future<void> updateForceLayoutConfig() async {
+    try {
+      final value = await _readForceLayout();
+      if (_disposed) return;
+      final next = DeviceType.values
+          .where((type) => type.name == value)
+          .firstOrNull;
+      if (_forceDeviceType != next) {
+        _forceDeviceType = next;
+        notifyListeners();
+      }
+    } catch (error) {
+      debugPrint('Could not load layout mode: $error');
+    }
+  }
+
+  void _updateDeviceTypes() {
+    final oldV = _currentVerticalDeviceType;
+    final oldH = _currentHorizontalDeviceType;
+    final oldA = currentDeviceType;
+
+    final (vertical: newV, horizontal: newH, active: newA) = deviceTypesFor(
+      _screenSizeProvider.layoutSize,
+    );
+
+    _currentVerticalDeviceType = newV;
+    _currentHorizontalDeviceType = newH;
+
+    _currentDeviceType = newA;
+
+    if (oldA != newA || oldV != newV || oldH != newH) {
+      notifyListeners();
+    }
+  }
+
+  DeviceType getActiveDeviceType(List<DeviceType> deviceTypes) {
+    if (_forceDeviceType != null) {
+      deviceTypes = deviceTypes
+          .where(
+            (device) =>
+                device.orientation == _forceDeviceType!.orientation &&
+                device.end <= _forceDeviceType!.end,
+          )
+          .toList();
+
+      if (deviceTypes.isEmpty) {
+        return _forceDeviceType!;
+      }
+    }
+
+    final verticalDeviceTypes = deviceTypes
+        .where((bp) => bp.orientation == DeviceOrientation.vertical)
+        .toList();
+    final horizontalDeviceTypes = deviceTypes
+        .where((bp) => bp.orientation == DeviceOrientation.horizontal)
+        .toList();
+
+    DeviceType? verticalActive = _currentVerticalDeviceType
+        ._getActiveForOrientation(verticalDeviceTypes);
+    DeviceType? horizontalActive = _currentHorizontalDeviceType
+        ._getActiveForOrientation(horizontalDeviceTypes);
+
+    if (verticalActive != null && horizontalActive != null) {
+      return verticalActive.priority >= horizontalActive.priority
+          ? verticalActive
+          : horizontalActive;
+    } else if (verticalActive != null) {
+      return verticalActive;
+    } else if (horizontalActive != null) {
+      return horizontalActive;
+    } else {
+      if (_forceDeviceType != null) {
+        return _forceDeviceType!;
+      }
+      return deviceTypes.last;
+    }
+  }
+
+  bool _compareDeviceType(
+    DeviceType deviceType,
+    bool Function(DeviceType, DeviceType) comparison, [
+    bool strictOrientation = true,
+  ]) {
+    if (!strictOrientation &&
+        currentDeviceType.orientation != deviceType.orientation) {
+      return false;
+    }
+
+    final selectedCompareTarget =
+        deviceType.orientation == DeviceOrientation.vertical
+        ? _currentVerticalDeviceType
+        : _currentHorizontalDeviceType;
+
+    return comparison(selectedCompareTarget, deviceType);
+  }
+
+  bool smallerOrEqualTo(DeviceType deviceType, [bool autoOrientation = true]) =>
+      _compareDeviceType(
+        deviceType,
+        (a, b) => a.start <= b.start,
+        autoOrientation,
+      );
+
+  bool largerOrEqualTo(
+    DeviceType deviceType, [
+    bool strictOrientation = true,
+  ]) => _compareDeviceType(
+    deviceType,
+    (a, b) => a.end >= b.end,
+    strictOrientation,
+  );
+
+  bool equalTo(DeviceType deviceType, [bool strictOrientation = true]) =>
+      _compareDeviceType(deviceType, (a, b) => a == b, strictOrientation);
+}
+
+class SmallerOrEqualTo extends StatelessWidget {
+  final DeviceType deviceType;
+  final Widget Function(BuildContext context, bool matches) builder;
+
+  const SmallerOrEqualTo({
+    super.key,
+    required this.deviceType,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ResponsiveProvider, bool>(
+      selector: (_, provider) {
+        return provider.smallerOrEqualTo(deviceType);
+      },
+      builder: (context, matches, child) => builder(context, matches),
+    );
+  }
+}
+
+class LargerOrEqualTo extends StatelessWidget {
+  final DeviceType deviceType;
+  final Widget Function(BuildContext context, bool matches) builder;
+
+  const LargerOrEqualTo({
+    super.key,
+    required this.deviceType,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ResponsiveProvider, bool>(
+      selector: (_, provider) {
+        return provider.largerOrEqualTo(deviceType);
+      },
+      builder: (context, matches, child) => builder(context, matches),
+    );
+  }
+}
+
+class EqualTo extends StatelessWidget {
+  final DeviceType deviceType;
+  final Widget Function(BuildContext context, bool matches) builder;
+
+  const EqualTo({super.key, required this.deviceType, required this.builder});
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ResponsiveProvider, bool>(
+      selector: (_, provider) {
+        return provider.equalTo(deviceType);
+      },
+      builder: (context, matches, child) => builder(context, matches),
+    );
+  }
+}
+
+class DeviceTypeBuilder extends StatelessWidget {
+  final List<DeviceType> deviceType;
+  final Widget Function(BuildContext context, DeviceType activeDeviceType)
+  builder;
+
+  const DeviceTypeBuilder({
+    super.key,
+    required this.deviceType,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ResponsiveProvider, DeviceType>(
+      selector: (_, provider) => provider.getActiveDeviceType(deviceType),
+      builder: (context, activeDeviceType, child) =>
+          builder(context, activeDeviceType),
+    );
+  }
+}
+
+class SmallerOrEqualToScreenSize extends StatelessWidget {
+  final double maxSize;
+  final DeviceOrientation orientation;
+  final Widget Function(BuildContext context, bool isSmaller) builder;
+
+  const SmallerOrEqualToScreenSize({
+    super.key,
+    required this.maxSize,
+    this.orientation = DeviceOrientation.vertical,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) {
+        final size = orientation == DeviceOrientation.vertical
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
+        return size <= maxSize;
+      },
+      builder: (context, isSmaller, child) => builder(context, isSmaller),
+    );
+  }
+}
+
+class GreaterOrEqualToScreenSize extends StatelessWidget {
+  final double minSize;
+  final DeviceOrientation orientation;
+  final Widget Function(BuildContext context, bool isGreater) builder;
+
+  const GreaterOrEqualToScreenSize({
+    super.key,
+    required this.minSize,
+    this.orientation = DeviceOrientation.vertical,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) {
+        final size = orientation == DeviceOrientation.vertical
+            ? screenSizeProvider.layoutSize.width
+            : screenSizeProvider.layoutSize.height;
+        return size >= minSize;
+      },
+      builder: (context, isGreater, child) => builder(context, isGreater),
+    );
+  }
+}
+
+bool smallerThanWatch(Size size) {
+  return size.width <= 64 || size.height <= 64;
+}
+
+class SmallerOrEqualThanWatch extends StatelessWidget {
+  final Widget Function(BuildContext context, bool isWatch) builder;
+
+  const SmallerOrEqualThanWatch({super.key, required this.builder});
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) {
+        final width = screenSizeProvider.layoutSize.width;
+        final height = screenSizeProvider.layoutSize.height;
+        return width <= 64 || height <= 64;
+      },
+      builder: (context, isWatch, child) => builder(context, isWatch),
+    );
+  }
+}

@@ -1,0 +1,1808 @@
+{
+  "@@locale": "zh_Hant_LZH",
+  "rune": "符石聆音",
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
+  "runePlayer": "符石聆音戲匣",
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
+  "copyright": "權",
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
+  "copyrightAnnouncement": "歲次甲辰，權属符石聆音之著者。",
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
+  "licenseAnnouncement": "是著之權契依謀智公契之律所行。",
+  "@licenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
+  "factoryReset": "重設諸置",
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
+  "factoryResetSubtitle": "棄庫錄之諸項。",
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
+  "bsodBody": "戲匣遭故，重啟以復。子私隱若金，莫敢妄取。",
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
+  "artists": "伶",
+  "@artists": {},
+  "albums": "輯",
+  "@albums": {},
+  "playlists": "錄",
+  "@playlists": {},
+  "unknownAlbum": "未知之輯",
+  "@unknownAlbum": {},
+  "unknownTrack": "未知之曲",
+  "@unknownTrack": {},
+  "unknownArtist": "未知之伶",
+  "@unknownArtist": {},
+  "selectDirectory": "擇徑",
+  "@selectDirectory": {},
+  "noDataAvailable": "無物可用",
+  "@noDataAvailable": {},
+  "start": "始",
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
+  "search": "尋",
+  "@search": {},
+  "tracks": "曲",
+  "@tracks": {},
+  "system": "系統",
+  "@system": {},
+  "operatingSystem": "機運系統",
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "systemVersion": "系統版次",
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "kernelVersion": "樞機版次",
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
+  "hostName": "主機名",
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
+  "player": "戲匣",
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
+  "buildHash": "構築散列",
+  "@buildHash": {},
+  "buildDate": "築日",
+  "@buildDate": {},
+  "commitDate": "交期",
+  "@commitDate": {},
+  "rustcVersion": "銹譯等第",
+  "@rustcVersion": {},
+  "activation": "起",
+  "@activation": {},
+  "runeIsActivated": "符石聆音已起",
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
+  "productId": "產碼",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "子疑受害之於正版也。",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
+  "axiomDesign": "公理設計",
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
+  "computingDevice": "算端",
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
+  "computingDeviceSubtitle": "自圖形若中央擇一器，以處速便。",
+  "@computingDeviceSubtitle": {},
+  "gpu": "圖形處理器",
+  "@gpu": {},
+  "cpu": "中央處理器",
+  "@cpu": {},
+  "performanceLevel": "效等",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "擇並行數。",
+  "@performanceLevelSubtitle": {},
+  "performance": "疾",
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
+  "balance": "均",
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
+  "batterySaving": "儉",
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
+  "switchTo": "更至",
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
+  "removeLibrary": "棄",
+  "@removeLibrary": {
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
+  },
+  "localFolder": "本地資料夾",
+  "localFolderSubtitle": "擇此裝置中之資料夾。",
+  "runeDevice": "Rune 裝置",
+  "runeDeviceSubtitle": "連接另一 Rune 裝置。",
+  "addLibrary": "增庫",
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
+  "addLibrarySubtitle": "增置新庫，索其文俱。",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "別目",
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
+  "addToQueue": "增至行伍",
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
+  "addToQueueSubtitle": "增新项於行伍之法。",
+  "@addToQueueSubtitle": {},
+  "playNext": "接次",
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
+  "addToEnd": "增至行末",
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
+  "middleClickAction": "中擊之舉",
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
+  "middleClickActionSubtitle": "中擊於曲亦集之舉。",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "始奏",
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
+  "startRoaming": "始漫奏",
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
+  "playbackMode": "樂奏之法",
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
+  "playbackModeSubtitle": "偏善律樂鼓奏之法",
+  "@playbackModeSubtitle": {},
+  "colorMode": "晦明",
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
+  "colorModeSubtitle": "更符聆之晦明。",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "循制",
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
+  "dark": "晦",
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
+  "light": "明",
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
+  "themeColor": "正色",
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
+  "themeColorSubtitle": "擇選一色，煥然一新。",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "循制色",
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
+  "dynamicColors": "循曲護",
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
+  "dynamicColorsSubtitle": "循方奏之曲護，更符聆之主色。",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "標誌動畫",
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
+  "brandingAnimationSubtitle": "啟符聆之時，現標誌動畫。",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "少待片刻。",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
+  "tracksFound": " 數之曲已索",
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
+  "albumCoversCollected": " 數之曲護已集",
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
+  "editPlaylist": "改錄",
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
+  "editMix": "改彙",
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "edit": "改",
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "棄",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
+  "removePlaylist": "棄錄",
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
+  "removeMix": "棄彙",
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "addToMix": "增至一彙",
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "newMix": "起彙",
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "selectAGroup": "擇一部",
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
+  "likedOnly": "只悅",
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
+  "allTracks": "悉曲",
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
+  "defaultMode": "本設",
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
+  "sequential": "次第",
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
+  "repeatAll": "循環諸曲",
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
+  "repeatOne": "循環單曲",
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
+  "shuffle": "恣奏",
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
+  "title": "標",
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
+  "group": "部",
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
+  "save": "儲",
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
+  "create": "立",
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
+  "cancel": "罷",
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
+  "noRecommendation": "毋需薦",
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
+  "basedOnAll": "依諸曲",
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
+  "group1": "甲部",
+  "@group1": {},
+  "group2": "乙部",
+  "@group2": {},
+  "group3": "丙部",
+  "@group3": {},
+  "group4": "丁部",
+  "@group4": {},
+  "group5": "戊部",
+  "@group5": {},
+  "group6": "己部",
+  "@group6": {},
+  "group7": "庚部",
+  "@group7": {},
+  "group8": "辛部",
+  "@group8": {},
+  "group9": "壬部",
+  "@group9": {},
+  "ascending": "正序",
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
+  "descending": "倒序",
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
+  "lastModified": "末改",
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
+  "duration": "時長",
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
+  "timesPlayedThrough": "奏數",
+  "@timesPlayedThrough": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been played through completely."
+  },
+  "timesSkipped": "越數",
+  "@timesSkipped": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been skipped."
+  },
+  "pickDirectory": "擇徑",
+  "@pickDirectory": {
+    "description": "Button prompt text in the Mix edit modal. Pressing this button opens a modal to guide users in selecting a directory."
+  },
+  "oneDirectory": "一徑",
+  "@oneDirectory": {
+    "description": "Status text indicating one directory has been selected."
+  },
+  "manyDirectories": "{count} 徑",
+  "@manyDirectories": {
+    "description": "Status text indicating multiple directories have been selected.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "定",
+  "@confirm": {
+    "description": "Action button text in the modal, indicating the user's intent to confirm an action."
+  },
+  "directories": "徑",
+  "@directories": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
+  },
+  "allDirectories": "諸徑",
+  "@allDirectories": {
+    "description": "Prompt indicating that all directories have been selected."
+  },
+  "randomTracks": "散曲",
+  "@randomTracks": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
+  },
+  "amount": "總量",
+  "@amount": {
+    "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
+  },
+  "mode": "奏法",
+  "@mode": {
+    "description": "The playback mode for tracks."
+  },
+  "recommendation": "薦",
+  "@recommendation": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the player's recommendation behavior."
+  },
+  "sortBy": "序依",
+  "@sortBy": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting method for tracks."
+  },
+  "sortOrder": "序",
+  "@sortOrder": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
+  },
+  "liked": "悅",
+  "@liked": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
+  },
+  "noRoamingCollection": "集未析畢，無以漫奏。",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "斯集未析，無以漫奏。",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} 方正析庫，請俟其畢。",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} 請析理庫藏，以臻至善",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "未畢",
+  "@notReady": {
+    "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
+  },
+  "createPlaylist": "立錄",
+  "@createPlaylist": {
+    "description": "Modal title for creating a playlist."
+  },
+  "scanLibrary": "索庫",
+  "@scanLibrary": {
+    "description": "Action button text in the modal, initiating a media library scan when pressed."
+  },
+  "analyzeTracks": "析曲",
+  "@analyzeTracks": {
+    "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
+  },
+  "scan": "索",
+  "@scan": {
+    "description": "Button prompt text in the settings interface, initiating a media library scan when pressed."
+  },
+  "scanning": "方索",
+  "@scanning": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
+  },
+  "analyze": "析",
+  "@analyze": {
+    "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
+  },
+  "analyzing": "方析",
+  "@analyzing": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
+  },
+  "tryCreatingYourOwnCollection": "試立己集",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text displayed on a blank page in the Collection view, suggesting users create a new collection."
+  },
+  "theseActionsMayHelp": "下舉或助",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "試索新檔",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "未覓有集",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "錄中無項",
+  "@noItemsInPlaylist": {},
+  "previous": "前",
+  "@previous": {
+    "description": "Button prompt text for controlling playback, used to skip to the previous track."
+  },
+  "previousSubtitle": "躍至前曲",
+  "@previousSubtitle": {},
+  "playPause": "奏止",
+  "@playPause": {
+    "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
+  },
+  "playPauseSubtitle": "奏止相易",
+  "@playPauseSubtitle": {},
+  "next": "次",
+  "@next": {
+    "description": "Button prompt text for controlling playback, used to skip to the next track."
+  },
+  "nextSubtitle": "躍至次曲",
+  "@nextSubtitle": {},
+  "volume": "響",
+  "@volume": {
+    "description": "Button prompt text for controlling playback, used to adjust the volume."
+  },
+  "volumeSubtitle": "調聲節響",
+  "@volumeSubtitle": {},
+  "playlist": "伍",
+  "@playlist": {
+    "description": "Button prompt text for controlling playback, used to display the playlist."
+  },
+  "playlistSubtitle": "一覽行伍",
+  "@playlistSubtitle": {},
+  "hidden": "隱",
+  "@hidden": {
+    "description": "Button prompt text indicating a hidden button; this text is typically not used."
+  },
+  "hiddenSubtitle": "下者將隱於別目",
+  "@hiddenSubtitle": {},
+  "coverWall": "曲護影壁",
+  "@coverWall": {
+    "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
+  },
+  "coverWallSubtitle": "奇韻示護",
+  "@coverWallSubtitle": {},
+  "fullscreen": "全幕",
+  "@fullscreen": {
+    "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
+  },
+  "fullscreenSubtitle": "出入全幕",
+  "@fullscreenSubtitle": {},
+  "pause": "止",
+  "@pause": {
+    "description": "Button prompt text for controlling playback, used to pause the currently playing track."
+  },
+  "play": "奏",
+  "@play": {
+    "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
+  },
+  "enable": "啟",
+  "@enable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
+  },
+  "disable": "廢",
+  "@disable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
+  },
+  "noTracksFound": "無曲覓得",
+  "@noTracksFound": {},
+  "library": "庫",
+  "@library": {
+    "description": "Title of the media library settings interface."
+  },
+  "artistQuery": "詢伶",
+  "@artistQuery": {},
+  "playlistQuery": "詢錄",
+  "@playlistQuery": {},
+  "mixes": "彙",
+  "@mixes": {
+    "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "mixQuery": "詢彙",
+  "@mixQuery": {},
+  "settings": "設",
+  "@settings": {
+    "description": "Title of the settings interface."
+  },
+  "analysis": "析",
+  "@analysis": {
+    "description": "Title of the analysis settings interface."
+  },
+  "playback": "奏",
+  "@playback": {
+    "description": "Title of the playback settings interface."
+  },
+  "theme": "表",
+  "@theme": {
+    "description": "Title of the theme settings interface."
+  },
+  "controller": "控",
+  "@controller": {
+    "description": "Title of the playback control button settings interface."
+  },
+  "about": "志",
+  "@about": {
+    "description": "Title of the about interface."
+  },
+  "selectLibraryDirectorySubtitle": "擇曲庫徑，將索且析。",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "重置曲庫",
+  "@resetLibrary": {
+    "description": "Action button text in the modal, indicating the user wants to reset the library."
+  },
+  "resetLibraryQuestion": "重置曲庫",
+  "@resetLibraryQuestion": {
+    "description": "Modal title asking users if they want to reset the library."
+  },
+  "resetLibrarySubtitle": "只祛訪蹤，無改曲庫。誠欲將乎？",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "無從取用",
+  "@unavailable": {
+    "description": "Context menu element that is unavailable, appearing only when there is a bug."
+  },
+  "goToArtist": "至伶",
+  "@goToArtist": {
+    "description": "Context menu item guiding users to the artist's page."
+  },
+  "goToAlbum": "至輯",
+  "@goToAlbum": {
+    "description": "Context menu item guiding users to the album's page."
+  },
+  "addToPlaylist": "增至錄",
+  "@addToPlaylist": {
+    "description": "Context menu item guiding users to add a track or album to a playlist."
+  },
+  "newPlaylist": "起錄",
+  "@newPlaylist": {
+    "description": "Context menu item guiding users to create a new playlist."
+  },
+  "unableToOpenLibrary": "庫不可啟",
+  "@unableToOpenLibrary": {
+    "description": "Modal title informing users that the library cannot be opened."
+  },
+  "unableToOpenLibrarySubtitle": "庫不可啟，因下訛故：",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "訛尚未知",
+  "@unknownError": {
+    "description": "Modal error content indicating an unknown error."
+  },
+  "close": "畢",
+  "@close": {
+    "description": "Action button in the modal guiding users to close it."
+  },
+  "queue": "伍",
+  "@queue": {
+    "description": "Title of the playlist modal."
+  },
+  "createMix": "立彙",
+  "@createMix": {
+    "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "removeMixTitle": "棄彙",
+  "@removeMixTitle": {
+    "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "removeMixSubtitle": "夫若棄彙，無以復歸。誠欲將乎？",
+  "@removeMixSubtitle": {},
+  "delete": "棄",
+  "@delete": {
+    "description": "Action button text in the modal indicating that pressing it will delete information."
+  },
+  "removePlaylistTitle": "棄錄",
+  "@removePlaylistTitle": {
+    "description": "Modal title informing users they are about to delete a playlist."
+  },
+  "removePlaylistSubtitle": "夫若棄錄，無以歸復。誠欲將乎？",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "罷務",
+  "@cancelTaskTitle": {
+    "description": "Modal title informing users they are about to cancel a task."
+  },
+  "cancelTaskSubtitle": "夫若罷務，將滯於既。欲將罷乎？",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "罷務",
+  "@cancelTask": {
+    "description": "Action button text in the modal indicating that pressing it will cancel the task."
+  },
+  "continueTask": "續",
+  "@continueTask": {
+    "description": "Action button text in the modal indicating that pressing it will continue the task."
+  },
+  "refresh": "更生",
+  "@refresh": {
+    "description": "Context menu item guiding users to refresh the current page's information."
+  },
+  "explore": "覽",
+  "@explore": {
+    "description": "Title of a functional area."
+  },
+  "language": "文",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "制文",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "文從系統，毋需另置。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "窗幅",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "擇善窗幅為用。",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "常",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "纖",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "闊",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "載",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "詳載",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "棄載",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "夫若棄載，無以復歸。誠欲將乎？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "棄諸載",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "若棄諸載，無以復歸。誠欲將乎？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "悉棄",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "尚無載記",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "戶",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "新",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "陳",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "散",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "最",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "裁設",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "探伶尋伎",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "浸心匠輯",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "奏章由己",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "深鼓入瑟",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "溫享鐘曲",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "縈縈不絕",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "示符聆",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "離去",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "歸返",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "付梓",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "錄文",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "曲護影壁",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "noCoverArtToExport": "無曲護影可付梓。",
+  "ratio": "比",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "框",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "底",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "評估態式",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "符聆並非無償物，望君購執於市鋪。",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "夫執者，得享自更新之於市，且有權直語著者所望。",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "可暫擱此示，期滿百八十日，彼還複告。",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "暫擱",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "玄鈕",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "幽",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "機巧已發，室構即改，新域以探。",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "試",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "立庫",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "須略更曉，子之曲目置於何處？",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "本地",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "將置曲目索引於庫夾中。",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "雲端",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "將置曲目索引於符聆配置之徑。",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "記窗幅",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "即調隨記，復啟不改。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "符聆尚作",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "隱於後台，系統匣中覓。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "登",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "可訪市如下列，購曲為鑰。擊「登」以驗。",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "登",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "未果",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "謬遇於驗。",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "成",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "喜賀焉哉！登簿告成。惠擇符聆，躬謝垂青。",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "無效鑰",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "擇之鑰無效。請驗而再試。",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8AmbiguousSubtitle": "曲已入，然或有項目合於多檔。每項各取一合者入之。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "合於多檔",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "未得",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "半成",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "或曲未得。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "入錄未果",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "入中遇謬。",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "入錄",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "更易隨適",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "逾三息则擊前復始。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "望君購執。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "詞",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "展曲全詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "遙供他務",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "籍名",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "籍名未果",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "籍時遇謬",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "scrobbleCredentialsRejected": "服務拒此憑證。請核用戶名、密碼或令牌。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "服務不可達。請察連線而再試。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm {field}闕。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "際鑰"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm 拒 API 鍵或密。請核 API 憑證而再試。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "知聆曉跡，悉聞賞趣。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "舒表曲志於自由之地。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "循轍之時助築開源庫。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "繕",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "確出",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "誠欲籍出？儲據將棄。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "再籍",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "出籍",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "抄取",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "簿名",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "符節",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "際鑰",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "際密",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "令牌",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "埠",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "addConnection": "增聯",
+  "@addConnection": {
+    "description": "The action button of the dialog."
+  },
+  "neighbors": "鄰",
+  "@neighbors": {
+    "description": "The settings page that could help users connect with each other."
+  },
+  "searchNeighbors": "探鄰",
+  "@searchNeighbors": {
+    "description": "The item in the neighbors settings page, to discover devices in the local network."
+  },
+  "searchNeighborsSubtitle": "探本地網絡，聯載符聆器。",
+  "@searchNeighborsSubtitle": {
+    "description": "The subtitle of the search neighbors settings item"
+  },
+  "editDeviceInformation": "更器誌識",
+  "@editDeviceInformation": {
+    "description": "Appears in device settings. Refers to details shown to other users during scanning."
+  },
+  "editDeviceInformationSubtitle": "設所見之詳，應他者之尋。",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
+  },
+  "enableBroadcast": "佈告",
+  "@enableBroadcast": {
+    "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
+  },
+  "enableBroadcastSubtitle": "佈器誌識，使其得察。",
+  "@enableBroadcastSubtitle": {
+    "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
+  },
+  "addNeighborManually": "手字錄鄰",
+  "@addNeighborManually": {
+    "description": "'Neighbor refers to devices on the same local network. If space allows, 'Manually Add Neighbor' is acceptable. Prioritize brevity."
+  },
+  "addNeighborManuallySubtitle": "手書鄰址於本域，親錄誌識以通機。",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
+  },
+  "stop": "止",
+  "@stop": {
+    "description": "Action button to terminate active."
+  },
+  "deviceFingerprint": "器之指印",
+  "@deviceFingerprint": {
+    "description": "A unique identifier for the device, used for secure identification and connection."
+  },
+  "deviceName": "器名",
+  "@deviceName": {
+    "description": "The user-defined name of the device, displayed to other users during scanning and connection."
+  },
+  "noDevicesFound": "無器得覓",
+  "@noDevicesFound": {
+    "description": "Message shown when no devices are discovered during scanning"
+  },
+  "error": "訛：{error}",
+  "@error": {
+    "description": "Error message shown when device discovery fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "無權"
+      }
+    }
+  },
+  "model": "型製",
+  "@model": {
+    "description": "Label for device model information"
+  },
+  "type": "別類",
+  "@type": {
+    "description": "Label for device type information"
+  },
+  "fingerprint": "指印",
+  "@fingerprint": {
+    "description": "Label for device fingerprint information"
+  },
+  "lastSeen": "末見",
+  "@lastSeen": {
+    "description": "Label for when device was last detected"
+  },
+  "ipAddresses": "網協之址",
+  "@ipAddresses": {
+    "description": "Label for device IP addresses"
+  },
+  "pair": "配",
+  "@pair": {
+    "description": "Button text for initiating device pairing"
+  },
+  "pairingWith": "配与 {deviceName}...",
+  "@pairingWith": {
+    "description": "Message shown when pairing process starts",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "廳中屏"
+      }
+    }
+  },
+  "server": "伺",
+  "@server": {
+    "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
+  },
+  "serverControl": "掌伺",
+  "@serverControl": {
+    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  },
+  "serverControlSubtitle": "啟伺機於本域，俾他者得以察。",
+  "@serverControlSubtitle": {
+    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  },
+  "selectInterface": "網間門戶",
+  "@selectInterface": {
+    "description": "Label for selecting which network interface the server should bind to. Keep technical but clear."
+  },
+  "approvedStatus": "允",
+  "@approvedStatus": {
+    "description": "Shown as a user/client status badge. Indicates the device is fully authorized. Use affirmative terms like 'Verified' or 'Confirmed' if more natural."
+  },
+  "pendingStatus": "候",
+  "@pendingStatus": {
+    "description": "Shown as a user/client status badge. Indicates waiting for approval. Prefer terms implying 'awaiting action' over technical terms like 'In Queue'."
+  },
+  "blockedStatus": "拒",
+  "@blockedStatus": {
+    "description": "Shown as a user/client status badge. Indicates explicit denial of access. Use strong terms like 'Banned' or 'Denied' where appropriate, but avoid overly aggressive vocabulary."
+  },
+  "unknownStatus": "未識",
+  "@unknownStatus": {
+    "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
+  },
+  "review": "審",
+  "@review": {
+    "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
+  },
+  "reviewRequestTitle": "聯結請示",
+  "@reviewRequestTitle": {
+    "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
+  },
+  "blockDevice": "禁",
+  "@blockDevice": {
+    "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
+  },
+  "connectionVerificationMessage": "欲許「{model} · {alias}」之器相聯，請共其指印，驗明真身。",
+  "@connectionVerificationMessage": {
+    "description": "Instructional text in modal for establishing trust. Emphasizes sharing security credentials (fingerprint) to authenticate connections. Use terms like 'validate' or 'authenticate' if preferred in target language.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "User-defined device nickname"
+      },
+      "model": {
+        "type": "String",
+        "description": "Manufacturer's device model identifier"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "自此不聯，可解於後。",
+  "@blockDeviceSubtitle": {
+    "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
+  },
+  "removeTrust": "除權",
+  "@removeTrust": {
+    "description": "Modal title for deleting a device's permission history. Emphasizes permanent removal of both allowed/blocked statuses and the need for re-registration."
+  },
+  "removeTrustSubtitle": "亦允亦拒，皆若無跡。若其再請，相待如新。",
+  "@removeTrustSubtitle": {
+    "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
+  },
+  "pairingTitle": "方配",
+  "@pairingTitle": {
+    "description": "Title for secure device pairing dialog. Should emphasize mutual authentication process."
+  },
+  "pairingLoading": "方取指印...",
+  "@pairingLoading": {
+    "description": "Status text shown during fingerprint verification. Indicates security check in progress."
+  },
+  "pairingInstructions": "選所見印，以驗其明。",
+  "@pairingInstructions": {
+    "description": "Explains partial fingerprint verification process. Uses 'security verification' instead of technical MITM terms."
+  },
+  "pairingFailureTitle": "相配未果",
+  "@pairingFailureTitle": {
+    "description": "Title for fingerprint mismatch. States outcome without causing undue alarm."
+  },
+  "pairingFailureMessage": "印難相匹，審驗更試。",
+  "@pairingFailureMessage": {
+    "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
+  },
+  "closingWindowBehaviorTitle": "閉窗之舉",
+  "@closingWindowBehaviorTitle": {
+    "description": "Title text for the window close behavior settings section. Emphasizes user control over how the application closes."
+  },
+  "closingWindowBehaviorSubtitle": "擊「閉」之時，擇其將舉。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explains that users can customize the close button behavior. Use 'customize' or 'configure' as alternatives."
+  },
+  "minimizeToTray": "隱於托盤",
+  "@minimizeToTray": {
+    "description": "Option text indicating the program will continue running in the background when window is closed. Use 'Hide to tray' or 'Keep running' as alternative phrasing."
+  },
+  "exitProgram": "畢用離匣",
+  "@exitProgram": {
+    "description": "Option text indicating the program will terminate completely when window is closed. Use 'Close application' or 'Terminate app' as alternative phrasing."
+  },
+  "systemTabTitle": "制",
+  "@systemTabTitle": {
+    "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
+  },
+  "removeFromPlaylist": "自錄中棄",
+  "@removeFromPlaylist": {
+    "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
+  },
+  "waitForApprove": "靜俟其允...",
+  "@waitForApprove": {
+    "description": "Loading message displayed during server connection verification process."
+  },
+  "clientBlockedTitle": "聯結遭拒",
+  "@clientBlockedTitle": {
+    "description": "Error title indicating the remote device has blocked this client's connection attempts."
+  },
+  "clientBlockedMessage": "其主未許，彼道且隔。須其應允，請方可再。",
+  "@clientBlockedMessage": {
+    "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
+  },
+  "genres": "流",
+  "@genres": {
+    "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
+  },
+  "genreQuery": "流詢",
+  "@genreQuery": {},
+  "deduplicate": "除復",
+  "@deduplicate": {
+    "description": "Button label for removing duplicate tracks from a music library or playlist. Refers to the function of identifying and removing duplicate songs. Alternative phrasings could include 'Remove Duplicates' or 'Clean Duplicates' depending on what's most natural in the target language."
+  },
+  "deduplicateThresholdTitle": "除復準度",
+  "@deduplicateThresholdTitle": {
+    "description": "Title for the audio similarity threshold setting. Indicates where users can adjust how strictly audio tracks are compared for duplication detection."
+  },
+  "deduplicateThresholdSubtitle": "設其敏鈍，知曲遠近。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Brief explanation of what the audio similarity threshold setting controls. Helps users understand the purpose of this configuration option."
+  },
+  "nearlyIdentical": "如一",
+  "@nearlyIdentical": {
+    "description": "Highest level of audio similarity threshold indicating tracks that are almost exactly the same. Used when configuring duplicate detection settings. Alternative phrasings could include 'Exact Match' or 'Perfect Match' depending on what's most natural in the target language."
+  },
+  "highlySimiar": "幾近",
+  "@highlySimiar": {
+    "description": "Second highest level of audio similarity threshold indicating tracks that have very few differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Very Similar' or 'Almost Identical' depending on what's most natural in the target language."
+  },
+  "moderatelySimilar": "有合",
+  "@moderatelySimilar": {
+    "description": "Middle level of audio similarity threshold indicating tracks that have noticeable but not major differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Somewhat Similar' or 'Partially Matching' depending on what's most natural in the target language."
+  },
+  "slightlySimilar": "略同",
+  "@slightlySimilar": {
+    "description": "Lowest level of audio similarity threshold indicating tracks that share some characteristics but have significant differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Minimally Similar' or 'Barely Matching' depending on what's most natural in the target language."
+  },
+  "deduplicating": "方除復中",
+  "@deduplicating": {
+    "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
+  },
+  "interfaceScale": "介面之度",
+  "interfaceScaleSubtitle": "調 符石聆音 中之字與物大小。",
+  "interfaceScaleSaveError": "不可儲存介面縮放",
+  "remoteOpenUntrusted": "此器未信彼主，先配之。",
+  "remoteOpenNotAuthorized": "彼器未許此器相連。",
+  "remoteOpenUnreachable": "不可達彼器。察其網路。",
+  "remoteOpenProtocol": "不可相連。更兩器之 符石聆音。",
+  "remoteLossRevoked": "此器之存取權已除。",
+  "remoteLossDetached": "播器已斷此控器之連。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "彼器已止共享。",
+  "remoteLossNetworkLost": "連已斷。",
+  "syncToThisDevice": "同步至此裝置",
+  "libraryNotShared": "未共",
+  "controlPermissionRequired": "不得御播",
+  "deviceLibraries": "諸庫",
+  "addSharedLibrary": "添",
+  "sharedLibraryAdded": "已添",
+  "openSharedLibrary": "啟",
+  "noSharedLibraries": "此器無共享之庫。",
+  "libraryFromDevice": "來自 {device}",
+  "backgroundLibrarySync": "後臺同步",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "此項已不存",
+  "requestInvalid": "所請有誤",
+  "requestCertificateMismatch": "此器的憑證不相符",
+  "requestUnavailable": "今不可用。",
+  "requestStorageBusy": "儲存空間正忙，請再試。",
+  "mixNoLongerExists": "此輯已不存",
+  "devices": "器",
+  "playOn": "奏於",
+  "playOnSubtitle": "擇音所奏之處。",
+  "playOnFixedToRemote": "定於此遠端器",
+  "playOnPlayingOn": "播音於 {alias}",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "離線",
+  "playOnNotApproved": "此器未許汝",
+  "playOnNoControl": "不可控此器",
+  "playOnCantPlay": "不可播 {library}",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "再試",
+  "castTrackMode": "播曲之時",
+  "castTrackReplace": "易佇列而即奏",
+  "castTrackPlayNext": "次奏此曲",
+  "castControlRenderer": "播畢之後",
+  "castKeepControlling": "仍御此器",
+  "castControlCastDevice": "御所播之器",
+  "castTrackModeSubtitle": "擇投放曲目時如何變更佇列。",
+  "castControlRendererSubtitle": "擇投放後要控制的器。",
+  "castNotPossible": "{alias} 不可播 {library}",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, other{{alias}尚未保存的{count}首曲目未加入。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "此器",
+  "devicesThatCanConnect": "可連此器之諸器",
+  "otherDevices": "他器",
+  "myDevice": "吾器",
+  "controllingNow": "正控制此器",
+  "waitingForApproval": "俟核",
+  "guest": "客",
+  "myDeviceAccessDescription": "可奏、瀏覽和同你的樂庫",
+  "guestAccessDescription": "可控制奏並在控制時瀏覽",
+  "customDeviceAccess": "自訂",
+  "customizeDevice": "自訂",
+  "disconnect": "斷開連接",
+  "controlPlayback": "控制奏",
+  "controlPlaybackDescription": "可喺呢部器奏、暫停、加入佇列同投放",
+  "deviceAccessLibraries": "樂庫",
+  "deviceAccessNotShared": "未共",
+  "deviceAccessReadWrite": "可讀可書",
+  "requestConflict": "奏列已易，復試之。",
+  "requestPermissionDenied": "此器不允許執行此操作",
+  "readOnly": "唯讀",
+  "queueUnavailableAccessRevoked": "存取權已撤銷",
+  "queueUnavailableLibraryUnavailable": "資料庫不可使用",
+  "queueUnavailableSourceUnreachable": "不可連至來源",
+  "queueUnavailableUnreadable": "不可讀取音",
+  "rendererLinkLost": "與 {alias} 之連已失",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "設備金鑰與指紋不相符",
+  "requestRegistrationConflict": "此指紋之設備已註冊",
+  "remoteLibraryReconnecting": "正重連 {alias}…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "此器不應此令",
+  "capabilityOwnerOnly": "唯主器可為之",
+  "requestOtherDeviceName": "另一器",
+  "requestPeerNeedsUpdatePeer": "{alias} 之 符石聆音 須更方可連。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}所用 符石聆音 較新。請於此器更 符石聆音 以連。",
+  "remoteLossProtocolIncompatible": "符石聆音 版已不相合。請於兩器更 符石聆音 以復連。",
+  "capabilityPeerTooOld": "請於另一器更 符石聆音 以使用此功能。",
+  "requestPeerNeedsUpdateFallback": "請於兩器更 符石聆音 以連。",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "此伺服器之帳戶，不得行此事。",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "此庫之設定不可讀。",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "此庫已亡。",
+  "libraryRecordIsOpen": "移除此庫前，先閉之。",
+  "libraryMediaFolderMissing": "找不到樂庫目錄。",
+  "libraryUntrusted": "此器未受信任。",
+  "libraryInvalidSource": "此目錄不可用作樂庫。",
+  "libraryStorageFailure": "不可儲存樂庫。",
+  "libraryNewerVersion": "此樂庫乃新版 符石聆音 所作。請於此器更 符石聆音 以啟之。",
+  "libraryShareStoreUnavailable": "共享儲存不通。同步將自再試。",
+  "libraryRemoteNotAuthorized": "器未授權此連。",
+  "libraryRemoteUnreachable": "不可連到器。",
+  "libraryRemoteProtocolFailure": "器傳回不合的回應。",
+  "libraryProtocolIncompatible": "此器之協定版不合。",
+  "libraryNotSupportedYet": "今尚不支援此樂庫類型。",
+  "onMyIPhone": "我的 iPhone",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "我的 iPad",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "工具列图标顏色",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "選擇图标顏色。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自动",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "與他音並奏",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "符石聆音 奏時，他音仍續。",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "場景",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "覽封面牆所列諸景。曳以易其序。",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "已導入 {name}",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "不可導入 {name}",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "除場景",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "除 {name}？復導入即可恢復。",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "視音",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "随音樂律動的视觉效果",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "視音之試室",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "於視音上示試室。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "跟隨文字大小",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "linuxCustomWindowControls": "自訂視窗控制項",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "啟用自訂視窗控制項，使用類似 Windows 模式的無邊框視窗。",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "離線可用性",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "保持離線可用",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "停止保持離線可用",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "已儲存離線擇",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "已停止自動下載",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "不可儲存離線擇",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "配對器可用時將下載曲目。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "現有本機檔會保留。",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "音不可使用",
+  "allowPairedSync": "允許同",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "關閉後，他器將不可連至此器。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "除不需要的下載",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "擇是否除不再需要離線保存的下載。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "同時除不再需要的下載檔",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "離線擇已更，並已嘗試清理。",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "turnOnBackgroundSync": "啟背景同",
+  "turnOffBackgroundSync": "止背景同",
+  "shareLibraryModeSubtitle": "符聆將置曲目索引於何處？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "共享夾",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "將置曲目索引於共享夾中，俾他機得以同步。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "藏於此機",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "接WebDAV伺上之資料夾。",
+  "s3": "S3",
+  "s3Subtitle": "接S3桶中之資料夾。",
+  "folder": "資料夾",
+  "bucket": "桶",
+  "region": "域",
+  "accessKeyId": "取鍵識",
+  "secretAccessKey": "秘取鍵",
+  "libraryOpenDalAuthenticationRejected": "核簿名與符節。",
+  "libraryOpenDalUnreachable": "核伺址與網絡。",
+  "libraryOpenDalNotFolder": "核所擇資料夾存而可取。",
+  "libraryOpenDalReadOnly": "擇可書之夾，方得置曲目索引於共享夾。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "連接於 Subsonic 樂庫伺服器。",
+  "playOnThisDevice": "於此裝置奏",
+  "controlServerPlayer": "御伺服器之播放器",
+  "howDoYouWantToUseIt": "將何以用之？",
+  "fileDialogOpenTitle": "啟",
+  "fileDialogSaveTitle": "另存",
+  "fileDialogFolderTitle": "擇夾",
+  "fileDialogOpen": "啟",
+  "fileDialogSelectFolder": "擇夾",
+  "fileDialogFileName": "卷名",
+  "fileDialogSaveAsType": "存類",
+  "fileDialogFileTypes": "卷類",
+  "fileDialogAllFiles": "諸卷",
+  "fileDialogForward": "進",
+  "fileDialogRecentLocations": "近所",
+  "fileDialogUp": "上",
+  "fileDialogAddress": "址",
+  "fileDialogSearchIn": "於 {folder} 尋",
+  "fileDialogNewFolder": "立新夾",
+  "fileDialogView": "觀",
+  "fileDialogExtraLargeIcons": "極大圖",
+  "fileDialogLargeIcons": "大圖",
+  "fileDialogMediumIcons": "中圖",
+  "fileDialogSmallIcons": "小圖",
+  "fileDialogList": "列",
+  "fileDialogDetails": "詳",
+  "fileDialogTiles": "鋪",
+  "fileDialogContent": "文",
+  "fileDialogHiddenItems": "隱物",
+  "fileDialogName": "名",
+  "fileDialogDateModified": "改時",
+  "fileDialogSize": "量",
+  "fileDialogAscending": "升",
+  "fileDialogDescending": "降",
+  "fileDialogFileFolder": "卷夾",
+  "fileDialogFileOfType": "{extension} 卷",
+  "fileDialogFile": "卷",
+  "fileDialogQuickAccess": "速至",
+  "fileDialogThisDevice": "此器",
+  "fileDialogDesktop": "案頭",
+  "fileDialogDocuments": "文書",
+  "fileDialogDownloads": "所取",
+  "fileDialogMusic": "樂",
+  "fileDialogPictures": "圖",
+  "fileDialogVideos": "影",
+  "fileDialogLocalDisk": "本盤",
+  "fileDialogRemovableDisk": "可移之盤",
+  "fileDialogOpticalDrive": "光碟",
+  "fileDialogNetworkDrive": "網盤",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{total} 中餘 {free}",
+  "fileDialogCopyAsPath": "錄其徑",
+  "fileDialogRename": "易名",
+  "fileDialogEmptyFolder": "此夾空也。",
+  "fileDialogNoMatches": "無合所尋者。",
+  "fileDialogNotFound": "不得 {location}。審其字，復試之。",
+  "fileDialogFileNotFound": "不得卷 {name}。審其名，復試之。",
+  "fileDialogPathNotFound": "徑 {name} 不存。審其徑，復試之。",
+  "fileDialogFolderNotFound": "夾 {name} 不存。審其名，復試之。",
+  "fileDialogSizeColumnToFit": "度此欄而合之",
+  "fileDialogSizeAllColumnsToFit": "度諸欄而合之",
+  "fileDialogChangeView": "易觀",
+  "fileDialogMoreOptions": "他擇",
+  "fileDialogPermissionDenied": "無權至 {location}。",
+  "fileDialogUnavailable": "{location} 不可用。審盤已接否，復試之。",
+  "fileDialogNotAFolder": "{location} 乃卷，不可作夾啟。",
+  "fileDialogAlreadyExists": "此處已有名 {name} 者。",
+  "fileDialogInvalidName": "{name} 不可為名於此。",
+  "fileDialogConfirmSaveAs": "審另存",
+  "fileDialogReplacePrompt": "{name} 已存。代之乎？",
+  "fileDialogReplace": "代之",
+  "fileDialogItemCount": "{count, plural, other{{count} 物}}",
+  "fileDialogNavigationPane": "導覽之窗",
+  "fileDialogItems": "諸物"
+}

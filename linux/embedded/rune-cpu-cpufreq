@@ -1,0 +1,53 @@
+#!/bin/sh
+# Keeps the CPU below a maximum frequency while the kiosk runs, and gives it
+# back the maximum it had when the kiosk stops. Run as root.
+#
+#   rune-cpu-cpufreq apply     remember every cpufreq policy's maximum
+#                              frequency, then set RUNE_CPU_MAX_FREQ (kHz)
+#   rune-cpu-cpufreq restore   put back what apply remembered
+#
+# RUNE_CPU_MAX_FREQ comes from /etc/rune-kiosk.conf or, left out there, from
+# the chip's profile: see rune-soc-profile. When it is empty or missing, or the
+# machine has no cpufreq policies, both do nothing. What apply remembers stays in /run until restore
+# puts it back, so a kiosk restarted after a failure does not take its own
+# setting for the machine's.
+set -u
+
+. "$(dirname "$0")/rune-soc-profile"
+
+max_freq="${RUNE_CPU_MAX_FREQ:-}"
+policies="/sys/devices/system/cpu/cpufreq"
+saved="/run/rune-kiosk-cpu-cpufreq"
+
+case "${1:-}" in
+    apply)
+        if [ -z "$max_freq" ]; then
+            exit 0
+        fi
+        if [ ! -f "$saved" ]; then
+            for policy in "$policies"/policy*; do
+                [ -f "$policy/scaling_max_freq" ] || continue
+                echo "$(basename "$policy")=$(cat "$policy/scaling_max_freq")"
+            done > "$saved.new" && mv "$saved.new" "$saved"
+        fi
+        for policy in "$policies"/policy*; do
+            [ -f "$policy/scaling_max_freq" ] || continue
+            echo "$max_freq" > "$policy/scaling_max_freq"
+        done
+        ;;
+    restore)
+        if [ ! -f "$saved" ]; then
+            exit 0
+        fi
+        while IFS='=' read -r policy freq; do
+            if [ -n "$freq" ] && [ -f "$policies/$policy/scaling_max_freq" ]; then
+                echo "$freq" > "$policies/$policy/scaling_max_freq"
+            fi
+        done < "$saved"
+        rm -f "$saved"
+        ;;
+    *)
+        echo "Usage: $0 apply|restore" >&2
+        exit 2
+        ;;
+esac

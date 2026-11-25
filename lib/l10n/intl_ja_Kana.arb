@@ -1,0 +1,1810 @@
+{
+  "@@locale": "ja_Kana",
+  "rune": "ルーン",
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
+  "runePlayer": "ルーンプレイヤー",
+  "@runePlayer": {
+    "description": "'Player'部分は通常どおり翻訳しますが、'Rune'はブランド名なので翻訳しないでください。"
+  },
+  "copyright": "コピーライト",
+  "@copyright": {
+    "description": "設定インターフェースのコピーライトセクションに表示されるエントリのタイトルです。"
+  },
+  "copyrightAnnouncement": "コピーライト © 2024 ルーンプレイヤーディベロッパーズ。",
+  "@copyrightAnnouncement": {
+    "description": "完全なコピーライト声明。"
+  },
+  "licenseAnnouncement": "このプロダクトはモジラパブリックライセンスライセンスのもとでライセンスされています。",
+  "@licenseAnnouncement": {
+    "description": "完全なソフトウェアライセンス声明。"
+  },
+  "factoryReset": "ファクトリーリセット",
+  "@factoryReset": {
+    "description": "セッティングページで'リセットライブラリヒストリー'アクションをトリガーするボタンのタイトル。"
+  },
+  "factoryResetSubtitle": "ライブラリリストからすべてのアイテムをリムーブします。",
+  "@factoryResetSubtitle": {
+    "description": "'ファクトリーリセット'ボタンの説明テキスト。"
+  },
+  "bsodBody": "ユーザーのプレイヤーにトラブルがアッタため、リスタートがヒツヨウです。プライバシーをリスペクトし、データをアツメません。",
+  "@bsodBody": {
+    "description": "ブルースクリーンインターフェースで、ソフトウェアが致命的なエラーに遭遇したことをユーザーに説明します。2番目の文は現代のソフトウェア工学におけるプライバシーの懸念をユーモラスに取り上げています。遊び心を持ってください。"
+  },
+  "artists": "アーティスツ",
+  "@artists": {},
+  "albums": "アルバムズ",
+  "@albums": {},
+  "playlists": "プレイリスツ",
+  "@playlists": {},
+  "unknownAlbum": "アンノウンアルバム",
+  "@unknownAlbum": {},
+  "unknownTrack": "アンノウントラック",
+  "@unknownTrack": {},
+  "unknownArtist": "アンノウンアーティスト",
+  "@unknownArtist": {},
+  "selectDirectory": "ディレクトリをセレクト",
+  "@selectDirectory": {},
+  "noDataAvailable": "データがアベイラブルではありません",
+  "@noDataAvailable": {},
+  "start": "スタート",
+  "@start": {
+    "description": "ライブラリホームの機能リスト付近に表示される装飾的なテキスト。"
+  },
+  "search": "サーチ",
+  "@search": {},
+  "tracks": "トラックス",
+  "@tracks": {},
+  "system": "システム",
+  "@system": {},
+  "operatingSystem": "オペレーティングシステム",
+  "@operatingSystem": {
+    "description": "アバウトページのソフトウェア情報エントリの1つのタイトル。"
+  },
+  "systemVersion": "システムバージョン",
+  "@systemVersion": {
+    "description": "アバウトページのソフトウェア情報エントリの1つのタイトル。"
+  },
+  "kernelVersion": "カーネルバージョン",
+  "@kernelVersion": {
+    "description": "アバウトページのエントリで、通常は診断目的でオペレーティングシステムカーネルのバージョンを示します。"
+  },
+  "hostName": "ホストネーム",
+  "@hostName": {
+    "description": "アバウトページのエントリで、通常はコンピュータの名前を示します。"
+  },
+  "player": "プレイヤー",
+  "@player": {
+    "description": "アバウトページでソフトウェアのメタデータのセクションタイトル。ソフトウェアのバージョン情報の概要を提供します。"
+  },
+  "buildHash": "ビルドハッシュ",
+  "@buildHash": {},
+  "buildDate": "ビルドデート",
+  "@buildDate": {},
+  "commitDate": "コミットデート",
+  "@commitDate": {},
+  "rustcVersion": "ラストコンパイラバージョン",
+  "@rustcVersion": {},
+  "activation": "アクティベーション",
+  "@activation": {},
+  "runeIsActivated": "ルーンはアクティベートされています",
+  "@runeIsActivated": {
+    "description": "ソフトウェアが現在アクティベートされていることをユーザーに通知します。実際、ソフトウェアは常にどのような状況でもアクティベートされています。"
+  },
+  "productId": "プロダクトアイデンティティ",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "あなたはジェニュインソフトウェアのギセイシャかもしれません。",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "このフレーズはイースターエッグであり、アンチパイラシー対策が正規ユーザーにとって海賊版ユーザーよりも悪い体験をもたらすことを風刺しています。遊び心を持ってください。"
+  },
+  "axiomDesign": "アクシオム・デザイン",
+  "@axiomDesign": {
+    "description": "このプロジェクトをサポートするデザインリサーチ組織です。名前はそのままにして、翻訳しないでください。"
+  },
+  "computingDevice": "コンピューティングデバイス",
+  "@computingDevice": {
+    "description": "オーディオ解析タスクを実行するハードウェアデバイスをユーザーが選択できる設定エントリのタイトル。"
+  },
+  "computingDeviceSubtitle": "グラフィックスプロセシングユニットまたはセントラルプロセシングユニットをセレクトして、ファスターまたはモアエフィシエントなプロセッシングをします。",
+  "@computingDeviceSubtitle": {},
+  "gpu": "グラフィックスプロセシングユニット",
+  "@gpu": {},
+  "cpu": "セントラルプロセシングユニット",
+  "@cpu": {},
+  "performanceLevel": "パフォーマンスレベル",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "同時に実行するタスクのナンバーをチョイスします。",
+  "@performanceLevelSubtitle": {},
+  "performance": "パフォーマンス",
+  "@performance": {
+    "description": "ハイパフォーマンスモードで、利用可能なハードウェアリソースを活用して、できるだけ早く計算を完了します。"
+  },
+  "balance": "バランス",
+  "@balance": {
+    "description": "バランスドモードで、リソースを均等に分配し、計算タスクがシステムを圧倒してラグを引き起こすのを防ぎます。"
+  },
+  "batterySaving": "バッテリーセービング",
+  "@batterySaving": {
+    "description": "エナジーセービングモードで、リソース使用を最小限に抑えてオーバーヒーティングを防ぎ、性能が低いデバイスに適しています。"
+  },
+  "switchTo": "スイッチトゥ",
+  "@switchTo": {
+    "description": "メディアライブラリを切り替えるボタンのプロンプトテキスト。このボタンを押すと、現在のライブラリを閉じて新しいライブラリを開きます。"
+  },
+  "removeLibrary": "リムーブ",
+  "@removeLibrary": {
+    "description": "メディアライブラリをリムーブするボタンのプロンプトテキスト。このボタンを押すと、ライブラリのエントリが履歴から削除されます。"
+  },
+  "localFolder": "ローカルフォルダー",
+  "localFolderSubtitle": "このデバイスのフォルダーをセレクト。",
+  "runeDevice": "Rune デバイス",
+  "runeDeviceSubtitle": "別の Rune デバイスにコネクト。",
+  "addLibrary": "ライブラリをアド",
+  "@addLibrary": {
+    "description": "設定インターフェースで新しいメディアライブラリを作成するボタンのプロンプトテキスト。このボタンを押すと、ディレクトリを選択してライブラリを作成するようユーザーを案内します。"
+  },
+  "addLibrarySubtitle": "ニューライブラリをアドして、エグジスティングファイルをスキャンします。",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "アクションメニュー",
+  "@actionMenu": {
+    "description": "設定セッティングインターフェース要素リストのセパレーター。これより下のすべてのアイテムは、画面に直接表示されるのではなく、ポップアップボタンに隠されます。"
+  },
+  "addToQueue": "キューにアド",
+  "@addToQueue": {
+    "description": "コンテキストメニューのエントリ。このエントリを押すと、対応するトラックまたはアルバムが再生キューにアドされます。"
+  },
+  "addToQueueSubtitle": "ニューアイテムがプレイキューにアドされるメソッド。",
+  "@addToQueueSubtitle": {},
+  "playNext": "ネクストをプレイ",
+  "@playNext": {
+    "description": "トラックまたはアルバムをプレイリストの次に再生するようにキューに入れるアクション。"
+  },
+  "addToEnd": "エンドにアド",
+  "@addToEnd": {
+    "description": "トラックまたはアルバムをプレイリストのエンドにキューに入れるアクション。"
+  },
+  "middleClickAction": "ミドルクリックアクション",
+  "@middleClickAction": {
+    "description": "ユーザーがトラックまたはアルバムをミドルクリックしたときの動作を制御する設定インターフェースのタイトル。"
+  },
+  "middleClickActionSubtitle": "トラックまたはコレクションをミドルクリックしたときにアクションするアクション。",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "プレイをスタート",
+  "@startPlaying": {
+    "description": "ユーザーが音楽の再生を開始するためにトリガーできるアクション。"
+  },
+  "startRoaming": "ローミングをスタート",
+  "@startRoaming": {
+    "description": "現在のトラックまたはアルバムに似た音楽を再生し始めるためにユーザーがトリガーできるアクション。"
+  },
+  "playbackMode": "プレイバックモード",
+  "@playbackMode": {
+    "description": "ユーザーがシャッフルやシーケンシャルプレイなどの希望する再生モードを選択するのを支援する設定インターフェースのタイトル。"
+  },
+  "playbackModeSubtitle": "ミュージックガプレイサレルメソッドノプリファードナプレイバックモード",
+  "@playbackModeSubtitle": {},
+  "colorMode": "カラーモード",
+  "@colorMode": {
+    "description": "ユーザーがインターフェースのカラーモードを選択するのを支援する設定エントリ。ライトモードやダークモードなどが含まれます。"
+  },
+  "colorModeSubtitle": "ルーンにされるカラーモードをチェンジします。",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "システム",
+  "@systemColorMode": {
+    "description": "カラ―設定エントリで、有効にするとソフトウェアのライトまたはダークモードがシステム設定と一致します。"
+  },
+  "dark": "ダーク",
+  "@dark": {
+    "description": "選択するとダークモードを有効にするカラ―設定エントリ。"
+  },
+  "light": "ライト",
+  "@light": {
+    "description": "選択するとライトモードを有効にするカラ―設定エントリ。"
+  },
+  "themeColor": "テーマカラー",
+  "@themeColor": {
+    "description": "ユーザーがプリファードなテーマカラーを選択できる設定エントリ。"
+  },
+  "themeColorSubtitle": "ルーンにリフレッシュされたルックアンドフィールを与えるためのカラーをセレクトします。",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "システムテーマにフォロー",
+  "@followSystemTheme": {
+    "description": "テーマカラ―設定のエントリ。有効にすると、ソフトウェアのテーマカラーがシステム設定に従います。"
+  },
+  "dynamicColors": "ダイナミックカラーズ",
+  "@dynamicColors": {
+    "description": "カラ―設定エントリ。有効にすると、再生中のトラックのカバーアートに基づいてソフトウェアのテーマカラーが変化します。"
+  },
+  "dynamicColorsSubtitle": "プレイイングのトラックのカバーアートにベースづいてルーンのテーマカラーをアジャストします。",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "ブランディングアニメーション",
+  "@brandingAnimation": {
+    "description": "ソフトウェア起動時にウェルカムアニメーションを再生するかどうかをユーザーが制御できる設定エントリ。"
+  },
+  "brandingAnimationSubtitle": "ルーンがスタートするときにブランディングアニメーションをプレイします。",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "プリーズウェイトアモーメント。",
+  "@thisMightTakeAFewMinutes": {
+    "description": "スキャン待ち画面のタイトルで、ユーザーに忍耐を求めます。"
+  },
+  "tracksFound": " トラックがファウンド",
+  "@tracksFound": {
+    "description": "スキャン待ち画面のプロンプトテキストで、何曲のトラックがスキャンされたかをユーザーに知らせます。"
+  },
+  "albumCoversCollected": "アルバムカバーをコレクトしました",
+  "@albumCoversCollected": {
+    "description": "スキャン待ち画面のプロンプトテキストで、何枚のアルバムカバーがスキャンされたかをユーザーに知らせます。"
+  },
+  "editPlaylist": "プレイリストをエディット",
+  "@editPlaylist": {
+    "description": "ユーザーがプレイリストのメタデータを編集できるコンテキストメニューのエントリ。"
+  },
+  "editMix": "ミックスをエディット",
+  "@editMix": {
+    "description": "ユーザーがミックス（インテリジェントプレイリスト）のメタデータを編集できるコンテキストメニューのエントリ。注：'リミックス'の概念と混同しないでください。"
+  },
+  "edit": "エディット",
+  "@edit": {
+    "description": "ソフトウェアが何を編集すべきかを識別できない場合に、コンテキストメニューでフォールバックテキストとして使用される動詞。"
+  },
+  "remove": "リムーブ",
+  "@remove": {
+    "description": "ソフトウェアが何を削除すべきかを識別できない場合に、コンテキストメニューでフォールバックテキストとして使用される動詞。"
+  },
+  "removePlaylist": "プレイリストをリムーブ",
+  "@removePlaylist": {
+    "description": "ユーザーがプレイリストを削除できるコンテキストメニューのエントリ。"
+  },
+  "removeMix": "ミックスをリムーブ",
+  "@removeMix": {
+    "description": "ユーザーがミックス（インテリジェントプレイリスト）を削除できるコンテキストメニューのエントリ。注：'リミックス'の概念と混同しないでください。"
+  },
+  "addToMix": "ミックスにアド",
+  "@addToMix": {
+    "description": "ユーザーがトラックまたはアルバムをミックス（インテリジェントプレイリスト）に追加できるコンテキストメニューのエントリ。注：'リミックス'の概念と混同しないでください。"
+  },
+  "newMix": "ニューミックス",
+  "@newMix": {
+    "description": "ユーザーが新しいミックス（インテリジェントプレイリスト）を作成できるコンテキストメニューのエントリ。注：'リミックス'の概念と混同しないでください。"
+  },
+  "selectAGroup": "グループをセレクト",
+  "@selectAGroup": {
+    "description": "ミックスまたはプレイリストの編集モーダルにある入力フィールドのプレースホルダーテキストで、ユーザーにコンテンツグループを選択するように案内します。"
+  },
+  "likedOnly": "ライクドオンリー",
+  "@likedOnly": {
+    "description": "ミックス編集インターフェースのエントリで、ユーザーが'ライク'したトラックのみをフィルターして保持するチェックボックスオプション。"
+  },
+  "allTracks": "オールトラックス",
+  "@allTracks": {
+    "description": "ミックス編集インターフェースのエントリで、ユーザーが'ライク'したものだけでなく、すべてのトラックをフィルターして保持するチェックボックスオプション。"
+  },
+  "defaultMode": "デフォルト",
+  "@defaultMode": {
+    "description": "プレイリスト内のトラックをトラバースする方法で、モードを指定せずに現在のシステム動作を維持します。"
+  },
+  "sequential": "シーケンシャル",
+  "@sequential": {
+    "description": "プレイリスト内のトラックをトラバースする方法で、最初から最後まで順番に再生します。"
+  },
+  "repeatAll": "オールリピート",
+  "@repeatAll": {
+    "description": "プレイリスト内のトラックをトラバースする方法で、終了後に最初から繰り返します。"
+  },
+  "repeatOne": "ワンリピート",
+  "@repeatOne": {
+    "description": "プレイリスト内のトラックをトラバースする方法で、1つのトラックを連続して繰り返します。"
+  },
+  "shuffle": "シャッフル",
+  "@shuffle": {
+    "description": "プレイリスト内のトラックをトラバースする方法で、ランダムな順序で再生します。"
+  },
+  "title": "タイトル",
+  "@title": {
+    "description": "プレイリストまたはミックスの編集モーダルで、ユーザーにそのタイトルを編集するように案内します。"
+  },
+  "group": "グループ",
+  "@group": {
+    "description": "プレイリストまたはミックスの編集モーダルで、ユーザーにそのグループを編集するように案内します。"
+  },
+  "save": "セーブ",
+  "@save": {
+    "description": "モーダル内のアクションボタンで、押すと変更をセーブします。"
+  },
+  "create": "クリエイト",
+  "@create": {
+    "description": "モーダル内のアクションボタンで、押すと新しいエントリを作成します。"
+  },
+  "cancel": "キャンセル",
+  "@cancel": {
+    "description": "モーダル内のアクションボタンで、変更を加えずにモーダルを閉じます。"
+  },
+  "noRecommendation": "レコメンデーションなし",
+  "@noRecommendation": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションを選択すると、ユーザーがクエリ結果に基づいてレコメンデーションを行わない意図を示します。"
+  },
+  "basedOnAll": "オールにベース",
+  "@basedOnAll": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションを選択すると、クエリ結果の全体に基づいて類似のトラックをレコメンドします。"
+  },
+  "group1": "グループ 1",
+  "@group1": {},
+  "group2": "グループ 2",
+  "@group2": {},
+  "group3": "グループ 3",
+  "@group3": {},
+  "group4": "グループ 4",
+  "@group4": {},
+  "group5": "グループ 5",
+  "@group5": {},
+  "group6": "グループ 6",
+  "@group6": {},
+  "group7": "グループ 7",
+  "@group7": {},
+  "group8": "グループ 8",
+  "@group8": {},
+  "group9": "グループ 9",
+  "@group9": {},
+  "ascending": "アセンディング",
+  "@ascending": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションを選択すると、クエリ結果を昇順にソートします。"
+  },
+  "descending": "ディセンディング",
+  "@descending": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションを選択すると、クエリ結果を降順にソートします。"
+  },
+  "lastModified": "ラストモディファイド",
+  "@lastModified": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションにより、ファイルメタデータの最終変更日時でソートできます。"
+  },
+  "duration": "デュレーション",
+  "@duration": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションにより、オーディオの長さでソートできます。"
+  },
+  "timesPlayedThrough": "プレイしたタイムズ",
+  "@timesPlayedThrough": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションにより、オーディオが完全に再生された回数でソートできます。"
+  },
+  "timesSkipped": "スキップしたタイムズ",
+  "@timesSkipped": {
+    "description": "ミックス編集モーダルのドロップダウンのエントリ。このオプションにより、オーディオがスキップされた回数でソートできます。"
+  },
+  "pickDirectory": "ディレクトリをピック",
+  "@pickDirectory": {
+    "description": "ミックス編集モーダル内のボタンのプロンプトテキスト。このボタンを押すと、ユーザーにディレクトリを選択するよう案内するモーダルが開きます。"
+  },
+  "oneDirectory": "1 ディレクトリ",
+  "@oneDirectory": {
+    "description": "1つのディレクトリが選択されたことを示すステータステキスト。"
+  },
+  "manyDirectories": "{count} ディレクトリ",
+  "@manyDirectories": {
+    "description": "複数のディレクトリが選択されたことを示すステータステキスト。",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "confirm": "コンファーム",
+  "@confirm": {
+    "description": "モーダル内のアクションボタンテキストで、ユーザーがアクションを確認する意図を示します。"
+  },
+  "directories": "ディレクトリーズ",
+  "@directories": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがフォルダでトラックをフィルタリングするためのものであることをユーザーに知らせます。"
+  },
+  "allDirectories": "オールディレクトリーズ",
+  "@allDirectories": {
+    "description": "すべてのディレクトリが選択されたことを示すプロンプト。"
+  },
+  "randomTracks": "ランダムトラックス",
+  "@randomTracks": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがランダムな数のトラックを選択するためのものであることをユーザーに知らせます。"
+  },
+  "amount": "アマウント",
+  "@amount": {
+    "description": "スライダーまたは入力ボックスを介して選択されたトラックの数を示すモーダル内のプロンプトテキスト。"
+  },
+  "mode": "モード",
+  "@mode": {
+    "description": "トラックのプレイバックモード。"
+  },
+  "recommendation": "レコメンデーション",
+  "@recommendation": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがプレイヤーのレコメンデーション動作を制御することをユーザーに知らせます。"
+  },
+  "sortBy": "ソートバイ",
+  "@sortBy": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがトラックのソート方法を制御することをユーザーに知らせます。"
+  },
+  "sortOrder": "ソートオーダー",
+  "@sortOrder": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがトラックのソート方向を制御することをユーザーに知らせます。"
+  },
+  "liked": "ライクド",
+  "@liked": {
+    "description": "モーダル設定オプションのエントリのタイトルで、以下のオプションがユーザーが'ライク'としてマークしたトラックをフィルターすることをユーザーに知らせます。"
+  },
+  "noRoamingCollection": "ローミングをスタートできません。コレクションにあるトラックがまだアナライズされていません。",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "ローミングをスタートできません。このトラックはまだアナライズされていません。",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} ライブラリがスキャン中のため、アナライズをスタートできません。",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} ライブラリをアナライジングです。プロセスがエンドするまでお待ちください。",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} ベストなエクスペリエンスのために、ライブラリをアナライズしてください。",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {
+        "type": "String"
+      }
+    }
+  },
+  "notReady": "ノットレディ",
+  "@notReady": {
+    "description": "トラックがアナライズされておらず、レコメンデーションができないことをディスプレイすモーダルタイトル。"
+  },
+  "createPlaylist": "プレイリストをクリエイト",
+  "@createPlaylist": {
+    "description": "プレイリストを作成するためのモーダルタイトル。"
+  },
+  "scanLibrary": "ライブラリをスキャン",
+  "@scanLibrary": {
+    "description": "モーダル内のアクションボタンテキストで、押すとメディアライブラリのスキャンを開始します。"
+  },
+  "analyzeTracks": "トラックをアナライズ",
+  "@analyzeTracks": {
+    "description": "モーダル内のアクションボタンテキストで、押すとメディアライブラリ内のすべてのトラックの解析を開始します。"
+  },
+  "scan": "スキャン",
+  "@scan": {
+    "description": "設定インターフェース内のボタンのプロンプトテキストで、押すとメディアライブラリのスキャンを開始します。"
+  },
+  "scanning": "スキャニング",
+  "@scanning": {
+    "description": "設定インターフェース内のボタンのプロンプトテキストで、メディアライブラリが現在スキャンされていることを示します。"
+  },
+  "analyze": "アナライズ",
+  "@analyze": {
+    "description": "設定インターフェース内のボタンのプロンプトテキストで、押すとメディアライブラリ内のすべてのトラックの解析を開始します。"
+  },
+  "analyzing": "アナライジング",
+  "@analyzing": {
+    "description": "設定インターフェース内のボタンのプロンプトテキストで、メディアライブラリが現在解析されていることを示します。"
+  },
+  "tryCreatingYourOwnCollection": "あなたのコレクションをクリエイトしてみてください",
+  "@tryCreatingYourOwnCollection": {
+    "description": "コレクションビューの空白ページに表示されるテキストで、ユーザーに新しいコレクションを作成するよう提案します。"
+  },
+  "theseActionsMayHelp": "これらのアクションがヘルプつかもしれません",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "ニューしいファイルをスキャンしてみてください",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "コレクションがディスプレイつかりません",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "プレイリストにアイテムがありません",
+  "@noItemsInPlaylist": {},
+  "previous": "プリビアス",
+  "@previous": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、前のトラックにスキップするために使用されます。"
+  },
+  "previousSubtitle": "プリビアストラックニゴー",
+  "@previousSubtitle": {},
+  "playPause": "プレイ/ポーズ",
+  "@playPause": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、再生とポーズ状態をトグルするために使用されます。"
+  },
+  "playPauseSubtitle": "プレイトポーズヲトグル",
+  "@playPauseSubtitle": {},
+  "next": "ネクスト",
+  "@next": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、次のトラックにスキップするために使用されます。"
+  },
+  "nextSubtitle": "ネクストトラックニゴー",
+  "@nextSubtitle": {},
+  "volume": "ボリューム",
+  "@volume": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、ボリュームをアジャストするために使用されます。"
+  },
+  "volumeSubtitle": "ボリュームヲアジャスト",
+  "@volumeSubtitle": {},
+  "playlist": "プレイリスト",
+  "@playlist": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、プレイリストを表示するために使用されます。"
+  },
+  "playlistSubtitle": "プレイキューヲビュー",
+  "@playlistSubtitle": {},
+  "hidden": "ヒドゥン",
+  "@hidden": {
+    "description": "隠されたボタンを示すボタンのプロンプトテキスト。このテキストは通常使用されません。"
+  },
+  "hiddenSubtitle": "コレヨリノコンテンツハアザーズノリストニヒドゥンサレマス",
+  "@hiddenSubtitle": {},
+  "coverWall": "カバーウォール",
+  "@coverWall": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、アルバムカバーで構成された装飾的なページであるカバーウォールページに切り替えるために使用されます。"
+  },
+  "coverWallSubtitle": "ユニークナアンビエンスノタメニカバーアートヲディスプレイ",
+  "@coverWallSubtitle": {},
+  "fullscreen": "フルスクリーン",
+  "@fullscreen": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、フルスクリーンモードをトグルするために使用されます。"
+  },
+  "fullscreenSubtitle": "フルスクリーンモードニエンターマタハエグジット",
+  "@fullscreenSubtitle": {},
+  "pause": "ポーズ",
+  "@pause": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、現在再生中のトラックをポーズするために使用されます。"
+  },
+  "play": "プレイ",
+  "@play": {
+    "description": "再生を制御するためのボタンのプロンプトテキストで、ポーズ状態から再生を再開するために使用されます。"
+  },
+  "enable": "イネーブル",
+  "@enable": {
+    "description": "設定インターフェースのラジオボタンのプロンプトテキストで、機能が有効になっていることを示します。"
+  },
+  "disable": "ディセーブル",
+  "@disable": {
+    "description": "設定インターフェースのラジオボタンのプロンプトテキストで、機能が有効になっていないことを示します。"
+  },
+  "noTracksFound": "トラックがファウンドかりません",
+  "@noTracksFound": {},
+  "library": "ライブラリ",
+  "@library": {
+    "description": "メディアライブラリ設定インターフェースのタイトル。"
+  },
+  "artistQuery": "アーティストクエリ",
+  "@artistQuery": {},
+  "playlistQuery": "プレイリストクエリ",
+  "@playlistQuery": {},
+  "mixes": "ミクス",
+  "@mixes": {
+    "description": "ミックスインターフェースのタイトルで、スマートプレイリストの一種を指します。'リミックス'と混同しないでください。"
+  },
+  "mixQuery": "ミックスクエリ",
+  "@mixQuery": {},
+  "settings": "セッティングス",
+  "@settings": {
+    "description": "設定インターフェースのタイトル。"
+  },
+  "analysis": "アナリシス",
+  "@analysis": {
+    "description": "解析設定インターフェースのタイトル。"
+  },
+  "playback": "プレイバック",
+  "@playback": {
+    "description": "再生設定インターフェースのタイトル。"
+  },
+  "theme": "テーマ",
+  "@theme": {
+    "description": "テーマ設定インターフェースのタイトル。"
+  },
+  "controller": "コントローラー",
+  "@controller": {
+    "description": "再生コントロールボタン設定インターフェースのタイトル。"
+  },
+  "about": "アバウト",
+  "@about": {
+    "description": "アバウトインターフェースのタイトル。"
+  },
+  "selectLibraryDirectorySubtitle": "オーディオライブラリのディレクトリをセレクトしてください。そのナカのすべてのトラックをスキャンしてアナライズします。",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "ライブラリをリセット",
+  "@resetLibrary": {
+    "description": "モーダル内のアクションボタンテキストで、ユーザーがライブラリをリセットしたいことを示します。"
+  },
+  "resetLibraryQuestion": "ライブラリをリセット",
+  "@resetLibraryQuestion": {
+    "description": "ユーザーがライブラリをリセットしたいかどうかを尋ねるモーダルタイトル。"
+  },
+  "resetLibrarySubtitle": "ライブラリをリセットすると、ファイルオープンヒストリーがクリアされます。これまでのメディアライブラリはチェンジされません。つづく？",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "アンアベイラブル",
+  "@unavailable": {
+    "description": "利用できないコンテキストメニューエレメントで、バグがある場合にのみ表示されます。"
+  },
+  "goToArtist": "アーティストにゴー",
+  "@goToArtist": {
+    "description": "ユーザーをアーティストのページに案内するコンテキストメニューアイテム。"
+  },
+  "goToAlbum": "アルバムにゴー",
+  "@goToAlbum": {
+    "description": "ユーザーをアルバムのページに案内するコンテキストメニューアイテム。"
+  },
+  "addToPlaylist": "プレイリストにアド",
+  "@addToPlaylist": {
+    "description": "ユーザーがトラックまたはアルバムをプレイリストに追加するように案内するコンテキストメニューアイテム。"
+  },
+  "newPlaylist": "ニュープレイリスト",
+  "@newPlaylist": {
+    "description": "ユーザーが新しいプレイリストを作成するように案内するコンテキストメニューアイテム。"
+  },
+  "unableToOpenLibrary": "ライブラリをオープンできません",
+  "@unableToOpenLibrary": {
+    "description": "ライブラリを開くことができないことをユーザーに通知するモーダルタイトル。"
+  },
+  "unableToOpenLibrarySubtitle": "このライブラリーをオープンできませんでした：",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "アンノウンエラー",
+  "@unknownError": {
+    "description": "未知のエラーを示すモーダルエラーコンテンツ。"
+  },
+  "close": "クローズ",
+  "@close": {
+    "description": "モーダル内のアクションボタンで、ユーザーにそれを閉じるように案内します。"
+  },
+  "queue": "キュー",
+  "@queue": {
+    "description": "プレイリストモーダルのタイトル。"
+  },
+  "createMix": "ミックスをクリエイト",
+  "@createMix": {
+    "description": "ユーザーが新しいミックス（スマートプレイリスト）を作成するように案内するコンテキストメニューアイテム。'リミックス'と混同しないでください。"
+  },
+  "removeMixTitle": "ミックスをリムーブ",
+  "@removeMixTitle": {
+    "description": "ユーザーがミックス（スマートプレイリスト）を削除しようとしていることを知らせるモーダルタイトル。'リミックス'と混同しないでください。"
+  },
+  "removeMixSubtitle": "このミックスをデリートすると、リカバーできなくなります。デリートしますか？",
+  "@removeMixSubtitle": {},
+  "delete": "デリート",
+  "@delete": {
+    "description": "情報を削除することを示すモーダル内のアクションボタンテキスト。"
+  },
+  "removePlaylistTitle": "プレイリストをリムーブ",
+  "@removePlaylistTitle": {
+    "description": "ユーザーがプレイリストを削除しようとしていることを知らせるモーダルタイトル。"
+  },
+  "removePlaylistSubtitle": "このプレイリストをデリートすると、リカバーできなくなります。デリートしますか？",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "タスクをキャンセル",
+  "@cancelTaskTitle": {
+    "description": "ユーザーがタスクをキャンセルしようとしていることを知らせるモーダルタイトル。"
+  },
+  "cancelTaskSubtitle": "このタスクをキャンセルすると、いまのコンプリートステートでストップします。キャンセルしますか？",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "タスクをキャンセル",
+  "@cancelTask": {
+    "description": "モーダルナカのアクションボタンテキストで、クリックすとタスクをキャンセルします。"
+  },
+  "continueTask": "コンティニュー",
+  "@continueTask": {
+    "description": "モーダル内のアクションボタンテキストで、押すとタスクを続行します。"
+  },
+  "refresh": "リフレッシュ",
+  "@refresh": {
+    "description": "ユーザーに現在のページの情報をリフレッシュするように案内するコンテキストメニューアイテム。"
+  },
+  "explore": "エクスプロア",
+  "@explore": {
+    "description": "機能エリアのタイトル。"
+  },
+  "language": "ランゲージ",
+  "@language": {
+    "description": "ランゲージ設定ページのタイトル。"
+  },
+  "followSystemLanguage": "システムランゲージ",
+  "@followSystemLanguage": {
+    "description": "設定内のアクションボタンテキストで、Rune の言語がオペレーティングシステムに従うことを示しています。"
+  },
+  "followSystemLanguageSubtitle": "システムのランゲージにフォローし、スペシャルなセッティングはありません。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "ウィンドウサイズ",
+  "@windowSize": {
+    "description": "テーマページでウィンドウサイズを設定するためのプロンプトテキスト。"
+  },
+  "windowSizeSubtitle": "アプリケーションのプリファードなウィンドウサイズをチョイスしてください。",
+  "@windowSizeSubtitle": {
+    "description": "ウィンドウサイズオプションを説明するサブタイトル。"
+  },
+  "normalWindowSize": "ノーマル",
+  "@normalWindowSize": {
+    "description": "スタンダードなウィンドウサイズのオプション。"
+  },
+  "slimWindowSize": "スリム",
+  "@slimWindowSize": {
+    "description": "よりナロウなウィンドウサイズのオプション。"
+  },
+  "stockyWindowSize": "ストッキー",
+  "@stockyWindowSize": {
+    "description": "よりワイドなウィンドウサイズのオプション。"
+  },
+  "log": "ログ",
+  "@log": {
+    "description": "設定セクションのログページのタイトル。このページにはプログラムの実行中に発生したエラーと警告が含まれています。"
+  },
+  "viewLogDetail": "ログディテール",
+  "@viewLogDetail": {
+    "description": "このエントリを押すと、ログ詳細モーダルが表示されます。"
+  },
+  "removeLogTitle": "ログをリムーブ",
+  "@removeLogTitle": {
+    "description": "ユーザーがログを削除しようとしていることを知らせるモーダルタイトル。"
+  },
+  "removeLogSubtitle": "このログをデリートすると、リカバーできなくなります。デリートしますか？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "オールログをリムーブ",
+  "@clearLogTitle": {
+    "description": "ユーザーがすべてのログを削除しようとしていることを知らせるモーダルタイトル。"
+  },
+  "clearLogSubtitle": "すべてのログをデリートすると、リカバーできなくなります。デリートしますか？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "オールをデリート",
+  "@deleteAll": {
+    "description": "このエントリを押すと、利用可能なすべてのアイテムが削除されます。"
+  },
+  "noLogsAvailable": "ログがアベイラブルではありません",
+  "@noLogsAvailable": {
+    "description": "ログ設定ページの空の状態アイコンのタイトル。"
+  },
+  "home": "ホーム",
+  "@home": {
+    "description": "ホーム設定ページのタイトル。"
+  },
+  "newest": "ニューエスト",
+  "@newest": {
+    "description": "ライブラリホーム設定ドロップダウンのエントリ。"
+  },
+  "oldest": "オールデスト",
+  "@oldest": {
+    "description": "ライブラリホーム設定ドロップダウンのエントリ。"
+  },
+  "random": "ランダム",
+  "@random": {
+    "description": "ライブラリホーム設定ドロップダウンのエントリ。"
+  },
+  "mostPlayed": "モーストプレイ",
+  "@mostPlayed": {
+    "description": "ライブラリホームグループのタイトル。"
+  },
+  "personalize": "パーソナライズ",
+  "@personalize": {
+    "description": "ライブラリホームページのコンテキストメニューのエントリ。"
+  },
+  "artistsLibraryHomeSubtitle": "キニイリノアーティストノワールドヲディスカバーシテエクスプロア",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "ライブラリホームのアーティストセクションのサブタイトル。"
+  },
+  "albumsLibraryHomeSubtitle": "タレントノアルアーティストガクラフトシタアルバムニイマージ",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "ライブラリホームのアルバムセクションのサブタイトル。"
+  },
+  "playlistsLibraryHomeSubtitle": "アナタノパーソナライズサレタリスニングジャーニーヲキュレート",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "ライブラリホームのプレイリストセクションのサブタイトル。"
+  },
+  "tracksLibraryHomeSubtitle": "ノウアンドラブシテイルトラックニデルブ",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "ライブラリホームのトラックセクションのサブタイトル。"
+  },
+  "likedLibraryHomeSubtitle": "モットモイトオシムトラックヲリリブ",
+  "@likedLibraryHomeSubtitle": {
+    "description": "ライブラリホームのライクドセクションのサブタイトル。"
+  },
+  "mostLibraryHomeSubtitle": "ナントモキャプティベートサレルメロディーヲリビジット",
+  "@mostLibraryHomeSubtitle": {
+    "description": "ライブラリホームのモーストプレイセクションのサブタイトル。"
+  },
+  "showRune": "ルーンをショー",
+  "@showRune": {
+    "description": "トレイメニューのエントリ。"
+  },
+  "exit": "エグジット",
+  "@exit": {
+    "description": "トレイメニューのエントリ。"
+  },
+  "back": "バック",
+  "@back": {
+    "description": "ウィンドウズタイトルバーの左上アイコンのツールチップ。"
+  },
+  "exportTracks": "エクスポートアズ",
+  "@exportTracks": {
+    "description": "ユーザーがコレクションをエクスポートできるコンテキストメニューのエントリ。"
+  },
+  "exportM3u8": "プレイリストファイル",
+  "@exportM3u8": {
+    "description": "ユーザーが M3U8 フォーマットでコレクションをエクスポートできるコンテキストメニューのエントリ。"
+  },
+  "exportCoverWall": "カバーアートウォール",
+  "@exportCoverWall": {
+    "description": "ユーザーがカバーアートウォールをエクスポートできるコンテキストメニューのエントリ。"
+  },
+  "noCoverArtToExport": "エクスポートできるカバーアートがありません。",
+  "ratio": "レシオ",
+  "@ratio": {
+    "description": "カバーアートウォールモーダルの入力フィールドタイトル。"
+  },
+  "frame": "フレーム",
+  "@frame": {
+    "description": "カバーアートウォールモーダルの入力フィールドタイトル。"
+  },
+  "background": "バックグラウンド",
+  "@background": {
+    "description": "カバーアートウォールモーダルの入力フィールドタイトル。"
+  },
+  "evaluationMode": "エバリュエーションモード",
+  "@evaluationMode": {
+    "description": "エバリュエーションモードモーダルのタイトル。"
+  },
+  "evaluationModeContent1": "ルーンはフリーのビールではありません。アプリストアからジェニュインライセンスをパーチェスすることをおすすめします。",
+  "@evaluationModeContent1": {
+    "description": "エバリュエーションモードモーダルのコンテンツ。"
+  },
+  "evaluationModeContent2": "ライセンスユーザーはアプリストアによるオートマティックアップデートをゲット、ディベロッパーにダイレクトにニューフィーチャーをプロポーズするプリヴィリッジがあります。",
+  "@evaluationModeContent2": {
+    "description": "エバリュエーションモードモーダルのコンテンツ。"
+  },
+  "evaluationModeContent3": "このリマインダーを180デイズディスミスすることもできます。",
+  "@evaluationModeContent3": {
+    "description": "エバリュエーションモードモーダルのコンテンツ。"
+  },
+  "remindMeLater": "レイターにリマインド",
+  "@remindMeLater": {
+    "description": "エバリュエーションモードモーダルのアクションボタン。"
+  },
+  "mysteriousButton": "ミステリアスボタン",
+  "@mysteriousButton": {
+    "description": "コンテキストメニューアイテム。"
+  },
+  "mysteriousModalTitle": "クリーク",
+  "@mysteriousModalTitle": {
+    "description": "モーダルのタイトル。"
+  },
+  "mysteriousModalContent": "あなたはミステリアスメカニズムをトリガーしたようです。ルームのストラクチャーがチェンジし、ニューエリアをエクスプローする。",
+  "@mysteriousModalContent": {
+    "description": "モーダルのコンテンツ。"
+  },
+  "laboratory": "ラボラトリー",
+  "@laboratory": {
+    "description": "リンクタイトルのタイトル。"
+  },
+  "libraryMode": "ライブラリセットアップ",
+  "@libraryMode": {
+    "description": "データベースをどこに保存するかをユーザーに選択させるモーダルのタイトル。"
+  },
+  "libraryModeSubtitle": "あなたのライブラリについてもうちょっとうかがうべきです。メディアファイルはどこにストアされていますか？",
+  "@libraryModeSubtitle": {
+    "description": "データベースをどこに保存するかをユーザーに選択させるモーダルのサブタイトル。"
+  },
+  "portableMode": "ローカルハードドライブ",
+  "@portableMode": {
+    "description": "ユーザー向けのライブラリモード候補の1つ。"
+  },
+  "portableModeSubtitle": "ライブラリフォルダにインデックスをまとめてストアします。",
+  "@portableModeSubtitle": {
+    "description": "ユーザー向けのライブラリモード候補のサブタイトル。"
+  },
+  "localMode": "クラウドに",
+  "@localMode": {
+    "description": "ユーザー向けのライブラリモード候補の1つ。"
+  },
+  "localModeSubtitle": "インデックスをコンフィギュレーションディレクトリにストアします。",
+  "@localModeSubtitle": {
+    "description": "ユーザー向けのライブラリモード候補のサブタイトル。"
+  },
+  "rememberWindowSize": "ウィンドウサイズをリメンバー",
+  "@rememberWindowSize": {
+    "description": "テーマページの設定オプションのタイトル。"
+  },
+  "rememberWindowSizeSubtitle": "ウィンドウサイズをアジャストするときにセーブし、つぎはおなじディメンションでプログラムをスタートします。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "テーマページの設定オプションのサブタイトル。"
+  },
+  "closeNotification": "ルーンはまだランニングしています",
+  "@closeNotification": {
+    "description": "ユーザーがウィンドウを閉じたときにポップアップする通知。"
+  },
+  "closeNotificationSubtitle": "ルーンはナウバックグラウンドでランニングしています。システムトレイでシンプルにみつけることができます。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "レジスター",
+  "@register": {
+    "description": "設定ページのレジスタータイルのタイトル。"
+  },
+  "evaluationModeContent4": "イカのストアからレジストレーションキーとしてミュージックファイルをパーチェスできます。'レジスター'をクリックして、ジェニュインステータスをベリファイしてください。",
+  "@evaluationModeContent4": {
+    "description": "エバリュエーションモードモーダルのコンテンツ。"
+  },
+  "registerAction": "レジスター",
+  "@registerAction": {
+    "description": "モーダル内のレジスターボタンのラベル。"
+  },
+  "registerFailed": "フェイルド",
+  "@registerFailed": {
+    "description": "レジストレーション失敗モーダルのタイトル。"
+  },
+  "registerFailedSubtitle": "ベリフィケーションプロセス中にエラーが発生しました。",
+  "@registerFailedSubtitle": {
+    "description": "レジストレーション失敗モーダルのコンテンツ。"
+  },
+  "registerSuccess": "コンプリート",
+  "@registerSuccess": {
+    "description": "レジストレーション成功モーダルのタイトル。"
+  },
+  "registerSuccessSubtitle": "おめでとうございます！ソフトウェアがノーマルにレジスターされました。ルーンをおセンタクびいただきありがとうございます。",
+  "@registerSuccessSubtitle": {
+    "description": "レジストレーション成功モーダルのコンテンツ。"
+  },
+  "registerInvalid": "インバリッドキー",
+  "@registerInvalid": {
+    "description": "無効なレジストレーションキーのモーダルタイトル。"
+  },
+  "registerInvalidSubtitle": "このキーファイルはインバリッドです。ファイルをチェックしてトライアゲインください。",
+  "@registerInvalidSubtitle": {
+    "description": "無効なレジストレーションキーのモーダルコンテンツ。"
+  },
+  "importM3u8AmbiguousSubtitle": "トラックはインポートされましたが、複数ノファイルニ一致スル項目ガアリマシタ。各項目ニツイテ一致シタ曲ヲ１ツ取リ込ミマシタ。",
+  "@importM3u8AmbiguousSubtitle": {
+    "description": "The content of the partially import success modal when some entries matched multiple files."
+  },
+  "importM3u8AmbiguousPaths": "複数ノファイルニ一致",
+  "@importM3u8AmbiguousPaths": {
+    "description": "The heading of the ambiguous playlist entries in the partially import success modal."
+  },
+  "importM3u8NotFoundPaths": "見ツカリマセン",
+  "@importM3u8NotFoundPaths": {
+    "description": "The heading of the unmatched playlist entries in the partially import success modal."
+  },
+  "importM3u8Success": "パーシャリーサクセスフル",
+  "@importM3u8Success": {
+    "description": "部分的にインポート成功したモーダルのタイトル。"
+  },
+  "importM3u8SuccessSubtitle": "トラックはインポートされましたが、いくつはファウンドできません。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分的にインポート成功したモーダルのコンテンツ。"
+  },
+  "importM3u8Failed": "インポートフェイルド",
+  "@importM3u8Failed": {
+    "description": "インポート失敗モーダルのタイトル。"
+  },
+  "importM3u8FailedSubtitle": "インポートプロセスなかにエラーがハッセイしました。",
+  "@importM3u8FailedSubtitle": {
+    "description": "インポート失敗モーダルのコンテンツ。"
+  },
+  "importM3u8": "プレイリストをインポート",
+  "@importM3u8": {
+    "description": "ユーザーが新しいプレイリストをインポートするように案内するコンテキストメニューアイテム。"
+  },
+  "adaptiveSwitching": "アダプティブスイッチング",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "カレントトラックが 3 セカンドオーバープレイサレタアフターにリワインドしたケース、ビギニングからプレイがリスタートされます。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "ジェニュインライセンスのパーチェスをコンシダーください。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "リリクス",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "リリクスノフルヲリビルスル",
+  "@lyricsSubtitle": {},
+  "onlineServices": "オンラインサービス",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "ログイン",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "ログインフェイルド",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "ログインセッションにエラーがハプニングしました",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "scrobbleCredentialsRejected": "サービスがクレデンシャルをリジェクトしました。ユーザーネームとパスワードまたはトークンをチェックしてください。",
+  "@scrobbleCredentialsRejected": {
+    "description": "Shown when a scrobbling service rejects the account credentials."
+  },
+  "scrobbleServiceUnreachable": "サービスにコネクトできませんでした。コネクションをチェックしてリトライしてください。",
+  "@scrobbleServiceUnreachable": {
+    "description": "Shown when a scrobbling service is unreachable or times out."
+  },
+  "scrobbleLastFmApiCredentialsMissing": "Last.fm の {field} がミッシングです。",
+  "@scrobbleLastFmApiCredentialsMissing": {
+    "description": "Shown when the Last.fm API key or secret is missing.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "アプリケーションプログラミングインタフェースキー"
+      }
+    }
+  },
+  "scrobbleLastFmApiCredentialsInvalid": "Last.fm が API キーまたはシークレットをリジェクトしました。API クレデンシャルをチェックしてリトライしてください。",
+  "@scrobbleLastFmApiCredentialsInvalid": {
+    "description": "Shown when Last.fm reports invalid API credentials."
+  },
+  "lastFmSubtitle": "このミュージックトラッキングサービスで、リスニングにインサイトをプロバイドしましょう。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "あなたのミュージックのテイストをシェアするための、フリーでオープンなプラットフォーム。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "あなたのライフスタイルをトラッキングしながら、オープンソースのデータベースにコントリビュートする。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "フィックス",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "ログアウトのチェック",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "ログアウトしてよろしいですか？ローカルにセーブされたログインクレデンシャルはすべてデリートされます。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "リトライログイン",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "ログアウト",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "コピー",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "ユーザーネーム",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "パスワード",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "アプリケーションプログラミングインタフェースキー",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "アプリケーションプログラミングインタフェースシークレット",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "ユーザトークン",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "ホスト",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "ポート",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "addConnection": "コネクションをアド",
+  "@addConnection": {
+    "description": "The action button of the dialog."
+  },
+  "neighbors": "ネイバーズ",
+  "@neighbors": {
+    "description": "The settings page that could help users connect with each other."
+  },
+  "searchNeighbors": "ネイバーズをサーチ",
+  "@searchNeighbors": {
+    "description": "The item in the neighbors settings page, to discover devices in the local network."
+  },
+  "searchNeighborsSubtitle": "ローカルネットワークナイのルーンデバイスをファインドし、コネクト。",
+  "@searchNeighborsSubtitle": {
+    "description": "The subtitle of the search neighbors settings item"
+  },
+  "editDeviceInformation": "デバイスインフォメーションのエディット",
+  "@editDeviceInformation": {
+    "description": "Appears in device settings. Refers to details shown to other users during scanning."
+  },
+  "editDeviceInformationSubtitle": "スキャンにほかのデバイスにショウされるディテールをカスタマイズ。",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
+  },
+  "enableBroadcast": "ブロードキャストをイネーブル",
+  "@enableBroadcast": {
+    "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
+  },
+  "enableBroadcastSubtitle": "ほかのユーザーがディスカバーできるように、あなたのデバイスインフォメーションをパブリックにシェアします。",
+  "@enableBroadcastSubtitle": {
+    "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
+  },
+  "addNeighborManually": "ネイバーをマニュアルでアッド",
+  "@addNeighborManually": {
+    "description": "'Neighbor refers to devices on the same local network. If space allows, 'Manually Add Neighbor' is acceptable. Prioritize brevity."
+  },
+  "addNeighborManuallySubtitle": "デバイスのローカルネットワークインフォをマニュアルでエンターしてコネクトします。",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
+  },
+  "stop": "ストップ",
+  "@stop": {
+    "description": "Action button to terminate active."
+  },
+  "deviceFingerprint": "デバイスフィンガープリント",
+  "@deviceFingerprint": {
+    "description": "A unique identifier for the device, used for secure identification and connection."
+  },
+  "deviceName": "デバイスネーム",
+  "@deviceName": {
+    "description": "The user-defined name of the device, displayed to other users during scanning and connection."
+  },
+  "noDevicesFound": "ノーデバイスファウンド",
+  "@noDevicesFound": {
+    "description": "Message shown when no devices are discovered during scanning"
+  },
+  "error": "エラー: {error}",
+  "@error": {
+    "description": "Error message shown when device discovery fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permission denied"
+      }
+    }
+  },
+  "model": "モデル",
+  "@model": {
+    "description": "Label for device model information"
+  },
+  "type": "タイプ",
+  "@type": {
+    "description": "Label for device type information"
+  },
+  "fingerprint": "フィンガープリント",
+  "@fingerprint": {
+    "description": "Label for device fingerprint information"
+  },
+  "lastSeen": "ラストシーン",
+  "@lastSeen": {
+    "description": "Label for when device was last detected"
+  },
+  "ipAddresses": "インターネット・プロトコルアドレス",
+  "@ipAddresses": {
+    "description": "Label for device IP addresses"
+  },
+  "pair": "ペア",
+  "@pair": {
+    "description": "Button text for initiating device pairing"
+  },
+  "pairingWith": "{deviceName}とペアリングちゅう...",
+  "@pairingWith": {
+    "description": "Message shown when pairing process starts",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Living Room TV"
+      }
+    }
+  },
+  "server": "サーバー",
+  "@server": {
+    "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
+  },
+  "serverControl": "サーバーコントロール",
+  "@serverControl": {
+    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  },
+  "serverControlSubtitle": "ほかのデバイスがローカルネットワークでこのデバイスをディスカバーできるようにサーバーをスタートします。",
+  "@serverControlSubtitle": {
+    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  },
+  "selectInterface": "ネットワークインターフェース",
+  "@selectInterface": {
+    "description": "Label for selecting which network interface the server should bind to. Keep technical but clear."
+  },
+  "approvedStatus": "アプルーブド",
+  "@approvedStatus": {
+    "description": "Shown as a user/client status badge. Indicates the device is fully authorized. Use affirmative terms like 'Verified' or 'Confirmed' if more natural."
+  },
+  "pendingStatus": "ペンディング",
+  "@pendingStatus": {
+    "description": "Shown as a user/client status badge. Indicates waiting for approval. Prefer terms implying 'awaiting action' over technical terms like 'In Queue'."
+  },
+  "blockedStatus": "ブロックド",
+  "@blockedStatus": {
+    "description": "Shown as a user/client status badge. Indicates explicit denial of access. Use strong terms like 'Banned' or 'Denied' where appropriate, but avoid overly aggressive vocabulary."
+  },
+  "unknownStatus": "アンノウン",
+  "@unknownStatus": {
+    "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
+  },
+  "review": "レビュー",
+  "@review": {
+    "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
+  },
+  "reviewRequestTitle": "コネクションリクエスト",
+  "@reviewRequestTitle": {
+    "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
+  },
+  "blockDevice": "デバイスをブロック",
+  "@blockDevice": {
+    "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
+  },
+  "connectionVerificationMessage": "デバイス {alias} ({model}) のコネクションをアラウするために、あなたのアイデンティティをベリファイするのをたすけるために、いかのコミュニケーションキーフィンガープリントをシェアしてください。",
+  "@connectionVerificationMessage": {
+    "description": "Instructional text in modal for establishing trust. Emphasizes sharing security credentials (fingerprint) to authenticate connections. Use terms like 'validate' or 'authenticate' if preferred in target language.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "User-defined device nickname"
+      },
+      "model": {
+        "type": "String",
+        "description": "Manufacturer's device model identifier"
+      }
+    }
+  },
+  "blockDeviceSubtitle": "フューチャーコネクションをプリベントします。いつでもこのデバイスをアンブロックできます。",
+  "@blockDeviceSubtitle": {
+    "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
+  },
+  "removeTrust": "パーミッションをリムーブ",
+  "@removeTrust": {
+    "description": "Modal title for deleting a device's permission history. Emphasizes permanent removal of both allowed/blocked statuses and the need for re-registration."
+  },
+  "removeTrustSubtitle": "これによってパーミッションレコードがパーマネントにデリートされます。デバイスはすべてのアクセスステータス（アプルーブド/ブロックド）をロストし、リストにサイアピアするためにはあたらしいレジストレーションリクエストをセンドしなければなりません。",
+  "@removeTrustSubtitle": {
+    "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
+  },
+  "pairingTitle": "ペアリング",
+  "@pairingTitle": {
+    "description": "Title for secure device pairing dialog. Should emphasize mutual authentication process."
+  },
+  "pairingLoading": "デバイスフィンガープリントをリトリーブちゅう...",
+  "@pairingLoading": {
+    "description": "Status text shown during fingerprint verification. Indicates security check in progress."
+  },
+  "pairingInstructions": "セキュリティベリフィケーションのため、あなたのパートナーデバイスにショウされているフィンガープリントをコンプリートするキャラクターをセレクトしてください。これにより、ただしいデバイスにコネクティングしていることをコンファームします。",
+  "@pairingInstructions": {
+    "description": "Explains partial fingerprint verification process. Uses 'security verification' instead of technical MITM terms."
+  },
+  "pairingFailureTitle": "ペアリングフェイルド",
+  "@pairingFailureTitle": {
+    "description": "Title for fingerprint mismatch. States outcome without causing undue alarm."
+  },
+  "pairingFailureMessage": "フィンガープリントがマッチしません。ただしいデバイスにコネクティングしていることをエンシュアし、ベリフィケーションをアゲイントライしてください。",
+  "@pairingFailureMessage": {
+    "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
+  },
+  "closingWindowBehaviorTitle": "クロージングウィンドウビヘイビア",
+  "@closingWindowBehaviorTitle": {
+    "description": "Title text for the window close behavior settings section. Emphasizes user control over how the application closes."
+  },
+  "closingWindowBehaviorSubtitle": "クローズボタンをクリックしたときにアプリケーションがどのようにビヘイブするかをチューズしてください。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explains that users can customize the close button behavior. Use 'customize' or 'configure' as alternatives."
+  },
+  "minimizeToTray": "トレイにミニマイズ",
+  "@minimizeToTray": {
+    "description": "Option text indicating the program will continue running in the background when window is closed. Use 'Hide to tray' or 'Keep running' as alternative phrasing."
+  },
+  "exitProgram": "コンプリートリーイグジット",
+  "@exitProgram": {
+    "description": "Option text indicating the program will terminate completely when window is closed. Use 'Close application' or 'Terminate app' as alternative phrasing."
+  },
+  "systemTabTitle": "システム",
+  "@systemTabTitle": {
+    "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
+  },
+  "removeFromPlaylist": "プレイリストからリムーブ",
+  "@removeFromPlaylist": {
+    "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
+  },
+  "waitForApprove": "サーバーがこのリクエストをアプルーブするのをウェイティングちゅう...",
+  "@waitForApprove": {
+    "description": "Loading message displayed during server connection verification process."
+  },
+  "clientBlockedTitle": "コネクションブロックド",
+  "@clientBlockedTitle": {
+    "description": "Error title indicating the remote device has blocked this client's connection attempts."
+  },
+  "clientBlockedMessage": "リモートデバイスがあなたのクライアントのコネクティングをブロックしました。コネクションをエスタブリッシュするにはデバイスオーナーからのパーミッションがニードされます。",
+  "@clientBlockedMessage": {
+    "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
+  },
+  "genres": "ジャンル",
+  "@genres": {
+    "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
+  },
+  "genreQuery": "ジャンルクエリ",
+  "@genreQuery": {},
+  "deduplicate": "デデュープリケート",
+  "@deduplicate": {
+    "description": "Button label for removing duplicate tracks from a music library or playlist. Refers to the function of identifying and removing duplicate songs. Alternative phrasings could include 'Remove Duplicates' or 'Clean Duplicates' depending on what's most natural in the target language."
+  },
+  "deduplicateThresholdTitle": "デデュープリケートスレッショルド",
+  "@deduplicateThresholdTitle": {
+    "description": "Title for the audio similarity threshold setting. Indicates where users can adjust how strictly audio tracks are compared for duplication detection."
+  },
+  "deduplicateThresholdSubtitle": "シミラーなオーディオトラックをディテクティングするためのセンシティビティレベルをアジャストします。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Brief explanation of what the audio similarity threshold setting controls. Helps users understand the purpose of this configuration option."
+  },
+  "nearlyIdentical": "ニアリーアイデンティカル",
+  "@nearlyIdentical": {
+    "description": "Highest level of audio similarity threshold indicating tracks that are almost exactly the same. Used when configuring duplicate detection settings. Alternative phrasings could include 'Exact Match' or 'Perfect Match' depending on what's most natural in the target language."
+  },
+  "highlySimiar": "ハイリーシミラー",
+  "@highlySimiar": {
+    "description": "Second highest level of audio similarity threshold indicating tracks that have very few differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Very Similar' or 'Almost Identical' depending on what's most natural in the target language."
+  },
+  "moderatelySimilar": "モデレートリーシミラー",
+  "@moderatelySimilar": {
+    "description": "Middle level of audio similarity threshold indicating tracks that have noticeable but not major differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Somewhat Similar' or 'Partially Matching' depending on what's most natural in the target language."
+  },
+  "slightlySimilar": "スライトリーシミラー",
+  "@slightlySimilar": {
+    "description": "Lowest level of audio similarity threshold indicating tracks that share some characteristics but have significant differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Minimally Similar' or 'Barely Matching' depending on what's most natural in the target language."
+  },
+  "deduplicating": "デデュープリケーティングちゅう",
+  "@deduplicating": {
+    "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
+  },
+  "interfaceScale": "インターフェースノ スケール",
+  "interfaceScaleSubtitle": "ルーン ノ モジト コンテンツノ オオキサヲ チョウセツシマス。",
+  "interfaceScaleSaveError": "カクダイリツヲホゾンデキマセンデシタ",
+  "remoteOpenUntrusted": "コノデバイスハマダサーバーヲシンライシテイマセン。サキニペアリングシテクダサイ。",
+  "remoteOpenNotAuthorized": "アイテノデバイスガコノデバイスヲキョカシテイナイカ、ブロックシテイマス。",
+  "remoteOpenUnreachable": "デバイスニセツゾクデキマセン。デンゲントオナジネットワークヲカクニンシテクダサイ。",
+  "remoteOpenProtocol": "デバイストツウシンデキマセン。リョウホウニオナジバージョンノルーンガヒツヨウデス。",
+  "remoteLossRevoked": "コノデバイスノアクセスケンガサクジョサレマシタ。",
+  "remoteLossDetached": "レンダラーハコノコントローラーヲセツダンシマシタ。",
+  "@remoteLossDetached": {
+    "description": "Shown when the renderer owner detaches this controller."
+  },
+  "remoteLossServerStopped": "アイテノデバイスガキョウユウヲテイシシマシタ。",
+  "remoteLossNetworkLost": "セツゾクガキレマシタ。",
+  "syncToThisDevice": "コノデバイスニシンク",
+  "libraryNotShared": "キョウユウ サレテイマセン",
+  "controlPermissionRequired": "サイセイヲ ソウサ デキマセン",
+  "deviceLibraries": "ライブラリ",
+  "addSharedLibrary": "ツイカ",
+  "sharedLibraryAdded": "ツイカズミ",
+  "openSharedLibrary": "ヒラク",
+  "noSharedLibraries": "コノデバイスニキョウユウデキルライブラリハアリマセン",
+  "libraryFromDevice": "{device} カラ",
+  "backgroundLibrarySync": "バックグラウンドデドウキヲイジ",
+  "@libraryFromDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "requestItemMissing": "コノアイテムハモウアリマセン",
+  "requestInvalid": "リクエストガインバリッドデス",
+  "requestCertificateMismatch": "コノデバイスノショウメイショガイッチシマセン",
+  "requestUnavailable": "イマハアベイラブルデハアリマセン",
+  "requestStorageBusy": "ストレージガシヨウチュウデス。モウイチドオタメシクダサイ。",
+  "mixNoLongerExists": "コノミックスハモウアリマセン",
+  "devices": "デバイス",
+  "playOn": "サイセイサキ",
+  "playOnSubtitle": "オーディオヲ サイセイスル バショヲ エラビマス。",
+  "playOnFixedToRemote": "コノリモートデバイスニコテイサレテイマス",
+  "playOnPlayingOn": "{alias} デサイセイチュウ",
+  "@playOnPlayingOn": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnOffline": "オフライン",
+  "playOnNotApproved": "コノデバイスハマダアナタヲショウニンシテイマセン",
+  "playOnNoControl": "コノデバイスヲソウサデキマセン",
+  "playOnCantPlay": "{library} ヲサイセイデキマセン",
+  "@playOnCantPlay": {
+    "placeholders": {
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "playOnRetry": "サイシコウ",
+  "castTrackMode": "トラックヲキャストスルトキ",
+  "castTrackReplace": "キューヲオキカエテスグサイセイ",
+  "castTrackPlayNext": "ツギニサイセイ",
+  "castControlRenderer": "キャストノアト",
+  "castKeepControlling": "コノデバイスノソウサヲツヅケル",
+  "castControlCastDevice": "キャストサキノデバイスヲソウサ",
+  "castTrackModeSubtitle": "サイセイサキノキューノヘンコウホウホウヲエラビマス。",
+  "castControlRendererSubtitle": "ソウサヲツヅケルデバイスヲエラビマス。",
+  "castNotPossible": "{alias} デハ {library} ヲサイセイデキマセン",
+  "@castNotPossible": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      },
+      "library": {
+        "type": "String"
+      }
+    }
+  },
+  "castTracksLeftOut": "{count, plural, other{{alias}ニハマダ{count}キョクナク、ツイカサレマセンデシタ。}}",
+  "@castTracksLeftOut": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "thisDevice": "コノデバイス",
+  "devicesThatCanConnect": "コノデバイスニセツゾクデキルデバイス",
+  "otherDevices": "ホカノデバイス",
+  "myDevice": "ジブンノデバイス",
+  "controllingNow": "イマ コノ デバイスヲ ソウサチュウ",
+  "waitingForApproval": "ショウニンマチ",
+  "guest": "ゲスト",
+  "myDeviceAccessDescription": "ライブラリヲ サイセイ、エツラン、ドウキ デキマス",
+  "guestAccessDescription": "サイセイヲ ソウサシナガラ エツラン デキマス",
+  "customDeviceAccess": "カスタム",
+  "customizeDevice": "カスタマイズ",
+  "disconnect": "セツダン",
+  "controlPlayback": "サイセイヲ ソウサ",
+  "controlPlaybackDescription": "コノ デバイスデ サイセイ、イチジテイシ、キューツイカ、キャストガ デキマス",
+  "deviceAccessLibraries": "ライブラリ",
+  "deviceAccessNotShared": "キョウユウ サレテイマセン",
+  "deviceAccessReadWrite": "ヨミカキ",
+  "requestConflict": "サイセイキューガ ヘンコウサレマシタ。モウイチド オタメシクダサイ",
+  "requestPermissionDenied": "コノ デバイスハ ソノ ソウサヲ キョカ サレテイマセン",
+  "readOnly": "ヨミトリセンヨウ",
+  "queueUnavailableAccessRevoked": "アクセスガトリケサレマシタ",
+  "queueUnavailableLibraryUnavailable": "ライブラリヲリヨウデキマセン",
+  "queueUnavailableSourceUnreachable": "ソースニセツゾクデキマセン",
+  "queueUnavailableUnreadable": "オンセイヲヨミトレマセン",
+  "rendererLinkLost": "{alias} トノセツゾクガシツワレマシタ",
+  "@rendererLinkLost": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "requestPublicKeyMismatch": "デバイスノ カギガ フィンガープリントト イッチ シマセン",
+  "requestRegistrationConflict": "コノ フィンガープリントノ デバイスハ スデニ トウロク サレテイマス",
+  "remoteLibraryReconnecting": "{alias} ニ サイセツゾクシテイマス…",
+  "@remoteLibraryReconnecting": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityNotImplemented": "コノ デバイスハ コノ ソウサニ タイオウ シテイマセン",
+  "capabilityOwnerOnly": "コノ ソウサハ ショユウシャノ デバイスデノミ オコナエマス",
+  "requestOtherDeviceName": "モウイッポウノデバイス",
+  "requestPeerNeedsUpdatePeer": "セツゾクスルニハ、{alias}デルーンヲコウシンシテクダサイ。",
+  "requestPeerNeedsUpdateThisDevice": "{alias}ニセツゾクスルニハ、コノデバイスデルーンヲコウシンシテクダサイ。",
+  "remoteLossProtocolIncompatible": "ルーン ノ バージョンガ アワナクナリマシタ。サイセツゾクスルニハ リョウホウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
+  "capabilityPeerTooOld": "コレヲ ツカウニハ、モウイッポウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
+  "requestPeerNeedsUpdateFallback": "セツゾクスルニハ リョウホウノ デバイスデ ルーン ヲ コウシンシテクダサイ。",
+  "@requestPeerNeedsUpdatePeer": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestPeerNeedsUpdateThisDevice": {
+    "placeholders": {
+      "alias": {
+        "type": "String"
+      }
+    }
+  },
+  "capabilityAccountRoleMissing": "コノサーバーノアカウントデハ、コノソウサヲオコナウケンゲンガアリマセン。",
+  "@capabilityAccountRoleMissing": {
+    "description": "Shown when a Subsonic account lacks permission to use a control."
+  },
+  "invalidLibrarySettingsSubtitle": "コノライブラリーノセッテイハヨミトレマセン。",
+  "@invalidLibrarySettingsSubtitle": {
+    "description": "Shown below a library record whose settings cannot be read."
+  },
+  "libraryRecordNotFound": "コノライブラリーハアリマセン。",
+  "libraryRecordIsOpen": "ケスマエニライブラリーヲトジテクダサイ。",
+  "libraryMediaFolderMissing": "ライブラリーフォルダーガケンツカリマセン。",
+  "libraryUntrusted": "コノデバイスハシンライサレテイマセン。",
+  "libraryInvalidSource": "コノフォルダーハライブラリートシテシヨウデキマセン。",
+  "libraryStorageFailure": "ライブラリーヲホゾンデキマセンデシタ。",
+  "libraryNewerVersion": "コノライブラリーハアタラシイバージョンノルーンデサクセイサレマシタ。ヒラクニハ、コノデバイスデルーンヲコウシンシテクダサイ。",
+  "libraryShareStoreUnavailable": "キョウユウストレージニセツゾクデキマセン。ドウキハジドウテキニサイシコウサレマス。",
+  "libraryRemoteNotAuthorized": "デバイスガセツゾクヲキョカシマセンデシタ。",
+  "libraryRemoteUnreachable": "デバイスニセツゾクデキマセン。",
+  "libraryRemoteProtocolFailure": "デバイスカラゴカンセイノナイオウトウガアリマシタ。",
+  "libraryProtocolIncompatible": "コノデバイスノプロトコルバージョンニハゴカンセイガアリマセン。",
+  "libraryNotSupportedYet": "コノライブラリーケイシキハマダサポートサレテイマセン。",
+  "onMyIPhone": "コノアイフォンナイ",
+  "@onMyIPhone": {
+    "description": "The Files app location for folders on an iPhone, shown as the start of a library's location."
+  },
+  "onMyIPad": "コノアイパッドナイ",
+  "@onMyIPad": {
+    "description": "The Files app location for folders on an iPad, shown as the start of a library's location."
+  },
+  "iCloudDrive": "iCloud Drive",
+  "@iCloudDrive": {
+    "description": "The Files app location for folders in iCloud Drive, shown as the start of a library's location."
+  },
+  "trayIconColorMode": "トレイアイコンの色",
+  "@trayIconColorMode": {
+    "description": "A settings entry that allows users to control the color of the system tray icon, choosing between automatic, light, and dark modes."
+  },
+  "trayIconColorModeSubtitle": "アイコンの色を選択します。",
+  "@trayIconColorModeSubtitle": {},
+  "automaticTrayIconMode": "自動",
+  "@automaticTrayIconMode": {
+    "description": "An option for tray icon color mode that automatically switches between light and dark based on the system theme."
+  },
+  "mixWithOthers": "ホカノ オーディオト イッショニ サイセイ",
+  "@mixWithOthers": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "mixWithOthersSubtitle": "ルーン ガ サイセイチュウモ、ホカノ オーディオハ サイセイヲ ツヅケマス。",
+  "@mixWithOthersSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "visualizerScenes": "シーン",
+  "@visualizerScenes": {
+    "description": "Title of the setting that lists the visualizer scenes to check, uncheck and reorder."
+  },
+  "visualizerScenesSubtitle": "カバーウォールノメニューニヒョウジスルシーンヲセンビマス。ドラッグシテナミベカエエマス。",
+  "@visualizerScenesSubtitle": {
+    "description": "Subtitle of the visualizer scenes setting."
+  },
+  "visualizerSceneImported": "{name}ヲインポートシマシタ",
+  "@visualizerSceneImported": {
+    "description": "Notification after a visualizer scene file was imported.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerSceneImportFailed": "{name}ヲインポートデキマセンデシタ",
+  "@visualizerSceneImportFailed": {
+    "description": "Notification when a file is not a visualizer scene; the reason, in English, follows below it.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizerDeleteScene": "シーンヲサクジョ",
+  "@visualizerDeleteScene": {
+    "description": "Button and dialog title that delete an imported visualizer scene."
+  },
+  "visualizerDeleteSceneConfirm": "{name}ヲサクジョシマスカ？サイインポートスルトフクゲンデキマス。",
+  "@visualizerDeleteSceneConfirm": {
+    "description": "Text of the dialog that confirms deleting an imported visualizer scene.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Night Drive"
+      }
+    }
+  },
+  "visualizer": "ビジュアライザー",
+  "@visualizer": {
+    "description": "Title of the visualizer settings page and the navigation entries that open it, also the name of the cover wall button while the visualizer is available."
+  },
+  "coverWallVisualizerSubtitle": "オンガクニゴウワセタビジュアル",
+  "@coverWallVisualizerSubtitle": {
+    "description": "Subtitle of the playback controller entry that opens the cover wall while it is set to show the visualizer."
+  },
+  "visualizerLab": "ビジュアライザーラボ",
+  "@visualizerLab": {
+    "description": "Name of the playback controller entry that turns the visualizer lab on the cover wall page on and off."
+  },
+  "visualizerLabSubtitle": "ビジュアライザーウエニラボヲヒョウジシマス。",
+  "@visualizerLabSubtitle": {
+    "description": "Subtitle of the playback controller entry that turns the visualizer lab on and off."
+  },
+  "interfaceScaleFollowTextSize": "モジサイズニゴウワセル",
+  "@interfaceScaleFollowTextSize": {
+    "description": "Option that sizes the interface to match the system text size."
+  },
+  "linuxCustomWindowControls": "カスタムウィンドウコントロール",
+  "@linuxCustomWindowControls": {
+    "description": "Title for the Linux custom window controls setting option."
+  },
+  "linuxCustomWindowControlsSubtitle": "ウィンドウズモードノヨウナワクノナイウィンドウデカスタムコントロールヲシヨウシマス。",
+  "@linuxCustomWindowControlsSubtitle": {
+    "description": "Subtitle explaining what the Linux custom window controls setting does."
+  },
+  "offlineAvailability": "オフラインリヨウ",
+  "@offlineAvailability": {
+    "description": "Context menu for the audio retained on this device."
+  },
+  "keepAvailableOffline": "オフラインデリヨウ",
+  "@keepAvailableOffline": {
+    "description": "Save a mix-query selection for background audio downloads."
+  },
+  "stopKeepingOffline": "オフラインデノホジヲテイシ",
+  "@stopKeepingOffline": {
+    "description": "Disable future downloads for this selection without deleting existing files."
+  },
+  "offlineSelectionSaved": "オフラインノセンタクヲホゾンシマシタ",
+  "@offlineSelectionSaved": {
+    "description": "Acknowledges that a persistent download selection has been saved."
+  },
+  "offlineSelectionRemoved": "ジドウダウンロードヲテイシシマシタ",
+  "@offlineSelectionRemoved": {
+    "description": "Acknowledges disabling an offline selection."
+  },
+  "offlineSelectionFailed": "オフラインノセンタクヲホゾンデキマセンデシタ",
+  "@offlineSelectionFailed": {
+    "description": "Error title when saving a download selection fails."
+  },
+  "offlineSelectionQueued": "ペアリングスミミデバイスガリヨウカノウニナルトキョクヲダウンロードシマス。",
+  "@offlineSelectionQueued": {
+    "description": "Explains the difference between a queued offline selection and online playback."
+  },
+  "offlineSelectionRetained": "キゾンノローカルファイルハホジサレマス。",
+  "@offlineSelectionRetained": {
+    "description": "Explains that disabling downloads does not delete audio."
+  },
+  "audioUnavailable": "オンセイヲリヨウデキマセン",
+  "allowPairedSync": "ドウキヲキョカ",
+  "@allowPairedSync": {
+    "description": "Label for allowing incoming paired device sync"
+  },
+  "allowPairedSyncDescription": "オフニスルト、ホカノデバイスカラセツゾクデキナクナリマス。",
+  "@allowPairedSyncDescription": {
+    "description": "Explanation of the incoming sync setting"
+  },
+  "offlineCleanupDefault": "フヨウナダウンロードヲサクジョ",
+  "@offlineCleanupDefault": {
+    "description": "Default option to clean up unneeded offline downloads."
+  },
+  "offlineCleanupDefaultDescription": "オフラインデフヨウニナッタダウンロードヲサクジョスルカセンタクシマス。",
+  "@offlineCleanupDefaultDescription": {
+    "description": "Explanation of the offline cleanup default."
+  },
+  "offlineCleanupCheckbox": "フヨウニナッタダウンロードファイルモサクジョ",
+  "@offlineCleanupCheckbox": {
+    "description": "Option to delete downloads no enabled offline rule needs."
+  },
+  "offlineSelectionCleaned": "オフラインノセンタクヲコウシンシ、クリーンアップヲシミマシタ。",
+  "@offlineSelectionCleaned": {
+    "description": "Confirmation after attempting to clean up offline downloads."
+  },
+  "turnOnBackgroundSync": "バックグラウンドデドウキヲオンニスル",
+  "turnOffBackgroundSync": "バックグラウンドデドウキヲオフニスル",
+  "allowAccess": "アクセスをアラウ",
+  "allowAccessSubtitle": "このデバイスからのプレイバックコントロールとトラックダウンロードのアクセスをグラントします。",
+  "shareLibraryModeSubtitle": "Rune はインデックスをどこにストアしますか？",
+  "@shareLibraryModeSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShare": "きょうゆうフォルダー",
+  "@keepIndexInShare": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexInShareSubtitle": "ほかのデバイスとどうきできるよう、インデックスをきょうゆうフォルダーにストアします。",
+  "@keepIndexInShareSubtitle": {
+    "description": "Add-library guide text"
+  },
+  "keepIndexOnThisDevice": "このデバイス",
+  "@keepIndexOnThisDevice": {
+    "description": "Add-library guide text"
+  },
+  "webDav": "WebDAV",
+  "webDavSubtitle": "WebDAVサーバーノフォルダーニセツゾクシマス。",
+  "s3": "S3",
+  "s3Subtitle": "S3バケットノフォルダーニセツゾクシマス。",
+  "folder": "フォルダー",
+  "bucket": "バケット",
+  "region": "チイキ",
+  "accessKeyId": "アクセスキーノアイディー",
+  "secretAccessKey": "シークレットアクセスキー",
+  "libraryOpenDalAuthenticationRejected": "ユーザーネームトパスワードヲカクニンシテクダサイ。",
+  "libraryOpenDalUnreachable": "サーバーノアドレストネットワークセツゾクヲカクニンシテクダサイ。",
+  "libraryOpenDalNotFolder": "センタクシタフォルダーガアリ、アクセスデキルコトヲカクニンシテクダサイ。",
+  "libraryOpenDalReadOnly": "きょうゆうフォルダーにインデックスをストアするには、かきこみできるフォルダーをえらんでください。",
+  "subsonic": "Subsonic",
+  "subsonicSubtitle": "Subsonic オンガクサーバーに セツゾクします。",
+  "playOnThisDevice": "このデバイスで サイセイ",
+  "controlServerPlayer": "サーバーのプレーヤーを ソウサ",
+  "howDoYouWantToUseIt": "どのように シヨウしますか？",
+  "fileDialogOpenTitle": "オープン",
+  "fileDialogSaveTitle": "セーブアズ",
+  "fileDialogFolderTitle": "フォルダーセレクト",
+  "fileDialogOpen": "オープン",
+  "fileDialogSelectFolder": "フォルダーセレクト",
+  "fileDialogFileName": "ファイルネーム",
+  "fileDialogSaveAsType": "セーブアズタイプ",
+  "fileDialogFileTypes": "ファイルタイプ",
+  "fileDialogAllFiles": "オールファイル",
+  "fileDialogForward": "フォワード",
+  "fileDialogRecentLocations": "リセントロケーション",
+  "fileDialogUp": "アップ",
+  "fileDialogAddress": "アドレス",
+  "fileDialogSearchIn": "{folder} ヲサーチ",
+  "fileDialogNewFolder": "ニューフォルダー",
+  "fileDialogView": "ビュー",
+  "fileDialogExtraLargeIcons": "エクストララージアイコン",
+  "fileDialogLargeIcons": "ラージアイコン",
+  "fileDialogMediumIcons": "ミディアムアイコン",
+  "fileDialogSmallIcons": "スモールアイコン",
+  "fileDialogList": "リスト",
+  "fileDialogDetails": "ディテール",
+  "fileDialogTiles": "タイル",
+  "fileDialogContent": "コンテンツ",
+  "fileDialogHiddenItems": "ヒドゥンアイテム",
+  "fileDialogName": "ネーム",
+  "fileDialogDateModified": "モディファイドデート",
+  "fileDialogSize": "サイズ",
+  "fileDialogAscending": "アセンディング",
+  "fileDialogDescending": "ディセンディング",
+  "fileDialogFileFolder": "ファイルフォルダー",
+  "fileDialogFileOfType": "{extension} ファイル",
+  "fileDialogFile": "ファイル",
+  "fileDialogQuickAccess": "クイックアクセス",
+  "fileDialogThisDevice": "ディスデバイス",
+  "fileDialogDesktop": "デスクトップ",
+  "fileDialogDocuments": "ドキュメント",
+  "fileDialogDownloads": "ダウンロード",
+  "fileDialogMusic": "ミュージック",
+  "fileDialogPictures": "ピクチャー",
+  "fileDialogVideos": "ビデオ",
+  "fileDialogLocalDisk": "ローカルディスク",
+  "fileDialogRemovableDisk": "リムーバブルディスク",
+  "fileDialogOpticalDrive": "オプティカルドライブ",
+  "fileDialogNetworkDrive": "ネットワークドライブ",
+  "fileDialogDriveName": "{name} ({drive})",
+  "fileDialogFreeSpace": "{total} ノウチ {free} フリー",
+  "fileDialogCopyAsPath": "パストシテコピー",
+  "fileDialogRename": "リネーム",
+  "fileDialogEmptyFolder": "コノフォルダーハカラデス。",
+  "fileDialogNoMatches": "サーチニマッチスルアイテムハアリマセン。",
+  "fileDialogNotFound": "{location} ガミツカリマセン。スペルヲカクニンシテ、モウイチドオタメシクダサイ。",
+  "fileDialogFileNotFound": "ファイル {name} ガミツカリマセン。ファイルネームヲカクニンシテ、モウイチドオタメシクダサイ。",
+  "fileDialogPathNotFound": "パス {name} ハアリマセン。パスヲカクニンシテ、モウイチドオタメシクダサイ。",
+  "fileDialogFolderNotFound": "フォルダー {name} ハアリマセン。フォルダーネームヲカクニンシテ、モウイチドオタメシクダサイ。",
+  "fileDialogSizeColumnToFit": "カラムヲフィット",
+  "fileDialogSizeAllColumnsToFit": "オールカラムヲフィット",
+  "fileDialogChangeView": "ビューチェンジ",
+  "fileDialogMoreOptions": "モアオプション",
+  "fileDialogPermissionDenied": "{location} ヘノアクセスケンガアリマセン。",
+  "fileDialogUnavailable": "{location} ハツカエマセン。ドライブガツナガッテイルカカクニンシテ、モウイチドオタメシクダサイ。",
+  "fileDialogNotAFolder": "{location} ハファイルナノデ、フォルダートシテオープンデキマセン。",
+  "fileDialogAlreadyExists": "コノロケーションニハ {name} トイウネームノアイテムガスデニアリマス。",
+  "fileDialogInvalidName": "{name} ハココデハネームニツカエマセン。",
+  "fileDialogConfirmSaveAs": "セーブアズノコンファーム",
+  "fileDialogReplacePrompt": "{name} ハスデニアリマス。リプレイスシマスカ？",
+  "fileDialogReplace": "リプレイス",
+  "fileDialogItemCount": "{count, plural, other{{count} アイテム}}",
+  "fileDialogNavigationPane": "ナビゲーションペイン",
+  "fileDialogItems": "アイテム"
+}

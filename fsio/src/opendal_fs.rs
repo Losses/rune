@@ -1,0 +1,600 @@
+use std::collections::HashSet;
+use std::fmt;
+use std::future::Future;
+use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use async_trait::async_trait;
+use opendal::services;
+use opendal::{ErrorKind, HttpTransporter, OperationContext, Operator, Reader};
+use opendal_http_transport_reqwest::ReqwestTransport;
+use rustls::{ClientConfig, RootCertStore};
+use tokio::runtime::Handle;
+
+use crate::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
+use reqwest::Client;
+use std::io;
+use tokio::task;
+
+/// Credentials and location for a read-only OpenDAL filesystem.
+#[derive(Clone)]
+pub enum OpenDalConfig {
+    WebDav {
+        endpoint: String,
+        root: String,
+        username: String,
+        password: String,
+    },
+    S3 {
+        endpoint: String,
+        bucket: String,
+        region: String,
+        root: String,
+        access_key_id: String,
+        secret_access_key: String,
+    },
+}
+
+impl fmt::Debug for OpenDalConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WebDav {
+                endpoint,
+                root,
+                username,
+                ..
+            } => f
+                .debug_struct("WebDav")
+                .field("endpoint", endpoint)
+                .field("root", root)
+                .field("username", username)
+                .field("password", &"[REDACTED]")
+                .finish(),
+            Self::S3 {
+                endpoint,
+                bucket,
+                region,
+                root,
+                ..
+            } => f
+                .debug_struct("S3")
+                .field("endpoint", endpoint)
+                .field("bucket", bucket)
+                .field("region", region)
+                .field("root", root)
+                .field("access_key_id", &"[REDACTED]")
+                .field("secret_access_key", &"[REDACTED]")
+                .finish(),
+        }
+    }
+}
+
+/// Read-only remote filesystem on the supplied runtime. Sync calls, and reads of
+/// the files it opens, block the calling thread until that runtime has completed
+/// the request, so they belong on threads that drive no runtime, such as
+/// `spawn_blocking` ones. An open file holds no runtime work, so any thread can
+/// drop it.
+#[derive(Clone)]
+pub(crate) struct OpenDalFsIo {
+    operator: Operator,
+    handle: Handle,
+}
+
+impl OpenDalFsIo {
+    pub(crate) fn new(config: OpenDalConfig, handle: Handle) -> Result<Self, FileIoError> {
+        let http_client = {
+            let _guard = handle.enter();
+            // Same trust roots as the rest of the workspace (reqwest `rustls-tls` uses
+            // webpki-roots); a platform verifier would need JNI setup on Android.
+            let roots = RootCertStore {
+                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+            };
+            let tls_config = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            Client::builder()
+                .tls_backend_preconfigured(tls_config)
+                // Per-read inactivity, not a total limit: a large listing may take longer.
+                .connect_timeout(Duration::from_secs(10))
+                .read_timeout(Duration::from_secs(30))
+                .build()
+                .map_err(|_| remote_error("configure"))?
+        };
+        let http_transport = HttpTransporter::new(ReqwestTransport::new(http_client));
+        let operator = match config {
+            OpenDalConfig::WebDav {
+                endpoint,
+                root,
+                username,
+                password,
+            } => {
+                let builder = services::Webdav::default()
+                    .endpoint(&endpoint)
+                    .root(&root)
+                    .username(&username)
+                    .password(&password);
+                let _guard = handle.enter();
+                Operator::new(builder)
+                    .map_err(|_| remote_error("configure"))?
+                    .with_context(OperationContext::new().with_http_transport(http_transport))
+            }
+            OpenDalConfig::S3 {
+                endpoint,
+                bucket,
+                region,
+                root,
+                access_key_id,
+                secret_access_key,
+            } => {
+                let builder = services::S3::default()
+                    .endpoint(&endpoint)
+                    .bucket(&bucket)
+                    .region(&region)
+                    .root(&root)
+                    .access_key_id(&access_key_id)
+                    .secret_access_key(&secret_access_key)
+                    .disable_config_load();
+                let _guard = handle.enter();
+                Operator::new(builder)
+                    .map_err(|_| remote_error("configure"))?
+                    .with_context(OperationContext::new().with_http_transport(http_transport))
+            }
+        };
+        Ok(Self { operator, handle })
+    }
+
+    fn key(&self, path: &Path) -> Result<String, FileIoError> {
+        path_to_key(path)
+    }
+
+    /// Blocks the calling thread until the supplied runtime has completed `request`.
+    fn run<T>(
+        &self,
+        operation: &str,
+        request: impl Future<Output = opendal::Result<T>>,
+    ) -> Result<T, FileIoError> {
+        self.handle
+            .block_on(request)
+            .map_err(|error| map_open_error(&error, operation))
+    }
+
+    fn node(&self, key: &str, path: PathBuf, filename: String) -> Result<FsNode, FileIoError> {
+        let meta = self.run("stat", self.operator.stat(key))?;
+        Ok(FsNode {
+            filename,
+            path,
+            raw_path: path_string(key),
+            is_dir: meta.is_dir(),
+            is_file: meta.is_file(),
+            size: meta.content_length(),
+        })
+    }
+
+    fn listed_node(entry: &opendal::Entry) -> Result<FsNode, FileIoError> {
+        let key = normalize_key(entry.path())?;
+        let metadata = entry.metadata();
+        let filename = key
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        Ok(FsNode {
+            filename,
+            path: PathBuf::from(&key),
+            raw_path: path_string(&key),
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            size: metadata.content_length(),
+        })
+    }
+
+    fn directory_exists(&self, key: &str) -> Result<bool, FileIoError> {
+        let prefix = directory_key(key);
+        self.run("list", self.operator.list(&prefix))
+            .map(|entries| !entries.is_empty())
+    }
+
+    fn metadata_node(
+        &self,
+        key: &str,
+        path: PathBuf,
+        filename: String,
+    ) -> Result<FsNode, FileIoError> {
+        match self.node(key, path.clone(), filename.clone()) {
+            Ok(node) => Ok(node),
+            Err(FileIoError::PathNotFound(_)) if self.directory_exists(key)? => Ok(FsNode {
+                filename,
+                path,
+                raw_path: path_string(key),
+                is_dir: true,
+                is_file: false,
+                size: 0,
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn list_recursive(
+        &self,
+        key: &str,
+        visited: &mut HashSet<String>,
+        nodes: &mut Vec<FsNode>,
+    ) -> Result<(), FileIoError> {
+        let key = directory_key(key);
+        if !visited.insert(key.clone()) {
+            return Ok(());
+        }
+        let entries = self.run("list", self.operator.list(&key))?;
+        let current = key.trim_matches('/');
+        let mut seen = HashSet::new();
+        for entry in entries {
+            let entry_key = normalize_key(entry.path())?;
+            let normalized = entry_key.trim_matches('/');
+            if normalized == current || !seen.insert(normalized.to_string()) {
+                continue;
+            }
+            let node = Self::listed_node(&entry)?;
+            let directory = node.is_dir;
+            nodes.push(node);
+            if directory {
+                self.list_recursive(&entry_key, visited, nodes)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn list_one(&self, key: &str) -> Result<Vec<FsNode>, FileIoError> {
+        let key = directory_key(key);
+        let entries = self.run("list", self.operator.list(&key))?;
+        let current = key.trim_matches('/');
+        let mut seen = HashSet::new();
+        let mut nodes = Vec::new();
+        for entry in entries {
+            let entry_key = normalize_key(entry.path())?;
+            let normalized = entry_key.trim_matches('/');
+            if normalized == current || !seen.insert(normalized.to_string()) {
+                continue;
+            }
+            nodes.push(Self::listed_node(&entry)?);
+        }
+        Ok(nodes)
+    }
+}
+
+fn path_to_key(path: &Path) -> Result<String, FileIoError> {
+    let path = path.to_str().ok_or(FileIoError::InvalidPath)?;
+    normalize_key(path)
+}
+
+fn normalize_key(path: &str) -> Result<String, FileIoError> {
+    let normalized = path.replace('\\', "/");
+    let mut parts = Vec::new();
+    for (index, part) in normalized.split('/').enumerate() {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            return Err(FileIoError::InvalidPath);
+        }
+        if index == 0 && part.len() == 2 && part.as_bytes()[1] == b':' {
+            continue;
+        }
+        parts.push(part);
+    }
+    Ok(parts.join("/"))
+}
+
+fn directory_key(key: &str) -> String {
+    if key.is_empty() || key.ends_with('/') {
+        key.to_string()
+    } else {
+        format!("{key}/")
+    }
+}
+
+fn path_string(key: &str) -> String {
+    key.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_to_key;
+    use std::path::Path;
+
+    #[test]
+    fn windows_shaped_paths_become_relative_slash_separated_keys() {
+        assert_eq!(
+            path_to_key(Path::new(r"folder\nested\track.ogg")).unwrap(),
+            "folder/nested/track.ogg"
+        );
+        assert_eq!(
+            path_to_key(Path::new(r"C:\library\nested\track.ogg")).unwrap(),
+            "library/nested/track.ogg"
+        );
+    }
+}
+
+fn remote_error(operation: &str) -> FileIoError {
+    FileIoError::Remote(format!("{operation} failed"))
+}
+
+pub fn classify_open_error(error: &opendal::Error) -> OpenDalErrorKind {
+    if error.kind() == ErrorKind::PermissionDenied || error.to_string().contains("401") {
+        OpenDalErrorKind::Authentication
+    } else if matches!(error.kind(), ErrorKind::NotFound) {
+        OpenDalErrorKind::NotFound
+    } else {
+        OpenDalErrorKind::Unreachable
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenDalErrorKind {
+    Authentication,
+    NotFound,
+    Unreachable,
+}
+
+fn map_open_error(error: &opendal::Error, operation: &str) -> FileIoError {
+    match classify_open_error(error) {
+        OpenDalErrorKind::Authentication => FileIoError::PermissionDenied(operation.to_string()),
+        OpenDalErrorKind::NotFound => FileIoError::PathNotFound(operation.to_string()),
+        OpenDalErrorKind::Unreachable => remote_error(operation),
+    }
+}
+
+/// A remote file read in ranges. A read blocks until the runtime that opened the
+/// file has completed its request; the reader holds no runtime work, so the file
+/// can be dropped on any thread, also on one that drives a runtime.
+struct RemoteFile {
+    reader: Reader,
+    handle: Handle,
+    position: u64,
+    length: u64,
+    buffer_start: u64,
+    buffer: Vec<u8>,
+}
+
+impl Read for RemoteFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() || self.position >= self.length {
+            return Ok(0);
+        }
+        if self.position < self.buffer_start
+            || self.position >= self.buffer_start.saturating_add(self.buffer.len() as u64)
+        {
+            let end = self.position.saturating_add(256 * 1024).min(self.length);
+            let request = self.reader.read(self.position..end);
+            let bytes = self.handle.block_on(request).map_err(|error| {
+                let mapped = map_open_error(&error, "read");
+                let kind = match mapped {
+                    FileIoError::PermissionDenied(_) => IoErrorKind::PermissionDenied,
+                    FileIoError::PathNotFound(_) => IoErrorKind::NotFound,
+                    _ => IoErrorKind::Other,
+                };
+                IoError::new(kind, mapped)
+            })?;
+            self.buffer_start = self.position;
+            self.buffer = bytes.to_vec();
+        }
+        let offset = (self.position - self.buffer_start) as usize;
+        let count = (self.buffer.len() - offset).min(buf.len());
+        buf[..count].copy_from_slice(&self.buffer[offset..offset + count]);
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+impl Seek for RemoteFile {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let next = match pos {
+            SeekFrom::Start(offset) => offset as i128,
+            SeekFrom::Current(offset) => self.position as i128 + offset as i128,
+            SeekFrom::End(offset) => self.length as i128 + offset as i128,
+        };
+        if next < 0 || next > u64::MAX as i128 {
+            return Err(IoError::new(IoErrorKind::InvalidInput, "invalid seek"));
+        }
+        self.position = next as u64;
+        Ok(self.position)
+    }
+}
+impl Write for RemoteFile {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+        Err(IoError::new(IoErrorKind::Unsupported, "read-only"))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+impl FileStream for RemoteFile {
+    fn sync_all(&mut self) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("sync remote file".into()))
+    }
+}
+
+#[async_trait]
+impl FileIo for OpenDalFsIo {
+    fn name(&self) -> &'static str {
+        "OpenDAL"
+    }
+
+    fn storage(&self) -> StorageLocation {
+        StorageLocation::Remote
+    }
+
+    fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
+        if open_mode != OpenMode::Read {
+            return Err(FileIoError::NotSupported("remote write access".into()));
+        }
+        let key = self.key(path)?;
+        let (reader, length) = self.run("open", async {
+            Ok((
+                self.operator.reader(&key).await?,
+                self.operator.stat(&key).await?.content_length(),
+            ))
+        })?;
+        Ok(Box::new(RemoteFile {
+            reader,
+            handle: self.handle.clone(),
+            position: 0,
+            length,
+            buffer_start: 0,
+            buffer: Vec::new(),
+        }))
+    }
+
+    async fn open_async(
+        &self,
+        path: &Path,
+        open_mode: OpenMode,
+    ) -> Result<Box<dyn FileStream>, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || this.open(&path, open_mode))
+            .await
+            .map_err(|_| remote_error("open"))?
+    }
+    fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
+        let key = self.key(path)?;
+        self.run("read", self.operator.read(&key))
+            .map(|b| b.to_vec())
+    }
+    fn read_to_string(&self, path: &Path) -> Result<String, FileIoError> {
+        String::from_utf8(self.read(path)?).map_err(|_| FileIoError::InvalidPath)
+    }
+    async fn write(&self, _path: &Path, _contents: &[u8]) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote write".into()))
+    }
+    async fn write_string(&self, _path: &Path, _contents: &str) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote write".into()))
+    }
+    async fn create_dir(&self, _parent: &Path, _name: &str) -> Result<PathBuf, FileIoError> {
+        Err(FileIoError::NotSupported("remote create directory".into()))
+    }
+    fn create_dir_all(&self, _path: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote create directory".into()))
+    }
+
+    async fn read_dir(&self, path: &Path) -> Result<Vec<FsNode>, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || {
+            let key = this.key(&path)?;
+            this.list_one(&key)
+        })
+        .await
+        .map_err(|_| remote_error("list"))?
+    }
+    async fn remove_file(&self, _path: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote delete".into()))
+    }
+    async fn rename_file(&self, _from: &Path, _to: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote rename".into()))
+    }
+    async fn remove_dir_all(&self, _path: &Path) -> Result<(), FileIoError> {
+        Err(FileIoError::NotSupported("remote delete".into()))
+    }
+
+    fn walk_dir(&self, path: &Path, _follow_links: bool) -> Result<DirWalk, FileIoError> {
+        let key = self.key(path)?;
+        let mut nodes = Vec::new();
+        self.list_recursive(&key, &mut HashSet::new(), &mut nodes)?;
+        // OpenDAL keys are text, so every entry has a node.
+        Ok(DirWalk {
+            nodes,
+            skipped: Vec::new(),
+        })
+    }
+
+    fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        let key = self.key(path)?;
+        if self.run("exists", self.operator.exists(&key))? {
+            Ok(true)
+        } else {
+            self.directory_exists(&key)
+        }
+    }
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        self.exists(path)
+    }
+
+    async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || {
+            let key = this.key(&path)?;
+            this.metadata_node(&key, PathBuf::from(&key), String::new())
+                .map(|node| node.is_file)
+        })
+        .await
+        .map_err(|_| remote_error("stat"))?
+    }
+    async fn is_dir(&self, path: &Path) -> Result<bool, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || {
+            let key = this.key(&path)?;
+            this.metadata_node(&key, PathBuf::from(&key), String::new())
+                .map(|node| node.is_dir)
+        })
+        .await
+        .map_err(|_| remote_error("stat"))?
+    }
+    fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        let key = self.key(path)?;
+        self.metadata_node(&key, PathBuf::from(&key), String::new())?;
+        Ok(PathBuf::from(key))
+    }
+    fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
+        self.canonicalize_path(Path::new(path))
+    }
+    fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        let key = self.key(path)?;
+        let filename = path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or_default()
+            .to_string();
+        self.metadata_node(&key, PathBuf::from(&key), filename)
+    }
+    fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
+        self.canonicalize(Path::new(path))
+    }
+    fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
+        let key = self.key(path)?;
+        self.run("stat", self.operator.stat(&key)).map(|meta| {
+            meta.last_modified()
+                .map(SystemTime::from)
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default()
+        })
+    }
+    fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
+        let key = self.key(path)?;
+        self.run("stat", self.operator.stat(&key)).map(|meta| {
+            meta.etag().map(str::to_owned).or_else(|| {
+                meta.last_modified()
+                    .map(SystemTime::from)
+                    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs().to_string())
+            })
+        })
+    }
+    async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || this.canonicalize(&path))
+            .await
+            .map_err(|_| remote_error("stat"))?
+    }
+    async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        let this = self.clone();
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || this.canonicalize(&path))
+            .await
+            .map_err(|_| remote_error("stat"))?
+    }
+}

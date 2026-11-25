@@ -1,0 +1,67 @@
+Rune Assets Licensing Notice
+=============================
+
+1. Original Works (Rune Asset License 1.0)
+------------------------------------------
+Except as explicitly specified below, all original visual, graphic, 3D,
+audio, and design source assets located in this directory (including
+Affinity Designer `.afdesign`, Affinity Photo `.afphoto`, Blender `.blend`,
+vector `.svg`, raster `.png`/`.webp`/`.ico`, and audio `.ogg` files) are
+licensed under the Rune Asset License, Version 1.0 (see LICENSE).
+
+
+2. Third-Party Font Software
+----------------------------
+The following font software is NOT covered by the Rune Asset License:
+
+  - `assets/NotoSansRunic-Regular.ttf`
+    Copyright (c) 2012-2022 Google LLC.
+    Distributed under the SIL Open Font License, Version 1.1 (OFL-1.1).
+    License text available at: https://openfontlicense.org
+
+
+3. Third-Party Trademarks and Logos
+-----------------------------------
+The following standalone icons represent third-party services and are NOT
+covered by the Rune Asset License:
+
+  - `assets/bandcamp.svg`
+    Trademark of Bandcamp, Inc. / Epic Games, Inc.
+  - `assets/itch.svg`
+    Trademark of itch corp.
+
+These marks are used nominatively to indicate service integrations and
+remain the exclusive property of their respective trademark owners.
+
+
+4. Composite Works Incorporating Third-Party Platform Marks
+------------------------------------------------------------
+The following badge and platform indicator graphics are composite works:
+
+  - Store availability badges:
+    - `assets/available_steam.png` (and `assets/source/available_steam.afdesign`)
+    - `assets/available_ms_store.png` (and `assets/source/available_ms_store.afdesign`)
+    - `assets/available_app_store.png` (and `assets/source/available_app_store.afdesign`)
+
+  - Platform support indicators:
+    - `assets/p-android_support.png` (and `assets/source/p-android_support.afdesign`)
+    - `assets/p-ios_support.png` (and `assets/source/p-ios_support.afdesign`)
+    - `assets/p-linux_support.png` (and `assets/source/p-linux_support.afdesign`)
+    - `assets/p-macos_support.png` (and `assets/source/p-macos_support.afdesign`)
+    - `assets/p-steamos_support.png` (and `assets/source/p-steamos_support.afdesign`)
+    - `assets/p-windows_support.png` (and `assets/source/p-windows_supported.afdesign`)
+
+Copyright and Trademark Carve-out:
+  - The original graphic design, button frames, backgrounds, and styling
+    created by the author are licensed under the Rune Asset License,
+    Version 1.0.
+  - The embedded trademarks, brand logos, names, and emblems (including
+    Apple, App Store, Microsoft, Windows, Microsoft Store, Valve, Steam,
+    SteamOS, Linux, and Android) are property of their respective owners.
+  - In accordance with Section 2(b)(2) and Section 1(g) of the Rune Asset
+    License, NO trademark rights or permissions in those third-party marks
+    are granted or conveyed.
+  - Downstream users and adapters are solely responsible for ensuring that
+    any reproduction, modification, or sharing of these composite works
+    complies with the official trademark policies and brand guidelines of
+    the respective platform owners.

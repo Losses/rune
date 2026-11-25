@@ -1,0 +1,44 @@
+[Unit]
+Description=Rune Player DRM/KMS Kiosk
+After=network.target sound.target lightdm.service seatd.service
+Conflicts=lightdm.service
+# A kiosk that keeps crashing gives the screen back to the desktop: after five
+# starts within a minute, the next restart fails the unit.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+OnFailure=lightdm.service
+
+[Service]
+Type=simple
+User=dietpi
+Group=dietpi
+WorkingDirectory=/opt/rune-embedded
+Environment=HOME=/home/dietpi
+Environment=XDG_DATA_HOME=/home/dietpi/.local/share
+Environment=LD_PRELOAD=/opt/rune-embedded/lib/libhub.so
+Environment=LD_LIBRARY_PATH=/opt/rune-embedded/lib
+
+# The text box cursor, and what replaces the chip's measured GPU governor and
+# CPU frequency limit: see /etc/rune-kiosk.conf.
+EnvironmentFile=-/etc/rune-kiosk.conf
+
+# These run as root ("+"), and the kiosk starts or stops even if they fail ("-").
+ExecStartPre=-+/opt/rune-embedded/bin/rune-gpu-devfreq apply
+ExecStartPre=-+/opt/rune-embedded/bin/rune-cpu-cpufreq apply
+ExecStartPre=-+/opt/rune-embedded/bin/rune-unused-devices apply
+
+# Run flutter-pi directly on DRM/KMS. --partial-repaint redraws only what
+# changed each frame; without EGL_EXT_buffer_age flutter-pi draws everything.
+ExecStart=/opt/rune-embedded/bin/flutter-pi --partial-repaint --release /opt/rune-embedded/data
+
+ExecStopPost=-+/opt/rune-embedded/bin/rune-gpu-devfreq restore
+ExecStopPost=-+/opt/rune-embedded/bin/rune-cpu-cpufreq restore
+ExecStopPost=-+/opt/rune-embedded/bin/rune-unused-devices restore
+# Back to the desktop unless the kiosk is restarting: see rune-kiosk-desktop.
+ExecStopPost=-+/opt/rune-embedded/bin/rune-kiosk-desktop %n lightdm.service
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

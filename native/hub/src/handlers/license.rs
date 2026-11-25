@@ -1,0 +1,252 @@
+use std::{fs::File, io::Read, path::Path};
+
+use anyhow::Result;
+
+use crate::{
+    Session, Signal,
+    messages::*,
+    request_error::ExpectedRequestError,
+    utils::{GlobalParams, ParamsExtractor},
+};
+use anyhow::Error;
+use sha2::{Digest, Sha256};
+use std::env;
+
+#[cfg(target_os = "windows")]
+pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
+    use tokio::time::{Duration, sleep};
+    use windows::Foundation::AsyncStatus;
+    use windows::Services::Store::StoreContext;
+
+    let context = StoreContext::GetDefault()?;
+    let operation = context.GetAppLicenseAsync()?;
+
+    while operation.Status()? != AsyncStatus::Completed {
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    let license = operation.GetResults()?;
+
+    let sku_store_id = license.SkuStoreId()?.to_string();
+
+    if sku_store_id.is_empty() {
+        return Ok(None);
+    }
+
+    let is_active = license.IsActive()?;
+    let is_trial = license.IsTrial()?;
+
+    Ok(Some((sku_store_id, is_active, is_trial)))
+}
+
+#[cfg(target_os = "macos")]
+pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
+    use crate::apple_bridge::get_bundle_id;
+    let bundle_id = get_bundle_id();
+    if bundle_id == "ci.not.rune.appstore" {
+        let is_active = true;
+        let is_trial = false;
+        Ok(Some((bundle_id, is_active, is_trial)))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
+    Ok(None)
+}
+
+const LICENSES: [&str; 18] = [
+    "9f93edc284a718a56f82a2e3cf05a83f07d87d36f7f8e4f826789dde40ab9537",
+    "e8b8db66d3d3e04bcce29bb59d7ca1460e92df89297ffca570e5954cc2a426c6",
+    // AIFF (7)
+    "45f3afb107d25658939577ec6bbafae81f4e5c3101d9c134b306480514bdf765",
+    "a7347684490d0e38515bdbdcde99aeef36de150625ea9199949732910fef883e",
+    // WAV (6)
+    "efd49dd984ec9ecc8a98c99f1fd5f0381295a8d2e7badcafa835cfe2a3629305",
+    "0b05a560faa60e7f31cf54cd624a706fd097a6bcf57cda2153acdb581c0bcf9c",
+    // M4A (5)
+    "b21d8de0428469da2a1b1b5ba2ec9e2dcdc9c4123a24d829f1a208fc9b0f1fe5",
+    "cd82bdfbe46e401dd07374ef84628a4a9dbdc2958dd7d38bdf9a51f19e95a5cb",
+    // OGG (4)
+    "e1f29c7c8379e0bc47f618e19a003fed9c4482c81ddc8586857c2ef427da492e",
+    "6daacc6f6afc9f11534cded4a73d2a5389932aab643000846dd20eb9b152be7d",
+    // M4A (3)
+    "55af938a5d704b6e45e06b7ecbbb995a0f8780fa74d376fc41ed07ad5ca36da5",
+    "5af78fea7f52f95c828c6032866440d8320f321add123f8325733552176b1659",
+    // FLAC (2)
+    "b9e2a7074af56ad09f9a1f0cfa3b826691ee77c8a45177fd3ddfc6c89e5a753d",
+    "d5fd1257a42c08d9dbdce5f584add0bcab9232396b6622877d07e63817b35273",
+    // MP3 (1)
+    "ce0e14233bc4529f8b65447be04867a5df1cfe6807510e4d6c9d669cb916106a",
+    "44312b0643aa4a787c74975a32f15f5c4a9d028ed4ca340646634defdac7963d",
+    // MP3 (0)
+    "400c8c468cde5ee301dc92a4fb76ff2cecff2050d8f28e37ae1d8e7ecfc0aee4",
+    "a3756e26611e76424d262bced05b2d4c0aa73e411b7f65d8347154eecde5ab85",
+];
+
+impl ParamsExtractor for RegisterLicenseRequest {
+    type Params = ();
+
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for RegisterLicenseRequest {
+    type Params = ();
+    type Response = RegisterLicenseResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let path = &dart_signal.path;
+
+        let file_content = read_file_content(path).await.map_err(|error| {
+            Error::from(ExpectedRequestError::Unavailable {
+                what: "license file",
+            })
+            .context(error)
+        })?;
+
+        // Compute the SHA256 hash of the file content
+        let mut hasher = Sha256::new();
+        hasher.update(&file_content);
+        let result = hasher.finalize();
+        let license_hash = format!("{result:x}");
+
+        let mut hasher = Sha256::new();
+        hasher.update(license_hash.as_bytes());
+        let result = hasher.finalize();
+        let validation_hash = format!("{result:x}");
+
+        if !LICENSES.contains(&validation_hash.as_str()) {
+            return Err(ExpectedRequestError::LicenseInvalid.into());
+        }
+
+        Ok(Some(RegisterLicenseResponse {
+            call_id: None,
+            license: license_hash,
+        }))
+    }
+}
+
+// Helper function: Asynchronously read file content
+async fn read_file_content<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let mut content = Vec::new();
+    file.read_to_end(&mut content)?;
+    Ok(content)
+}
+
+impl ParamsExtractor for ValidateLicenseRequest {
+    type Params = ();
+
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for ValidateLicenseRequest {
+    type Params = ();
+    type Response = ValidateLicenseResponse;
+
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let license = &dart_signal.license;
+
+        let mut is_pro = false;
+        let mut is_store_mode = false;
+
+        let args: Vec<String> = env::args().collect();
+        let pro_via_args = args.contains(&"--pro".to_string());
+        let store_via_args = args.contains(&"--store".to_string());
+
+        is_pro = is_pro || pro_via_args;
+        is_store_mode = is_store_mode || store_via_args;
+
+        if !is_pro && let Some(license) = license {
+            let mut hasher = Sha256::new();
+            hasher.update(license.as_bytes());
+            let result = hasher.finalize();
+            let hash_str = format!("{result:x}");
+
+            let pro_via_license = LICENSES.contains(&hash_str.as_str());
+
+            is_pro = is_pro || pro_via_license;
+        }
+
+        let store_license = check_store_license().await;
+
+        let response = match store_license {
+            Ok(license) => match license {
+                Some((_, _, is_trial)) => ValidateLicenseResponse {
+                    call_id: None,
+                    is_pro: is_pro || !is_trial,
+                    is_store_mode: true,
+                },
+                _ => ValidateLicenseResponse {
+                    call_id: None,
+                    is_pro,
+                    is_store_mode,
+                },
+            },
+            Err(_) => ValidateLicenseResponse {
+                call_id: None,
+                is_pro,
+                is_store_mode,
+            },
+        };
+
+        Ok(Some(response))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::{Result, bail};
+    use std::fs;
+    use std::path as std_path;
+
+    use crate::Signal;
+    use crate::messages::{RegisterLicenseRequest, RequestErrorKind, RequestFailureCause};
+    use crate::request_error::{classify, request_failure_cause};
+
+    async fn register(path: &std_path::Path) -> Result<anyhow::Error> {
+        let request = RegisterLicenseRequest {
+            path: path.to_string_lossy().into_owned(),
+            call_id: None,
+        };
+        match request.handle((), None, &request).await {
+            Ok(_) => bail!("{} is not a license and must be refused", path.display()),
+            Err(error) => Ok(error),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalid_key_is_refused_with_its_own_cause() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let key = dir.path().join("not-a-key.flac");
+        fs::write(&key, b"not a license")?;
+        let error = register(&key).await?;
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+        assert_eq!(
+            request_failure_cause(&error),
+            Some(RequestFailureCause::LicenseInvalid)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_key_file_is_refused_as_unavailable() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let error = register(&dir.path().join("missing.flac")).await?;
+        assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{error:#}");
+        assert_eq!(request_failure_cause(&error), None);
+        Ok(())
+    }
+}

@@ -1,0 +1,1 @@
+To save your time, execute single test with: `RUST_LOG=debug cargo test -p database YOUR TEST NAME -- --nocapture`

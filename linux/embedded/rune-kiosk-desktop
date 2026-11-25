@@ -1,0 +1,35 @@
+#!/bin/sh
+# Run by rune-kiosk.service, as root, after the kiosk stops: gives the screen
+# back to the desktop when the kiosk is not coming back.
+#
+#   rune-kiosk-desktop <kiosk unit> <desktop unit>
+#
+# The kiosk comes back after `systemctl restart`, and after a crash, which
+# Restart=on-failure restarts; when those restarts give up, the unit's
+# OnFailure= starts the desktop. It does not come back after `systemctl stop`,
+# or when it exits cleanly by itself.
+set -u
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <kiosk unit> <desktop unit>" >&2
+    exit 2
+fi
+kiosk="$1"
+desktop="$2"
+
+# The job systemd is running on the kiosk: stop, restart, or none after a crash
+# or an exit of its own.
+job="$(systemctl list-jobs --no-legend "$kiosk" | awk '{ print $3 }')"
+case "$job" in
+    restart | start)
+        exit 0
+        ;;
+    "")
+        if [ "${SERVICE_RESULT:-success}" != success ]; then
+            exit 0
+        fi
+        ;;
+esac
+# The desktop conflicts with the kiosk, so starting it would cancel a restart
+# that is on its way.
+exec systemctl --no-block start "$desktop"

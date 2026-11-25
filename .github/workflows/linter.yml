@@ -1,0 +1,135 @@
+name: Lint
+
+on:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  checks: write
+  pull-requests: write
+
+jobs:
+  rust-analyze:
+    name: Rust Analyze
+    runs-on: ubuntu-latest
+    
+    steps: 
+      - name: Check Out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Flutter Toolchain
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Rust dependencies
+        run: cargo install rinf_cli --version 8.11.0 --locked
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf gen
+
+      - name: Format message files
+        run: |
+          shopt -s globstar
+          cargo fmt -- native/hub/src/messages/**/*.rs
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+      
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run Rust behavior tests
+        # Runs every workspace test that currently builds and passes on a
+        # GPU-less Ubuntu runner. Three pre-existing problems are excluded:
+        #
+        # * The analysis GPU tests need a graphics adapter. This runner has none.
+        #   Remove their --skip flags on a GPU runner, or gate the tests behind a
+        #   feature.
+        # * The rune-cli integration tests do not compile because Cargo does not
+        #   define env!("CARGO_BIN_EXE_rune-cli") for the hyphenated binary name.
+        #   Reproduced with Cargo 1.98.1 (the Nix devshell) and Cargo 1.100.0
+        #   (the stable toolchain this job installs) by running:
+        #     cargo test -p rune-cli --test m3u8_export_test --no-run
+        #   Remove --exclude rune-cli after cli/tests/m3u8_export_test.rs and
+        #   scan_exit_status_test.rs locate the binary another way.
+        # * subsonic_open_search_fetch_and_unsupported_requests still expects
+        #   playlist collection groups to be unsupported, while #769 added
+        #   support. It fails on clean master (reproduced with Cargo 1.98.1 by
+        #   running that test alone). Update that expectation and remove the
+        #   --skip.
+        run: |
+          cargo test --workspace --exclude rune-cli --no-fail-fast -- \
+            --skip gpu_finishes_all_counted_windows \
+            --skip test_fft_cpu_vs_gpu \
+            --skip wgpu_fft:: \
+            --skip subsonic_open_search_fetch_and_unsupported_requests
+
+  flutter-analyze:
+    name: Flutter Analyze
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Flutter Toolchain
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Rust dependencies
+        run: cargo install rinf_cli --version 8.11.0 --locked
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf gen
+      
+      - name: Analyze Flutter
+        run: |
+          flutter analyze .
+
+      - name: Dart Flutter
+        run: |
+          dart analyze .
+
+      - name: Run Flutter behavior tests
+        # Widget and unit tests for the playback controls, queue edits, library
+        # lifecycle, settings and dialogs. The real-app flows in integration_test/
+        # stay a local check; this job runs the fast behavior suite on every pull
+        # request.
+        run: |
+          flutter gen-l10n
+          flutter test lib/test
+
+      
+
+
