@@ -422,8 +422,9 @@ struct ReloginServer {
     release_user: Notify,
     /// Gives the account the jukebox role whatever its password.
     jukebox: AtomicBool,
-    /// How many jukebox requests the server got.
-    jukebox_calls: AtomicUsize,
+    /// How many times the server gave the jukebox queue, which a poll reads once the status it
+    /// read first was decoded.
+    jukebox_reads: AtomicUsize,
 }
 
 async fn subsonic_relogin_mock() -> (String, Arc<ReloginServer>, JoinHandle<()>) {
@@ -466,9 +467,6 @@ async fn subsonic_relogin_response(
     Query(query): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action);
-    if action == "jukeboxControl" {
-        state.jukebox_calls.fetch_add(1, Ordering::SeqCst);
-    }
     let rotated = state.rotated.load(Ordering::SeqCst);
     let password = if rotated {
         "new-password"
@@ -493,6 +491,16 @@ async fn subsonic_relogin_response(
         json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":jukebox}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
+    } else if action == "jukeboxControl" {
+        let jukebox = json!({"currentIndex":0,"playing":false,"gain":1.0,"position":0});
+        if query.get("action").is_some_and(|action| action == "get") {
+            state.jukebox_reads.fetch_add(1, Ordering::SeqCst);
+            let mut playlist = jukebox;
+            playlist["entry"] = json!([{"id":"track-1","title":"Song","duration":10}]);
+            json!({"subsonic-response":{"status":"ok","jukeboxPlaylist":playlist}})
+        } else {
+            json!({"subsonic-response":{"status":"ok","jukeboxStatus":jukebox}})
+        }
     } else if action == "getArtists" {
         json!({"subsonic-response":{"status":"ok","artists":{"index":[{"name":"A","artist":[{"id":"artist-1","name":"Artist One"}]}]}}})
     } else {
@@ -2138,12 +2146,12 @@ async fn a_subsonic_jukebox_is_followed_once_the_server_check_grants_its_role() 
 
     // The server grants the role, and the library opens from the probe it kept without it.
     state.jukebox.store(true, Ordering::SeqCst);
-    let before = state.jukebox_calls.load(Ordering::SeqCst);
+    let before = state.jukebox_reads.load(Ordering::SeqCst);
     open_registered_here(&node, record_id).await?;
     let ui = node.current_ui().await?;
-    // Following the jukebox polls it again and again.
+    // Following the jukebox reads its status and queue again and again.
     wait_until("the jukebox followed", || async {
-        Ok((state.jukebox_calls.load(Ordering::SeqCst) >= before + 4).then_some(()))
+        Ok((state.jukebox_reads.load(Ordering::SeqCst) >= before + 2).then_some(()))
     })
     .await?;
 
