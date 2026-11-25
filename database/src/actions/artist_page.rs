@@ -103,13 +103,14 @@ impl Release {
     }
 
     /// Whether the release is by the artist: an album artist credit is identified as the
-    /// artist or names the artist, or the release credits no album artist at all, so nothing
-    /// says it is by others.
+    /// artist or names the artist, whole or as one of the artists it lists, or the release
+    /// credits no album artist at all, so nothing says it is by others.
     fn is_by(&self, artist: &PageArtist) -> bool {
-        let name = artist.name.to_lowercase();
+        let name = artist.name.trim().to_lowercase();
         self.album_artists.is_empty()
             || self.album_artists.iter().any(|credit| {
                 credit.artist_id.as_deref() == Some(artist.id.as_str())
+                    || credit.credited_as.trim().to_lowercase() == name
                     || metadata::artist::split_artists(&credit.credited_as)
                         .iter()
                         .any(|credited| credited.to_lowercase() == name)
@@ -783,6 +784,20 @@ mod tests {
         assert!(!by(vec![credit("Bob", None)]));
         assert!(!by(vec![credit("Bob", Some("bob-id"))]));
         assert!(!by(vec![credit("Annabel", None)]));
+    }
+
+    #[test]
+    fn an_album_artist_names_the_artist_by_its_whole_name() {
+        // An identified or synced artist can keep a name the separators would split.
+        let band = PageArtist {
+            id: "band-id".into(),
+            name: "Earth, Wind & Fire".into(),
+        };
+        let mut r = release(10, 240);
+        r.album_artists = vec![credit("Earth, Wind & Fire", None)];
+        assert_eq!(r.section_for(&band), ArtistSection::Albums);
+        r.album_artists = vec![credit("Earth", None)];
+        assert_eq!(r.section_for(&band), ArtistSection::AppearsOn);
     }
 
     #[test]
