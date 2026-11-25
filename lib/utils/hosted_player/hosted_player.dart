@@ -20,8 +20,69 @@ abstract class SelfReportingHost implements HostedPlayerHost {
   void attach(void Function(Map<String, dynamic>) emit);
 }
 
+/// What a platform host answered when asked to authorize the user's account on its service.
+sealed class HostAuthorizationResult {
+  const HostAuthorizationResult();
+}
+
+/// The account is authorized, with what the host got to sign in with.
+class HostAuthorization extends HostAuthorizationResult {
+  const HostAuthorization({required this.token, this.developerToken});
+
+  final String token;
+  final String? developerToken;
+}
+
+/// Why a host could not authorize the account.
+enum HostAuthorizationFailure {
+  /// The user, or the system, did not allow Rune to use the service.
+  refused,
+
+  /// Allowed, but the service gave no token, as offline or without an account.
+  noToken,
+
+  /// Allowed, but the account that the device is signed in with cannot use the service.
+  account,
+
+  /// Allowed, but the user has yet to accept the service's privacy notice.
+  privacy,
+
+  /// This version of the system has no way to authorize the service.
+  unsupported,
+
+  /// The host could not be asked, or did not answer.
+  unavailable,
+}
+
+/// The account was not authorized.
+class HostAuthorizationFailed extends HostAuthorizationResult {
+  const HostAuthorizationFailed(this.failure);
+
+  final HostAuthorizationFailure failure;
+}
+
+/// A host that also authorizes the user's account on its service, for a library whose sign-in
+/// lives on this device.
+abstract class AuthorizingHost implements HostedPlayerHost {
+  /// Authorizes the user's account on the host's service, or says why it cannot. Without
+  /// [interactive] it must not show anything to the user.
+  Future<HostAuthorizationResult> authorize({bool interactive = false});
+
+  /// Fires when the service stops letting Rune play while Rune runs.
+  Stream<void> get accessLost;
+}
+
+/// A host that knows whether the device has a network.
+abstract class NetworkReportingHost implements HostedPlayerHost {
+  /// Whether the host last reported a network. Null until it reports.
+  bool? get online;
+
+  /// Fires when the host reports the network back after it reported none.
+  Stream<void> get networkBack;
+}
+
 /// The hosts this platform provides, by family. Platform code adds its hosts here at startup,
-/// and the player bridge looks them up.
+/// and the player bridge and the sign-in of a library on this device both look them up.
 final Map<String, HostedPlayerHost> platformHosts = {};
 
 /// Routes the player's commands to the host registered for each family.

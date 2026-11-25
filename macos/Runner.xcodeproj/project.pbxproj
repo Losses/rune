@@ -23,6 +23,7 @@
 /* Begin PBXBuildFile section */
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
+		A10A5C0D2F3B000100C0FFEE /* AppleMusicHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10A5C0C2F3B000100C0FFEE /* AppleMusicHost.swift */; };
 		A10A5C0F2F3B000100C0FFEE /* SystemVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10A5C0E2F3B000100C0FFEE /* SystemVolume.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
 		87B56BA4EC4E6C3B34C1A7F6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 791CC32E754357E50E02F5D9 /* AppIcon.icon */; };
@@ -61,6 +62,7 @@
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
 		33CC10ED2044A3C60003C045 /* Rune.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rune.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10A5C0C2F3B000100C0FFEE /* AppleMusicHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppleMusicHost.swift; path = ../darwin/AppleMusicHost.swift; sourceTree = SOURCE_ROOT; };
 		A10A5C0E2F3B000100C0FFEE /* SystemVolume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SystemVolume.swift; path = ../darwin/SystemVolume.swift; sourceTree = SOURCE_ROOT; };
 		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		791CC32E754357E50E02F5D9 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = Runner/AppIcon.icon; sourceTree = "<group>"; };
@@ -172,6 +174,7 @@
 			isa = PBXGroup;
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
+				A10A5C0C2F3B000100C0FFEE /* AppleMusicHost.swift */,
 				A10A5C0E2F3B000100C0FFEE /* SystemVolume.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
@@ -437,6 +440,7 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				A10A5C0D2F3B000100C0FFEE /* AppleMusicHost.swift in Sources */,
 				A10A5C0F2F3B000100C0FFEE /* SystemVolume.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);

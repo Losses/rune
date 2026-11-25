@@ -43,6 +43,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Rune uses your Apple Music access to play songs from your Apple Music library and the Apple Music catalog.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app connects to your other devices on the local network, to play music from them and on them.</string>
 	<key>UIApplicationSceneManifest</key>

@@ -125,6 +125,8 @@ class SceneDelegate: FlutterSceneDelegate {
     })
 
     SceneFiles.shared.attach(messenger: engineBridge.applicationRegistrar.messenger())
+    // Apple Music plays through MusicKit here. Dart only passes the hub's batches and events on.
+    AppleMusicHost.shared.attach(messenger: engineBridge.applicationRegistrar.messenger())
     // Rune's volume control moves the system volume while a platform host plays.
     SystemVolume.shared.attach(messenger: engineBridge.applicationRegistrar.messenger())
     SystemVolume.shared.registerView(with: engineBridge.applicationRegistrar)

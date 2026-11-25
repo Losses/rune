@@ -87,6 +87,7 @@ import 'providers/library_open_state.dart';
 import 'providers/library_registry.dart';
 import 'utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import 'utils/hosted_player/hosted_player.dart';
+import 'utils/hosted_player/platform_hosts.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/local_folder_picker.dart';
@@ -288,6 +289,7 @@ void main(List<String> arguments) async {
 
   initialPath = await getInitialPath();
   libraryRegistry = LibraryRegistryProvider();
+  registerPlatformHosts();
   try {
     await libraryRegistry.ready;
   } on Object catch (error) {
