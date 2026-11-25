@@ -516,8 +516,9 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
             );
             assert_eq!(
                 continuations.get(&second),
-                Some(&true),
-                "a failure the chain advances to must be a chain continuation"
+                Some(&play_outcome.is_err()),
+                "the second failure continues the chain only when the chain never left it: \
+                 a successful load ends the chain, so a failure after it is told on its own"
             );
 
             runner.abort();
