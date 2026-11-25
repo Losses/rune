@@ -541,6 +541,10 @@ mod tests {
 
     #[async_trait]
     impl ScrobblingServiceManager for TestScrobbler {
+        fn login_epoch(&self, _service: &ScrobblingService) -> u64 {
+            0
+        }
+
         async fn send_login_status(&self) {
             self.statuses.lock().unwrap().push(self.active.clone());
             self.inner.send_login_status().await;

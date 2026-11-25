@@ -148,6 +148,48 @@ pub trait ScrobblingServiceManager: Send + Sync {
     /// Activates the staged client, flushes queued submissions to it, and
     /// publishes the new login state.
     async fn commit_staged_authentication(&mut self);
+    /// The generation of `service`'s active login.
+    ///
+    /// Every activated login and every logout of `service` advances it, so a
+    /// caller can tell whether the account changed since it read the epoch.
+    fn login_epoch(&self, service: &ScrobblingService) -> u64;
+    /// Authenticates `service` as part of restoring a saved account and keeps
+    /// its session only if the login is still current.
+    ///
+    /// `epoch` is the generation [`Self::login_epoch`] reported when the
+    /// restore was started. A login or logout committed since then supersedes
+    /// the restore, so its result is discarded instead of replacing the newer
+    /// account or signing a logged-out user back in.
+    #[allow(clippy::too_many_arguments)]
+    async fn authenticate_restore(
+        &mut self,
+        service: &ScrobblingService,
+        username: &str,
+        password: &str,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        enable_retry: bool,
+        epoch: u64,
+    ) -> Result<()> {
+        self.authenticate_staged(
+            service,
+            username,
+            password,
+            api_key,
+            api_secret,
+            enable_retry,
+        )
+        .await?;
+        if self.login_epoch(service) == epoch {
+            self.commit_staged_authentication().await;
+        } else {
+            info!(
+                "Discarding a superseded {service} restore: the login changed while it was authenticating"
+            );
+            self.discard_staged_authentication();
+        }
+        Ok(())
+    }
     /// Drops the staged client without activating it or sending it queued
     /// submissions. The current login stays active.
     ///
@@ -187,6 +229,10 @@ pub struct ScrobblingManager {
     lastfm_error: Option<String>,
     librefm_error: Option<String>,
     listenbrainz_error: Option<String>,
+
+    lastfm_epoch: u64,
+    librefm_epoch: u64,
+    listenbrainz_epoch: u64,
 
     max_retries: u32,
     retry_delay: Duration,
@@ -283,6 +329,22 @@ fn classify_authentication_error(
 }
 
 impl ScrobblingManager {
+    fn epoch(&self, service: &ScrobblingService) -> u64 {
+        match service {
+            ScrobblingService::LastFm => self.lastfm_epoch,
+            ScrobblingService::LibreFm => self.librefm_epoch,
+            ScrobblingService::ListenBrainz => self.listenbrainz_epoch,
+        }
+    }
+
+    fn advance_epoch(&mut self, service: &ScrobblingService) {
+        match service {
+            ScrobblingService::LastFm => self.lastfm_epoch += 1,
+            ScrobblingService::LibreFm => self.librefm_epoch += 1,
+            ScrobblingService::ListenBrainz => self.listenbrainz_epoch += 1,
+        }
+    }
+
     /// Creates a manager that retries a failed submission `max_retries` times, waiting
     /// `retry_delay` between attempts.
     pub fn new(max_retries: u32, retry_delay: Duration) -> Self {
@@ -297,6 +359,10 @@ impl ScrobblingManager {
             lastfm_error: None,
             librefm_error: None,
             listenbrainz_error: None,
+
+            lastfm_epoch: 0,
+            librefm_epoch: 0,
+            listenbrainz_epoch: 0,
 
             max_retries,
             retry_delay,
@@ -379,16 +445,38 @@ impl ScrobblingManager {
         credentials_list: Vec<ScrobblingCredential>,
     ) {
         tokio::spawn(async move {
+            // The restore entries remember the login generations as startup found
+            // them. A login or logout committed while a restore authenticates
+            // advances its generation, and the restore is discarded instead of
+            // replacing the newer account or signing a logged-out user back in.
+            let epochs = {
+                let manager = manager.lock().await;
+                credentials_list
+                    .iter()
+                    .map(|credentials| {
+                        (
+                            credentials.service,
+                            manager.login_epoch(&credentials.service),
+                        )
+                    })
+                    .collect::<std::collections::HashMap<_, _>>()
+            };
+
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
+                let epoch = epochs
+                    .get(&credentials.service)
+                    .copied()
+                    .unwrap_or_default();
                 let result = manager
-                    .authenticate(
+                    .authenticate_restore(
                         &credentials.service,
                         &credentials.username,
                         &credentials.password,
                         credentials.api_key.clone(),
                         credentials.api_secret.clone(),
                         true,
+                        epoch,
                     )
                     .await;
 
@@ -407,6 +495,10 @@ impl ScrobblingManager {
 
 #[async_trait]
 impl ScrobblingServiceManager for ScrobblingManager {
+    fn login_epoch(&self, service: &ScrobblingService) -> u64 {
+        self.epoch(service)
+    }
+
     async fn send_login_status(&self) {
         let statuses = vec![
             LoginStatus {
@@ -527,14 +619,17 @@ impl ScrobblingServiceManager for ScrobblingManager {
             StagedAuthentication::LastFm(client) => {
                 self.lastfm = Some(client);
                 self.lastfm_error = None;
+                self.advance_epoch(&ScrobblingService::LastFm);
             }
             StagedAuthentication::LibreFm(client) => {
                 self.librefm = Some(client);
                 self.librefm_error = None;
+                self.advance_epoch(&ScrobblingService::LibreFm);
             }
             StagedAuthentication::ListenBrainz(client) => {
                 self.listenbrainz = Some(client);
                 self.listenbrainz_error = None;
+                self.advance_epoch(&ScrobblingService::ListenBrainz);
             }
         }
         self.is_authenticating = false;
@@ -862,6 +957,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.listenbrainz_error = None;
             }
         }
+        self.advance_epoch(&service);
 
         info!("Logged out from {}", { service });
         self.send_login_status().await;
@@ -907,6 +1003,10 @@ impl Default for MockScrobblingManager {
 
 #[async_trait]
 impl ScrobblingServiceManager for MockScrobblingManager {
+    fn login_epoch(&self, _service: &ScrobblingService) -> u64 {
+        0
+    }
+
     async fn send_login_status(&self) {
         // Mock implementation: send empty login status list
         self.login_status_sender.send(Vec::new());
@@ -1422,5 +1522,374 @@ mod tests {
 
         lastfm_server.abort();
         listenbrainz_server.abort();
+    }
+
+    /// Committing a staged login advances only the login epoch of its own service.
+    #[tokio::test]
+    async fn committing_a_login_advances_only_its_own_epoch() {
+        let mut manager = ScrobblingManager::new(1, Duration::from_millis(1));
+        for service in [
+            ScrobblingService::LastFm,
+            ScrobblingService::LibreFm,
+            ScrobblingService::ListenBrainz,
+        ] {
+            assert_eq!(manager.login_epoch(&service), 0);
+        }
+
+        manager.staged = Some(StagedAuthentication::LastFm(lastfm_client(
+            "http://127.0.0.1/".into(),
+            "session",
+        )));
+        manager.commit_staged_authentication().await;
+
+        assert_eq!(manager.login_epoch(&ScrobblingService::LastFm), 1);
+        assert_eq!(manager.login_epoch(&ScrobblingService::LibreFm), 0);
+        assert_eq!(manager.login_epoch(&ScrobblingService::ListenBrainz), 0);
+
+        manager.discard_staged_authentication();
+        assert_eq!(
+            manager.login_epoch(&ScrobblingService::LastFm),
+            1,
+            "discarding a staged login changes nothing and must not advance the epoch"
+        );
+    }
+
+    /// Logging out advances the epoch even when no client is active, so a restore
+    /// captured before the logout is recognized as superseded.
+    #[tokio::test]
+    async fn logout_advances_the_epoch_of_its_service() {
+        let mut manager = ScrobblingManager::new(1, Duration::from_millis(1));
+
+        manager.logout(ScrobblingService::ListenBrainz).await;
+
+        assert_eq!(manager.login_epoch(&ScrobblingService::ListenBrainz), 1);
+        assert_eq!(manager.login_epoch(&ScrobblingService::LastFm), 0);
+    }
+
+    use std::collections::HashMap;
+
+    use async_trait::async_trait;
+    use tokio::sync::{Mutex, Notify, mpsc};
+
+    use super::{LoginStatus, MockScrobblingManager, ScrobblingCredential, ScrobblingError};
+    use simple_channel::{SimpleReceiver, SimpleSender};
+    use std::sync::Arc;
+
+    /// A scrobbler whose authentication completions the test controls: a restore of
+    /// "old-lastfm" stages only after the test releases its gate, and every staged,
+    /// committed and discarded authentication is reported in order.
+    struct RestoreScrobbler {
+        inner: MockScrobblingManager,
+        events: mpsc::UnboundedSender<String>,
+        gate: Arc<Notify>,
+        active: HashMap<ScrobblingService, String>,
+        staged: Option<(ScrobblingService, String)>,
+        epochs: HashMap<ScrobblingService, u64>,
+    }
+
+    #[async_trait]
+    impl ScrobblingServiceManager for RestoreScrobbler {
+        fn login_epoch(&self, service: &ScrobblingService) -> u64 {
+            *self.epochs.get(service).unwrap_or(&0)
+        }
+
+        async fn send_login_status(&self) {
+            self.inner.send_login_status().await;
+        }
+
+        async fn authenticate_staged(
+            &mut self,
+            service: &ScrobblingService,
+            username: &str,
+            _password: &str,
+            _api_key: Option<String>,
+            _api_secret: Option<String>,
+            _enable_retry: bool,
+        ) -> anyhow::Result<()> {
+            if username == "old-lastfm" {
+                self.events.send("staged:start:old-lastfm".into()).unwrap();
+                self.gate.notified().await;
+            }
+            self.staged = Some((*service, username.to_owned()));
+            Ok(())
+        }
+
+        async fn commit_staged_authentication(&mut self) {
+            if let Some((service, username)) = self.staged.take() {
+                *self.epochs.entry(service).or_insert(0) += 1;
+                self.active.insert(service, username.clone());
+                self.events
+                    .send(format!("committed:{service}:{username}"))
+                    .unwrap();
+            }
+        }
+
+        fn discard_staged_authentication(&mut self) {
+            if let Some((service, username)) = self.staged.take() {
+                self.events
+                    .send(format!("discarded:{service}:{username}"))
+                    .unwrap();
+            }
+        }
+
+        async fn update_now_playing(
+            &mut self,
+            service: &ScrobblingService,
+            track: ScrobblingTrack,
+        ) {
+            self.inner.update_now_playing(service, track).await;
+        }
+
+        fn restore_session(
+            &mut self,
+            service: &ScrobblingService,
+            session_key: String,
+        ) -> anyhow::Result<()> {
+            self.inner.restore_session(service, session_key)
+        }
+
+        fn update_now_playing_all(&mut self, track: ScrobblingTrack) {
+            self.inner.update_now_playing_all(track);
+        }
+
+        async fn scrobble(
+            &mut self,
+            service: ScrobblingService,
+            track: ScrobblingTrack,
+            listened: Duration,
+        ) {
+            let routed = self
+                .active
+                .get(&service)
+                .cloned()
+                .unwrap_or_else(|| "<logged out>".to_owned());
+            self.events
+                .send(format!("scrobbled:{service}:{routed}"))
+                .unwrap();
+            self.inner.scrobble(service, track, listened).await;
+        }
+
+        fn scrobble_all(&mut self, track: ScrobblingTrack, listened: Duration) {
+            self.inner.scrobble_all(track, listened);
+        }
+
+        async fn logout(&mut self, service: ScrobblingService) {
+            *self.epochs.entry(service).or_insert(0) += 1;
+            self.active.remove(&service);
+            self.events.send(format!("logout:{service}")).unwrap();
+            self.inner.logout(service).await;
+        }
+
+        fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
+            self.inner.subscribe_error()
+        }
+
+        fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
+            self.inner.subscribe_login_status()
+        }
+
+        fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>> {
+            self.inner.error_sender()
+        }
+    }
+
+    type RestoreScrobblerFixture = (
+        Arc<Mutex<RestoreScrobbler>>,
+        Arc<Mutex<dyn ScrobblingServiceManager>>,
+        mpsc::UnboundedReceiver<String>,
+        Arc<Notify>,
+    );
+
+    fn restore_scrobbler() -> RestoreScrobblerFixture {
+        let (events, receiver) = mpsc::unbounded_channel();
+        let gate = Arc::new(Notify::new());
+        let scrobbler = Arc::new(Mutex::new(RestoreScrobbler {
+            inner: MockScrobblingManager::new(),
+            events,
+            gate: Arc::clone(&gate),
+            active: HashMap::new(),
+            staged: None,
+            epochs: HashMap::new(),
+        }));
+        let shared: Arc<Mutex<dyn ScrobblingServiceManager>> = scrobbler.clone();
+        (scrobbler, shared, receiver, gate)
+    }
+
+    fn saved(service: ScrobblingService, username: &str) -> ScrobblingCredential {
+        ScrobblingCredential {
+            service,
+            username: username.to_owned(),
+            password: "saved-password".into(),
+            api_key: Some("saved-api-key".into()),
+            api_secret: Some("saved-api-secret".into()),
+        }
+    }
+
+    async fn next_event(receiver: &mut mpsc::UnboundedReceiver<String>) -> String {
+        timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .expect("timed out waiting for a scrobbler event")
+            .expect("scrobbler event channel closed")
+    }
+
+    /// Signs in `username` on ListenBrainz the way the interactive login handler does:
+    /// stage, then commit, under one lock.
+    async fn interactive_login(scrobbler: &Mutex<RestoreScrobbler>, username: &str) {
+        let mut scrobbler = scrobbler.lock().await;
+        scrobbler
+            .authenticate_staged(
+                &ScrobblingService::ListenBrainz,
+                username,
+                "new-password",
+                None,
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        scrobbler.commit_staged_authentication().await;
+    }
+
+    /// The startup restore of the saved Last.fm and ListenBrainz accounts is delayed
+    /// inside the first entry's authentication. While it is suspended, the user signs
+    /// in to a new ListenBrainz account. The release then lets the older restores
+    /// complete. The queued ListenBrainz restore started before the login, so it must
+    /// not replace the account the user just selected, and a later submission must go
+    /// to the new account.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_newer_login_survives_a_delayed_startup_restore() {
+        let (scrobbler, shared, mut events, gate) = restore_scrobbler();
+        let batch = vec![
+            saved(ScrobblingService::LastFm, "old-lastfm"),
+            saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
+        ];
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+
+        assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
+
+        let login_scrobbler = Arc::clone(&scrobbler);
+        let login = tokio::spawn(async move {
+            interactive_login(&login_scrobbler, "new-listenbrainz").await;
+        });
+        // The login task registers on the contended manager lock during the same run
+        // that queued the restore gate release below, so it is next in line when the
+        // first restore entry completes.
+        gate.notify_one();
+        login.await.unwrap();
+
+        assert_eq!(
+            next_event(&mut events).await,
+            "committed:LastFm:old-lastfm",
+            "the first restore entry completes first because it already held the lock"
+        );
+        assert_eq!(
+            next_event(&mut events).await,
+            "committed:ListenBrainz:new-listenbrainz",
+            "the interactive login commits before the queued ListenBrainz restore"
+        );
+        assert_eq!(
+            next_event(&mut events).await,
+            "discarded:ListenBrainz:old-listenbrainz",
+            "the startup restore captured before the login must not replace it"
+        );
+
+        scrobbler
+            .lock()
+            .await
+            .scrobble(
+                ScrobblingService::ListenBrainz,
+                sample_track(),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            next_event(&mut events).await,
+            "scrobbled:ListenBrainz:new-listenbrainz",
+            "a later submission must use the newer login, not the restored account"
+        );
+    }
+
+    /// Without an intervening login the same restores commit normally and a later
+    /// submission uses the restored account.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_undisturbed_startup_restore_still_installs_the_saved_accounts() {
+        let (scrobbler, shared, mut events, gate) = restore_scrobbler();
+        let batch = vec![
+            saved(ScrobblingService::LastFm, "old-lastfm"),
+            saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
+        ];
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+
+        assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
+        gate.notify_one();
+
+        assert_eq!(next_event(&mut events).await, "committed:LastFm:old-lastfm");
+        assert_eq!(
+            next_event(&mut events).await,
+            "committed:ListenBrainz:old-listenbrainz"
+        );
+
+        scrobbler
+            .lock()
+            .await
+            .scrobble(
+                ScrobblingService::ListenBrainz,
+                sample_track(),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            next_event(&mut events).await,
+            "scrobbled:ListenBrainz:old-listenbrainz",
+            "an unchanged saved account must restore and receive later submissions"
+        );
+    }
+
+    /// A logout during the same startup window must not be undone by the delayed
+    /// restore either: after the user signs out, the restore has nothing to install.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_delayed_startup_restore_does_not_sign_a_user_back_in_after_logout() {
+        let (scrobbler, shared, mut events, gate) = restore_scrobbler();
+        let batch = vec![
+            saved(ScrobblingService::LastFm, "old-lastfm"),
+            saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
+        ];
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+
+        assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
+
+        let logout_scrobbler = Arc::clone(&scrobbler);
+        let logout = tokio::spawn(async move {
+            logout_scrobbler
+                .lock()
+                .await
+                .logout(ScrobblingService::ListenBrainz)
+                .await;
+        });
+        gate.notify_one();
+        logout.await.unwrap();
+
+        assert_eq!(next_event(&mut events).await, "committed:LastFm:old-lastfm");
+        assert_eq!(next_event(&mut events).await, "logout:ListenBrainz");
+        assert_eq!(
+            next_event(&mut events).await,
+            "discarded:ListenBrainz:old-listenbrainz",
+            "the startup restore must not resurrect an account the user signed out of"
+        );
+
+        scrobbler
+            .lock()
+            .await
+            .scrobble(
+                ScrobblingService::ListenBrainz,
+                sample_track(),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(
+            next_event(&mut events).await,
+            "scrobbled:ListenBrainz:<logged out>",
+            "after logout a later submission must not reach the restored account"
+        );
     }
 }
