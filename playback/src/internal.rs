@@ -1375,7 +1375,16 @@ impl PlayerInternal {
                                     }))?;
                                     self.flush_playlist_update()?;
                                     self.event_sender.send(PlayerEvent::Unavailable(item, reason))?;
-                                    self.complete_load_completions(Err(PlayerCommandError::SourceUnavailable));
+                                    // A chain continuation must not answer a pending request with
+                                    // the failure: the chain was already told once, at its first
+                                    // failure, and a request answer carrying it again is a second
+                                    // user-facing report of the same chain. The request is still
+                                    // answered, as playback did advance to the track it names.
+                                    if chain_continuation {
+                                        self.complete_load_completions(Ok(()));
+                                    } else {
+                                        self.complete_load_completions(Err(PlayerCommandError::SourceUnavailable));
+                                    }
                                     // Advance from the failed load, including when no track has loaded yet.
                                     if let Some(next) = next { self.load_chain(Some(next), play)?; }
                                     else { self.stop()?; self.event_sender.send(PlayerEvent::EndOfPlaylist)?; }

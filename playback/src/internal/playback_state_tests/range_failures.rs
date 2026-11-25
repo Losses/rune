@@ -463,7 +463,8 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
             let second = library_item(library_id, second_uuid);
 
             let mut continuations = HashMap::new();
-            let mut seeked = false;
+            let mut seeked = Vec::new();
+            let mut retry: Option<oneshot::Receiver<result::Result<(), PlayerCommandError>>> = None;
             tokio_time::timeout(TEST_DEADLINE, async {
                 while continuations.len() < 2 {
                     match events.recv().await {
@@ -471,14 +472,23 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
                             if log.item.as_ref() == Some(&first)
                                 || log.item.as_ref() == Some(&second) =>
                         {
+                            if log.item.as_ref() == Some(&first) && retry.is_none() {
+                                // A play pressed as the chain advances rides the load of the
+                                // track the chain moves to: when that load fails, the chain the
+                                // user was already told about must not fail the press again.
+                                retry = Some(completed_command(&commands_sender, PlayerCommand::Play));
+                            }
                             continuations.insert(log.item.clone().unwrap(), log.chain_continuation);
                         }
-                        Some(PlayerEvent::Playing { item, .. }) if item == first => {
-                            // The decoder read linearly past the probe, so the corruption has
-                            // not been asked for yet. A seek near the end lands ahead of the
-                            // throttled download for certain and asks the range that is.
-                            if play_outcome.is_ok() && !seeked {
-                                seeked = true;
+                        Some(PlayerEvent::Playing { item, .. })
+                            if item == first || item == second =>
+                        {
+                            // A decoder can read linearly past the probe, so the corruption
+                            // has not been asked for yet. A seek near the end lands ahead of
+                            // the throttled download for certain and asks the range that is,
+                            // for every track that comes up playing.
+                            if play_outcome.is_ok() && !seeked.contains(&item) {
+                                seeked.push(item);
                                 commands_sender.send(PlayerCommand::Seek(8.0))?;
                             }
                         }
@@ -490,6 +500,15 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
             })
             .await
             .context("the chain's failures were never logged")??;
+            if let Some(retry) = retry {
+                assert_eq!(
+                    tokio_time::timeout(TEST_DEADLINE, retry)
+                        .await?
+                        .context("the retry completion channel closed unanswered")?,
+                    Ok(()),
+                    "a chain continuation must not answer a retrying request with the failure the chain already told"
+                );
+            }
             assert_eq!(
                 continuations.get(&first),
                 Some(&false),
