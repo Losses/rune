@@ -1841,5 +1841,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music 需要 iOS 16.1 或更高版本。",
   "appleMusicAccountUnavailable": "這台 Mac 上的 Apple 帳戶無法使用 Apple Music。請在「音樂」App 中檢查帳戶，然後重試。",
   "appleMusicAccountUnavailableIOS": "這台設備上的 Apple 帳戶無法使用 Apple Music。請在「音樂」App 中檢查帳戶，然後重試。",
-  "appleMusicPrivacyNotice": "請先打開一次「音樂」App 並同意其隱私聲明，然後重試。"
+  "appleMusicPrivacyNotice": "請先打開一次「音樂」App 並同意其隱私聲明，然後重試。",
+  "recentlyPlayed": "最近播放",
+  "forYou": "為您推薦",
+  "mixesLibraryHomeSubtitle": "發現為您推薦的 Mix 和您保存的 Mix"
 }

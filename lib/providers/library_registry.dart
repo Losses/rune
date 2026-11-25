@@ -312,7 +312,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
     return response;
   }
 
-  Future<void> remove(String recordId) async {
+  /// Removes the record. With [deleteDeviceData], as a reset does, what the
+  /// library keeps only on this device goes with it too.
+  Future<void> remove(String recordId, {bool deleteDeviceData = false}) async {
     if (_openRecordId == recordId) {
       if (_closeRecord != null) {
         await _closeRecord();
@@ -336,6 +338,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
         send: (callId) => RemoveLibraryRecordRequest(
           recordId: recordId,
           callId: callId,
+          deleteDeviceData: deleteDeviceData,
         ).sendSignalToRust(),
       );
     } else {

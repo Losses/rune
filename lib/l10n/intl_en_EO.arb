@@ -1832,5 +1832,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music bezonas iOS 16.1 aŭ pli novan.",
   "appleMusicAccountUnavailable": "La Apple-konto de ĉi tiu Mac ne povas uzi Apple Music. Kontrolu la konton en la aplikaĵo Muziko, poste reprovu.",
   "appleMusicAccountUnavailableIOS": "La Apple-konto de ĉi tiu aparato ne povas uzi Apple Music. Kontrolu la konton en la aplikaĵo Muziko, poste reprovu.",
-  "appleMusicPrivacyNotice": "Malfermu la aplikaĵon Muziko unu fojon kaj akceptu ĝian privatecan avizon, poste reprovu."
+  "appleMusicPrivacyNotice": "Malfermu la aplikaĵon Muziko unu fojon kaj akceptu ĝian privatecan avizon, poste reprovu.",
+  "recentlyPlayed": "Lastatempe ludita",
+  "forYou": "Por vi",
+  "mixesLibraryHomeSubtitle": "Trovu miksaĵojn faritajn por vi kaj tiujn, kiujn vi konservas"
 }

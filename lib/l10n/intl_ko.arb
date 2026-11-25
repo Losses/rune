@@ -1832,5 +1832,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music을 사용하려면 iOS 16.1 이상이 필요합니다.",
   "appleMusicAccountUnavailable": "이 Mac의 Apple 계정으로는 Apple Music을 사용할 수 없습니다. 음악 앱에서 계정을 확인한 다음 다시 시도하세요.",
   "appleMusicAccountUnavailableIOS": "이 기기의 Apple 계정으로는 Apple Music을 사용할 수 없습니다. 음악 앱에서 계정을 확인한 다음 다시 시도하세요.",
-  "appleMusicPrivacyNotice": "음악 앱을 한 번 열어 개인정보 보호 고지에 동의한 다음 다시 시도하세요."
+  "appleMusicPrivacyNotice": "음악 앱을 한 번 열어 개인정보 보호 고지에 동의한 다음 다시 시도하세요.",
+  "recentlyPlayed": "최근 재생",
+  "forYou": "회원님을 위한 추천",
+  "mixesLibraryHomeSubtitle": "나를 위한 믹스와 보관한 믹스를 찾아보세요"
 }

@@ -2125,5 +2125,17 @@
   "appleMusicNeedsNewerIOS": "Apple Music needs iOS 16.1 or later.",
   "appleMusicAccountUnavailable": "The Apple Account on this Mac can't use Apple Music. Check the account in the Music app, then try again.",
   "appleMusicAccountUnavailableIOS": "The Apple Account on this device can't use Apple Music. Check the account in the Music app, then try again.",
-  "appleMusicPrivacyNotice": "Open the Music app once and agree to its privacy notice, then try again."
+  "appleMusicPrivacyNotice": "Open the Music app once and agree to its privacy notice, then try again.",
+  "recentlyPlayed": "Recently Played",
+  "@recentlyPlayed": {
+    "description": "The name of the group of what was played lately that a streaming service recommends, whatever title it gives the group."
+  },
+  "forYou": "For You",
+  "@forYou": {
+    "description": "The name of a group of mixes that a streaming service recommends and gives no title."
+  },
+  "mixesLibraryHomeSubtitle": "Find mixes made for you and the ones you keep.",
+  "@mixesLibraryHomeSubtitle": {
+    "description": "Subtitle for the mixes section in the library home."
+  }
 }

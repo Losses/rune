@@ -136,6 +136,34 @@ List<LibraryHomeEntry> libraryHomeItems = [
     defaultSetting: libraryHomeDisabled,
   ),
   LibraryHomeEntry(
+    domain: LibraryHomeDomain.mixes,
+    icon: (context) => Symbols.magic_button,
+    titleBuilder: (context) => S.of(context).mixes,
+    subtitleBuilder: (context) => S.of(context).mixesLibraryHomeSubtitle,
+    optionBuilder: (context) => [
+      (
+        S.of(context).newest,
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.reverse),
+        ),
+      ),
+      (
+        S.of(context).oldest,
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.forward),
+        ),
+      ),
+      (
+        S.of(context).random,
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.random),
+        ),
+      ),
+      (S.of(context).disable, libraryHomeDisabled),
+    ],
+    defaultSetting: libraryHomeDisabled,
+  ),
+  LibraryHomeEntry(
     domain: LibraryHomeDomain.tracks,
     icon: (context) => Symbols.music_note,
     titleBuilder: (context) => S.of(context).tracks,

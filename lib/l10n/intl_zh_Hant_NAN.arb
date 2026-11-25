@@ -1832,5 +1832,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music 需要 iOS 16.1 抑是較新的版本。",
   "appleMusicAccountUnavailable": "這台 Mac 的 Apple 帳號無法度使用 Apple Music。請佇「音樂」App 檢查帳號，了後閣試一擺。",
   "appleMusicAccountUnavailableIOS": "這台裝置的 Apple 帳號無法度使用 Apple Music。請佇「音樂」App 檢查帳號，了後閣試一擺。",
-  "appleMusicPrivacyNotice": "請先拍開一擺「音樂」App 並同意伊的隱私權聲明，了後閣試一擺。"
+  "appleMusicPrivacyNotice": "請先拍開一擺「音樂」App 並同意伊的隱私權聲明，了後閣試一擺。",
+  "recentlyPlayed": "最近播放",
+  "forYou": "為您推薦",
+  "mixesLibraryHomeSubtitle": "揣為您準備的 Mix 清單佮您家己存的"
 }

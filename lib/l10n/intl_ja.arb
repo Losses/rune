@@ -1830,5 +1830,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music には iOS 16.1 以降が必要です。",
   "appleMusicAccountUnavailable": "この Mac の Apple Account では Apple Music を利用できません。ミュージック App でアカウントを確認してから、もう一度お試しください。",
   "appleMusicAccountUnavailableIOS": "このデバイスの Apple Account では Apple Music を利用できません。ミュージック App でアカウントを確認してから、もう一度お試しください。",
-  "appleMusicPrivacyNotice": "ミュージック App を一度開いてプライバシーに関する通知に同意してから、もう一度お試しください。"
+  "appleMusicPrivacyNotice": "ミュージック App を一度開いてプライバシーに関する通知に同意してから、もう一度お試しください。",
+  "recentlyPlayed": "最近再生した項目",
+  "forYou": "あなたへ",
+  "mixesLibraryHomeSubtitle": "あなたのために作られた調和構成と、保存した調和構成を見つけましょう"
 }

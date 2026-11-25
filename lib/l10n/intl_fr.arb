@@ -1832,5 +1832,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music nécessite iOS 16.1 ou ultérieur.",
   "appleMusicAccountUnavailable": "Le compte Apple de ce Mac ne peut pas utiliser Apple Music. Vérifiez le compte dans l’app Musique, puis réessayez.",
   "appleMusicAccountUnavailableIOS": "Le compte Apple de cet appareil ne peut pas utiliser Apple Music. Vérifiez le compte dans l’app Musique, puis réessayez.",
-  "appleMusicPrivacyNotice": "Ouvrez une fois l’app Musique et acceptez son avis de confidentialité, puis réessayez."
+  "appleMusicPrivacyNotice": "Ouvrez une fois l’app Musique et acceptez son avis de confidentialité, puis réessayez.",
+  "recentlyPlayed": "Écoutés récemment",
+  "forYou": "Pour vous",
+  "mixesLibraryHomeSubtitle": "Retrouvez les mixes faits pour vous et ceux que vous gardez"
 }

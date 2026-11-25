@@ -158,7 +158,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       if (result != true) return;
 
                       for (final record in registry.records.toList()) {
-                        await registry.remove(record.recordId);
+                        await registry.remove(
+                          record.recordId,
+                          deleteDeviceData: true,
+                        );
                       }
                       $$replace("/");
                     },

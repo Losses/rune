@@ -1832,5 +1832,8 @@
   "appleMusicNeedsNewerIOS": "Apple Music には iOS 16.1 イコウが ヒツヨウです。",
   "appleMusicAccountUnavailable": "この Mac の Apple Account では Apple Music を ツカえません。ミュージックアプリで アカウントを チェックしてから、リトライしてください。",
   "appleMusicAccountUnavailableIOS": "このデバイスの Apple Account では Apple Music を ツカえません。ミュージックアプリで アカウントを チェックしてから、リトライしてください。",
-  "appleMusicPrivacyNotice": "ミュージックアプリを イチドオープンして プライバシーノーティスに ドウイしてから、リトライしてください。"
+  "appleMusicPrivacyNotice": "ミュージックアプリを イチドオープンして プライバシーノーティスに ドウイしてから、リトライしてください。",
+  "recentlyPlayed": "リセントリープレイド",
+  "forYou": "フォーユー",
+  "mixesLibraryHomeSubtitle": "メイドフォーユーノミクストキープシタミクスヲファインド"
 }

@@ -1830,5 +1830,8 @@
   "appleMusicNeedsNewerIOS": "Для Apple Music потрібна iOS 16.1 або новіша.",
   "appleMusicAccountUnavailable": "Apple Account на цьому Mac не може користуватися Apple Music. Перевірте обліковий запис у програмі «Музика» і спробуйте ще раз.",
   "appleMusicAccountUnavailableIOS": "Apple Account на цьому пристрої не може користуватися Apple Music. Перевірте обліковий запис у програмі «Музика» і спробуйте ще раз.",
-  "appleMusicPrivacyNotice": "Відкрийте програму «Музика» один раз і прийміть сповіщення про приватність, а потім спробуйте ще раз."
+  "appleMusicPrivacyNotice": "Відкрийте програму «Музика» один раз і прийміть сповіщення про приватність, а потім спробуйте ще раз.",
+  "recentlyPlayed": "Нещодавно відтворені",
+  "forYou": "Для вас",
+  "mixesLibraryHomeSubtitle": "Знаходьте мікси, створені для вас, і ті, що ви зберегли"
 }

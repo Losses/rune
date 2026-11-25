@@ -13,6 +13,7 @@ Future<List<Group<InternalCollection>>> fetchCollectionPageSummary(
     return Group<InternalCollection>(
       groupTitle: summary.groupTitle,
       items: [], // Initially empty, will be filled in fetchPage
+      reserved: summary.reserved,
     );
   }).toList();
 }

@@ -74,6 +74,28 @@ void main() {
       ),
       (LibraryHomeDomain.playlists, 'disable', libraryHomeDisabled),
       (
+        LibraryHomeDomain.mixes,
+        'newest',
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.reverse),
+        ),
+      ),
+      (
+        LibraryHomeDomain.mixes,
+        'oldest',
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.forward),
+        ),
+      ),
+      (
+        LibraryHomeDomain.mixes,
+        'random',
+        const LibraryHomeSettingQuery(
+          LibraryHomeQueryMixes(value: LibraryHomeListMode.random),
+        ),
+      ),
+      (LibraryHomeDomain.mixes, 'disable', libraryHomeDisabled),
+      (
         LibraryHomeDomain.tracks,
         'newest',
         const LibraryHomeSettingQuery(
@@ -120,9 +142,19 @@ void main() {
       LibraryHomeDomain.artists,
       LibraryHomeDomain.albums,
       LibraryHomeDomain.playlists,
+      LibraryHomeDomain.mixes,
       LibraryHomeDomain.tracks,
       LibraryHomeDomain.liked,
       LibraryHomeDomain.most,
     ]);
+  });
+
+  test('a mixes entry missing from stored settings starts disabled', () {
+    final entry = libraryHomeItems.firstWhere(
+      (entry) => entry.domain == LibraryHomeDomain.mixes,
+    );
+    final value = LibraryHomeEntryWithValue.fromEntry(entry);
+    expect(value.setting, libraryHomeDisabled);
+    expect(value.serialize(), 'mixes::disable');
   });
 }

@@ -28,7 +28,14 @@ Future<(List<Group<InternalCollection>>, bool)> fetchCollectionPagePage(
   final groupTitles =
       currentPageSummaries.map((summary) => summary.groupTitle).toList();
 
-  final groups = await fetchCollectionPageGroups(collectionType, groupTitles);
+  final groups = await fetchCollectionPageGroups(
+    collectionType,
+    groupTitles,
+    reservedTitles: {
+      for (final summary in currentPageSummaries)
+        if (summary.reserved) summary.groupTitle,
+    },
+  );
 
   final isLastPage = endIndex >= summaries.length;
 

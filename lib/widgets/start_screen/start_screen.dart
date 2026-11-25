@@ -21,6 +21,7 @@ import '../../widgets/no_items.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
+import '../../screens/collection/utils/group_title.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../bindings/bindings.dart';
 
@@ -95,7 +96,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     return StartGroup<InternalCollection>(
       key: ValueKey(item.groupTitle),
       groupIndex: index,
-      groupTitle: item.groupTitle,
+      groupTitle: collectionGroupTitle(context, item),
       items: item.items,
       constraints: constraints,
       onTitleTap: () {
