@@ -469,8 +469,13 @@ pub(crate) async fn search_for_request(
         return Ok(Some(response));
     }
     let generation = binding.generation();
+    let artists = wants(CollectionQueryType::Artist);
+    // The artist list is read only for a search that asks for artists.
     let (found, named) = join(search_both(binding, term, request.refresh), async {
-        tokio_time::timeout(SEARCH_WAIT, binding.named_artists()).await
+        if artists == 0 {
+            return None;
+        }
+        Some(tokio_time::timeout(SEARCH_WAIT, binding.named_artists()).await)
     })
     .await;
     let (library, catalog) =
@@ -497,16 +502,16 @@ pub(crate) async fn search_for_request(
         &copies,
         wants(CollectionQueryType::Album),
     )?;
-    let artists = wants(CollectionQueryType::Artist);
     response.artists = match named {
-        Ok(Ok(named)) => found_artists(binding, &named, &library, &catalog, artists)?,
-        Ok(Err(error)) => {
+        None => Vec::new(),
+        Some(Ok(Ok(named))) => found_artists(binding, &named, &library, &catalog, artists)?,
+        Some(Ok(Err(error))) => {
             log::warn!(
                 "A search lists no Apple Music artists, as the artist list failed: {error:#}"
             );
             Vec::new()
         }
-        Err(_) => {
+        Some(Err(_)) => {
             log::warn!("A search lists no Apple Music artists, as the artist list took too long");
             Vec::new()
         }

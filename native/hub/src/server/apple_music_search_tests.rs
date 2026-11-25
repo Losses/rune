@@ -284,6 +284,27 @@ async fn search_finds_rune_playlists_by_name_in_the_order_they_were_made() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_for_tracks_alone_reads_no_artist_list() -> Result<()> {
+    const ARTISTS: &str = "/v1/me/library/artists";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let artists = apple.fake.count(ARTISTS);
+    let tracks = apple
+        .run(&search_request(30, vec![SearchField::Track], false))
+        .await?;
+    assert!(!tracks.tracks.is_empty());
+    assert!(tracks.artists.is_empty());
+    assert_eq!(apple.fake.count(ARTISTS), artists);
+    // A search for artists reads it.
+    let found = apple
+        .run(&search_request(30, vec![SearchField::Artist], false))
+        .await?;
+    assert!(!found.artists.is_empty());
+    assert_eq!(apple.fake.count(ARTISTS), artists + 1);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_search_for_playlists_alone_finds_runes_signed_out_without_asking_apple() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
