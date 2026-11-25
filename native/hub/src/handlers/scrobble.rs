@@ -373,7 +373,7 @@ impl Signal for AuthenticateMultipleServiceRequest {
                 Err(_) => log::warn!("Could not read saved scrobble credentials"),
             }
         }
-        ScrobblingManager::authenticate_all(scrobbler, authentications);
+        ScrobblingManager::authenticate_all(scrobbler, authentications).await;
         Ok(None)
     }
 }

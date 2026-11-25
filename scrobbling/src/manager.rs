@@ -158,25 +158,28 @@ pub trait ScrobblingServiceManager: Send + Sync {
     ///
     /// `epoch` is the generation [`Self::login_epoch`] reported when the
     /// restore was started. A login or logout committed since then supersedes
-    /// the restore, so its result is discarded instead of replacing the newer
-    /// account or signing a logged-out user back in.
-    #[allow(clippy::too_many_arguments)]
+    /// the restore, so it is skipped or its result discarded instead of
+    /// replacing the newer account or signing a logged-out user back in.
     async fn authenticate_restore(
         &mut self,
-        service: &ScrobblingService,
-        username: &str,
-        password: &str,
-        api_key: Option<String>,
-        api_secret: Option<String>,
+        credential: &ScrobblingCredential,
         enable_retry: bool,
         epoch: u64,
     ) -> Result<()> {
+        let service = &credential.service;
+        // A restore that is already superseded does not authenticate at all:
+        // staging it would overwrite the newer login's error state and publish
+        // its failure as a login error.
+        if self.login_epoch(service) != epoch {
+            info!("Skipping a superseded {service} restore: the login changed before it started");
+            return Ok(());
+        }
         self.authenticate_staged(
             service,
-            username,
-            password,
-            api_key,
-            api_secret,
+            &credential.username,
+            &credential.password,
+            credential.api_key.clone(),
+            credential.api_secret.clone(),
             enable_retry,
         )
         .await?;
@@ -440,28 +443,29 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(
+    pub async fn authenticate_all(
         manager: Arc<Mutex<dyn ScrobblingServiceManager>>,
         credentials_list: Vec<ScrobblingCredential>,
     ) {
-        tokio::spawn(async move {
-            // The restore entries remember the login generations as startup found
-            // them. A login or logout committed while a restore authenticates
-            // advances its generation, and the restore is discarded instead of
-            // replacing the newer account or signing a logged-out user back in.
-            let epochs = {
-                let manager = manager.lock().await;
-                credentials_list
-                    .iter()
-                    .map(|credentials| {
-                        (
-                            credentials.service,
-                            manager.login_epoch(&credentials.service),
-                        )
-                    })
-                    .collect::<std::collections::HashMap<_, _>>()
-            };
+        // The restore entries remember the login generations as they are when
+        // the restore batch is handled, before its worker is even spawned. A
+        // login or logout committed afterwards advances its generation, and
+        // the restore is skipped or discarded instead of replacing the newer
+        // account or signing a logged-out user back in.
+        let epochs = {
+            let manager = manager.lock().await;
+            credentials_list
+                .iter()
+                .map(|credentials| {
+                    (
+                        credentials.service,
+                        manager.login_epoch(&credentials.service),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>()
+        };
 
+        tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
                 let epoch = epochs
@@ -469,15 +473,7 @@ impl ScrobblingManager {
                     .copied()
                     .unwrap_or_default();
                 let result = manager
-                    .authenticate_restore(
-                        &credentials.service,
-                        &credentials.username,
-                        &credentials.password,
-                        credentials.api_key.clone(),
-                        credentials.api_secret.clone(),
-                        true,
-                        epoch,
-                    )
+                    .authenticate_restore(&credentials, true, epoch)
                     .await;
 
                 if let Err(e) = result {
@@ -1632,6 +1628,42 @@ mod tests {
             }
         }
 
+        /// The trait's restore flow, mirrored so a skip is observable: a
+        /// restore superseded before it started leaves no trace in the login
+        /// state, it only reports that it never ran.
+        async fn authenticate_restore(
+            &mut self,
+            credential: &ScrobblingCredential,
+            enable_retry: bool,
+            epoch: u64,
+        ) -> anyhow::Result<()> {
+            let service = &credential.service;
+            if self.login_epoch(service) != epoch {
+                self.events
+                    .send(format!(
+                        "skipped:{service}:{username}",
+                        username = credential.username
+                    ))
+                    .unwrap();
+                return Ok(());
+            }
+            self.authenticate_staged(
+                service,
+                &credential.username,
+                &credential.password,
+                credential.api_key.clone(),
+                credential.api_secret.clone(),
+                enable_retry,
+            )
+            .await?;
+            if self.login_epoch(service) == epoch {
+                self.commit_staged_authentication().await;
+            } else {
+                self.discard_staged_authentication();
+            }
+            Ok(())
+        }
+
         async fn update_now_playing(
             &mut self,
             service: &ScrobblingService,
@@ -1763,7 +1795,7 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
 
@@ -1789,7 +1821,7 @@ mod tests {
         );
         assert_eq!(
             next_event(&mut events).await,
-            "discarded:ListenBrainz:old-listenbrainz",
+            "skipped:ListenBrainz:old-listenbrainz",
             "the startup restore captured before the login must not replace it"
         );
 
@@ -1818,7 +1850,7 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
         gate.notify_one();
@@ -1854,7 +1886,7 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch);
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
 
@@ -1873,7 +1905,7 @@ mod tests {
         assert_eq!(next_event(&mut events).await, "logout:ListenBrainz");
         assert_eq!(
             next_event(&mut events).await,
-            "discarded:ListenBrainz:old-listenbrainz",
+            "skipped:ListenBrainz:old-listenbrainz",
             "the startup restore must not resurrect an account the user signed out of"
         );
 
