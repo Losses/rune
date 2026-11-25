@@ -369,8 +369,6 @@ mod tests {
         Ok((owned, replica))
     }
 
-
-
     #[tokio::test]
     async fn list_and_set_local_library_options() -> Result<()> {
         let dir = tempfile::tempdir()?;
