@@ -2904,7 +2904,7 @@ impl PlayerInternal {
     // Next and Previous use a strategy cursor, while a queue edit and a track
     // that is loading refer to the occurrence's physical playlist position.
     fn cursor_for_position(&self, position: usize, mapped: bool) -> (usize, bool) {
-        if !mapped || self.playback_mode != PlaybackMode::Shuffle {
+        if self.playback_mode != PlaybackMode::Shuffle {
             return (position, mapped);
         }
         if let Some(cursor) =
@@ -2912,7 +2912,7 @@ impl PlayerInternal {
         {
             (cursor, true)
         } else {
-            (position, false)
+            (position, mapped)
         }
     }
 
@@ -8528,6 +8528,210 @@ mod playback_state_tests {
     async fn load_at_a_position_during_a_load_comes_up_paused_there() -> Result<()> {
         check_load_at_position_during_a_load(false).await
     }
+
+    // A shuffled order with the first rank pinned at the queue's first track, as the
+    // production shuffle draws it, and the rest reversed, so that an index taken as a queue
+    // position names another track.
+    const PINNED_ORDER: TestShuffleOrder =
+        TestShuffleOrder(|index, len| if index == 0 { 0 } else { len - index });
+
+    // Switching the playback mode reinterprets the cursor the mode is replaced with. Next must
+    // continue the track the mode change left playing, in a shuffled order as much as in the
+    // queue's own.
+    #[tokio::test]
+    async fn switching_to_repeat_one_keeps_the_playing_track() -> Result<()> {
+        for mode in [PlaybackMode::Sequential, PlaybackMode::Shuffle] {
+            let library = Uuid::new_v4();
+            let ids = [(); 4].map(|_| Uuid::new_v4());
+            let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
+            player.add_to_playlist(library_tracks(library, &ids), AddMode::AppendToEnd);
+            player.playback_mode = mode;
+            if mode == PlaybackMode::Shuffle {
+                player.playback_strategy = Box::new(PINNED_ORDER);
+            }
+            player.load(Some(0), true, false)?;
+            let started = run_until_track_state(&mut player, &mut events).await?;
+            assert!(
+                matches!(started, PlayerEvent::Playing { index: 0, ref item, .. }
+                if *item == library_item(library, ids[0])),
+                "{mode:?} {started:?}"
+            );
+
+            player.next()?;
+            let successor = run_until_track_state(&mut player, &mut events).await?;
+            let PlayerEvent::Playing { index, item, .. } = successor else {
+                bail!("unexpected successor event for {mode:?}: {successor:?}");
+            };
+            // A nonidentity shuffle order moves the cursor away from the position it plays:
+            // position 0 is the order's first rank, so Next plays its second rank, the last
+            // track, while a cursor read as a queue position would name the second.
+            let expected = if mode == PlaybackMode::Shuffle {
+                ids[3]
+            } else {
+                ids[1]
+            };
+            assert_eq!(item, library_item(library, expected), "{mode:?} {index}");
+            if mode == PlaybackMode::Shuffle {
+                assert_ne!(item, library_item(library, ids[1]), "{mode:?} precondition");
+                assert_eq!(index, 3, "{mode:?}");
+            }
+
+            player.set_playback_mode(PlaybackMode::RepeatOne)?;
+            player.next()?;
+            let repeated = run_until_track_state(&mut player, &mut events).await?;
+            let _ = fs::remove_file(wav_path);
+            assert!(
+                matches!(&repeated, PlayerEvent::Playing { item: repeated_item, index: repeated_index, .. }
+                    if *repeated_item == item && *repeated_index == index),
+                "{mode:?} expected {item:?} at {index}: {repeated:?}"
+            );
+        }
+        Ok(())
+    }
+
+    // A track can stand in the queue more than once. Repeat one must repeat the occurrence that
+    // is playing, not another queue position that holds the same track.
+    #[tokio::test]
+    async fn switching_to_repeat_one_keeps_the_playing_occurrence() -> Result<()> {
+        let library = Uuid::new_v4();
+        let [a, b, c] = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let (mut player, _, mut events, wav_path) = long_track_engine(&[a, b, a, c]);
+        player.add_to_playlist(library_tracks(library, &[a, b, a, c]), AddMode::AppendToEnd);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(SHIFTED_ORDER);
+        player.load(Some(2), true, false)?;
+        let started = run_until_track_state(&mut player, &mut events).await?;
+        assert!(
+            matches!(started, PlayerEvent::Playing { index: 2, ref item, .. }
+            if *item == library_item(library, a)),
+            "{started:?}"
+        );
+
+        player.set_playback_mode(PlaybackMode::RepeatOne)?;
+        player.next()?;
+        let repeated = run_until_track_state(&mut player, &mut events).await?;
+        let _ = fs::remove_file(wav_path);
+        assert!(
+            matches!(&repeated, PlayerEvent::Playing { index: 2, item, .. }
+                if *item == library_item(library, a)),
+            "{repeated:?}"
+        );
+        Ok(())
+    }
+
+    // A track picked by its queue position keeps a position cursor. In a shuffled order Next
+    // must go on from where the track stands, not from the rank the position would name.
+    #[tokio::test]
+    async fn next_after_a_direct_selection_follows_the_shuffled_order() -> Result<()> {
+        let library = Uuid::new_v4();
+        let ids = [(); 4].map(|_| Uuid::new_v4());
+        let (mut player, _, mut events, wav_path) = long_track_engine(&ids);
+        player.add_to_playlist(library_tracks(library, &ids), AddMode::AppendToEnd);
+        player.playback_mode = PlaybackMode::Shuffle;
+        player.playback_strategy = Box::new(PINNED_ORDER);
+        player.load(Some(3), true, false)?;
+        let started = run_until_track_state(&mut player, &mut events).await?;
+        assert!(
+            matches!(started, PlayerEvent::Playing { index: 3, ref item, .. }
+            if *item == library_item(library, ids[3])),
+            "{started:?}"
+        );
+
+        // Position 3 is the order's rank 1, so Next plays rank 2: the track at position 2.
+        player.next()?;
+        let successor = run_until_track_state(&mut player, &mut events).await?;
+        let _ = fs::remove_file(wav_path);
+        assert!(
+            matches!(successor, PlayerEvent::Playing { index: 2, ref item, .. }
+            if *item == library_item(library, ids[2])),
+            "{successor:?}"
+        );
+        Ok(())
+    }
+
+    // A track that ends on its own follows the same cursor as Next: repeat one started during a
+    // shuffled playback replays it, and progress keeps reporting its queue position.
+    #[tokio::test]
+    async fn natural_end_after_switching_to_repeat_one_replays_the_track() -> Result<()> {
+        let ids = [(); 4].map(|_| Uuid::new_v4());
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&ids);
+        internal.playback_mode = PlaybackMode::Shuffle;
+        internal.playback_strategy = Box::new(PINNED_ORDER);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library = Uuid::new_v4();
+                    commands_sender.send(add_library_tracks(library, &ids))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &library_item(library, ids[0])).await?;
+
+                    commands_sender.send(PlayerCommand::Next)?;
+                    expect_playing(&mut events, &library_item(library, ids[3])).await?;
+                    commands_sender
+                        .send(PlayerCommand::SetPlaybackMode(PlaybackMode::RepeatOne))?;
+                    commands_sender.send(PlayerCommand::Seek(4.9))?;
+
+                    // Progress and the end of the track report a queue position. Before the
+                    // track repeats they must all name position 3, where the track stands.
+                    let mut wrong_positions = Vec::new();
+                    // A successful seek also emits a Playing event for the current track, so a
+                    // Playing event only counts as the repeat after the track actually ended.
+                    let mut ended = false;
+                    let repeated = tokio_time::timeout(TEST_DEADLINE, async {
+                        loop {
+                            match events.recv().await {
+                                Some(PlayerEvent::Progress {
+                                    index: Some(index),
+                                    item,
+                                    ..
+                                }) => {
+                                    if item.as_ref() == Some(&library_item(library, ids[3]))
+                                        && index != 3
+                                    {
+                                        wrong_positions.push(index);
+                                    }
+                                }
+                                Some(PlayerEvent::EndOfTrack { index, item, .. }) => {
+                                    if item == library_item(library, ids[3]) {
+                                        if index != 3 {
+                                            wrong_positions.push(index);
+                                        }
+                                        ended = true;
+                                    }
+                                }
+                                Some(event @ PlayerEvent::Playing { .. }) if ended => break event,
+                                Some(_) => {}
+                                None => panic!("player events closed"),
+                            }
+                        }
+                    })
+                    .await?;
+                    runner.abort();
+                    let _ = fs::remove_file(&wav_path);
+                    assert!(
+                        matches!(&repeated, PlayerEvent::Playing { index: 3, item, .. }
+                            if *item == library_item(library, ids[3])),
+                        "{repeated:?}"
+                    );
+                    assert!(
+                        wrong_positions.is_empty(),
+                        "wrong positions: {wrong_positions:?}"
+                    );
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    // Hosted tracks, which a platform host plays. The fake host records the batches it is sent
+    // and applies them to a model of a host's queue, which checks them against the host
+    // contract: every index the player sends names an entry, an `add` carries one id, and only
+    // the entry after the current one is ever removed. The tests report the host's events,
+    // written out or taken from the model.
 
     // A handoff that is rolled back restores what it interrupted: the same occurrence of a
     // repeated track, the playback mode it replaced and the playing state. A target that was
