@@ -90,7 +90,8 @@ type Changed = Arc<dyn Fn() + Send + Sync>;
 
 /// A list that can be forgotten, whatever it holds.
 trait Forget: Send + Sync {
-    fn forget(&self);
+    /// Forgets the list, which belongs to the store's `generation` from now on.
+    fn forget(&self, generation: StoreGeneration);
 }
 
 /// The lists one service library keeps, and the folder that keeps them on disk.
@@ -134,7 +135,7 @@ impl ServiceLists {
             changed: Arc::clone(&self.changed),
             restored: OnceCell::new(),
             state: Mutex::new(State {
-                epoch: 0,
+                generation: self.store.generation(),
                 kept: None,
                 reading: None,
                 failed: None,
@@ -152,9 +153,9 @@ impl ServiceLists {
     pub(crate) fn clear(&self, account: Option<&str>) {
         let lists: Vec<_> = lock(&self.lists).iter().filter_map(Weak::upgrade).collect();
         // The disk first, so a list read from disk after this is never one of the old account.
-        self.store.clear_then(account, || {
+        self.store.clear_then(account, |generation| {
             for list in &lists {
-                list.forget();
+                list.forget(generation);
             }
         });
         (self.changed)();
@@ -181,9 +182,10 @@ struct Inner<T, E> {
 }
 
 struct State<T, E> {
-    /// Counts the times the list was forgotten, so what a read that began before brings is not
-    /// kept.
-    epoch: u64,
+    /// The generation of the store the list belongs to. A clear of the store moves it on, so
+    /// what a read that began before brings is neither kept nor saved, and a read takes it with
+    /// the list it reads.
+    generation: StoreGeneration,
     kept: Option<Kept<T>>,
     reading: Option<Reading<T, E>>,
     /// When the last read in the background that failed ended.
@@ -208,13 +210,12 @@ where
     /// failure; a later caller reads again.
     pub(crate) async fn get(&self, now: Instant) -> Result<Arc<T>, E> {
         self.restore().await;
-        let generation = self.0.store.generation();
         let reading = {
             let mut state = lock(&self.0.state);
-            if let Some(list) = self.kept_locked(&mut state, now, generation) {
+            if let Some(list) = self.kept_locked(&mut state, now) {
                 return Ok(list);
             }
-            self.reading_locked(&mut state, now, generation)
+            self.reading_locked(&mut state, now)
         };
         reading.await
     }
@@ -223,28 +224,21 @@ where
     /// read when none is kept.
     pub(crate) async fn kept(&self, now: Instant) -> Option<Arc<T>> {
         self.restore().await;
-        let generation = self.0.store.generation();
         let mut state = lock(&self.0.state);
-        self.kept_locked(&mut state, now, generation)
+        self.kept_locked(&mut state, now)
     }
 
     /// The list as the service has it at `now`, never one kept from before: the read in flight
     /// is joined, else one starts. What it reads is kept.
     pub(crate) async fn current(&self, now: Instant) -> Result<Arc<T>, E> {
         self.restore().await;
-        let generation = self.0.store.generation();
-        let reading = self.reading_locked(&mut lock(&self.0.state), now, generation);
+        let reading = self.reading_locked(&mut lock(&self.0.state), now);
         reading.await
     }
 
     /// The kept list, however old. One past its age limit is read again in the background,
     /// unless a read runs or one failed a short while ago.
-    fn kept_locked(
-        &self,
-        state: &mut State<T, E>,
-        now: Instant,
-        generation: StoreGeneration,
-    ) -> Option<Arc<T>> {
+    fn kept_locked(&self, state: &mut State<T, E>, now: Instant) -> Option<Arc<T>> {
         let kept = state.kept.as_ref()?;
         let list = Arc::clone(&kept.value);
         let current = kept
@@ -254,35 +248,24 @@ where
             .failed
             .is_some_and(|failed| now.saturating_duration_since(failed) < RETRY_AFTER);
         if !current && !retrying && state.reading.is_none() {
-            state.reading = Some(self.start(state.epoch, now, generation, true));
+            state.reading = Some(self.start(state.generation, now, true));
         }
         Some(list)
     }
 
     /// The read in flight, or a new one.
-    fn reading_locked(
-        &self,
-        state: &mut State<T, E>,
-        now: Instant,
-        generation: StoreGeneration,
-    ) -> Reading<T, E> {
-        let epoch = state.epoch;
+    fn reading_locked(&self, state: &mut State<T, E>, now: Instant) -> Reading<T, E> {
+        let generation = state.generation;
         state
             .reading
-            .get_or_insert_with(|| self.start(epoch, now, generation, false))
+            .get_or_insert_with(|| self.start(generation, now, false))
             .clone()
     }
 
-    /// Starts a read at `now`, which keeps what it brings unless the list was forgotten since
-    /// `epoch`, and saves it under `generation`. `background` says that nobody waits for it, so
-    /// its failure holds the next read in the background back.
-    fn start(
-        &self,
-        epoch: u64,
-        now: Instant,
-        generation: StoreGeneration,
-        background: bool,
-    ) -> Reading<T, E> {
+    /// Starts a read at `now` for the store's `generation`, which keeps and saves what it brings
+    /// unless the list was forgotten since. `background` says that nobody waits for it, so its
+    /// failure holds the next read in the background back.
+    fn start(&self, generation: StoreGeneration, now: Instant, background: bool) -> Reading<T, E> {
         let list = Arc::downgrade(&self.0);
         let read = (self.0.read)();
         let began = Instant::now();
@@ -291,7 +274,7 @@ where
             if let Some(list) = list.upgrade() {
                 // When it ended, on the clock `now` is read from.
                 let ended = now + began.elapsed();
-                list.finish(epoch, generation, now, ended, background, &read);
+                list.finish(generation, now, ended, background, &read);
             }
             read
         }
@@ -309,7 +292,7 @@ where
         self.0
             .restored
             .get_or_init(|| async {
-                let epoch = lock(&self.0.state).epoch;
+                let generation = lock(&self.0.state).generation;
                 let store = self.0.store.clone();
                 let name = self.0.spec.name;
                 let Ok(Some(list)) = task::spawn_blocking(move || store.load::<T>(name)).await
@@ -317,7 +300,7 @@ where
                     return;
                 };
                 let mut state = lock(&self.0.state);
-                if state.epoch == epoch && state.kept.is_none() {
+                if state.generation == generation && state.kept.is_none() {
                     state.kept = Some(Kept {
                         value: Arc::new(list),
                         read_at: None,
@@ -333,11 +316,10 @@ where
     T: Serialize + PartialEq + Send + Sync + 'static,
     E: fmt::Display,
 {
-    /// Keeps what a read that began at `now` and ended at `ended` under `epoch` brought, unless
-    /// the list was forgotten since, and saves it under `generation`.
+    /// Keeps and saves what a read for the store's `generation` that began at `now` and ended at
+    /// `ended` brought, unless the list was forgotten since.
     fn finish(
         &self,
-        epoch: u64,
         generation: StoreGeneration,
         now: Instant,
         ended: Instant,
@@ -346,7 +328,7 @@ where
     ) {
         let changed = {
             let mut state = lock(&self.state);
-            if state.epoch != epoch {
+            if state.generation != generation {
                 return;
             }
             state.reading = None;
@@ -388,9 +370,9 @@ where
     T: Send + Sync,
     E: Send + Sync,
 {
-    fn forget(&self) {
+    fn forget(&self, generation: StoreGeneration) {
         let mut state = lock(&self.state);
-        state.epoch += 1;
+        state.generation = generation;
         state.kept = None;
         state.reading = None;
         state.failed = None;

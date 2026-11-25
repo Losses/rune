@@ -186,11 +186,11 @@ impl ListStore {
     }
 
     /// Deletes every saved value, drops the saves not written yet, keeps values for `account`
-    /// from now on, and runs `then` before the new generation can be taken or a save be accepted,
-    /// so what a read of the new generation finds is what `then` made, never what came before
-    /// it. It waits for a write being made, so nothing is left of it either. A file it cannot
-    /// delete stays another account's, which the store does not give.
-    pub(crate) fn clear_then(&self, account: Option<&str>, then: impl FnOnce()) {
+    /// from now on, and runs `then` with the new generation before it can be taken otherwise or a
+    /// save be accepted, so what a read of the new generation finds is what `then` made, never
+    /// what came before it. It waits for a write being made, so nothing is left of it either. A
+    /// file it cannot delete stays another account's, which the store does not give.
+    pub(crate) fn clear_then(&self, account: Option<&str>, then: impl FnOnce(StoreGeneration)) {
         // The folder first, so a save under the new generation is written after the deletion.
         let _io = lock(&self.0.io);
         let mut state = lock(&self.0.state);
@@ -202,7 +202,7 @@ impl ListStore {
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => log::warn!("Could not delete the kept lists: {error}"),
         }
-        then();
+        then(StoreGeneration(state.generation));
     }
 }
 
@@ -357,7 +357,7 @@ mod tests {
 
         // A save taken before a clear is not written after it.
         store.save(generation, "names", names("c"));
-        store.clear_then(None, || {});
+        store.clear_then(None, |_| {});
         assert!(!dir.exists());
         store.save(generation, "names", names("d"));
         after_a_write();
@@ -373,7 +373,7 @@ mod tests {
         let ran = AtomicBool::new(false);
         thread::scope(|scope| {
             let reader = RefCell::new(None);
-            store.clear_then(None, || {
+            store.clear_then(None, |_| {
                 reader.replace(Some(scope.spawn(|| {
                     let generation = store.generation();
                     (generation, ran.load(Ordering::SeqCst))
@@ -439,7 +439,7 @@ mod tests {
         assert_eq!(store.load::<Vec<String>>("old"), None);
         assert_eq!(store.load::<Vec<String>>("broken"), None);
         assert_eq!(store.load::<Vec<String>>("missing"), None);
-        store.clear_then(None, || {});
+        store.clear_then(None, |_| {});
         assert!(!dir.exists());
     }
 }
