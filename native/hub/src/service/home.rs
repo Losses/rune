@@ -248,10 +248,20 @@ async fn group_entries(
     }
 }
 
+/// Whether a home group asks the service. Genres, mixes and the most played are left empty
+/// without asking it.
+fn asks_the_service(query: LibraryHomeQuery) -> bool {
+    !matches!(
+        query,
+        LibraryHomeQuery::Genres(_) | LibraryHomeQuery::Mixes(_) | LibraryHomeQuery::Most
+    )
+}
+
 /// Answers every group asked for, in order. A group the service cannot answer is empty and
 /// logged. A failure that denies the account fails the whole request, and so does a failure
-/// that leaves the whole home without an entry: the groups that never ask the service, such as
-/// mixes, would otherwise hide an unreachable server.
+/// when no group that asks the service got an answer: the groups that never ask it, such as
+/// mixes, would otherwise hide an unreachable server. An answer with nothing in it still counts,
+/// so an empty library has an empty home.
 pub(crate) async fn complex_query(
     source: &dyn HomeSource,
     request: &ComplexQueryRequest,
@@ -265,20 +275,23 @@ pub(crate) async fn complex_query(
                 (Vec::new(), Some(error))
             }
         };
+        let answered = failure.is_none() && asks_the_service(query.query);
         Ok((
             ComplexQueryGroup {
                 domain: query.query.domain(),
                 title: query.title.clone(),
                 entries,
             },
-            failure,
+            (failure, answered),
         ))
     });
-    let (groups, failures): (Vec<_>, Vec<_>) = try_join_all(groups).await?.into_iter().unzip();
-    let failures: Vec<Error> = failures.into_iter().flatten().collect();
-    if groups.iter().all(|group| group.entries.is_empty())
-        && let Some(error) = failures.into_iter().next()
-    {
+    let (groups, outcomes): (Vec<_>, Vec<_>) = try_join_all(groups).await?.into_iter().unzip();
+    let answered = outcomes.iter().any(|(_, answered)| *answered);
+    let failures: Vec<Error> = outcomes
+        .into_iter()
+        .filter_map(|(failure, _)| failure)
+        .collect();
+    if !answered && let Some(error) = failures.into_iter().next() {
         return Err(error);
     }
     Ok(ComplexQueryResponse {
@@ -338,10 +351,12 @@ mod tests {
         assert_eq!(found, ["a", "b", "c"]);
     }
 
-    /// What a source's artists do: answer, or fail as the variant says. Its albums always fail.
+    /// What a source's artists do: answer, answer with none, or fail as the variant says. Its
+    /// albums always fail.
     #[derive(Clone, Copy)]
     enum Artists {
         Answer,
+        Nothing,
         SignedOut,
         Unreachable,
     }
@@ -367,6 +382,7 @@ mod tests {
                         name: "Artist".into(),
                         cover: None,
                     }]),
+                    (_, Artists::Nothing) => Ok(Vec::new()),
                 }
             })
         }
@@ -468,6 +484,19 @@ mod tests {
         .err()
         .unwrap();
         assert!(format!("{error:#}").contains("unreachable"));
+    }
+
+    #[tokio::test]
+    async fn a_service_that_answers_a_group_with_nothing_has_an_empty_home() {
+        let response = complex_query(
+            &Failing {
+                artists: Artists::Nothing,
+            },
+            &asks(),
+        )
+        .await
+        .unwrap();
+        assert!(response.result.iter().all(|group| group.entries.is_empty()));
     }
 
     #[test]
