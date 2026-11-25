@@ -158,6 +158,8 @@ mod ios {
         // Counts the metadata, so that artwork that loads after newer metadata came is dropped.
         generation: u64,
         playback: ShownPlayback,
+        // A platform host holds Now Playing for the track it plays, so nothing is written.
+        yielded: bool,
     }
 
     /// The contents of the center's dictionary at one moment, for a write on the main thread.
@@ -252,11 +254,17 @@ mod ios {
         });
     }
 
+    /// What the remote commands are sent to.
+    type Handler = Arc<Mutex<dyn Fn(MediaControlEvent) + Send>>;
+
     /// A handle to the lock screen's Now Playing info and remote commands, with the API of
     /// souvlaki's `MediaControls`.
     pub struct MediaControls {
         state: Arc<Mutex<State>>,
         main: Arc<OnMain>,
+        // The handler that `attach` was given, for the targets to come back with once a host
+        // that held Now Playing lets go.
+        handler: Option<Handler>,
     }
 
     impl MediaControls {
@@ -269,10 +277,12 @@ mod ios {
                 image: None,
                 generation: 0,
                 playback: ShownPlayback::new(Instant::now()),
+                yielded: false,
             };
             Ok(Self {
                 state: Arc::new(Mutex::new(state)),
                 main: Arc::new(MainThreadOnly::new(RefCell::new(MainState::default()))),
+                handler: None,
             })
         }
 
@@ -283,14 +293,62 @@ mod ios {
             F: Fn(MediaControlEvent) + Send + 'static,
         {
             self.detach()?;
-            let handler = Arc::new(Mutex::new(event_handler));
+            let handler: Handler = Arc::new(Mutex::new(event_handler));
+            self.handler = Some(Arc::clone(&handler));
             let main = Arc::clone(&self.main);
             on_main(move |mtm| main.get(mtm).borrow_mut().attach(&handler));
             Ok(())
         }
 
-        /// Removes the targets that `attach` added and disables their commands.
+        /// A platform host plays the current track and shows Now Playing for it itself, in the
+        /// app's own place. Rune's command targets go, so that a command from the lock screen
+        /// reaches the host alone rather than acting twice, and so does what Rune showed, so that
+        /// the lock screen never shows Rune's earlier track over the host's, nor again once the
+        /// host lets go: the next metadata Rune sets is shown then, and a report without any, as
+        /// of a stop, shows no track. The commands stay enabled, as the host may use the same
+        /// ones. Nothing is shown until `reclaim_commands`. Yielding again does it all again,
+        /// which costs nothing when it is done already and finishes it when the main thread did
+        /// not get through it the first time.
+        pub fn yield_commands(&mut self) -> Result<(), Error> {
+            {
+                let mut state = lock(&self.state);
+                state.yielded = true;
+                state.title = None;
+                state.artist = None;
+                state.album = None;
+                state.duration = None;
+                state.image = None;
+                // Artwork still loading for what was shown is dropped when it lands.
+                state.generation = state.generation.wrapping_add(1);
+            }
+            let main = Arc::clone(&self.main);
+            on_main(move |mtm| main.get(mtm).borrow_mut().yield_commands());
+            Ok(())
+        }
+
+        /// The host let go of Now Playing. Rune's command targets come back, and the next report
+        /// is shown whatever it says.
+        pub fn reclaim_commands(&mut self) -> Result<(), Error> {
+            {
+                let mut state = lock(&self.state);
+                if !state.yielded {
+                    return Ok(());
+                }
+                state.yielded = false;
+                state.playback.stale = true;
+            }
+            if let Some(handler) = &self.handler {
+                let handler = Arc::clone(handler);
+                let main = Arc::clone(&self.main);
+                on_main(move |mtm| main.get(mtm).borrow_mut().attach(&handler));
+            }
+            Ok(())
+        }
+
+        /// Removes the targets that `attach` added and disables their commands. The handler goes
+        /// too, so that a host letting go of Now Playing later brings no targets back.
         pub fn detach(&mut self) -> Result<(), Error> {
+            self.handler = None;
             let main = Arc::clone(&self.main);
             on_main(move |mtm| main.get(mtm).borrow_mut().detach());
             Ok(())
@@ -344,16 +402,17 @@ mod ios {
     /// lock, so writes are queued in the order they were decided, and the main queue runs them in
     /// that order.
     fn write(main: &Arc<OnMain>, state: &mut State, now: Instant) {
+        // While a host holds Now Playing, Rune shows nothing over it.
+        if state.yielded {
+            return;
+        }
         let info = state.info(now);
         let main = Arc::clone(main);
         on_main(move |mtm| main.get(mtm).borrow_mut().write(info));
     }
 
     impl MainState {
-        fn attach<F>(&mut self, handler: &Arc<Mutex<F>>)
-        where
-            F: Fn(MediaControlEvent) + Send + 'static,
-        {
+        fn attach(&mut self, handler: &Handler) {
             // SAFETY: `sharedCommandCenter` returns the process's command center, and its command
             // getters only read.
             let (center, commands) = unsafe {
@@ -427,6 +486,19 @@ mod ios {
                     command.setEnabled(false);
                 }
             }
+        }
+
+        /// Removes the targets that `attach` added, leaving their commands enabled, and clears
+        /// the center's dictionary.
+        fn yield_commands(&mut self) {
+            for (command, target) in self.targets.drain(..) {
+                // SAFETY: the target is the one this command returned from
+                // `addTargetWithHandler:`.
+                unsafe { command.removeTarget(Some(&target)) };
+            }
+            self.artwork = None;
+            // SAFETY: `defaultCenter` returns the process's center, and no dictionary clears it.
+            unsafe { MPNowPlayingInfoCenter::defaultCenter().setNowPlayingInfo(None) };
         }
 
         /// Sets the whole dictionary on the center.
@@ -508,7 +580,7 @@ mod ios {
         state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn send<F: Fn(MediaControlEvent)>(handler: &Mutex<F>, event: MediaControlEvent) {
+    fn send<F: Fn(MediaControlEvent) + ?Sized>(handler: &Mutex<F>, event: MediaControlEvent) {
         let handler = handler.lock().unwrap_or_else(PoisonError::into_inner);
         handler(event);
     }

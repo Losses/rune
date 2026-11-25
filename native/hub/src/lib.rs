@@ -123,6 +123,9 @@ async fn main() {
     };
 
     start_standalone_request_receivers();
+    tokio::spawn(session::hosted::receive_hosted_player_events(
+        node::node_slot(),
+    ));
     tokio::spawn(receive_node_requests(
         node::node_slot(),
         utils::ProductionNodeRequestHandlers::new(Arc::clone(&scrobbler)),

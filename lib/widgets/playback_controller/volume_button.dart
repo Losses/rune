@@ -1,9 +1,11 @@
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/volume.dart';
+import '../../utils/system_volume.dart';
 import '../../providers/request_capabilities.dart';
 import '../capability_gate.dart';
 
@@ -20,6 +22,8 @@ class VolumeButton extends StatefulWidget {
 }
 
 void onScroll(VolumeProvider volumeProvider, PointerSignalEvent pointerSignal) {
+  // The system's volume view takes the input there, and nothing here can set the volume.
+  if (volumeProvider.showsSystemVolumeView) return;
   if (pointerSignal is PointerScrollEvent) {
     final currentVolume = volumeProvider.volume;
     final delta = pointerSignal.scrollDelta.dy * -0.0005;
@@ -59,8 +63,18 @@ class VolumeButtonState extends State<VolumeButton> {
               _flyoutController.showFlyout(
                 barrierColor: Colors.transparent,
                 builder: (context) {
-                  return const FlyoutContent(
-                    child: VolumeController(width: 40, height: 150),
+                  // The size follows the mode while the flyout is open: the system's volume
+                  // view only lies down, so its flyout does too.
+                  return Consumer<VolumeProvider>(
+                    builder: (context, volumeProvider, _) => FlyoutContent(
+                      child: volumeProvider.showsSystemVolumeView
+                          ? const VolumeController(
+                              width: 180,
+                              height: 44,
+                              vertical: false,
+                            )
+                          : const VolumeController(width: 40, height: 150),
+                    ),
                   );
                 },
               );
@@ -106,14 +120,26 @@ class VolumeController extends StatelessWidget {
         child: SizedBox(
           width: width,
           height: height,
-          child: Slider(
-            vertical: vertical,
-            value: volumeProvider.volume * 100,
-            onChanged: (value) {
-              volumeProvider.updateVolume(value / 100);
-            },
-            label: '${(volumeProvider.volume * 100).toInt()}%',
-          ),
+          child: volumeProvider.showsSystemVolumeView
+              // Eager, so that touches in a menu or a flyout reach the system's view.
+              ? UiKitView(
+                  viewType: SystemVolume.viewType,
+                  gestureRecognizers: {
+                    Factory<OneSequenceGestureRecognizer>(
+                      EagerGestureRecognizer.new,
+                    ),
+                  },
+                )
+              : Slider(
+                  vertical: vertical,
+                  value: volumeProvider.volume * 100,
+                  onChanged: volumeProvider.adjustable
+                      ? (value) {
+                          volumeProvider.updateVolume(value / 100);
+                        }
+                      : null,
+                  label: '${(volumeProvider.volume * 100).toInt()}%',
+                ),
         ),
       ),
     );

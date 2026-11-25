@@ -10,7 +10,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock, Weak,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 #[cfg(unix)]
@@ -26,7 +26,8 @@ use discovery::{
     server::{PermissionManager, UserStatus},
 };
 use playback::{
-    PlayerCommand, player::HandoffBlockId as PlayerHandoffBlockId, sfx_player::SfxPlayer,
+    PlayerCommand, hosted::is_hosted_path, player::HandoffBlockId as PlayerHandoffBlockId,
+    sfx_player::SfxPlayer,
 };
 use rinf::DartSignal;
 use tokio::{
@@ -54,10 +55,11 @@ use crate::{
     messages::{
         AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
         IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
-        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlaylistItem,
-        ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting, RemoteLossKind,
-        RendererAttachmentChanged, RendererLinkLost, RequestCapabilities, RequestCapability,
-        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate, VisualizerInputsChanged,
+        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlayerHostChanged,
+        PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
+        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
+        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
+        VisualizerInputsChanged,
     },
     server::{
         ServerManager, WebSocketService,
@@ -240,6 +242,16 @@ pub struct NodeContext {
     /// How many `HiddenLocalSession`s are alive. The session's events stay out of the UI while
     /// any is.
     local_session_hidden: Arc<AtomicUsize>,
+    /// Whether a platform host plays the current track of this device's own player, so that
+    /// it gives the visualizer nothing. Changed only under the `current_player` lock, which
+    /// orders the inputs published.
+    local_track_hosted: AtomicBool,
+    /// Whether this device's own player has a track at all. The volume control goes back to
+    /// Rune's own volume without one, though `local_track_hosted` keeps what the last track said.
+    local_track_loaded: AtomicBool,
+    /// What the UI here was last told about `local_track_hosted` for the current player. Changed
+    /// only under the `current_player` lock.
+    reported_hosted: AtomicBool,
     /// What Dart was last told the current source gives the visualizer. Changed only under the
     /// `current_player` lock, like the inputs themselves: that lock is taken first, this one
     /// after it.
@@ -470,6 +482,9 @@ impl NodeContext {
             current_player,
             local_player_tenure: Arc::default(),
             local_session_hidden,
+            local_track_hosted: AtomicBool::new(false),
+            local_track_loaded: AtomicBool::new(false),
+            reported_hosted: AtomicBool::new(false),
             published_visualizer_inputs: StdMutex::new(None),
             open_generation: AtomicU64::new(0),
             reconnect_config,
@@ -1044,12 +1059,28 @@ impl NodeContext {
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
         *current = player;
-        self.publish_visualizer_inputs(&current)
+        self.publish_visualizer_inputs(&current)?;
+        self.publish_player_host(&current);
+        Ok(())
     }
 
     /// The current tenure of the local player as the UI's player.
     pub(crate) fn local_player_tenure(&self) -> Result<Arc<LocalPlayerTenure>> {
         lock_tenures(&self.local_player_tenure).map(|tenure| Arc::clone(&tenure))
+    }
+
+    /// Tells the UI here whether a platform host plays what the current player plays, when that
+    /// changed. Only this device's own player can be hosted: with a renderer or a service's own
+    /// player current, the host is out of the picture whatever the local player still holds.
+    /// Called under the `current_player` lock, which orders what is told.
+    fn publish_player_host(&self, current: &CurrentPlayer) {
+        let hosted = matches!(current, CurrentPlayer::Local)
+            && self.local_track_loaded.load(Ordering::Acquire)
+            && self.local_track_hosted.load(Ordering::Acquire);
+        if self.reported_hosted.swap(hosted, Ordering::AcqRel) != hosted {
+            self.gui_broadcaster
+                .broadcast(&PlayerHostChanged { hosted });
+        }
     }
 
     /// Publishes the current player's visualizer inputs again, for when what that player
@@ -1059,7 +1090,9 @@ impl NodeContext {
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
-        self.publish_visualizer_inputs(&current)
+        self.publish_visualizer_inputs(&current)?;
+        self.publish_player_host(&current);
+        Ok(())
     }
 
     /// Gives the visualizer what `current` feeds it, and tells Dart when that changed, so the UI
@@ -1067,7 +1100,7 @@ impl NodeContext {
     /// under the `current_player` lock, which orders what is published. The message goes
     /// through the UI's own broadcaster, as the node's would take that lock again.
     fn publish_visualizer_inputs(&self, current: &CurrentPlayer) -> Result<()> {
-        let inputs = current.visualizer_inputs();
+        let inputs = self.visualizer_inputs(current);
         self.visualizer().set_inputs(inputs);
         let mut published = self
             .published_visualizer_inputs
@@ -1079,6 +1112,49 @@ impl NodeContext {
                 inputs: inputs.into(),
             });
         }
+        Ok(())
+    }
+
+    /// What `current` gives the visualizer. This device's own player gives nothing while a
+    /// platform host plays its track.
+    fn visualizer_inputs(&self, current: &CurrentPlayer) -> VisualizerInputs {
+        match current {
+            CurrentPlayer::Local if self.local_track_hosted.load(Ordering::Acquire) => {
+                VisualizerInputs::None
+            }
+            current => current.visualizer_inputs(),
+        }
+    }
+
+    /// Notes the current track of this device's own player: its path, and whether it has a track
+    /// at all.
+    ///
+    /// The visualizer inputs are published again when the path changes whether a platform host
+    /// plays the track. A report without a path, as while the player stops between two tracks,
+    /// changes nothing there: the inputs do not come back between two hosted tracks, and stay
+    /// away after a hosted track until a file plays.
+    ///
+    /// The volume control follows `has_track` as well: without a track it is Rune's own volume,
+    /// whatever the last track was. A paused hosted track, restored at startup too, still counts
+    /// as hosted, because the next play goes to the host.
+    pub(crate) fn note_local_track(&self, path: Option<&Path>, has_track: bool) -> Result<()> {
+        let hosted = path.map(is_hosted_path);
+        let hosted_changes =
+            hosted.is_some_and(|hosted| hosted != self.local_track_hosted.load(Ordering::Acquire));
+        if !hosted_changes && has_track == self.local_track_loaded.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let current = self
+            .current_player
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        if let Some(hosted) = hosted
+            && self.local_track_hosted.swap(hosted, Ordering::AcqRel) != hosted
+        {
+            self.publish_visualizer_inputs(&current)?;
+        }
+        self.local_track_loaded.store(has_track, Ordering::Release);
+        self.publish_player_host(&current);
         Ok(())
     }
 

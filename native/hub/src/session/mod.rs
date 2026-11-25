@@ -1,4 +1,5 @@
 //! Node-owned render state. Catalog resources are leased only while resolving an item.
+pub(crate) mod hosted;
 mod item_capabilities;
 pub(crate) mod store;
 
@@ -29,6 +30,7 @@ use futures::future::BoxFuture;
 use playback::{
     MediaPlayback, MediaPosition, PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
+    hosted::is_hosted_path,
     player::{
         HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
         Player, PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
@@ -426,7 +428,10 @@ impl PlayerSession {
             (state.session_id.to_string(), state.queue_revision)
         };
         let controls = self.controls.lock().await.clone();
-        let mut item_state = ItemEventState::default();
+        let mut item_state = ItemEventState {
+            re_show: true,
+            ..ItemEventState::default()
+        };
         handle_status_event(
             &node,
             status.clone(),
@@ -519,6 +524,11 @@ impl PlayerSession {
                 Arc::downgrade(node),
                 String::new(),
             )));
+        // Only this device's own player: the host that plays a hosted track is the app here.
+        player
+            .lock()
+            .await
+            .set_host_bridge(Arc::new(hosted::JsonHostBridge::to_app()));
         let controls = if os_media_controls {
             match MediaControlManager::with_name(&format!(
                 "rune_player_{}_{}",
@@ -649,6 +659,8 @@ impl PlayerSession {
             // report from before this device's player became current again.
             let mut shows = Vec::new();
             let mut barrier: Option<BoxFuture<'static, PlayerStatus>> = None;
+            // The status the barrier answered with, for the node to note once the session shows.
+            let mut answered: Option<PlayerStatus> = None;
             // The status the loop handled last, and whether a track named late waits to go out
             // again on it.
             let mut last_status: Option<PlayerStatus> = None;
@@ -664,7 +676,10 @@ impl PlayerSession {
                         shows.push(show);
                         barrier = Some(player.lock().await.status_after_pending());
                     }
-                    _ = async { match barrier.as_mut() { Some(barrier) => barrier.await, None => pending().await } } => barrier = None,
+                    answer = async { match barrier.as_mut() { Some(barrier) => barrier.await, None => pending().await } } => {
+                        barrier = None;
+                        answered = Some(answer);
+                    }
                     Ok(played) = played.recv() => {
                         if let Some(node) = weak.upgrade() {
                             handle_played_event(&node, played, &mut item_state, &scrobbler).await;
@@ -674,6 +689,10 @@ impl PlayerSession {
                         let Some(node) = weak.upgrade() else { return };
                         if persist_status_tx.send(value.clone()).await.is_err() { return; }
                         last_status = Some(value.clone());
+                        // A report handled after the barrier answered says at least as much as the
+                        // answer, so the session shows again without noting the answer over it.
+                        answered = None;
+                        note_local_track(&node, &value);
                         handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                     }
                     Some(late) = late_cover_rx.recv() => {
@@ -707,11 +726,17 @@ impl PlayerSession {
                                 shown
                             })
                             .collect();
-                        if let Some(node) = weak.upgrade()
-                            && let Ok(session) = node.session()
-                            && let Err(error) = session.reemit_to(&broadcaster).await
-                        {
-                            log::warn!("Could not show the session again: {error:#}");
+                        if let Some(node) = weak.upgrade() {
+                            // Every report from before the barrier is handled, so its status is
+                            // what this device's player holds as the session shows again.
+                            if let Some(status) = answered.take() {
+                                note_local_track(&node, &status);
+                            }
+                            if let Ok(session) = node.session()
+                                && let Err(error) = session.reemit_to(&broadcaster).await
+                            {
+                                log::warn!("Could not show the session again: {error:#}");
+                            }
                         }
                         for shown in answers {
                             let _ = shown.send(());
@@ -726,6 +751,7 @@ impl PlayerSession {
                         if name_late_track(&mut item_state, &controls, true).await
                             && let Some(status) = last_status.clone()
                         {
+                            note_local_track(&node, &status);
                             handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                         }
                     }
@@ -877,6 +903,89 @@ struct ItemEventState {
     late_names: Option<Arc<Notify>>,
     /// Whether `metadata` was found for `last_item`.
     metadata_found: bool,
+    /// Whether the system's Now Playing still lacks what `metadata` says.
+    controls_behind: bool,
+    /// Whether Rune's own Now Playing gave way to a platform host that plays the track.
+    controls_yielded: bool,
+    /// Whether this state only shows the current state again, outside the session's event loop.
+    /// It does not know whether Now Playing gave way to a host, so it hands nothing over: only
+    /// the loop does.
+    re_show: bool,
+}
+
+/// What one status report is, for the system's Now Playing.
+#[derive(Clone, Copy, Debug)]
+struct NowPlayingReport {
+    item_changed: bool,
+    metadata_found: bool,
+    hosted: bool,
+    playing: bool,
+}
+
+/// What one status report sends to the system's Now Playing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct NowPlayingUpdate {
+    metadata: bool,
+    progress: bool,
+}
+
+/// What `report` sends to the system's Now Playing, and whether the system still lacks the
+/// current item's metadata afterwards; `behind` says whether it lacked it before.
+///
+/// A platform host that plays the track publishes Now Playing itself, so nothing goes out
+/// meanwhile, and the item's metadata goes out once the host lets go. The host lets go while
+/// its ending track still reports playing, just before the next track starts or the player
+/// stops; that report sends nothing, so the system never shows the ending track again.
+/// Metadata that was not found is never sent, and progress waits for the metadata it goes
+/// with.
+fn now_playing_update(behind: bool, report: NowPlayingReport) -> (bool, NowPlayingUpdate) {
+    let behind = report.metadata_found && (behind || report.item_changed || report.hosted);
+    if report.hosted {
+        return (behind, NowPlayingUpdate::default());
+    }
+    // A paused hosted track that a paused load replaces is published once, as paused, first.
+    let metadata = behind && (report.item_changed || !report.playing);
+    let behind = behind && !metadata;
+    (
+        behind,
+        NowPlayingUpdate {
+            metadata,
+            progress: !behind,
+        },
+    )
+}
+
+/// What a status report changes about who holds the system's Now Playing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NowPlayingHandOff {
+    /// A platform host took over the track, and shows Now Playing for it itself: Rune's own
+    /// commands and info give way, so that a command does not act twice and Rune's earlier
+    /// track does not show over the host's.
+    YieldToHost,
+    /// The host let go: Rune's own commands come back before its metadata goes out again.
+    Reclaim,
+}
+
+/// Whether Rune's Now Playing gives way to a host after a report of whether a host plays the
+/// track, given whether it did before, and the hand-off that the report makes: one at each
+/// change, and none while it stays.
+fn now_playing_hand_off(yielded: bool, hosted: bool) -> (bool, Option<NowPlayingHandOff>) {
+    match (yielded, hosted) {
+        (false, true) => (true, Some(NowPlayingHandOff::YieldToHost)),
+        (true, false) => (false, Some(NowPlayingHandOff::Reclaim)),
+        _ => (yielded, None),
+    }
+}
+
+/// Whether a cover or a name that arrives after its track started goes to the system's Now
+/// Playing now, given whether Now Playing gave way to a host and whether it still lacks the
+/// track's metadata, and whether it lacks the metadata afterwards.
+///
+/// While a host holds Now Playing, or the metadata waits for the host's ending track to leave,
+/// nothing goes out: what arrived goes out with the metadata once that does.
+fn late_metadata_update(yielded: bool, behind: bool) -> (bool, bool) {
+    let behind = yielded || behind;
+    (behind, !behind)
 }
 
 /// How long a status report waits for a service to name the track playing.
@@ -1021,7 +1130,12 @@ async fn show_late_cover(
         return false;
     }
     item_state.cover = Some(late.cover);
-    if let Some(manager) = controls {
+    let (controls_behind, publish) =
+        late_metadata_update(item_state.controls_yielded, item_state.controls_behind);
+    item_state.controls_behind = controls_behind;
+    if let Some(manager) = controls
+        && publish
+    {
         let _ = update_media_controls_metadata(
             manager.clone(),
             &item_state.metadata,
@@ -1072,7 +1186,13 @@ async fn name_late_track(
     if let Some(late_covers) = &item_state.late_covers {
         fetch_late_cover(&binding, &item, track, late_covers);
     }
-    if let Some(manager) = controls {
+    // While a host holds the system's Now Playing, the name goes out once it lets go.
+    let (controls_behind, publish) =
+        late_metadata_update(item_state.controls_yielded, item_state.controls_behind);
+    item_state.controls_behind = controls_behind;
+    if let Some(manager) = controls
+        && publish
+    {
         let _ = update_media_controls_metadata(
             manager.clone(),
             &item_state.metadata,
@@ -1081,6 +1201,19 @@ async fn name_late_track(
         .await;
     }
     true
+}
+
+/// Tells the node what this device's player plays now, before the report is made, so that the
+/// visualizer and the volume control here do not wait for the metadata lookup when a platform
+/// host takes over the track or lets go of it. Only the event loop does this: a re-show reports
+/// an older snapshot, which must not land after a newer one.
+fn note_local_track(node: &Arc<NodeContext>, status: &PlayerStatus) {
+    if let Err(error) = node.note_local_track(
+        status.path.as_deref(),
+        status.path.is_some() || status.item.is_some(),
+    ) {
+        log::warn!("Could not publish what plays the track: {error:#}");
+    }
 }
 
 /// Turns a player status into the GUI report. `now_playing` is `None` when only
@@ -1131,14 +1264,6 @@ async fn handle_status_event(
                 item_state.cover = cover;
                 item_state.metadata_found = true;
                 item_state.now_playing_pending = now_playing.is_some();
-                if let Some(manager) = controls {
-                    let _ = update_media_controls_metadata(
-                        manager.clone(),
-                        &item_state.metadata,
-                        item_state.cover.as_ref(),
-                    )
-                    .await;
-                }
             }
         }
         playing_cover_changed(node, value.item.as_ref(), item_state.cover.as_deref());
@@ -1153,6 +1278,41 @@ async fn handle_status_event(
             &item_state.metadata,
             Some(SystemTime::now()),
         ));
+    }
+    let (controls_behind, system_now_playing) = now_playing_update(
+        item_state.controls_behind,
+        NowPlayingReport {
+            item_changed,
+            metadata_found: item_state.metadata_found,
+            hosted: value.hosted_by.is_some(),
+            playing: value.state == PlaybackState::Playing,
+        },
+    );
+    item_state.controls_behind = controls_behind;
+    let (controls_yielded, hand_off) =
+        now_playing_hand_off(item_state.controls_yielded, value.hosted_by.is_some());
+    item_state.controls_yielded = controls_yielded;
+    if let (Some(manager), Some(hand_off)) = (controls, hand_off)
+        && !item_state.re_show
+    {
+        let mut manager = manager.lock().await;
+        let handed = match hand_off {
+            NowPlayingHandOff::YieldToHost => manager.yield_commands(),
+            NowPlayingHandOff::Reclaim => manager.reclaim_commands(),
+        };
+        if let Err(error) = handed {
+            log::warn!("Could not hand Now Playing over ({hand_off:?}): {error:#}");
+        }
+    }
+    if let Some(manager) = controls
+        && system_now_playing.metadata
+    {
+        let _ = update_media_controls_metadata(
+            manager.clone(),
+            &item_state.metadata,
+            item_state.cover.as_ref(),
+        )
+        .await;
     }
     if value.state == PlaybackState::Playing && !item_state.track_started {
         let start_time = SystemTime::now()
@@ -1172,11 +1332,13 @@ async fn handle_status_event(
         .map(|library| library.media_root.clone())
         .unwrap_or_default();
     let playing = value.state == PlaybackState::Playing;
+    // A track a platform host plays has no file here, and its audio never reaches the player.
+    let file_path = value.path.as_deref().filter(|path| !is_hosted_path(path));
     // This device is the source: its player gives the spectrum and the chart is analysed here,
     // whether or not an item is loaded.
     node.visualizer().set_playing(playing);
     node.visualizer().set_playback(
-        value.path.as_deref(),
+        file_path,
         value.position,
         playing,
         item_state
@@ -1208,7 +1370,9 @@ async fn handle_status_event(
         item_request,
         session_id,
     );
-    if let Some(manager) = controls {
+    if let Some(manager) = controls
+        && system_now_playing.progress
+    {
         let playback = now_playing_playback(&value, item_state.metadata_found);
         let _ = update_media_controls_progress(manager.clone(), playback).await;
     }
@@ -1229,7 +1393,7 @@ async fn handle_status_event(
     if attached_controllers > 0
         && (item_changed || controller_set_changed || feed_item_changed)
         && let Some(item) = feed_item
-        && let Some(path) = value.path.as_deref()
+        && let Some(path) = file_path
         && let Some(library) = &item_state.library
         && let Some(library_fsio) = &library.fsio
     {
@@ -1608,6 +1772,172 @@ impl Drop for PlayerSession {
         for task in self.tasks.get_mut().drain(..) {
             task.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod system_now_playing_tests {
+    use super::{
+        NowPlayingHandOff, NowPlayingReport, NowPlayingUpdate, late_metadata_update,
+        now_playing_hand_off, now_playing_update,
+    };
+
+    const METADATA_AND_PROGRESS: NowPlayingUpdate = NowPlayingUpdate {
+        metadata: true,
+        progress: true,
+    };
+    const PROGRESS: NowPlayingUpdate = NowPlayingUpdate {
+        metadata: false,
+        progress: true,
+    };
+    const NOTHING: NowPlayingUpdate = NowPlayingUpdate {
+        metadata: false,
+        progress: false,
+    };
+
+    fn report(
+        item_changed: bool,
+        metadata_found: bool,
+        hosted: bool,
+        playing: bool,
+    ) -> NowPlayingReport {
+        NowPlayingReport {
+            item_changed,
+            metadata_found,
+            hosted,
+            playing,
+        }
+    }
+
+    /// The updates a run of reports sends, starting from a system that shows nothing of ours.
+    fn updates(reports: &[NowPlayingReport]) -> Vec<NowPlayingUpdate> {
+        let mut behind = false;
+        reports
+            .iter()
+            .map(|report| {
+                let (now_behind, update) = now_playing_update(behind, *report);
+                behind = now_behind;
+                update
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_local_track_publishes_its_metadata_once_and_then_its_progress() {
+        assert_eq!(
+            updates(&[
+                report(true, true, false, true),
+                report(false, true, false, true)
+            ]),
+            [METADATA_AND_PROGRESS, PROGRESS]
+        );
+    }
+
+    #[test]
+    fn nothing_goes_out_while_hosted_and_the_ending_track_is_not_published_again() {
+        assert_eq!(
+            updates(&[
+                // A local track plays, then the host takes over a hosted track.
+                report(true, true, false, true),
+                report(false, true, true, true),
+                report(true, true, true, true),
+                report(false, true, true, false),
+                // The host lets go while its track still reports playing, then a local track
+                // starts.
+                report(false, true, false, true),
+                report(true, true, false, true),
+                report(false, true, false, true),
+            ]),
+            [
+                METADATA_AND_PROGRESS,
+                NOTHING,
+                NOTHING,
+                NOTHING,
+                NOTHING,
+                METADATA_AND_PROGRESS,
+                PROGRESS,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_host_that_lets_go_of_a_paused_track_has_it_published_once() {
+        assert_eq!(
+            updates(&[
+                report(true, true, true, true),
+                report(false, true, false, false),
+                report(false, true, false, false),
+            ]),
+            [NOTHING, METADATA_AND_PROGRESS, PROGRESS]
+        );
+    }
+
+    /// The hand-offs that a run of reports of whether a host plays the track makes, starting
+    /// from Rune holding Now Playing.
+    fn hand_offs(hosted: &[bool]) -> Vec<Option<NowPlayingHandOff>> {
+        let mut yielded = false;
+        hosted
+            .iter()
+            .map(|hosted| {
+                let (now_yielded, hand_off) = now_playing_hand_off(yielded, *hosted);
+                yielded = now_yielded;
+                hand_off
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rune_gives_now_playing_to_a_host_once_and_takes_it_back_once() {
+        use NowPlayingHandOff::{Reclaim, YieldToHost};
+        assert_eq!(
+            hand_offs(&[false, true, true, true, false, false, true, false]),
+            [
+                None,
+                Some(YieldToHost),
+                None,
+                None,
+                Some(Reclaim),
+                None,
+                Some(YieldToHost),
+                Some(Reclaim),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_late_cover_or_name_waits_while_a_host_holds_now_playing() {
+        // Rune holds Now Playing and showed the track, so the cover goes out at once.
+        assert_eq!(late_metadata_update(false, false), (false, true));
+        // A host holds Now Playing: nothing goes out over what the host shows.
+        assert_eq!(late_metadata_update(true, true), (true, false));
+        assert_eq!(late_metadata_update(true, false), (true, false));
+        // The host let go while its track still plays, which is not published again.
+        assert_eq!(late_metadata_update(false, true), (true, false));
+
+        // The cover then goes out with the metadata, once the host lets go of a paused track.
+        let (behind, _) = late_metadata_update(true, true);
+        let (_, update) = now_playing_update(behind, report(false, true, false, false));
+        assert_eq!(update, METADATA_AND_PROGRESS);
+    }
+
+    #[test]
+    fn metadata_that_was_not_found_is_never_published() {
+        assert_eq!(
+            updates(&[
+                report(true, false, true, true),
+                report(false, false, false, false),
+                report(true, false, false, true),
+            ]),
+            [NOTHING, PROGRESS, PROGRESS]
+        );
+        // Nor later, when the next item has none either.
+        assert_eq!(
+            updates(&[
+                report(true, true, true, true),
+                report(true, false, false, true)
+            ]),
+            [NOTHING, PROGRESS]
+        );
     }
 }
 

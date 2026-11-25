@@ -16,7 +16,7 @@ use database::credentials::Credential;
 use database::library_registry::ServiceKind;
 use database::playing_item::PlayingItemMetadataSummary;
 use futures::future::BoxFuture;
-use playback::player::RemoteAudioSource;
+use playback::player::ServiceTarget;
 use tokio::sync::watch;
 use uuid::Uuid;
 use visualizer::VisualizerInputs;
@@ -73,8 +73,9 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
         track: &'a str,
     ) -> ServiceFuture<'a, (Option<String>, Vec<String>)>;
 
-    /// The audio of a track, which this device decodes.
-    fn playback_source<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, RemoteAudioSource>;
+    /// How this device plays a track: from audio it decodes, or through a platform host that
+    /// the service declares for it.
+    fn playback_source<'a>(&'a self, track: &'a str) -> ServiceFuture<'a, ServiceTarget>;
 
     /// This device started playing a track at `start_time`, in milliseconds since the epoch.
     fn track_started<'a>(&'a self, _track: &'a str, _start_time: u64) -> BoxFuture<'a, ()> {

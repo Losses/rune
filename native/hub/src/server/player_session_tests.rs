@@ -1040,7 +1040,10 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     );
     fixture.global_params.player.lock().await.stop();
     let binding = service_binding_for_library(&node, record.record_id.0).await?;
-    let source = binding.playback_source("song-opaque").await?;
+    let player::ServiceTarget::Stream(source) = binding.playback_source("song-opaque").await?
+    else {
+        anyhow::bail!("a Subsonic track must play from a stream");
+    };
     let ranged = source.request.get(Some((12, Some(23)))).await?;
     assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
     assert!(stream_ranges.lock().unwrap().iter().any(Option::is_some));
@@ -16917,5 +16920,317 @@ async fn failed_scrobble_login_answers_its_typed_failure() -> Result<()> {
         })
     );
     fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// Plays every track of `library_id` through the platform host `"host"`, as a streaming service
+/// that declares a host for its tracks does.
+struct HostedTracks {
+    library_id: Uuid,
+}
+
+impl player::PlaybackSourceResolver for HostedTracks {
+    fn resolve_track(
+        &self,
+        library_id: String,
+        track: String,
+    ) -> futures::future::BoxFuture<'static, Result<player::LibraryTrackKey>> {
+        let hosted = library_id == self.library_id.to_string();
+        Box::pin(async move {
+            anyhow::ensure!(hosted, "library {library_id} has no hosted tracks");
+            Ok(player::LibraryTrackKey::Service(track))
+        })
+    }
+
+    fn resolve(
+        &self,
+        _: i32,
+    ) -> futures::future::BoxFuture<'static, Result<player::RemoteAudioSource>> {
+        Box::pin(async { anyhow::bail!("hosted tracks have no stream") })
+    }
+
+    fn resolve_service(
+        &self,
+        item: ServiceItem,
+    ) -> futures::future::BoxFuture<'static, Result<player::ServiceTarget>> {
+        Box::pin(async move {
+            Ok(player::ServiceTarget::Hosted(
+                playback::hosted::HostedTrack {
+                    host: "host".to_owned(),
+                    key: item.track,
+                },
+            ))
+        })
+    }
+}
+
+/// A platform host that records the batches the player sends it.
+#[derive(Default)]
+struct RecordingHost(StdMutex<Vec<playback::hosted::HostCommand>>);
+
+impl playback::hosted::HostBridge for RecordingHost {
+    fn send(&self, command: playback::hosted::HostCommand) {
+        self.0.lock().unwrap().push(command);
+    }
+}
+
+impl RecordingHost {
+    /// Waits for a batch that `wanted` picks, and returns its revision.
+    async fn sent(&self, wanted: impl Fn(&[playback::hosted::HostAction]) -> bool) -> Result<u64> {
+        let wanted = &wanted;
+        wait_until("the host to get the expected batch", || async move {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|command| command.host == "host" && wanted(&command.actions))
+                .map(|command| command.revision))
+        })
+        .await
+    }
+}
+
+/// A node whose own player hands the tracks of a streaming library to a recording host. The
+/// session plays what the node's UI asks for, and the node tells the UI what it shows.
+async fn hosted_fixture(
+    dir: &Path,
+) -> Result<(Fixture, Arc<RecordedSignals>, Arc<RecordingHost>, Uuid)> {
+    let signals = Arc::new(RecordedSignals::default());
+    let f = fixture_with_broadcaster(
+        dir,
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let host = Arc::new(RecordingHost::default());
+    let library_id = Uuid::new_v4();
+    let player = f.global_params.player.lock().await;
+    player.set_source_resolver(Arc::new(HostedTracks { library_id }));
+    player.set_host_bridge(host.clone());
+    drop(player);
+    Ok((f, signals, host, library_id))
+}
+
+/// Waits until the latest signal named `name` is one that `wanted` picks.
+async fn latest_signal<T: DeserializeOwned>(
+    signals: &RecordedSignals,
+    name: &str,
+    wanted: impl Fn(&T) -> bool,
+) -> Result<()> {
+    let wanted = &wanted;
+    wait_until("the UI to be told the expected state", || async move {
+        Ok(signals
+            .decoded::<T>(name)
+            .last()
+            .is_some_and(wanted)
+            .then_some(()))
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hosted_track_plays_on_its_host_and_the_next_file_plays_here() -> Result<()> {
+    use crate::messages::{
+        PauseRequest, PlayRequest, PlayerHostChanged, SeekRequest, VisualizerInputsChanged,
+    };
+    use playback::hosted::{HostAction, HostEvent};
+
+    let dir = tempfile::tempdir()?;
+    let (f, signals, host, library_id) = hosted_fixture(dir.path()).await?;
+    let file = dir.path().join("after-the-host.ogg");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg"),
+        &file,
+    )?;
+    let hosted = PlayingItem::LibraryTrack {
+        library_id,
+        track: "1440".to_owned(),
+    };
+    let after = PlayingItem::IndependentFile(file.to_string_lossy().into_owned());
+    f.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![
+                (hosted.clone(), PlaybackSource::LibraryStream),
+                (after.clone(), PlaybackSource::Local(file.clone())),
+            ],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&f, |status| status.playlist.len() == 2).await?;
+
+    // The host gets the track to play, and the UI's volume control and visualizer follow it.
+    dispatch_gui_request(
+        &f.global_params,
+        &SwitchRequest {
+            index: 0,
+            expected_revision: None,
+            call_id: None,
+        },
+    )
+    .await?;
+    let handed = host
+        .sent(|actions| {
+            matches!(actions.first(), Some(HostAction::Set { ids }) if ids == &["1440"])
+                && actions.last() == Some(&HostAction::Start)
+        })
+        .await?;
+    wait_player(&f, |status| {
+        status.item.as_ref() == Some(&hosted)
+            && status.state == PlayerPlaybackState::Playing
+            && status.hosted_by.as_deref() == Some("host")
+    })
+    .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted,
+    )
+    .await?;
+    latest_signal(
+        &signals,
+        "VisualizerInputsChanged",
+        |changed: &VisualizerInputsChanged| {
+            changed.inputs == crate::messages::VisualizerInputs::None
+        },
+    )
+    .await?;
+
+    // What the host reports is what the UI shows.
+    let report = format!(
+        r#"{{"type":"jukeboxStatus","host":"host","revision":{handed},"currentIndex":0,"currentId":"1440","playing":true,"positionMs":30000}}"#
+    );
+    f.global_params
+        .player
+        .lock()
+        .await
+        .deliver_host_event(HostEvent::parse(&report).context("a host status")?);
+    latest_signal(&signals, "PlaybackStatus", |status: &PlaybackStatus| {
+        status.state == PlaybackState::Playing && status.progress_seconds >= 30.0
+    })
+    .await?;
+
+    // Pause, seek and play go to the host.
+    dispatch_gui_request(&f.global_params, &PauseRequest { call_id: None }).await?;
+    host.sent(|actions| actions == [HostAction::Stop]).await?;
+    wait_player(&f, |status| status.state == PlayerPlaybackState::Paused).await?;
+    dispatch_gui_request(
+        &f.global_params,
+        &SeekRequest {
+            position_seconds: 42.5,
+            call_id: None,
+        },
+    )
+    .await?;
+    host.sent(|actions| {
+        actions
+            == [HostAction::Skip {
+                index: 0,
+                offset_ms: 42_500,
+            }]
+    })
+    .await?;
+    dispatch_gui_request(&f.global_params, &PlayRequest { call_id: None }).await?;
+    host.sent(|actions| actions == [HostAction::Start]).await?;
+
+    // The host's track ends, and the file after it plays here: the host lets go, and the volume
+    // control and the visualizer come back to this device's player.
+    let ended = format!(r#"{{"type":"jukeboxEnded","host":"host","revision":{handed}}}"#);
+    f.global_params
+        .player
+        .lock()
+        .await
+        .deliver_host_event(HostEvent::parse(&ended).context("a host end")?);
+    wait_player(&f, |status| {
+        status.item.as_ref() == Some(&after)
+            && status.index == Some(1)
+            && status.state == PlayerPlaybackState::Playing
+            && status.hosted_by.is_none()
+    })
+    .await?;
+    host.sent(|actions| actions == [HostAction::Stop, HostAction::Clear])
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| !changed.hosted,
+    )
+    .await?;
+    latest_signal(
+        &signals,
+        "VisualizerInputsChanged",
+        |changed: &VisualizerInputsChanged| {
+            changed.inputs == crate::messages::VisualizerInputs::Full
+        },
+    )
+    .await?;
+
+    f.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_volume_control_leaves_the_host_while_another_player_is_current() -> Result<()> {
+    use crate::messages::PlayerHostChanged;
+    use playback::hosted::HostAction;
+
+    let dir = tempfile::tempdir()?;
+    let (f, signals, host, library_id) = hosted_fixture(dir.path()).await?;
+    let hosted = PlayingItem::LibraryTrack {
+        library_id,
+        track: "1440".to_owned(),
+    };
+    f.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(hosted, PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&f, |status| status.playlist.len() == 1).await?;
+    f.global_params.player.lock().await.switch(0);
+    host.sent(|actions| actions.last() == Some(&HostAction::Start))
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted,
+    )
+    .await?;
+
+    // Another player takes over: this device's player pauses its host, and the volume control
+    // is no longer the system's, whatever this device's player holds.
+    let node = f.global_params.node.clone();
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away.clone())
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| !changed.hosted,
+    )
+    .await?;
+    host.sent(|actions| actions == [HostAction::Stop]).await?;
+
+    // Back on this device, the paused hosted track goes to its host on the next play, so the
+    // volume control is the system's again.
+    node.transition_current_player(away, CurrentPlayer::Local)
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted,
+    )
+    .await?;
+
+    node.shutdown().await?;
     Ok(())
 }

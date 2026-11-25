@@ -41,7 +41,7 @@ use http_request::sync::PageCursor;
 use playback::player;
 use playback::player::{
     LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
-    RemoteAudioSource, ServiceItem,
+    RemoteAudioSource, ServiceItem, ServiceTarget,
 };
 use rand::rngs::OsRng;
 use reqwest::Client;
@@ -2630,7 +2630,7 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         })
     }
 
-    fn resolve_service(&self, item: ServiceItem) -> BoxFuture<'static, Result<RemoteAudioSource>> {
+    fn resolve_service(&self, item: ServiceItem) -> BoxFuture<'static, Result<ServiceTarget>> {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
