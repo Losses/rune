@@ -9434,6 +9434,50 @@ async fn a_catalog_playlist_a_mix_names_holds_its_songs_as_apple_changes_them() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_background_read_keeps_a_newer_read_of_a_playlist_a_mix_names() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let picks = apple
+        .binding
+        .intern(AppleIdKind::Playlist, "catalog:pl.cat1")?;
+    create_mix(&apple, "Picks", vec![query("lib::playlist", picks)]).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    add_song(&apple, mine.id, "catalog:1602", None).await?;
+
+    // The library reads in the background what the mix and the playlist name: the playlist,
+    // then the song, whose answer Apple holds.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/songs".into(), release.clone()));
+    let songs = apple.fake.count("/v1/catalog/it/songs");
+    all_tracks(&apple).await?;
+    fake_asked(&apple, "/v1/catalog/it/songs", songs + 1).await?;
+
+    // Meanwhile Apple changes the playlist, and the mix reads it again.
+    let changed = json!({"data": [apple.fake.catalog_song("1601")]});
+    *apple.fake.respond_path.lock().unwrap() = Some((
+        "/v1/catalog/it/playlists/pl.cat1/tracks".into(),
+        200,
+        changed.to_string(),
+    ));
+    assert_eq!(
+        mix_titles(&apple, vec![query("lib::playlist", picks)]).await?,
+        ["Remix One"]
+    );
+
+    // Once the background read ends, the library still holds the playlist as it is now.
+    release.notify_one();
+    wait_until("the background read to end", || async {
+        let titles = all_tracks(&apple).await?.0;
+        Ok(titles.contains(&"Remix Two".to_owned()).then_some(titles))
+    })
+    .await?;
+    let titles = all_tracks(&apple).await?.0;
+    assert!(titles.contains(&"Remix One".to_owned()), "{titles:?}");
+    assert!(!titles.contains(&"Dawn Chorus".to_owned()), "{titles:?}");
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_library_artist_a_mix_names_brings_only_the_librarys_songs() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;

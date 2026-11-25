@@ -775,14 +775,20 @@ impl HeldStore {
 
     /// Takes in what a read begun under `generation` found, unless the account signed out since,
     /// and keeps it beside the binding's lists. Answers whether that changed what the library
-    /// holds.
+    /// holds. The albums and playlists it read were not read when it began: one taken in since
+    /// is kept as it is, as it came from this read itself or from a later one of its own (see
+    /// `collection_read`).
     fn keep(&self, binding: &AppleMusicBinding, generation: u64, found: Found) -> bool {
         let mut state = self.state();
         let state = &mut *state;
         if state.generation != generation {
             return false;
         }
-        let Found { read, failed } = found;
+        let Found { mut read, failed } = found;
+        read.albums
+            .retain(|id, _| !state.read.albums.contains_key(id));
+        read.playlists
+            .retain(|id, _| !state.read.playlists.contains_key(id));
         let missing = !read.missing_albums.is_empty() || !read.missing_playlists.is_empty();
         let changed = state.read.extend(read);
         if changed || missing {
