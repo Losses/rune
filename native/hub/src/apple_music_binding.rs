@@ -2615,14 +2615,12 @@ impl AppleMusicBinding {
             .collect())
     }
 
-    /// Whether the library holds any of the library songs `ids`: as the song list last had it,
-    /// or else as Apple answers. Fails when Apple cannot tell.
+    /// Whether the library of the account signed in now holds any of the library songs `ids`, as
+    /// Apple answers: the song list kept may still be that of an account signed in before. Fails
+    /// when Apple cannot tell.
     pub(crate) async fn holds_any_song(&self, ids: &[String]) -> Result<bool, AppleError> {
         if ids.is_empty() {
             return Ok(false);
-        }
-        if let Some(list) = self.known_songs() {
-            return Ok(ids.iter().any(|id| list.get(id).is_some()));
         }
         match self.call(self.client.library_songs_by_ids(ids, &[])).await {
             Ok(found) => Ok(!found.is_empty()),

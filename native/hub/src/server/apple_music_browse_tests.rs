@@ -8902,6 +8902,26 @@ async fn a_removed_library_comes_back_for_its_own_account_only() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn whose_songs_records_name_is_asked_of_the_account_signed_in_now() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    apple.binding.songs().await?;
+    let s1 = ["i.s1".to_owned()];
+    assert!(
+        apple
+            .binding
+            .known_songs()
+            .is_some_and(|songs| songs.get("i.s1").is_some())
+    );
+    assert_eq!(apple.binding.holds_any_song(&s1).await, Ok(true));
+    // Under another account's tokens the song list kept is still the first account's, but the
+    // library signed in now does not hold the song.
+    apple.fake.other_account.store(true, Ordering::SeqCst);
+    assert_eq!(apple.binding.holds_any_song(&s1).await, Ok(false));
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_reset_deletes_them_and_stores_without_account_ids_go_by_the_ids_they_hold() -> Result<()>
 {
     let dir = tempfile::tempdir()?;
