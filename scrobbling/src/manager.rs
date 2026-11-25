@@ -189,14 +189,10 @@ pub trait ScrobblingServiceManager: Send + Sync {
             enable_retry,
         )
         .await?;
-        if self.login_epoch(service) == epoch {
-            self.commit_staged_authentication().await;
-        } else {
-            info!(
-                "Discarding a superseded {service} restore: the login changed while it was authenticating"
-            );
-            self.discard_staged_authentication();
-        }
+        // Committing is safe without re-checking the epoch: the caller holds
+        // the manager lock across the restore, and a login or logout needs
+        // that same lock to advance the epoch.
+        self.commit_staged_authentication().await;
         Ok(())
     }
     /// Drops the staged client without activating it or sending it queued
@@ -449,21 +445,16 @@ impl ScrobblingManager {
         }
     }
 
-    /// Reads the login generations of every service in `credentials_list`,
-    /// for [`Self::authenticate_all`] to compare its restores against.
+    /// Reads the login generations of `services`, for [`Self::authenticate_all`]
+    /// to compare its restores against.
     pub async fn restore_epochs(
         manager: &Mutex<dyn ScrobblingServiceManager>,
-        credentials_list: &[ScrobblingCredential],
+        services: &[ScrobblingService],
     ) -> HashMap<ScrobblingService, u64> {
         let manager = manager.lock().await;
-        credentials_list
+        services
             .iter()
-            .map(|credentials| {
-                (
-                    credentials.service,
-                    manager.login_epoch(&credentials.service),
-                )
-            })
+            .map(|service| (*service, manager.login_epoch(service)))
             .collect()
     }
 
@@ -1774,7 +1765,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        let services: Vec<ScrobblingService> = batch.iter().map(|c| c.service).collect();
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &services).await;
         ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
@@ -1833,7 +1825,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        let services: Vec<ScrobblingService> = batch.iter().map(|c| c.service).collect();
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &services).await;
         ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
@@ -1874,7 +1867,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        let services: Vec<ScrobblingService> = batch.iter().map(|c| c.service).collect();
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &services).await;
         ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");

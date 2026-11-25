@@ -343,13 +343,7 @@ impl Signal for AuthenticateMultipleServiceRequest {
             .iter()
             .map(|request| request.service_id.clone().into())
             .collect();
-        let epochs = {
-            let scrobbler = scrobbler.lock().await;
-            restored_services
-                .iter()
-                .map(|service| (*service, scrobbler.login_epoch(service)))
-                .collect()
-        };
+        let epochs = ScrobblingManager::restore_epochs(&scrobbler, &restored_services).await;
 
         let mut authentications = Vec::new();
         for request in &dart_signal.requests {
