@@ -365,19 +365,29 @@ impl<T> Default for TextureSlots<T> {
     }
 }
 
-/// The texture Dart is told to show, and the ones it replaced, until Dart shows their
-/// replacement.
-#[derive(Default)]
-struct Textures {
-    /// The visualizer runs and may have a texture.
-    running: bool,
+/// The bridge's whole state, generic over the texture type so `take_stopping` can be tested
+/// without a Flutter engine.
+struct BridgeState<T> {
+    /// The visualizer the bridge shows, while it runs. A transport report of another visualizer
+    /// — one that stopped while its report was on its way — registers nothing.
+    runner: Option<Weak<::visualizer::Visualizer>>,
     /// The texture slots.
-    slots: TextureSlots<Texture>,
+    slots: TextureSlots<T>,
     /// The id of `current` as last sent to Dart.
     announced: Option<i64>,
 }
 
-static TEXTURES: LazyLock<Mutex<Textures>> = LazyLock::new(Mutex::default);
+impl<T> Default for BridgeState<T> {
+    fn default() -> Self {
+        Self {
+            runner: None,
+            slots: TextureSlots::default(),
+            announced: None,
+        }
+    }
+}
+
+static TEXTURES: LazyLock<Mutex<BridgeState<Texture>>> = LazyLock::new(Mutex::default);
 
 /// The kind of texture that shows frames leaving the GPU by `transport`, or `None` while that is
 /// not known and the texture has to wait for it.
@@ -410,7 +420,7 @@ pub async fn visualizer_started(visualizer: Arc<::visualizer::Visualizer>) {
     }
     {
         let mut textures = TEXTURES.lock().await;
-        textures.running = true;
+        textures.runner = Some(Arc::downgrade(&visualizer));
         // Dart may not have been told about the texture of an earlier run.
         textures.announced = None;
     }
@@ -439,7 +449,14 @@ pub async fn visualizer_started(visualizer: Arc<::visualizer::Visualizer>) {
 /// Show the visualizer in a texture of `kind`, replacing the one of another kind, and tell Dart.
 async fn show(visualizer: Arc<::visualizer::Visualizer>, kind: Kind) {
     let mut textures = TEXTURES.lock().await;
-    if !textures.running {
+    // Only the visualizer the bridge shows may install or reuse a texture: a transport report
+    // that was already on its way when its visualizer stopped must register nothing.
+    if textures
+        .runner
+        .as_ref()
+        .and_then(Weak::upgrade)
+        .is_none_or(|runner| !Arc::ptr_eq(&runner, &visualizer))
+    {
         return;
     }
     // The current texture serves this visualizer only when it is of the kind asked for and this
@@ -515,7 +532,7 @@ fn replace_current<T>(
 
 /// Make `texture` the one Dart shows; the one it replaces goes once Dart shows it.
 fn install(
-    textures: &mut Textures,
+    textures: &mut BridgeState<Texture>,
     kind: Kind,
     texture: Texture,
     visualizer_weak: Weak<::visualizer::Visualizer>,
@@ -562,29 +579,37 @@ pub async fn texture_shown(texture_id: i64) {
 /// everything else. The owner check comes before anything is taken: a visualizer that owns no
 /// texture leaves the state untouched, so stopping one node's visualizer never takes away
 /// another node's texture.
-fn take_stopping<T>(
-    textures: &mut TextureSlots<T>,
-    visualizer: &::visualizer::Visualizer,
-) -> Vec<T> {
+fn take_stopping<T>(bridge: &mut BridgeState<T>, visualizer: &::visualizer::Visualizer) -> Vec<T> {
     let owns = |owner: &Weak<::visualizer::Visualizer>| {
         owner
             .upgrade()
             .is_some_and(|v| std::ptr::eq(Arc::as_ptr(&v), visualizer))
     };
     let mut taken: Vec<T> = Vec::new();
-    if textures
+    let owns_current = bridge
+        .slots
         .current
         .as_ref()
-        .is_some_and(|(_, _, owner)| owns(owner))
-        && let Some((_, texture, _)) = textures.current.take()
-    {
+        .is_some_and(|(_, _, owner)| owns(owner));
+    if owns_current && let Some((_, texture, _)) = bridge.slots.current.take() {
         taken.push(texture);
     }
-    let (stopping, kept): (Vec<_>, Vec<_>) = mem::take(&mut textures.retiring)
+    let (stopping, kept): (Vec<_>, Vec<_>) = mem::take(&mut bridge.slots.retiring)
         .into_iter()
         .partition(|(_, _, owner)| owns(owner));
     taken.extend(stopping.into_iter().map(|(_, texture, _)| texture));
-    textures.retiring = kept;
+    bridge.slots.retiring = kept;
+    // The visualizer the bridge shows stopped — the runner, or the owner of the texture Dart is
+    // told to show: it runs no more, and Dart's texture id is stale. Left set, a transport report
+    // already on its way would register a texture for a stopped visualizer. Another visualizer's
+    // stop leaves both alone. The runner itself is cleared only when it is the one stopping: a
+    // stop delayed past the next start must not clear the new visualizer's claim on the bridge.
+    if bridge.runner.as_ref().is_some_and(owns) {
+        bridge.runner = None;
+    }
+    if owns_current {
+        bridge.announced = None;
+    }
     taken
 }
 
@@ -599,7 +624,7 @@ pub async fn stop_visualizer(visualizer: Arc<::visualizer::Visualizer>) -> Optio
     visualizer.set_window(None);
     let textures_to_unregister = {
         let mut textures = TEXTURES.lock().await;
-        take_stopping(&mut textures.slots, &visualizer)
+        take_stopping(&mut textures, &visualizer)
     };
     for texture in textures_to_unregister {
         texture.unregister().await;
@@ -629,55 +654,100 @@ mod tests {
             .collect()
     }
 
+    fn bridge(slots: TextureSlots<i64>, runner: Option<&Arc<Visualizer>>) -> BridgeState<i64> {
+        BridgeState {
+            runner: runner.map(Arc::downgrade),
+            slots,
+            announced: Some(42),
+        }
+    }
+
     /// Stopping a visualizer that owns nothing touches nothing: another node's texture stays
-    /// the current one (the isolation issue #497 is about).
+    /// the current one (the isolation issue #497 is about), and the runner keeps running.
     #[test]
     fn stopping_a_visualizer_keeps_another_ones_textures() {
         let visualizer_a = Arc::new(Visualizer::new());
         let visualizer_b = Arc::new(Visualizer::new());
-        let mut slots = TextureSlots {
-            current: Some((Kind::Pixels, 1, Weak::clone(&Arc::downgrade(&visualizer_a)))),
-            retiring: owned_textures(&[Some(&visualizer_a)]),
-        };
-        let taken = take_stopping(&mut slots, &visualizer_b);
+        let mut bridge = bridge(
+            TextureSlots {
+                current: Some((Kind::Pixels, 1, Weak::clone(&Arc::downgrade(&visualizer_a)))),
+                retiring: owned_textures(&[Some(&visualizer_a)]),
+            },
+            Some(&visualizer_a),
+        );
+        let taken = take_stopping(&mut bridge, &visualizer_b);
         assert!(taken.is_empty());
         assert_eq!(
-            slots.current.as_ref().map(|(_, texture, _)| *texture),
+            bridge
+                .slots
+                .current
+                .as_ref()
+                .map(|(_, texture, _)| *texture),
             Some(1)
         );
-        assert_eq!(slots.retiring.len(), 1);
+        assert_eq!(bridge.slots.retiring.len(), 1);
+        assert!(bridge.runner.is_some());
+        assert_eq!(bridge.announced, Some(42));
     }
 
     /// Stopping a visualizer takes its own textures, current and retired, and nothing else.
+    /// The runner stops: the bridge no longer shows it, so a transport report already on its
+    /// way cannot register a texture for a stopped visualizer.
     #[test]
     fn stopping_a_visualizer_takes_only_its_own_textures() {
         let visualizer_a = Arc::new(Visualizer::new());
         let visualizer_b = Arc::new(Visualizer::new());
         // Retired textures of both owners; a texture that outlived its visualizer (`None`)
         // belongs to no one and is not taken either.
-        let mut slots = TextureSlots {
-            current: Some((
-                Kind::Pixels,
-                10,
-                Weak::clone(&Arc::downgrade(&visualizer_b)),
-            )),
-            retiring: vec![
-                (10, 8, Arc::downgrade(&visualizer_b)),
-                (10, 9, Arc::downgrade(&visualizer_a)),
-                (10, 7, Weak::default()),
-            ],
-        };
-        let taken = take_stopping(&mut slots, &visualizer_b);
+        let mut bridge = bridge(
+            TextureSlots {
+                current: Some((
+                    Kind::Pixels,
+                    10,
+                    Weak::clone(&Arc::downgrade(&visualizer_b)),
+                )),
+                retiring: vec![
+                    (10, 8, Arc::downgrade(&visualizer_b)),
+                    (10, 9, Arc::downgrade(&visualizer_a)),
+                    (10, 7, Weak::default()),
+                ],
+            },
+            Some(&visualizer_b),
+        );
+        let taken = take_stopping(&mut bridge, &visualizer_b);
         assert_eq!(taken, vec![10, 8]);
-        assert!(slots.current.is_none());
+        assert!(bridge.slots.current.is_none());
         assert_eq!(
-            slots
+            bridge
+                .slots
                 .retiring
                 .iter()
                 .map(|(_, texture, _)| *texture)
                 .collect::<Vec<_>>(),
             vec![9, 7]
         );
+        assert!(bridge.runner.is_none());
+        assert_eq!(bridge.announced, None);
+    }
+
+    /// A visualizer that is not the one the bridge shows stops: its retiring textures are
+    /// taken, but the runner and the id Dart was told stay, so the running visualizer keeps
+    /// its texture.
+    #[test]
+    fn stopping_a_visualizer_that_is_not_shown_keeps_the_runner() {
+        let visualizer_a = Arc::new(Visualizer::new());
+        let visualizer_b = Arc::new(Visualizer::new());
+        let mut bridge = bridge(
+            TextureSlots {
+                current: Some((Kind::Pixels, 1, Weak::clone(&Arc::downgrade(&visualizer_a)))),
+                retiring: vec![(1, 2, Arc::downgrade(&visualizer_b))],
+            },
+            Some(&visualizer_a),
+        );
+        let taken = take_stopping(&mut bridge, &visualizer_b);
+        assert_eq!(taken, vec![2]);
+        assert!(bridge.runner.is_some());
+        assert_eq!(bridge.announced, Some(42));
     }
 
     /// A retired texture keeps the owner it had when it was replaced, so stopping that owner
