@@ -207,7 +207,7 @@ where
             if stream_res == StreamOutcome::Completed {
                 error!("download failed: {e:?}");
             }
-            self.download_status.set_failed();
+            self.download_status.set_failed_with(e);
         }
         self.signal_download_complete();
         self.finished = true;

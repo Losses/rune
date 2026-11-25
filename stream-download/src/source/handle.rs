@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::io;
 use std::ops::Range;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -65,6 +66,12 @@ impl SourceHandle {
 
     pub(crate) fn is_failed(&self) -> bool {
         self.download_status.is_failed()
+    }
+
+    /// The error the download failed with, if it carried one, as a new error that shares the
+    /// original error chain.
+    pub(crate) fn failure_error(&self) -> Option<io::Error> {
+        self.download_status.failure_error()
     }
 
     fn request_position(&self, start: u64, end: u64) {
@@ -259,14 +266,64 @@ impl NotifyRead {
 }
 
 #[derive(Default, Clone, Debug)]
-pub(super) struct DownloadStatus(Arc<AtomicBool>);
+pub(super) struct DownloadStatus {
+    failed: Arc<AtomicBool>,
+    error: Arc<Mutex<Option<Arc<io::Error>>>>,
+}
 
 impl DownloadStatus {
     pub(super) fn set_failed(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.failed.store(true, Ordering::SeqCst);
+    }
+
+    /// Fails the download, keeping the error it failed with so reads can report why instead of
+    /// an untyped failure.
+    pub(super) fn set_failed_with(&self, error: io::Error) {
+        let mut failure = self.error.lock();
+        failure.get_or_insert(Arc::new(error));
+        drop(failure);
+        self.set_failed();
+    }
+
+    /// The failure as a new error that shares the original error chain: an io error cannot be
+    /// cloned, so the reads of several positions each get their own wrapper over it.
+    pub(super) fn failure_error(&self) -> Option<io::Error> {
+        let failure = self.error.lock();
+        let original = failure.as_ref()?.clone();
+        // `read_to_end` and `read_exact` retry `Interrupted`, so a terminal failure must never
+        // carry that kind — a cancelled download would spin forever instead of failing the read.
+        let kind = match original.kind() {
+            io::ErrorKind::Interrupted => io::ErrorKind::Other,
+            kind => kind,
+        };
+        Some(io::Error::new(kind, SharedFailure { original }))
     }
 
     fn is_failed(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.failed.load(Ordering::SeqCst)
+    }
+}
+
+/// A read-side handle to the error a download failed with. Its source is the original error's
+/// own source, so error chains that classify typed causes reach them unchanged.
+struct SharedFailure {
+    original: Arc<io::Error>,
+}
+
+impl Debug for SharedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.original)
+    }
+}
+
+impl std::fmt::Display for SharedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.original)
+    }
+}
+
+impl std::error::Error for SharedFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        std::error::Error::source(&*self.original)
     }
 }

@@ -540,6 +540,10 @@ impl SymphoniaDecoder {
                     }
                     Err(e) => {
                         log::error!("failed to read the next packet: {e}");
+                        // A failed read must not pass as the end of the track: the stream can no
+                        // longer be read, so the sink running dry reports the track as
+                        // unavailable rather than advancing the queue as a normal end.
+                        self.mark_broken();
                         return FillOutcome::Failed;
                     }
                 }
@@ -558,6 +562,7 @@ impl SymphoniaDecoder {
                 Err(_) => {
                     decode_errors += 1;
                     if decode_errors > MAX_DECODE_RETRIES {
+                        self.mark_broken();
                         return FillOutcome::Failed;
                     }
                 }

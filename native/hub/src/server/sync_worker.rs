@@ -1847,6 +1847,10 @@ pub(super) struct RenewableAudio {
     pub size: u64,
     pub client: Arc<tokio_sync::Mutex<AudioCredentials>>,
     pub cancel: tokio_util_sync::CancellationToken,
+    /// The playback failure slot of the track this audio serves: an error boxed into the
+    /// transport's io errors loses its typed cause, so validation failures reach the player
+    /// through this channel instead.
+    pub failure_reason: Option<Arc<std::sync::Mutex<Option<player::UnavailableReason>>>>,
 }
 
 impl RenewableAudio {
@@ -2020,7 +2024,17 @@ impl RenewableAudio {
             self.cancel.cancel();
             anyhow::bail!(RemoteAudioError::AccessRevoked);
         }
-        validate_audio_response(&response, self.size, range)?;
+        if let Err(error) = validate_audio_response(&response, self.size, range) {
+            // The answer of the peer is wrong in a way playback cannot accept. Nothing downstream
+            // of this error keeps its typed cause: the transport boxes it into an io error, so
+            // the failure slot of the track is what tells the player why its audio ended.
+            if let Some(failure) = &self.failure_reason
+                && let Ok(mut reason) = failure.lock()
+            {
+                reason.get_or_insert(player::UnavailableReason::classify(&error));
+            }
+            return Err(error);
+        }
         Ok(response)
     }
 }

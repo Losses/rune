@@ -233,7 +233,32 @@ async fn open_library_stream(
     let failed = remote.failure_reason;
     let reader = ManagedStream::new_with_failure(reader, remote.cancellation, failed.clone());
     debug!("Probing decoder for library track {id}");
-    let mut decoder = probe_decoder(reader, Some(remote.extension), Some(size)).await?;
+    // A transport failure boxes its typed cause away, so the failure slot of the source is what
+    // keeps why the audio ended; the probe error is retyped from it before it is classified.
+    let probed = probe_decoder(reader, Some(remote.extension), Some(size)).await;
+    let probed = match probed {
+        Err(error) => {
+            let reason = failed.lock().ok().and_then(|reason| *reason);
+            Err(match reason {
+                Some(UnavailableReason::AccessRevoked) => {
+                    anyhow!(RemoteAudioError::AccessRevoked)
+                }
+                Some(UnavailableReason::CredentialsRejected) => {
+                    anyhow!(RemoteAudioError::CredentialsRejected)
+                }
+                Some(UnavailableReason::SourceUnreachable) => {
+                    anyhow!(RemoteAudioError::unreachable(error))
+                }
+                Some(UnavailableReason::LibraryUnavailable) => {
+                    anyhow!(RemoteAudioError::LibraryUnavailable)
+                }
+                Some(UnavailableReason::TrackGone) => anyhow!(RemoteAudioError::TrackGone),
+                _ => error,
+            })
+        }
+        probed => probed,
+    };
+    let mut decoder = probed?;
     decoder.set_failure_sink(failed.clone());
     guard.disarm();
     debug!("Decoder ready for library track {id}");
@@ -927,10 +952,20 @@ fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
     Ok(sink)
 }
 
+/// A failure the player reports to the application log: what failed, why, and whether a request
+/// was already answered with this failure. When no request was, the hub tells the user, since
+/// nothing else does.
 #[derive(Debug, Clone)]
 pub struct InternalLog {
     pub domain: String,
     pub error: String,
+    /// The track whose playback failed, when the failure names one: after it stops the player,
+    /// the player's status no longer names it.
+    pub item: Option<PlayingItem>,
+    /// The typed reason the queue was given, for the user-facing failure report.
+    pub failure: Option<UnavailableReason>,
+    /// Whether the answer of a pending request already carried this failure to its requester.
+    pub answered: bool,
 }
 
 impl<S> Source for SharedSource<S>
@@ -1294,6 +1329,20 @@ impl PlayerInternal {
                                     error!("Failed to load track: {e:?}");
                                     self.restore_position = None;
                                     let reason = UnavailableReason::classify(&e);
+                                    // Discarded completions (restore at startup) count as
+                                    // unanswered: nobody waits on them, so their failure must
+                                    // still reach the listeners.
+                                    let answered = self
+                                        .active_load_completions
+                                        .iter()
+                                        .any(|completion| !completion.response.is_closed());
+                                    self.event_sender.send(PlayerEvent::Log(InternalLog {
+                                        domain: "playback".into(),
+                                        error: format!("failed to load the track: {e:#}"),
+                                        item: Some(item.clone()),
+                                        failure: Some(reason),
+                                        answered,
+                                    }))?;
                                     self.mark_unavailable(&item, reason, refused_by);
                                     self.event_sender.send(PlayerEvent::Unavailable(item, reason))?;
                                     self.complete_load_completions(Err(PlayerCommandError::SourceUnavailable));
@@ -2952,6 +3001,16 @@ impl PlayerInternal {
                         .unwrap_or(UnavailableReason::SourceUnreachable);
                     let item = id.context("failed stream has no current item")?;
                     let failed_index = index.context("failed stream has no current index")?;
+                    // No pending request carries this failure: playback was already underway, so
+                    // the log is what keeps it visible. It must precede the stop, after which the
+                    // player no longer names the track.
+                    self.event_sender.send(PlayerEvent::Log(InternalLog {
+                        domain: "playback".into(),
+                        error: "the audio stream failed during playback".into(),
+                        item: Some(item.clone()),
+                        failure: Some(reason),
+                        answered: false,
+                    }))?;
                     self.stop()?;
                     self.mark_unavailable(&item, reason, None);
                     self.event_sender
@@ -8432,4 +8491,7 @@ mod playback_state_tests {
     // the entry after the current one is ever removed. The tests report the host's events,
     // written out or taken from the model.
     mod hosted;
+    // Corrupt ranged audio responses of a faulty peer, which validation refuses: playback must
+    // fail typed and logged instead of stopping silently.
+    mod range_failures;
 }
