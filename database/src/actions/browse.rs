@@ -320,6 +320,16 @@ pub(super) async fn album_for_file(
     Ok(rows.into_iter().next())
 }
 
+/// The albums the collection lists for these editions: the id and the title it gives each,
+/// with the edition's own id as `source_uuid`.
+pub(super) fn edition_albums(editions: SelectStatement) -> SelectStatement {
+    Query::select()
+        .columns(["id", "name", "source_uuid"].map(|c| (Alias::new("browse"), Alias::new(c))))
+        .from(browse_selection(Kind::Album))
+        .and_where(alias_col("browse", "source_uuid").in_subquery(editions))
+        .to_owned()
+}
+
 pub(super) async fn portable_clause(
     db: &impl ConnectionTrait,
     operator_name: String,

@@ -1,7 +1,8 @@
+use crate::actions::artist_page::{artist_section_files, artist_track_files};
 use crate::actions::resolved_metadata::queries::verified_audio;
 use crate::actions::search::{add_term, remove_term};
 use crate::error::ExpectedError;
-use crate::mix_operator::{MixOperator, UnknownOperator};
+use crate::mix_operator::{ArtistSection, MixOperator, UnknownOperator};
 use crate::sync::{
     SeaOrmSyncStore,
     bindings::apply,
@@ -446,6 +447,11 @@ pub enum QueryOperator {
     LibQueue(bool),
     LibDirectoryDeep(String),
     LibDirectoryShallow(String),
+    /// An artist's number and the section of its page: the songs of the section's releases,
+    /// release by release. A local library sorts its catalog's releases into the sections.
+    LibArtistSection(i32, ArtistSection),
+    /// An artist's number: the artist's songs, most listened first. It stands alone.
+    LibArtistTracks(i32),
     SortTrackNumber(bool),
     SortLastModified(bool),
     SortDuration(bool),
@@ -574,6 +580,14 @@ impl QueryOperator {
             MixOperator::LibQueue => Self::LibQueue(flag()?),
             MixOperator::LibDirectoryDeep => Self::LibDirectoryDeep(parameter.to_owned()),
             MixOperator::LibDirectoryShallow => Self::LibDirectoryShallow(parameter.to_owned()),
+            MixOperator::LibArtistSection => {
+                let (artist, section) = parameter.split_once(':').ok_or_else(invalid)?;
+                Self::LibArtistSection(
+                    artist.parse().map_err(|_| invalid())?,
+                    ArtistSection::from_syntax(section).ok_or_else(invalid)?,
+                )
+            }
+            MixOperator::LibArtistTracks => Self::LibArtistTracks(number()?),
             MixOperator::SortTrackNumber => Self::SortTrackNumber(flag()?),
             MixOperator::SortLastModified => Self::SortLastModified(flag()?),
             MixOperator::SortDuration => Self::SortDuration(flag()?),
@@ -605,6 +619,8 @@ impl QueryOperator {
             Self::LibQueue(_) => MixOperator::LibQueue,
             Self::LibDirectoryDeep(_) => MixOperator::LibDirectoryDeep,
             Self::LibDirectoryShallow(_) => MixOperator::LibDirectoryShallow,
+            Self::LibArtistSection(..) => MixOperator::LibArtistSection,
+            Self::LibArtistTracks(_) => MixOperator::LibArtistTracks,
             Self::SortTrackNumber(_) => MixOperator::SortTrackNumber,
             Self::SortLastModified(_) => MixOperator::SortLastModified,
             Self::SortDuration(_) => MixOperator::SortDuration,
@@ -637,10 +653,12 @@ impl QueryOperator {
             | Self::LibPlaylist(id)
             | Self::LibTrack(id)
             | Self::LibRandom(id)
+            | Self::LibArtistTracks(id)
             | Self::PipeRecommend(id) => id.to_string(),
             Self::LibDirectoryDeep(path) | Self::LibDirectoryShallow(path) => path.clone(),
             Self::LibRelease(id) | Self::LibArtistId(id) => id.to_string(),
             Self::LibAlbumArtist(value) | Self::LibLabel(value) => value.clone(),
+            Self::LibArtistSection(artist, section) => format!("{artist}:{}", section.syntax()),
             Self::PipeLimit(limit) => limit.to_string(),
         };
         (self.operator().syntax(), parameter)
@@ -757,7 +775,7 @@ fn artist_condition(ids: Vec<i32>) -> SimpleExpr {
     artist_tracks_condition(targets)
 }
 
-fn artist_uuid_condition(id: Uuid) -> SimpleExpr {
+pub(super) fn artist_uuid_condition(id: Uuid) -> SimpleExpr {
     let targets = Query::select().expr(Expr::val(id.to_string())).to_owned();
     artist_tracks_condition(targets)
 }
@@ -850,7 +868,7 @@ fn statistics_sum(column: media_file_stats::Column) -> SimpleExpr {
 /// fingerprint matches the algorithm, configuration, format, and file content
 /// checked below. NOT EXISTS avoids repeating a file for each matching
 /// fingerprint row.
-fn not_verified_duplicate() -> SimpleExpr {
+pub(super) fn not_verified_duplicate() -> SimpleExpr {
     let duplicates = Query::select()
         .expr(Expr::val(1))
         .from(media_file_fingerprint::Entity)
@@ -1047,6 +1065,12 @@ fn escape_like(text: &str) -> String {
     escaped
 }
 
+/// An artist page query, which a library answers by itself.
+enum ArtistPageQuery {
+    Section(i32, ArtistSection),
+    Tracks(i32),
+}
+
 pub async fn query_mix_media_files(
     main_db: &DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
@@ -1099,6 +1123,7 @@ pub async fn query_mix_media_files_with_seed(
     let mut directories_deep: Vec<String> = vec![];
     let mut directories_shallow: Vec<String> = vec![];
     let mut playback_queue: Option<bool> = None;
+    let mut artist_page: Option<ArtistPageQuery> = None;
 
     let mut sort_track_number_asc: Option<bool> = None;
     let mut sort_last_modified_asc: Option<bool> = None;
@@ -1112,9 +1137,15 @@ pub async fn query_mix_media_files_with_seed(
     let mut pipe_limit: Option<u64> = None;
     let mut pipe_recommend: Option<i32> = None;
 
+    // Clauses other than the cover filter, which an artist page query may come with.
+    let mut other_clauses = 0;
     for (operator, parameter) in queries {
         let query = super::browse::portable_clause(main_db, operator, parameter).await?;
-        match QueryOperator::parse(&query.0, &query.1).map_err(ExpectedError::from)? {
+        let parsed = QueryOperator::parse(&query.0, &query.1).map_err(ExpectedError::from)?;
+        if parsed != QueryOperator::FilterWithCoverArt(true) {
+            other_clauses += 1;
+        }
+        match parsed {
             QueryOperator::LibAll(is_all) => all = is_all,
             QueryOperator::LibArtist(id) => artist_ids.push(id),
             QueryOperator::LibArtistId(id) => resolved_conditions.push(artist_uuid_condition(id)),
@@ -1133,6 +1164,12 @@ pub async fn query_mix_media_files_with_seed(
             QueryOperator::LibQueue(enabled) => playback_queue = Some(enabled),
             QueryOperator::LibDirectoryDeep(dir) => directories_deep.push(dir),
             QueryOperator::LibDirectoryShallow(dir) => directories_shallow.push(dir),
+            QueryOperator::LibArtistSection(artist, section) => {
+                artist_page = Some(ArtistPageQuery::Section(artist, section));
+            }
+            QueryOperator::LibArtistTracks(artist) => {
+                artist_page = Some(ArtistPageQuery::Tracks(artist));
+            }
             QueryOperator::SortTrackNumber(asc) => sort_track_number_asc = Some(asc),
             QueryOperator::SortLastModified(asc) => sort_last_modified_asc = Some(asc),
             QueryOperator::SortDuration(asc) => sort_duration_asc = Some(asc),
@@ -1144,6 +1181,26 @@ pub async fn query_mix_media_files_with_seed(
             QueryOperator::PipeLimit(limit) => pipe_limit = Some(limit),
             QueryOperator::PipeRecommend(recommend) => pipe_recommend = Some(recommend),
         }
+    }
+
+    if let Some(page) = artist_page {
+        // An artist's page lists in its own order, so nothing else can be combined with it,
+        // except the filter for songs with cover art.
+        if other_clauses != 1 {
+            return Err(ExpectedError::InvalidInput {
+                detail: "an artist page query stands alone".to_owned(),
+            }
+            .into());
+        }
+        let cover_only = filter_cover_art == Some(true);
+        return match page {
+            ArtistPageQuery::Section(artist, section) => {
+                artist_section_files(main_db, artist, section, cover_only, cursor, page_size).await
+            }
+            ArtistPageQuery::Tracks(artist) => {
+                artist_track_files(main_db, artist, cover_only, cursor, page_size).await
+            }
+        };
     }
 
     if pipe_recommend.is_some() && cursor > 0 {
@@ -1609,7 +1666,7 @@ async fn replace_queries_on(
     let mut directories = Vec::new();
     for (position, (operator, parameter)) in queries.into_iter().enumerate() {
         let (operator, parameter) = super::browse::portable_clause(tx, operator, parameter).await?;
-        let kind = stored_operator(&operator)?;
+        let kind = mix_clause_operator(&operator)?;
         let target = resolve_target_on(tx, kind, &parameter).await?;
         let directory = kind.is_directory();
         let portable = if target.is_some() || directory {
@@ -1697,6 +1754,22 @@ async fn resolve_target_on(
             })?,
     ))
 }
+/// The operator of a clause a mix is given. A mix is synced by what it names, so other devices
+/// play it too. The lists of an artist's page name sections a device derives from its own tags
+/// and play counts, which another device may not share or may not know, so a mix cannot hold
+/// them, as an offline rule cannot.
+fn mix_clause_operator(text: &str) -> Result<MixOperator, ExpectedError> {
+    let operator = stored_operator(text)?;
+    if matches!(
+        operator,
+        MixOperator::LibArtistSection | MixOperator::LibArtistTracks
+    ) {
+        return Err(ExpectedError::InvalidInput {
+            detail: format!("mix query operator `{text}` only lists an artist's page"),
+        });
+    }
+    Ok(operator)
+}
 async fn add_query_on(
     tx: &DatabaseTransaction,
     mix_uuid: &str,
@@ -1708,7 +1781,7 @@ async fn add_query_on(
     type Clauses = OwnedListPolicy<mix_queries::Entity, MixClauseMap>;
     let views = query_views_on(tx, mix_uuid).await?;
     let (operator, parameter) = super::browse::portable_clause(tx, operator, parameter).await?;
-    let kind = stored_operator(&operator)?;
+    let kind = mix_clause_operator(&operator)?;
     let directory = kind.is_directory();
     let existing = views.iter().find(|view| {
         view.operator == operator && view.parameter == parameter && (!directory || view.available)

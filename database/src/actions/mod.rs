@@ -1,5 +1,6 @@
 pub mod albums;
 pub mod analysis;
+pub mod artist_page;
 pub mod artists;
 mod browse;
 pub mod collection;

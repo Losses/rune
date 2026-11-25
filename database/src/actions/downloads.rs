@@ -65,6 +65,12 @@ pub fn validate_queries(queries: &[(String, String)]) -> Result<()> {
                     return Err(invalid("invalid offline query operator or parameter"));
                 }
             }
+            // An offline rule is stored by what it names, so other devices apply it too. These
+            // name a device's own artist number and sections the device derives from its tags
+            // and play counts, which another device may not share, so a rule cannot hold them.
+            QueryOperator::LibArtistSection(..) | QueryOperator::LibArtistTracks(_) => {
+                return Err(invalid("invalid offline query operator or parameter"));
+            }
             QueryOperator::FilterLiked(_)
             | QueryOperator::FilterAnalyzed(_)
             | QueryOperator::FilterWithCoverArt(_)

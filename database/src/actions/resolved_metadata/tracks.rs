@@ -14,7 +14,7 @@ use sea_orm::sea_query::{
 };
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
 };
 
 use anyhow::Result;
@@ -355,16 +355,52 @@ pub(super) async fn duration_rows(
     id: Uuid,
     album: bool,
 ) -> Result<Vec<QueryResult>> {
-    use media_files::Column as F;
-    use orm_audio::Column as A;
-    use orm_release_tracks::Column as T;
-    use orm_track_assets::Column as V;
     let key = id.to_string();
     let filter = if album {
         discs::Column::AlbumId.eq(key)
     } else {
-        T::DiscId.eq(key)
+        orm_release_tracks::Column::DiscId.eq(key)
     };
+    Ok(db.query_all(&logical_durations(filter)).await?)
+}
+
+/// The length of each release of `albums` in milliseconds, each logical track counted once,
+/// as [`super::album_metadata`] adds it up. A release whose tracks have no known length has
+/// none.
+pub(in crate::actions) async fn release_durations(
+    db: &impl ConnectionTrait,
+    albums: SelectStatement,
+) -> Result<HashMap<String, u64>> {
+    let album = Alias::new("album_id");
+    let filter = column(discs::Column::AlbumId).in_subquery(albums);
+    let rows = db
+        .query_all(
+            Query::select()
+                .column(album.clone())
+                .expr_as(
+                    Func::sum(Expr::col(Alias::new("duration_ms"))),
+                    "duration_ms",
+                )
+                .from_subquery(logical_durations(filter), "tracks")
+                .group_by_col(album),
+        )
+        .await?;
+    let mut durations = HashMap::new();
+    for row in rows {
+        if let Some(duration) = super::columns::duration(&row)? {
+            durations.insert(row.try_get("", "album_id")?, duration);
+        }
+    }
+    Ok(durations)
+}
+
+/// The audio and the duration of one version of each logical track `filter` selects, with
+/// the release the track is on.
+fn logical_durations(filter: Expr) -> SelectStatement {
+    use media_files::Column as F;
+    use orm_audio::Column as A;
+    use orm_release_tracks::Column as T;
+    use orm_track_assets::Column as V;
 
     // Rank versions once for each logical track so only one duration contributes.
     let mut window = WindowStatement::partition_by(T::Id.as_column_ref());
@@ -380,6 +416,7 @@ pub(super) async fn duration_rows(
     let variants = Query::select()
         .expr_as(column(A::Id), "audio_id")
         .expr_as(duration, "duration_ms")
+        .column(discs::Column::AlbumId.as_column_ref())
         .expr_window_as(Func::cust("ROW_NUMBER"), window, "pick")
         .from(orm_release_tracks::Entity)
         .inner_join(
@@ -394,14 +431,11 @@ pub(super) async fn duration_rows(
         .inner_join(media_files::Entity, column(F::Id).eq(column(A::FileId)))
         .and_where(filter)
         .to_owned();
-    Ok(db
-        .query_all(
-            Query::select()
-                .columns([Alias::new("audio_id"), Alias::new("duration_ms")])
-                .from_subquery(variants, "variants")
-                .and_where(Expr::col(Alias::new("pick")).eq(1)),
-        )
-        .await?)
+    Query::select()
+        .columns(["audio_id", "duration_ms", "album_id"].map(Alias::new))
+        .from_subquery(variants, "variants")
+        .and_where(Expr::col(Alias::new("pick")).eq(1))
+        .to_owned()
 }
 
 fn track_fallback(track: Uuid) -> Uuid {

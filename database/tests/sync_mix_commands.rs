@@ -378,3 +378,100 @@ async fn a_mix_reads_back_the_playback_mode_it_was_stored_with() -> Result<()> {
     assert_eq!(mix_playback_mode(&missing.update(&db).await?), Ok(None));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_mix_cannot_hold_the_queries_of_an_artist_page() -> Result<()> {
+    use database::actions::mixes::executable_mix_queries;
+    use database::entities::portable_artists as artists;
+    use database::error::ExpectedError;
+    use database::sync::model::Artist;
+    use migration::catalog_identity::{self, ParentKind};
+    use sea_orm::{ColumnTrait, QueryFilter};
+
+    let library = support::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
+    let id = catalog_identity::parent(ParentKind::Artist, "Ann");
+    library
+        .peer
+        .write_local(
+            support::key(Collection::Artists, id),
+            Some(Payload::Artist(Artist {
+                name: "Ann".into(),
+                group: "Ann".into(),
+            })),
+        )
+        .await?;
+    let ann = artists::Entity::find()
+        .filter(artists::Column::SourceUuid.eq(id.to_string()))
+        .one(&library.db)
+        .await?
+        .expect("the artist was stored")
+        .id;
+    let store = library.sync_store.record_store();
+    let refused = |error: anyhow::Error| {
+        matches!(
+            error.downcast_ref::<ExpectedError>(),
+            Some(ExpectedError::InvalidInput { .. })
+        )
+    };
+
+    // A mix is synced by what it names, and these name sections a device derives from its own
+    // tags and play counts, alone or with the cover filter as an artist's page sends them.
+    let page_queries = [
+        vec![("lib::artist_section".to_owned(), format!("{ann}:albums"))],
+        vec![
+            ("lib::artist_tracks".to_owned(), ann.to_string()),
+            ("filter::with_cover_art".to_owned(), "true".to_owned()),
+        ],
+    ];
+    for queries in &page_queries {
+        let error = create_mix(
+            &library.db,
+            &store,
+            "Ann".into(),
+            "Group".into(),
+            None,
+            false,
+            queries.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert!(refused(error), "{queries:?}");
+    }
+
+    let artist = vec![("lib::artist".to_owned(), ann.to_string())];
+    let mix = create_mix(
+        &library.db,
+        &store,
+        "Ann".into(),
+        "Group".into(),
+        None,
+        false,
+        artist.clone(),
+    )
+    .await?;
+    for queries in &page_queries {
+        let error = replace_mix_queries(
+            &library.db,
+            &store,
+            mix.id,
+            &mix.source_uuid,
+            queries.clone(),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(refused(error), "{queries:?}");
+    }
+    let error = add_item_to_mix(
+        &library.db,
+        &store,
+        mix.id,
+        "lib::artist_tracks".into(),
+        ann.to_string(),
+    )
+    .await
+    .unwrap_err();
+    assert!(refused(error));
+    assert_eq!(executable_mix_queries(&library.db, mix.id).await?, artist);
+    Ok(())
+}

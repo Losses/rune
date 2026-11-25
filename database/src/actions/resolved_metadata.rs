@@ -18,6 +18,7 @@ mod release_group;
 pub(super) mod summary;
 pub(crate) mod synced;
 mod tracks;
+pub(in crate::actions) use tracks::release_durations;
 pub use tracks::{disc_track_ids, release_track_metadata};
 
 use std::collections::BTreeMap;
