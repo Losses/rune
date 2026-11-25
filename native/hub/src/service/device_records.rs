@@ -246,18 +246,23 @@ impl<T: StoredRecord> DeviceStore<T> {
     }
 
     /// Writes `bytes` to the file at `path` beside the records' file, as a note that goes with
-    /// them, unless the store was closed or is held.
+    /// them, unless the store was closed or is held. Like a change, it runs on a task of its own,
+    /// so it ends as it began even when the caller stops waiting, and `close` waits for it.
     pub(crate) async fn write_beside(&self, path: PathBuf, bytes: Vec<u8>) -> Result<()> {
-        let state = self.inner.state.lock().await;
-        if matches!(*state, State::Closed | State::Held) {
-            return Err(closed(T::WHAT));
-        }
-        let written = path.clone();
-        task::spawn_blocking(move || write_atomically(&written, &bytes))
-            .await?
-            .with_context(|| format!("Could not write {}", path.display()))?;
-        drop(state);
-        Ok(())
+        let inner = Arc::clone(&self.inner);
+        tokio::spawn(async move {
+            let state = inner.state.lock().await;
+            if matches!(*state, State::Closed | State::Held) {
+                return Err(closed(T::WHAT));
+            }
+            let written = path.clone();
+            task::spawn_blocking(move || write_atomically(&written, &bytes))
+                .await?
+                .with_context(|| format!("Could not write {}", path.display()))?;
+            drop(state);
+            Ok(())
+        })
+        .await?
     }
 
     /// Waits for a change being written, then refuses every later one: the library record is
@@ -523,6 +528,25 @@ mod tests {
             *DeviceStore::<Note>::new(path).list().await?,
             [note("a", "A")]
         );
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_note_whose_caller_stops_waiting_is_still_written() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let (path, notes) = store(dir.path());
+        let beside = path.with_extension("note");
+        // As for a change, the store is held so the note cannot be written before its caller
+        // stops waiting.
+        let held = notes.inner.state.lock().await;
+        let dropped = notes.write_beside(beside.clone(), b"noted".to_vec());
+        assert!(dropped.now_or_never().is_none());
+        drop(held);
+        crate::test_wait::wait_until("the note to be written", || async {
+            Ok(beside.exists().then_some(()))
+        })
+        .await?;
+        assert_eq!(std::fs::read(&beside)?, b"noted");
         Ok(())
     }
 
