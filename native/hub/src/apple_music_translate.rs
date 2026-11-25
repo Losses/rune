@@ -1446,11 +1446,22 @@ fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed
         .library_entries()
         .filter(|(track, _)| artist.credits_track(track) && seen.insert(*track))
         .collect();
-    // An album's year is its earliest song's, as songs of one album may disagree.
-    let mut years: HashMap<Option<&str>, u32> = HashMap::new();
+    // An album is told by its id, or else by its name. Its year is its earliest song's, as songs
+    // of one album may disagree.
+    let album_of = |song: &LibrarySong| match song.album_id() {
+        Some(id) => (Some(id.to_owned()), String::new()),
+        None => (
+            None,
+            SongRef::Library(song)
+                .album()
+                .unwrap_or_default()
+                .to_lowercase(),
+        ),
+    };
+    let mut years: HashMap<(Option<String>, String), u32> = HashMap::new();
     for (_, song) in &found {
         let year = SongRef::Library(song).year().unwrap_or(u32::MAX);
-        let slot = years.entry(song.album_id()).or_insert(year);
+        let slot = years.entry(album_of(song)).or_insert(year);
         *slot = (*slot).min(year);
     }
     found.sort_by_cached_key(|(_, song)| {
@@ -1458,7 +1469,7 @@ fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed
         let (disc, number, title) = disc_number_title(song);
         (
             listed.album().is_none() && song.album_id().is_none(),
-            years[&song.album_id()],
+            years[&album_of(song)],
             listed.album().unwrap_or_default().to_lowercase(),
             song.album_id().map(str::to_owned),
             disc,
@@ -2238,6 +2249,27 @@ mod tests {
             titles(album_songs_from_list(&list, "l.a")),
             ["First", "Second", "Not Ann"]
         );
+    }
+
+    #[test]
+    fn albums_that_name_no_album_id_go_by_their_own_years() {
+        let unrelated = |id, title, album| {
+            let mut song = song(id, title, "Ann", Some(album), 1, None);
+            song.relationships = None;
+            song
+        };
+        let songs = vec![
+            unrelated("i.1", "Newer", ("Alpha", 2020)),
+            unrelated("i.2", "Older", ("Zulu", 2000)),
+            song("i.3", "Loose", "Ann", None, 1, None),
+        ];
+        let named = NamedArtists::new(&[library("r.1", "Ann")], &songs, &SongArtists::default());
+        let ann = named.iter().find(|artist| artist.name == "Ann").unwrap();
+        let titles: Vec<String> = artist_songs_from_list(&list(songs.clone()), ann)
+            .into_iter()
+            .map(|(_, song)| song.as_ref().title().to_owned())
+            .collect();
+        assert_eq!(titles, ["Older", "Newer", "Loose"]);
     }
 
     #[test]
