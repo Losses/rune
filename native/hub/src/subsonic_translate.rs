@@ -1728,17 +1728,24 @@ async fn listed_albums(binding: &SubsonicBinding) -> Result<Vec<(i32, SubsonicAl
     numbered_albums(binding, &albums)
 }
 
-/// Every album by name, read page after page, for the kept list.
+/// Every album by name, each once, read page after page, for the kept list. A short page ends
+/// the list, and so does a page that adds no album, as a server that ignores the offset repeats
+/// one.
 pub(crate) async fn read_albums_by_name(
     client: &SubsonicClient,
 ) -> Result<Vec<SubsonicAlbum>, SubsonicError> {
     let mut albums = Vec::new();
+    let mut listed = HashSet::new();
     let mut offset = 0_u32;
     loop {
         let page = client.album_list(500, offset).await?;
         let count = u32::try_from(page.len()).unwrap_or(u32::MAX);
-        albums.extend(page);
-        if count < 500 {
+        let before = albums.len();
+        albums.extend(
+            page.into_iter()
+                .filter(|album| listed.insert(album.id.clone())),
+        );
+        if count < 500 || albums.len() == before {
             return Ok(albums);
         }
         // A list longer than an offset can name ends there.
@@ -2873,6 +2880,9 @@ mod tests {
         newer_albums: Arc<AtomicUsize>,
         /// How many of its four songs the song list holds.
         listed_songs: Arc<AtomicUsize>,
+        /// Gives the same full page of albums by name for every offset when this is not zero, as a
+        /// server that ignores the offset does.
+        repeated_albums: Arc<AtomicUsize>,
     }
 
     type MockPlaylistCalls = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
@@ -2950,6 +2960,7 @@ mod tests {
             listed_covers: Arc::new(AtomicUsize::new(0)),
             newer_albums: Arc::new(AtomicUsize::new(0)),
             listed_songs: Arc::new(AtomicUsize::new(4)),
+            repeated_albums: Arc::new(AtomicUsize::new(0)),
         };
         let app = Router::new()
             .route("/rest/{*endpoint}", get(mock_endpoint))
@@ -3345,6 +3356,17 @@ mod tests {
                 }})
             }
             // The newest albums come a page of one at a time, however many are asked for.
+            "getAlbumList2"
+                if query
+                    .get("type")
+                    .is_some_and(|kind| kind == "alphabeticalByName")
+                    && state.repeated_albums.load(Ordering::SeqCst) != 0 =>
+            {
+                let albums = (0..500)
+                    .map(|n| serde_json::json!({"id":format!("album-r-{n:03}"),"name":format!("Album {n:03}")}))
+                    .collect::<Vec<_>>();
+                serde_json::json!({"albumList2":{"album":albums}})
+            }
             "getAlbumList2" if query.get("type").is_some_and(|kind| kind == "newest") => {
                 let offset = query
                     .get("offset")
@@ -7003,5 +7025,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(endpoint_count(&server, "getArtists"), 2);
+    }
+
+    #[tokio::test]
+    async fn an_album_list_whose_server_repeats_a_full_page_ends_and_lists_each_album_once() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.repeated_albums.store(1, Ordering::SeqCst);
+        let summary = tokio_time::timeout(
+            Duration::from_secs(10),
+            fetch_collection_group_summary_request(
+                &binding,
+                &FetchCollectionGroupSummaryRequest {
+                    call_id: None,
+                    collection_type: CollectionType::Album,
+                },
+            ),
+        )
+        .await
+        .expect("the album list did not end")
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            summary
+                .groups
+                .iter()
+                .map(|group| (group.group_title.as_str(), group.count))
+                .collect::<Vec<_>>(),
+            [("A", 500)]
+        );
+        // The page that added no album ends the list.
+        assert_eq!(endpoint_count(&server, "getAlbumList2"), 2);
     }
 }
