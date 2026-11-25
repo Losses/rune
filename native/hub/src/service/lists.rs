@@ -172,12 +172,13 @@ impl ServiceLists {
     /// still get its list.
     pub(crate) fn clear(&self, account: Option<&str>) {
         let lists: Vec<_> = lock(&self.lists).iter().filter_map(Weak::upgrade).collect();
-        // The disk first, so a list read from disk after this is never one of the old account.
-        self.store.clear_then(account, |generation| {
-            for list in &lists {
-                list.forget(generation);
-            }
-        });
+        // The disk first, so a list read from disk after this is never one of the old account. A
+        // read that ends before its list is forgotten saves nothing, as the store took the new
+        // generation first, and what it keeps goes with the list.
+        let generation = self.store.clear(account);
+        for list in &lists {
+            list.forget(generation);
+        }
         (self.changed)();
     }
 
@@ -365,6 +366,11 @@ where
                         read_at: Some(now),
                     });
                     (self.take)(list);
+                    // Saved under the lock, so the saves of the list are queued in the order it
+                    // keeps what its reads bring. Written also when it is the list kept already,
+                    // whose write may have failed.
+                    self.store
+                        .save(generation, self.spec.name, Arc::clone(list));
                     changed
                 }
                 Err(error) => {
@@ -376,11 +382,6 @@ where
                 }
             }
         };
-        // Written also when it is the list kept already, whose write may have failed.
-        if let Ok(list) = read {
-            self.store
-                .save(generation, self.spec.name, Arc::clone(list));
-        }
         if changed {
             (self.changed)();
         }

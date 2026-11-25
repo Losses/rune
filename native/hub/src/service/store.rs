@@ -187,11 +187,10 @@ impl ListStore {
     }
 
     /// Deletes every saved value, drops the saves not written yet, keeps values for `account`
-    /// from now on, and runs `then` with the new generation before it can be taken otherwise or a
-    /// save be accepted, so what a read of the new generation finds is what `then` made, never
-    /// what came before it. It waits for a write being made, so nothing is left of it either. A
-    /// file it cannot delete stays another account's, which the store does not give.
-    pub(crate) fn clear_then(&self, account: Option<&str>, then: impl FnOnce(StoreGeneration)) {
+    /// from now on, and gives the new generation, under which saves are accepted again. It waits
+    /// for a write being made, so nothing is left of it either. A file it cannot delete stays
+    /// another account's, which the store does not give.
+    pub(crate) fn clear(&self, account: Option<&str>) -> StoreGeneration {
         // The folder first, so a save under the new generation is written after the deletion.
         let _io = lock(&self.0.io);
         let mut state = lock(&self.0.state);
@@ -203,7 +202,7 @@ impl ListStore {
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => log::warn!("Could not delete the kept lists: {error}"),
         }
-        then(StoreGeneration(state.generation));
+        StoreGeneration(state.generation)
     }
 }
 
@@ -307,11 +306,9 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use std::fs;
     use std::path::Path;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -359,7 +356,7 @@ mod tests {
 
         // A save taken before a clear is not written after it.
         store.save(generation, "names", names("c"));
-        store.clear_then(None, |_| {});
+        store.clear(None);
         assert!(!dir.exists());
         store.save(generation, "names", names("d"));
         after_a_write();
@@ -368,25 +365,16 @@ mod tests {
     }
 
     #[test]
-    fn a_new_generation_is_taken_only_after_what_a_clear_runs() {
+    fn a_clear_gives_the_generation_saves_are_accepted_under_from_then_on() {
         let root = TempDir::new().unwrap();
-        let store = ListStore::new(root.path().join("lists"), None);
+        let dir = root.path().join("lists");
+        let store = ListStore::new(dir.clone(), None);
         let before = store.generation();
-        let ran = AtomicBool::new(false);
-        thread::scope(|scope| {
-            let reader = RefCell::new(None);
-            store.clear_then(None, |_| {
-                reader.replace(Some(scope.spawn(|| {
-                    let generation = store.generation();
-                    (generation, ran.load(Ordering::SeqCst))
-                })));
-                thread::sleep(Duration::from_millis(200));
-                ran.store(true, Ordering::SeqCst);
-            });
-            let (generation, ran_before) = reader.take().unwrap().join().unwrap();
-            assert_ne!(generation, before);
-            assert!(ran_before);
-        });
+        let generation = store.clear(None);
+        assert_ne!(generation, before);
+        assert_eq!(store.generation(), generation);
+        store.save(generation, "names", names("a"));
+        assert_eq!(written(&store, "names"), Some(vec!["a".to_owned()]));
     }
 
     #[cfg(unix)]
@@ -441,7 +429,7 @@ mod tests {
         assert_eq!(store.load::<Vec<String>>("old"), None);
         assert_eq!(store.load::<Vec<String>>("broken"), None);
         assert_eq!(store.load::<Vec<String>>("missing"), None);
-        store.clear_then(None, |_| {});
+        store.clear(None);
         assert!(!dir.exists());
     }
 }
