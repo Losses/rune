@@ -334,6 +334,17 @@ impl Signal for AuthenticateMultipleServiceRequest {
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        // The restore epochs are read before the credentials: a login or
+        // logout committed during those reads then shows up as a changed
+        // generation, and the stale restore is skipped instead of replacing
+        // the account the user just chose.
+        let restored_services: Vec<scrobbling::manager::ScrobblingService> = dart_signal
+            .requests
+            .iter()
+            .map(|request| request.service_id.clone().into())
+            .collect();
+        let epochs = ScrobblingManager::restore_epochs(&scrobbler, &restored_services).await;
+
         let mut authentications = Vec::new();
         for request in &dart_signal.requests {
             let ScrobbleSecretInput::Saved { credential_ref } = &request.secret_input else {
@@ -373,7 +384,7 @@ impl Signal for AuthenticateMultipleServiceRequest {
                 Err(_) => log::warn!("Could not read saved scrobble credentials"),
             }
         }
-        ScrobblingManager::authenticate_all(scrobbler, authentications);
+        ScrobblingManager::authenticate_all(scrobbler, authentications, epochs);
         Ok(None)
     }
 }
@@ -541,6 +552,10 @@ mod tests {
 
     #[async_trait]
     impl ScrobblingServiceManager for TestScrobbler {
+        fn login_epoch(&self, _service: &ScrobblingService) -> u64 {
+            0
+        }
+
         async fn send_login_status(&self) {
             self.statuses.lock().unwrap().push(self.active.clone());
             self.inner.send_login_status().await;
