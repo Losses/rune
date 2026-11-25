@@ -2568,6 +2568,8 @@ mod access_policy_tests {
             "GetLikedRequest" => RequestAccess::ConnectionView,
             "ComplexQueryRequest" => RequestAccess::ConnectionView,
             "SearchForRequest" => RequestAccess::ConnectionView,
+            "FetchArtistPageRequest" => RequestAccess::ConnectionView,
+            "FetchArtistSectionAlbumsRequest" => RequestAccess::ConnectionView,
             "FetchDirectoryTreeRequest" => RequestAccess::ConnectionView,
             "AuthenticateSingleServiceRequest" => RequestAccess::NodeLocal,
             "AuthenticateMultipleServiceRequest" => RequestAccess::NodeLocal,

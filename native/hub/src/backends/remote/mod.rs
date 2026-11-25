@@ -630,7 +630,7 @@ async fn register_session_handlers(
                 let current_link = node.renderer_link().ok().flatten();
                 let active = current_link.as_ref().is_some_and(|link| link.id() == id);
                 if event_name == "RequestCapabilities" {
-                    match rinf::deserialize::<RequestCapabilities>(&payload) {
+                    match RequestCapabilities::from_peer(&payload) {
                         Ok(capabilities) => {
                             let library_id = capabilities
                                 .library_id

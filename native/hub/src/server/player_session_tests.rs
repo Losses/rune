@@ -15883,6 +15883,164 @@ async fn local_capability_snapshot_marks_every_request_available() -> Result<()>
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_library_answers_the_artist_page_with_derived_sections_and_tracks() -> Result<()> {
+    use crate::messages::{
+        ArtistSectionKind, ArtistSectionOpens, FetchArtistPageRequest,
+        FetchArtistSectionAlbumsRequest, MixQueryRequest,
+    };
+    use database::actions::collection::{CollectionQuery, CollectionQueryListMode};
+    use database::entities::{portable_albums, portable_artists};
+    use database::test_fixtures::fixtures;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let library = fixture.global_params.test_library();
+    let db = &*library.main_db;
+    // Two long songs of a release the tags call a single, and one of a release they flag as a
+    // compilation.
+    let root = Path::new(&library.media_root);
+    let single = [("ALBUM", "Single"), ("RELEASETYPE", "single")];
+    let collected = [("ALBUM", "Collected"), ("COMPILATION", "1"), ("DATE", "2021-04-01")];
+    for (path, number, tags) in [
+        ("Single/1.flac", "1", &single[..]),
+        ("Single/2.flac", "2", &single[..]),
+        ("Collected/1.flac", "1", &collected[..]),
+    ] {
+        let mut all = vec![
+            ("ARTIST", "Page artist"),
+            ("TITLE", path),
+            ("TRACKNUMBER", number),
+        ];
+        all.extend_from_slice(tags);
+        fixtures::write_tagged_flac(&root.join(path), 1200, &all)?;
+    }
+    Box::pin(fixtures::scan_library(
+        &library.fsio,
+        db,
+        &fixture.global_params.node_id,
+        root,
+        &library.library_sync.record_store(),
+    ))
+    .await?;
+    let artist = portable_artists::Entity::find()
+        .filter(portable_artists::Column::Name.eq("Page artist"))
+        .one(db)
+        .await?
+        .context("the scanned artist")?;
+
+    let page = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchArtistPageRequest {
+            call_id: None,
+            artist_id: artist.id,
+            language: String::new(),
+        },
+    )
+    .await?
+    .context("artist page")?;
+    assert_eq!(page.artist_id, artist.id);
+    let kinds: Vec<_> = page.sections.iter().map(|section| section.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![ArtistSectionKind::Singles, ArtistSectionKind::Compilations]
+    );
+    let singles = &page.sections[0];
+    assert_eq!(singles.count, 1);
+    assert_eq!(page.sections[1].count, 1);
+    // The local library gives no names of its own, singles play as songs and compilations
+    // list their albums.
+    assert!(page.sections.iter().all(|section| section.title.is_empty()));
+    assert!(page.sections.iter().all(|section| section.album.is_none()));
+    assert_eq!(singles.opens, ArtistSectionOpens::Songs);
+    assert_eq!(page.sections[1].opens, ArtistSectionOpens::Albums);
+    let albums = portable_albums::Model::list(db, 10, CollectionQueryListMode::Name).await?;
+    let album_of = |name: &str| {
+        albums
+            .iter()
+            .find(|album| album.name == name)
+            .map(|album| album.id)
+            .context("album")
+    };
+    let section_albums = |section: usize, cursor: i32, page_size: i32| {
+        let queries = page.sections[section].queries.clone();
+        let params = &fixture.global_params;
+        async move {
+            anyhow::Ok(
+                dispatch_gui_request(
+                    params,
+                    &FetchArtistSectionAlbumsRequest {
+                        call_id: None,
+                        queries,
+                        cursor,
+                        page_size,
+                    },
+                )
+                .await?
+                .context("section albums")?
+                .groups
+                .into_iter()
+                .map(|group| (group.group_title, group.album_ids))
+                .collect::<Vec<_>>(),
+            )
+        }
+    };
+    let ids = |groups: Vec<(String, Vec<i32>)>| -> Vec<i32> {
+        groups.into_iter().flat_map(|(_, ids)| ids).collect()
+    };
+    assert_eq!(ids(section_albums(0, 0, 10).await?), vec![album_of("Single")?]);
+    // The albums are in groups by the year of their release dates.
+    assert_eq!(
+        section_albums(1, 0, 10).await?,
+        vec![("2021".to_owned(), vec![album_of("Collected")?])]
+    );
+    assert!(section_albums(1, 1, 10).await?.is_empty());
+    assert_eq!(
+        singles
+            .queries
+            .iter()
+            .map(|query| (query.operator.as_str(), query.parameter.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(
+            "lib::artist_section",
+            format!("{}:singles", artist.id).as_str()
+        )]
+    );
+    assert_eq!(page.tracks.len(), 1);
+    assert_eq!(page.tracks[0].operator, "lib::artist_tracks");
+    assert_eq!(page.tracks[0].parameter, artist.id.to_string());
+
+    // What the page names opens through the paged mix query.
+    let opened = dispatch_gui_request(
+        &fixture.global_params,
+        &MixQueryRequest {
+            call_id: None,
+            queries: singles.queries.clone(),
+            cursor: 0,
+            page_size: 10,
+            bake_cover_arts: false,
+            queue: CallerQueue::default(),
+            random_seed: None,
+        },
+    )
+    .await?
+    .context("section songs")?;
+    assert_eq!(opened.files.len(), 2);
+
+    let missing = dispatch_gui_request(
+        &fixture.global_params,
+        &FetchArtistPageRequest {
+            call_id: None,
+            artist_id: artist.id + 100,
+            language: String::new(),
+        },
+    )
+    .await;
+    assert!(missing.is_err());
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn controller_capabilities_follow_catalogue_access_grants() -> Result<()> {
     let dir = tempfile::tempdir()?;

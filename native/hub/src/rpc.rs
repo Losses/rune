@@ -158,8 +158,9 @@ pub(crate) fn narrow_slot(slot: Slot, introduced_minor: u32, peer_minor: u32) ->
 mod tests {
     use super::{RequestSlots, Slot, TargetRequest, UnsupportedReason};
     use crate::messages::{
-        FetchAllPlaylistsRequest, FetchCollectionByIdsRequest, FetchMediaFileByIdsRequest,
-        GetLikedRequest, PlayRequest, SearchForRequest, SetLikedRequest, SetPlaybackModeRequest,
+        FetchAllPlaylistsRequest, FetchArtistPageRequest, FetchArtistSectionAlbumsRequest,
+        FetchCollectionByIdsRequest, FetchMediaFileByIdsRequest, GetLikedRequest, PlayRequest,
+        SearchForRequest, SetLikedRequest, SetPlaybackModeRequest,
     };
     use subsonic::{SubsonicProbe, SubsonicRoles};
 
@@ -202,6 +203,46 @@ mod tests {
         assert_eq!(PlayRequest::slot(&jukebox), Slot::Translate);
         assert_eq!(SetPlaybackModeRequest::slot(&jukebox), Slot::Translate);
     }
+
+    #[test]
+    fn each_library_declares_the_artist_page_in_its_own_table() {
+        let unsupported = Slot::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+        };
+        // The open local library answers it itself and Subsonic never did, and a Rune peer
+        // forwards it as it does the other library requests.
+        assert_eq!(
+            FetchArtistPageRequest::slot(&RequestSlots::local()),
+            Slot::Native
+        );
+        let subsonic = RequestSlots::subsonic(&SubsonicProbe {
+            api_version: "1.16.1".into(),
+            open_subsonic: false,
+            server_type: None,
+            server_version: None,
+            extensions: Vec::new(),
+            roles: SubsonicRoles::default(),
+            roles_known: true,
+        });
+        assert_eq!(FetchArtistPageRequest::slot(&subsonic), unsupported);
+        assert_eq!(
+            FetchArtistPageRequest::slot(&RequestSlots::rune()),
+            Slot::Forward
+        );
+        // Its albums go the same way.
+        assert_eq!(
+            FetchArtistSectionAlbumsRequest::slot(&RequestSlots::local()),
+            Slot::Native
+        );
+        assert_eq!(
+            FetchArtistSectionAlbumsRequest::slot(&subsonic),
+            unsupported
+        );
+        assert_eq!(
+            FetchArtistSectionAlbumsRequest::slot(&RequestSlots::rune()),
+            Slot::Forward
+        );
+    }
 }
 
 #[cfg(test)]
@@ -220,5 +261,26 @@ mod narrow_tests {
             reason: UnsupportedReason::OwnerOnly,
         };
         assert_eq!(narrow_slot(owner_only, 2, 0), owner_only);
+    }
+
+    #[test]
+    fn artist_requests_are_not_forwarded_to_a_peer_of_minor_zero() {
+        use super::TargetRequest;
+        use crate::macros::RequestSlots;
+        use crate::messages::{FetchArtistPageRequest, FetchArtistSectionAlbumsRequest};
+        let too_old = Slot::Unsupported {
+            reason: UnsupportedReason::PeerTooOld,
+        };
+        let mut old_peer = RequestSlots::rune();
+        old_peer.narrow_to_minor(0);
+        assert_eq!(FetchArtistPageRequest::slot(&old_peer), too_old);
+        assert_eq!(FetchArtistSectionAlbumsRequest::slot(&old_peer), too_old);
+        let mut new_peer = RequestSlots::rune();
+        new_peer.narrow_to_minor(1);
+        assert_eq!(FetchArtistPageRequest::slot(&new_peer), Slot::Forward);
+        assert_eq!(
+            FetchArtistSectionAlbumsRequest::slot(&new_peer),
+            Slot::Forward
+        );
     }
 }

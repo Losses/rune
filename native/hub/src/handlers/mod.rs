@@ -1,4 +1,5 @@
 mod analyze;
+mod artist;
 mod collection;
 mod connection;
 mod controllers;

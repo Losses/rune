@@ -29,7 +29,7 @@ pub const DEVICE_ALIAS_HEADER: &str = "x-rune-device-alias";
 
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
     major: 2,
-    minor: 0,
+    minor: 1,
     patch: 0,
     pre: None,
 };
