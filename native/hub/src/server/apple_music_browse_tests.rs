@@ -295,6 +295,7 @@ impl AppleFake {
     fn catalog_song(&self, id: &str) -> Option<Value> {
         let (title, album, artist, number) = match id {
             "777" => ("Catalog Tune", "Catalog Album", "Catalog Artist", None),
+            "8001" => ("Unheld Hit", "Elsewhere", "Artist One", Some(1)),
             "ci.s1" => ("First Light", "Dawn Album", "Artist One", Some(1)),
             "ci.ab" => ("Together", "Shared Album", "Ann & Bob", Some(1)),
             "ci.ja" => ("Kana Song", "Shared Album", "Hiroyuki Sawano", Some(2)),
@@ -310,7 +311,7 @@ impl AppleFake {
             "ci.ab" => &[("400", "Ann"), ("401", "Bob")],
             "ci.ja" | "ci.en" => &[("156", "Hiroyuki Sawano")],
             "ci.rev" => &[("156", "Hiroyuki Sawano"), ("400", "Ann")],
-            "ci.s1" => &[("300", "Artist One")],
+            "ci.s1" | "8001" => &[("300", "Artist One")],
             "900" | "1601" | "1602" => &[("301", "Dawn Singer")],
             _ => &[],
         };
@@ -318,6 +319,12 @@ impl AppleFake {
             .iter()
             .map(|(id, name)| json!({"id": id, "type": "artists", "attributes": {"name": name}}))
             .collect();
+        // Its catalog album, which Apple names for some.
+        let album_id = match id {
+            "1601" | "1602" => Some("1600"),
+            "8001" => Some("4007"),
+            _ => None,
+        };
         let mut attributes = json!({
             "name": title,
             "albumName": album,
@@ -330,11 +337,15 @@ impl AppleFake {
             attributes["trackNumber"] = json!(number);
             attributes["discNumber"] = json!(1);
         }
+        let mut relationships = json!({"artists": {"data": artists}});
+        if let Some(album_id) = album_id {
+            relationships["albums"] = json!({"data": [{"id": album_id, "type": "albums"}]});
+        }
         Some(json!({
             "id": id,
             "type": "songs",
             "attributes": attributes,
-            "relationships": {"artists": {"data": artists}},
+            "relationships": relationships,
         }))
     }
 
@@ -361,11 +372,11 @@ impl AppleFake {
         ]
     }
 
-    /// `songs` as Apple answers a request that does not include their artists.
-    fn without_artists(songs: &mut Value) {
+    /// `songs` as Apple answers a request that does not include their `relationship`.
+    fn without(songs: &mut Value, relationship: &str) {
         for song in songs["data"].as_array_mut().into_iter().flatten() {
             if let Some(relationships) = song["relationships"].as_object_mut() {
-                relationships.remove("artists");
+                relationships.remove(relationship);
             }
         }
     }
@@ -621,11 +632,13 @@ impl AppleFake {
                     .map(|(_, ids)| ids.into_owned())
                     .unwrap_or_default();
                 let mut songs = self.catalog_songs(&ids.split(',').collect::<Vec<_>>());
-                // Asked to include their artists, Apple names the artists of each song.
-                let artists = url::form_urlencoded::parse(query.as_bytes())
-                    .any(|(name, value)| name == "include" && value.contains("artists"));
-                if !artists {
-                    Self::without_artists(&mut songs);
+                // Asked to include their artists or albums, Apple names those of each song.
+                for relationship in ["artists", "albums"] {
+                    let included = url::form_urlencoded::parse(query.as_bytes())
+                        .any(|(name, value)| name == "include" && value.contains(relationship));
+                    if !included {
+                        Self::without(&mut songs, relationship);
+                    }
                 }
                 songs
             }
@@ -8896,5 +8909,478 @@ async fn a_reset_deletes_them_and_stores_without_account_ids_go_by_the_ids_they_
     // Its account's ids are kept beside them from then on.
     let account = std::fs::read_to_string(&rune_files(&apple, apple.record)[2])?;
     assert!(account.contains("\"i.s3\""), "{account}");
+    apple.finish().await
+}
+
+// What Rune's playlists, mixes and likes add to the library ---------------------------------
+
+/// Every album of the Albums page, by name, with its id.
+async fn all_albums(apple: &OpenApple) -> Result<Vec<(String, i32)>> {
+    let titles: Vec<String> = apple
+        .run(&FetchCollectionGroupSummaryRequest {
+            call_id: None,
+            collection_type: CollectionType::Album,
+        })
+        .await?
+        .groups
+        .into_iter()
+        .map(|group| group.group_title)
+        .collect();
+    let mut listed: Vec<(String, i32)> = apple
+        .run(&FetchCollectionGroupsRequest {
+            call_id: None,
+            collection_type: CollectionType::Album,
+            bake_cover_arts: false,
+            group_titles: titles,
+        })
+        .await?
+        .groups
+        .into_iter()
+        .flat_map(|group| group.collections)
+        .map(|collection| (collection.name, collection.id))
+        .collect();
+    listed.sort();
+    Ok(listed)
+}
+
+/// The titles of the Tracks page in order, and the count it shows.
+async fn all_tracks(apple: &OpenApple) -> Result<(Vec<String>, i32)> {
+    let count = apple
+        .run(&GetMediaFilesCountRequest { call_id: None })
+        .await?
+        .count;
+    let titles = apple
+        .run(&FetchMediaFilesRequest {
+            call_id: None,
+            cursor: 0,
+            page_size: 50,
+            bake_cover_arts: false,
+        })
+        .await?
+        .media_files
+        .into_iter()
+        .map(|file| file.title)
+        .collect();
+    Ok((titles, count))
+}
+
+/// Waits for the Albums page to list `name`, which a read in the background adds, and answers
+/// its id.
+async fn album_listed(apple: &OpenApple, name: &str) -> Result<i32> {
+    wait_until("the album to be listed", || async {
+        let listed = all_albums(apple).await?;
+        Ok(listed
+            .iter()
+            .find(|(listed, _)| listed == name)
+            .map(|(_, id)| *id))
+    })
+    .await
+}
+
+/// The titles of the songs of an album's page.
+async fn album_titles(apple: &OpenApple, album: i32) -> Result<Vec<String>> {
+    Ok(apple
+        .run(&mix("lib::album", album))
+        .await?
+        .files
+        .into_iter()
+        .map(|file| file.title)
+        .collect())
+}
+
+fn titled(titles: &[&str], count: i32) -> (Vec<String>, i32) {
+    (titles.iter().map(|title| (*title).to_owned()).collect(), count)
+}
+
+/// What the library keeps of the catalog for Rune's records, as written beside its lists.
+fn held_file(apple: &OpenApple) -> std::path::PathBuf {
+    lists_folder(Path::new(&*apple.node.config_path), apple.record.0).join("held.json")
+}
+
+/// Waits until what the library keeps of the catalog for Rune's records names every one of
+/// `keys` on disk.
+async fn held_on_disk(apple: &OpenApple, keys: &[&str]) -> Result<()> {
+    let file = held_file(apple);
+    wait_until("what was read to be kept on disk", || async {
+        let held = std::fs::read_to_string(&file).unwrap_or_default();
+        let kept = keys.iter().all(|key| held.contains(&format!("\"{key}\"")));
+        Ok(kept.then_some(()))
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_album_in_a_rune_mix_is_in_the_library_until_no_mix_names_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let catalog = apple.binding.intern(AppleIdKind::Album, "catalog:1600")?;
+    let made = create_mix(&apple, "Remixes", vec![query("lib::album", catalog)]).await?;
+
+    // The album joins the Albums page as an album of the library, apart from the catalog's.
+    let album = album_listed(&apple, "Dawn Remixes").await?;
+    assert_eq!(
+        apple.binding.resolve(AppleIdKind::Album, album)?,
+        "rune-album:1600"
+    );
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Dawn Remixes", "Night Album"]
+    );
+    assert_eq!(
+        collection_names(&apple, CollectionType::Album, &[album]).await?,
+        ["Dawn Remixes"]
+    );
+    // Its songs follow the library's on the Tracks page, and its page holds them all.
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(
+            &["First Light", "Second Wind", "Third Road", "Remix One", "Remix Two"],
+            5
+        )
+    );
+    assert_eq!(album_titles(&apple, album).await?, ["Remix One", "Remix Two"]);
+    // A song of it is on that album.
+    let remix = apple.binding.intern_track("catalog:1601")?;
+    let parsed = apple
+        .run(&FetchParsedMediaFileRequest {
+            call_id: None,
+            id: remix,
+        })
+        .await?;
+    assert_eq!(
+        (parsed.album.id, parsed.album.name.as_str()),
+        (album, "Dawn Remixes")
+    );
+    // Nothing went into Apple's library, and the pages list it again without reading it again.
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    let reads = apple.fake.total();
+    for _ in 0..2 {
+        all_albums(&apple).await?;
+        all_tracks(&apple).await?;
+    }
+    assert_eq!(apple.fake.total(), reads);
+    // Its artist is an artist of the library, as the artists of its songs are.
+    assert!(names(&all_artists(&apple).await?).contains(&"Dawn Singer"));
+
+    // Once no mix names it, the library does not hold it.
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+    assert!(!names(&all_artists(&apple).await?).contains(&"Dawn Singer"));
+    // Its page lists nothing, and reads nothing from Apple.
+    let reads = apple.fake.total();
+    assert!(album_titles(&apple, album).await?.is_empty());
+    assert_eq!(apple.fake.total(), reads);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_song_in_a_rune_playlist_brings_its_album_holding_only_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    let occurrence = add_song(&apple, mine.id, "catalog:1601", None).await?;
+
+    // The album holds the one song, as the Apple library holds an album some of whose songs
+    // it holds; the catalog's album still holds both.
+    let album = album_listed(&apple, "Dawn Remixes").await?;
+    assert_eq!(album_titles(&apple, album).await?, ["Remix One"]);
+    let catalog = apple.binding.intern(AppleIdKind::Album, "catalog:1600")?;
+    assert_eq!(
+        album_titles(&apple, catalog).await?,
+        ["Remix One", "Remix Two"]
+    );
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(&["First Light", "Second Wind", "Third Road", "Remix One"], 4)
+    );
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // Taken out of the playlist, it leaves the library with its album.
+    apple
+        .run(&RemoveItemFromPlaylistRequest {
+            playlist_id: mine.id,
+            occurrence_id: occurrence,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_the_library_holds_already_is_not_listed_again_for_a_mix_or_a_playlist() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // The catalog's "Dawn Album" holds the catalog song the library's "First Light" is a copy
+    // of.
+    let catalog = apple.binding.intern(AppleIdKind::Album, "catalog:1500")?;
+    create_mix(&apple, "Dawn", vec![query("lib::album", catalog)]).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    add_song(&apple, mine.id, "catalog:ci.s1", None).await?;
+    all_tracks(&apple).await?;
+    held_on_disk(&apple, &["1500", "catalog:ci.s1"]).await?;
+
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(&["First Light", "Second Wind", "Third Road"], 3)
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_song_liked_in_rune_is_in_the_library_until_it_is_unliked() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (apple, heard) = open_apple_heard(dir.path()).await?;
+    let told = told_settled(&heard).await;
+
+    apple.run(&like(&apple, "catalog:1601", true)).await?;
+    // The pages that show the library are told, and the song comes with its album, which holds
+    // only it.
+    told_after(&heard, told).await?;
+    let album = album_listed(&apple, "Dawn Remixes").await?;
+    assert_eq!(album_titles(&apple, album).await?, ["Remix One"]);
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(&["First Light", "Second Wind", "Third Road", "Remix One"], 4)
+    );
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // Unliked, it leaves the library with its album.
+    apple.run(&like(&apple, "catalog:1601", false)).await?;
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_liked_and_in_a_playlist_stays_until_neither_holds_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    let occurrence = add_song(&apple, mine.id, "catalog:1601", None).await?;
+    apple.run(&like(&apple, "catalog:1601", true)).await?;
+    let album = album_listed(&apple, "Dawn Remixes").await?;
+
+    apple
+        .run(&RemoveItemFromPlaylistRequest {
+            playlist_id: mine.id,
+            occurrence_id: occurrence,
+            call_id: None,
+        })
+        .await?;
+    // The like still holds it.
+    assert_eq!(album_titles(&apple, album).await?, ["Remix One"]);
+    assert_eq!(all_tracks(&apple).await?.1, 4);
+
+    apple.run(&like(&apple, "catalog:1601", false)).await?;
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_catalog_songs_of_an_imported_playlist_are_read_together_and_kept_on_disk() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), with_playlists()).await?;
+    // The playlist the sign-in imported from Apple's is a Rune playlist like any other: songs of
+    // two albums and one Apple names no album for, beside songs of the library.
+    let road_trip = playlist_named(&apple, "Road Trip").await?;
+    for track in [
+        "catalog:1601",
+        "catalog:8001",
+        "catalog:1602",
+        "catalog:777",
+        "i.s2",
+    ] {
+        add_song(&apple, road_trip, track, None).await?;
+    }
+    let songs_read = apple.fake.count("/v1/catalog/it/songs");
+
+    let remixes = album_listed(&apple, "Dawn Remixes").await?;
+    let elsewhere = album_listed(&apple, "Elsewhere").await?;
+    // The songs were read together, with their albums, and no album on its own.
+    assert_eq!(apple.fake.count("/v1/catalog/it/songs") - songs_read, 1);
+    assert_eq!(apple.fake.count("/v1/catalog/it/albums/"), 0);
+    assert_eq!(
+        names(&all_albums(&apple).await?),
+        ["Dawn Album", "Dawn Remixes", "Elsewhere", "Night Album"]
+    );
+    assert_eq!(
+        album_titles(&apple, remixes).await?,
+        ["Remix One", "Remix Two"]
+    );
+    assert_eq!(album_titles(&apple, elsewhere).await?, ["Unheld Hit"]);
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(
+            &[
+                "First Light",
+                "Second Wind",
+                "Third Road",
+                "Remix One",
+                "Unheld Hit",
+                "Remix Two",
+                "Catalog Tune"
+            ],
+            7
+        )
+    );
+
+    // What was read is kept beside the lists, so the library opened again, as after a restart,
+    // lists it before its sign-in without asking Apple.
+    held_on_disk(
+        &apple,
+        &["catalog:1601", "catalog:1602", "catalog:8001", "catalog:777"],
+    )
+    .await?;
+    let restarted = restart_apple(apple).await?;
+    let (_ui, binding) = restarted.open().await?;
+    let asked = restarted.fake.total();
+    let albums: Vec<String> = binding
+        .albums()
+        .await?
+        .iter()
+        .filter_map(|album| album.attributes.as_ref()?.name.clone())
+        .collect();
+    assert_eq!(
+        albums,
+        ["Dawn Album", "Night Album", "Dawn Remixes", "Elsewhere"]
+    );
+    assert_eq!(binding.songs().await?.len(), 7);
+    assert_eq!(restarted.fake.total(), asked);
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_of_songs_added_to_a_playlist_tells_the_ui_once_after_the_last() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (apple, heard) = open_apple_heard(dir.path()).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    let told = told_settled(&heard).await;
+
+    for _ in 0..10 {
+        for song in ["i.s1", "i.s2", "i.s3"] {
+            add_song(&apple, mine.id, song, None).await?;
+        }
+    }
+    // Nothing is told while the songs come in quick succession, and once after the last.
+    assert_eq!(heard.count(CONTENT_CHANGED), told);
+    told_after(&heard, told).await?;
+    assert_eq!(told_settled(&heard).await, told + 1);
+    let page = apple.run(&playlist_page(mine.id)).await?;
+    assert_eq!(page.entries.len(), 30);
+    apple.finish().await
+}
+
+// Mixes follow Apple -------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_playlist_a_mix_names_holds_its_songs_as_apple_changes_them() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (apple, heard) = open_apple_heard(dir.path()).await?;
+    let picks = apple
+        .binding
+        .intern(AppleIdKind::Playlist, "catalog:pl.cat1")?;
+    let made = create_mix(&apple, "Picks", vec![query("lib::playlist", picks)]).await?;
+
+    // Its songs are the library's.
+    wait_until("the songs of the playlist to be listed", || async {
+        Ok((all_tracks(&apple).await?.1 == 5).then_some(()))
+    })
+    .await?;
+    assert_eq!(
+        all_tracks(&apple).await?.0,
+        [
+            "First Light",
+            "Second Wind",
+            "Third Road",
+            "Dawn Chorus",
+            "Catalog Tune"
+        ]
+    );
+
+    // Apple changes the playlist: once a mix of it reads it again, the library follows, and the
+    // pages that show it are told.
+    let changed = json!({"data": [apple.fake.catalog_song("1601")]});
+    *apple.fake.respond_path.lock().unwrap() = Some((
+        "/v1/catalog/it/playlists/pl.cat1/tracks".into(),
+        200,
+        changed.to_string(),
+    ));
+    let told = told_settled(&heard).await;
+    assert_eq!(
+        mix_titles(&apple, vec![query("lib::playlist", picks)]).await?,
+        ["Remix One"]
+    );
+    told_after(&heard, told).await?;
+    assert_eq!(
+        all_tracks(&apple).await?.0,
+        ["First Light", "Second Wind", "Third Road", "Remix One"]
+    );
+    let album = album_listed(&apple, "Dawn Remixes").await?;
+    assert_eq!(album_titles(&apple, album).await?, ["Remix One"]);
+
+    // Once no mix names it, its songs leave the library.
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(all_tracks(&apple).await?.1, 3);
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_library_artist_a_mix_names_brings_only_the_librarys_songs() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // What the library holds itself: an artist, an album, a song and a Rune playlist.
+    let artist = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    let album = apple.binding.intern(AppleIdKind::Album, "l.alb2")?;
+    let song = apple.binding.intern_track("i.s3")?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    add_song(&apple, mine.id, "i.s2", None).await?;
+    let made = create_mix(
+        &apple,
+        "Mine",
+        vec![
+            query("lib::artist", artist),
+            query("lib::album", album),
+            query("lib::track", song),
+            query("lib::playlist", mine.id),
+        ],
+    )
+    .await?;
+    assert_eq!(
+        mix_titles(&apple, stored_queries(&apple, made.id).await?).await?,
+        ["Third Road", "First Light", "Second Wind"]
+    );
+
+    // The library lists what it listed, and nothing is read from the catalog for it.
+    assert_eq!(
+        all_tracks(&apple).await?,
+        titled(&["First Light", "Second Wind", "Third Road"], 3)
+    );
+    assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    tokio::time::sleep(CONTENT_CHANGED_DELAY).await;
+    let read_for_it = |(target, _): &(String, bool)| {
+        (target.starts_with("/v1/catalog/it/songs") && target.contains("include=albums"))
+            || target.starts_with("/v1/catalog/it/albums/")
+            || target.starts_with("/v1/catalog/it/playlists/")
+    };
+    assert!(!apple.fake.seen.lock().unwrap().iter().any(read_for_it));
+    assert!(!held_file(&apple).exists());
     apple.finish().await
 }

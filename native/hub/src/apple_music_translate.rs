@@ -22,6 +22,7 @@ use crate::apple_music_binding::{
     MixRef, PlaylistRef, SongRef, catalog_track, cover_url, is_library_song, is_library_song_id,
     song_of_track,
 };
+use crate::apple_music_held::is_rune_album;
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist,
@@ -73,7 +74,7 @@ const RUNE_PAGE_STEP: usize = 64;
 
 /// What the ids of albums, artists and playlists of the catalog hold before Apple's id, so they
 /// never pass for those of the library.
-const CATALOG_PREFIX: &str = "catalog:";
+pub(crate) const CATALOG_PREFIX: &str = "catalog:";
 
 /// The group a playlist of the catalog is named with when a page opens one.
 pub(crate) const APPLE_MUSIC_PLAYLIST_GROUP: &str = "Apple Music";
@@ -735,8 +736,14 @@ pub(crate) async fn fetch_parsed_media_file_request(
     let song = binding.song(&track).await?;
     let song_ref = song.as_ref();
     // A catalog song names catalog albums and artists, which carry their own prefix so they
-    // never pass for a library one.
-    let in_library = matches!(&song, AppleSong::Library(song) if is_library_song(song));
+    // never pass for a library one. A song Rune holds in the library is on an album of the
+    // library or one Rune holds.
+    let in_library = match &song {
+        AppleSong::Library(song) => {
+            is_library_song(song) || binding.known_songs().is_some_and(|list| list.holds(&track))
+        }
+        AppleSong::Catalog(_) => false,
+    };
     let collection = |id: &str| {
         if in_library {
             id.to_owned()
@@ -1088,7 +1095,7 @@ pub(crate) async fn remove_item_from_playlist_request(
 
 /// The catalog song an entry's library song was a copy of, when that was known when it was
 /// added. It plays the entry once the library copy is gone.
-fn catalog_copy(entry: &StoredEntry) -> Option<String> {
+pub(crate) fn catalog_copy(entry: &StoredEntry) -> Option<String> {
     if !is_library_song_id(&entry.track) {
         return None;
     }
@@ -1096,7 +1103,7 @@ fn catalog_copy(entry: &StoredEntry) -> Option<String> {
 }
 
 /// Whether Apple said it does not have the song of `track`, and nothing listed it since.
-fn gone(binding: &AppleMusicBinding, track: &str) -> bool {
+pub(crate) fn gone(binding: &AppleMusicBinding, track: &str) -> bool {
     binding.known_missing(track) && binding.known_song(track).is_none()
 }
 
@@ -1430,11 +1437,9 @@ fn disc_number_title(song: &LibrarySong) -> (u32, u32, String) {
 fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed> {
     let mut seen = HashSet::new();
     let mut found: Vec<(&str, &LibrarySong)> = list
-        .entries()
         // The library's songs only: the list also holds songs of playlists that are not.
-        .filter(|(track, song)| {
-            is_library_song(song) && artist.credits_track(track) && seen.insert(*track)
-        })
+        .library_entries()
+        .filter(|(track, _)| artist.credits_track(track) && seen.insert(*track))
         .collect();
     // An album's year is its earliest song's, as songs of one album may disagree.
     let mut years: HashMap<Option<&str>, u32> = HashMap::new();
@@ -1478,7 +1483,8 @@ fn album_songs_from_list(list: &AppleSongs, album: &str) -> Vec<Listed> {
 /// The songs of an artist of the library's artist list or of a library album, taken from the
 /// song list, which is kept whole and read again in the background, so these pages need no
 /// reads of their own. `None` when the list cannot be had or holds none of them, as an album
-/// it does not list; the collection is then read from Apple.
+/// it does not list; the collection is then read from Apple. An album Rune holds is no album of
+/// Apple's, and lists what the song list holds of it, which may be nothing.
 async fn song_list_songs(
     binding: &AppleMusicBinding,
     query: DetailQuery,
@@ -1495,15 +1501,16 @@ async fn song_list_songs(
     if artist.is_none() && album.is_none() {
         return Ok(None);
     }
+    let rune_album = album.as_deref().is_some_and(is_rune_album);
     let Ok(list) = binding.songs().await else {
-        return Ok(None);
+        return Ok(rune_album.then(Vec::new));
     };
     let songs = match (&artist, &album) {
         (Some(artist), _) => artist_songs_from_list(&list, artist),
         (None, Some(album)) => album_songs_from_list(&list, album),
         (None, None) => return Ok(None),
     };
-    Ok((!songs.is_empty()).then_some(songs))
+    Ok((rune_album || !songs.is_empty()).then_some(songs))
 }
 
 /// The songs of a collection of the library: from the song list where it lists them, or else
@@ -1902,7 +1909,7 @@ pub(crate) async fn complex_query_request(
 }
 
 /// Whether an error says the thing asked for does not exist.
-fn is_not_found(error: &anyhow::Error) -> bool {
+pub(crate) fn is_not_found(error: &anyhow::Error) -> bool {
     matches!(
         error.downcast_ref::<ExpectedError>(),
         Some(ExpectedError::NotFound { .. })

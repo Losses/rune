@@ -412,6 +412,37 @@ async fn catalog_song_models_decode_from_a_recorded_response() {
     assert_eq!(attrs.previews.len(), 1);
 }
 
+#[tokio::test]
+async fn catalog_songs_with_albums_batch_at_300_and_name_their_albums() {
+    let server = FixtureServer::start().await;
+    server.on(
+        "GET",
+        "/v1/catalog/us/songs",
+        Reply::json(json!({"data": [{
+            "id": "617154366",
+            "type": "songs",
+            "attributes": {"name": "Get Lucky"},
+            "relationships": {"albums": {"data": [{"id": "617154241", "type": "albums"}]}},
+        }]})),
+    );
+    let c = client(&server, TestTokens::new());
+
+    let songs = c
+        .catalog_songs_with_albums(&ids(CATALOG_SONGS_BATCH + 1))
+        .await
+        .unwrap();
+
+    // The batches are read together, so they may be seen in either order.
+    let seen = server.seen();
+    let count = |t: &str| t.split(['=', '&']).nth(1).unwrap().split(',').count();
+    let mut sizes: Vec<usize> = seen.iter().map(|s| count(&s.target)).collect();
+    sizes.sort_unstable();
+    assert_eq!(sizes, [1, 300]);
+    assert!(seen.iter().all(|s| s.target.ends_with("&include=albums")));
+    assert_eq!(songs.len(), 2);
+    assert_eq!(songs[0].album_id(), Some("617154241"));
+}
+
 #[test]
 fn artwork_keeps_its_template_and_colors() {
     let artwork: apple_music::models::Artwork = serde_json::from_value(json!({

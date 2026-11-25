@@ -12,7 +12,7 @@ use std::sync::Arc;
 use apple_music::models::{Artist, Artwork, LibraryArtist, LibrarySong};
 use serde::{Deserialize, Serialize};
 
-use crate::apple_music_binding::{is_library_song, listed_track};
+use crate::apple_music_binding::listed_track;
 
 /// What the ids of the artists of the library's artist list that Apple names no catalog artist
 /// for hold before the artist's name key: the key of its name, or of one of its other
@@ -105,12 +105,14 @@ impl SongArtists {
         song.store_id()
     }
 
-    /// The catalog ids of the library's songs not asked about yet, each once.
-    pub(crate) fn missing(&self, songs: &[LibrarySong]) -> Vec<String> {
+    /// The catalog ids of `songs`, the library's songs, not asked about yet, each once.
+    pub(crate) fn missing<'a>(
+        &self,
+        songs: impl IntoIterator<Item = &'a LibrarySong>,
+    ) -> Vec<String> {
         let mut seen = HashSet::new();
         songs
-            .iter()
-            .filter(|song| is_library_song(song))
+            .into_iter()
             .filter_map(Self::song_id)
             .filter(|id| !self.songs.contains_key(*id) && seen.insert(*id))
             .map(str::to_owned)
@@ -384,15 +386,15 @@ impl NamedArtists {
     ///   else one known by the credit alone. A library artist whose songs all have catalog
     ///   artists is left out then, as the artists they name stand for it.
     ///
-    /// Only songs in the library count: the song list also holds songs of playlists that are
-    /// not.
-    pub(crate) fn new(
+    /// Only songs in the library count, so `songs` are the library's songs: the song list also
+    /// holds songs of playlists that are not (see `AppleSongs::library_entries`).
+    pub(crate) fn new<'a>(
         library: &[LibraryArtist],
-        songs: &[LibrarySong],
+        songs: impl IntoIterator<Item = &'a LibrarySong>,
         song_artists: &SongArtists,
     ) -> Self {
         let mut building = Building::default();
-        let songs: Vec<&LibrarySong> = songs.iter().filter(|song| is_library_song(song)).collect();
+        let songs: Vec<&LibrarySong> = songs.into_iter().collect();
         let library: Vec<(&LibraryArtist, Vec<Artist>)> = library
             .iter()
             .map(|artist| (artist, catalog_of(artist)))
