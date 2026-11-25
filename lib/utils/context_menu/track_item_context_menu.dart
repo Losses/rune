@@ -131,10 +131,7 @@ void openTrackItemContextMenu(
   }
   final withMixes = offersMixes(context);
   // A library that lists no playlists is not asked for them.
-  final withPlaylists = requestAvailable(
-    context,
-    (capabilities) => capabilities.fetchAllPlaylistsRequest,
-  );
+  final withPlaylists = canListPlaylists(context);
   late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   late final FetchParsedMediaFileResponse parsedMediaFile;

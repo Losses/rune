@@ -18,6 +18,9 @@ const _playlistFile = 'Playlist File';
 
 const _targetKey = Key('target');
 
+/// How many times a track menu asked for the playlists.
+var _playlistLoads = 0;
+
 const _track = FetchParsedMediaFileResponse(
   file: MediaFile(
     id: 12,
@@ -102,7 +105,10 @@ class _MenuTargetState extends State<_MenuTarget> {
         _track.file.id,
         null,
         null,
-        loadPlaylists: () async => const [],
+        loadPlaylists: () async {
+          _playlistLoads++;
+          return const [];
+        },
         loadMixes: () async => const [],
         loadMediaFile: (_) async => _track,
       );
@@ -403,6 +409,31 @@ void main() {
         isNot(contains(_playlistFile)),
       );
     });
+
+    testWidgets(
+      'of another record leaves a track menu the open library\'s playlists',
+      (tester) async {
+        // The open library lists playlists, and the renderer this device plays
+        // on sends a snapshot of a library that lists none.
+        final renderer = RequestCapabilitiesProvider(
+          changes: Stream.value(
+            _files.copyWith(
+              recordId: () => 'renderer-record',
+              fetchAllPlaylistsRequest: const RequestCapabilityHidden(),
+            ),
+          ),
+          initial: _files.copyWith(recordId: () => folderRecord.recordId),
+        );
+        _playlistLoads = 0;
+        await _menuEntries(
+          tester,
+          record: folderRecord,
+          capabilities: renderer,
+          target: const _MenuTarget.track(),
+        );
+        expect(_playlistLoads, 1);
+      },
+    );
 
     testWidgets('of the controlled library counts while remote controlling', (
       tester,

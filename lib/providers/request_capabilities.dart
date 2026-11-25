@@ -180,6 +180,10 @@ bool canCreateMix(BuildContext context, {bool listen = false}) =>
 bool canCreateM3u8Playlist(BuildContext context) =>
     _libraryAnswers(context, (p) => p.createM3u8PlaylistRequest);
 
+/// Whether the open library lists playlists, so that it may be asked for them.
+bool canListPlaylists(BuildContext context) =>
+    _libraryAnswers(context, (p) => p.fetchAllPlaylistsRequest);
+
 RequestCapability _playPauseCapability(
   BuildContext context,
   RequestCapabilitiesProvider capabilities, {
