@@ -206,13 +206,22 @@ struct Copies {
     songs: HashMap<String, String>,
     /// The library album of each catalog album, by the catalog album's id.
     album_ids: HashMap<String, String>,
-    /// The library albums that name no catalog album, by their name and artist.
+    /// The library albums whose catalog album nothing names, by their name and artist.
     album_names: HashMap<(String, String), String>,
 }
 
 impl Copies {
     fn new(found: &LibraryFound, kept_albums: &[LibraryAlbum]) -> Self {
         let mut copies = Self::default();
+        // The library's search may answer an album without its catalog album, which the kept
+        // album list names; then it stands for that one only, not for any of the same name.
+        let named: HashSet<&str> = found
+            .albums
+            .iter()
+            .chain(kept_albums)
+            .filter(|album| album.catalog_id().is_some())
+            .map(|album| album.id.as_str())
+            .collect();
         for song in &found.songs {
             if let Some(catalog_id) = song.store_id() {
                 copies
@@ -229,6 +238,7 @@ impl Copies {
                         .entry(catalog_id.to_owned())
                         .or_insert_with(|| album.id.clone());
                 }
+                None if named.contains(album.id.as_str()) => {}
                 None => {
                     if let Some(key) = library_album_key(album) {
                         copies
@@ -524,9 +534,52 @@ pub(crate) async fn search_for_request(
 mod tests {
     use std::time::{Duration, Instant};
 
+    use apple_music::models::{Album, LibraryAlbum};
+    use serde_json::json;
+
     use super::{
-        CatalogFound, KEPT_SEARCH_AGE, KeptSearches, MAX_KEPT_SEARCHES, search_key, search_term,
+        CatalogFound, Copies, KEPT_SEARCH_AGE, KeptSearches, LibraryFound, MAX_KEPT_SEARCHES,
+        search_key, search_term,
     };
+
+    fn library_album(id: &str, catalog_id: Option<&str>) -> LibraryAlbum {
+        let mut album = json!({"id": id, "type": "library-albums",
+            "attributes": {"name": "Night", "artistName": "Artist One"}});
+        if let Some(catalog_id) = catalog_id {
+            album["relationships"] =
+                json!({"catalog": {"data": [{"id": catalog_id, "type": "albums"}]}});
+        }
+        serde_json::from_value(album).unwrap()
+    }
+
+    fn catalog_album(id: &str) -> Album {
+        serde_json::from_value(json!({"id": id, "type": "albums",
+            "attributes": {"name": "Night", "artistName": "Artist One"}}))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_catalog_album_is_a_library_copy_by_name_only_when_the_copys_catalog_album_is_unknown() {
+        // The library's search answers the library album without its catalog album, which the
+        // kept album list names.
+        let found = LibraryFound {
+            albums: vec![library_album("l.night", None)],
+            ..LibraryFound::default()
+        };
+        let copies = Copies::new(&found, &[library_album("l.night", Some("100"))]);
+        assert_eq!(
+            copies.album(&catalog_album("100")).as_deref(),
+            Some("l.night")
+        );
+        // Another release of the same name and artist is the catalog's.
+        assert_eq!(copies.album(&catalog_album("200")), None);
+        // A library album whose catalog album nothing names still stands for one by its name.
+        let copies = Copies::new(&found, &[]);
+        assert_eq!(
+            copies.album(&catalog_album("200")).as_deref(),
+            Some("l.night")
+        );
+    }
 
     #[test]
     fn a_term_is_searched_without_the_wildcard_and_kept_by_what_apple_matches() {
