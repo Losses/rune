@@ -557,6 +557,11 @@ jobs:
             container: registry.gitlab.steamos.cloud/steamrt/steamrt4/sdk:latest
             flutter_arch: x64
             release_suffix: amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            container: registry.gitlab.steamos.cloud/steamrt/steamrt4/sdk/arm64:latest
+            flutter_arch: arm64
+            release_suffix: arm64
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
