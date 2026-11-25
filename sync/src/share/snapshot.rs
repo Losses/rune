@@ -242,10 +242,14 @@ impl<M: SyncModel> SharePeer<M> {
     async fn read_base(&self) -> ProtocolResult<(String, BaseManifest<M>, ReceiveProgress)> {
         let head = self.read_head().await?;
         if let Some(selected) = &self.selected_base {
+            // The stream can cut a newer base while a reader reconciles against this one. Once the
+            // stream's floor has passed this base, reconciling against it again cannot bring the
+            // reader to the floor, so the base is unavailable and the caller chooses again.
             let covers = selected
                 .manifest
                 .covers
                 .get(&self.prefix)
+                .filter(|covers| covers.reaches(&head.floor))
                 .ok_or(SyncError::SnapshotSourceUnavailable)?;
             return Ok((
                 selected.owner_prefix.to_string(),
