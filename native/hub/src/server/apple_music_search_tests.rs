@@ -283,6 +283,32 @@ async fn search_finds_rune_playlists_by_name_in_the_order_they_were_made() -> Re
     apple.finish().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_for_playlists_alone_finds_runes_signed_out_without_asking_apple() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let road_songs = make_rune_playlist(&apple, "Road Songs", "Mood").await?;
+    apple.binding.sign_out();
+    let playlists = SearchForRequest {
+        call_id: None,
+        query_str: "road*".into(),
+        fields: vec![SearchField::Playlist],
+        n: 10,
+        refresh: false,
+    };
+    assert_eq!(apple.run(&playlists).await?.playlists, [road_songs.id]);
+    assert_eq!(apple.fake.count(LIBRARY_SEARCH), 0);
+    assert_eq!(apple.fake.count(CATALOG_SEARCH), 0);
+    // A search for more than playlists still needs Apple.
+    assert!(
+        apple
+            .run(&search_request(10, Vec::new(), false))
+            .await
+            .is_err()
+    );
+    apple.finish().await
+}
+
 /// The parsed media file of the song `id`, as the menu of its row reads it.
 async fn parsed(
     apple: &OpenApple,

@@ -431,6 +431,7 @@ async fn rune_playlist_matches(
 /// search for the same text again asks it nothing; with `refresh` it is asked again. The artists
 /// found are those of the library's artist list, and the playlists Rune's own whose names hold
 /// the text. Catalog songs are named `catalog:<id>`, and catalog albums open from the catalog.
+/// A search for playlists alone asks Apple nothing, so it finds Rune's signed out and offline.
 pub(crate) async fn search_for_request(
     binding: &AppleMusicBinding,
     request: &SearchForRequest,
@@ -455,6 +456,16 @@ pub(crate) async fn search_for_request(
     };
     let term = search_term(&request.query_str);
     if term.is_empty() {
+        return Ok(Some(response));
+    }
+    let playlists = wants(CollectionQueryType::Playlist);
+    let from_apple = [
+        CollectionQueryType::Track,
+        CollectionQueryType::Album,
+        CollectionQueryType::Artist,
+    ];
+    if from_apple.into_iter().all(|field| wants(field) == 0) {
+        response.playlists = rune_playlist_matches(binding, term, playlists).await?;
         return Ok(Some(response));
     }
     let generation = binding.generation();
@@ -500,8 +511,7 @@ pub(crate) async fn search_for_request(
             Vec::new()
         }
     };
-    response.playlists =
-        rune_playlist_matches(binding, term, wants(CollectionQueryType::Playlist)).await?;
+    response.playlists = rune_playlist_matches(binding, term, playlists).await?;
     Ok(Some(response))
 }
 
