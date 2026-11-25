@@ -488,8 +488,9 @@ pub enum PlayerCommand {
     AddToPlaylist {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
         mode: AddMode,
+        revision: Option<u64>,
     },
-    EditPlaylist(PlaylistEdit),
+    EditPlaylist(PlaylistEdit, Option<u64>),
     HandoffLoad {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
         block: HandoffBlockId,
@@ -497,23 +498,30 @@ pub enum PlayerCommand {
         position: Duration,
         play: bool,
         playback_mode: Option<PlaybackMode>,
+        revision: Option<u64>,
         response: oneshot::Sender<HandoffLoadResult>,
     },
     TakeBackBlock {
         block: HandoffBlockId,
         interrupted: InterruptedItem,
+        revision: Option<u64>,
         response: oneshot::Sender<Option<TakeBackBlockResult>>,
     },
     ClearHandoffBlocks {
+        revision: Option<u64>,
         response: oneshot::Sender<ClearHandoffBlocksResult>,
     },
     RemoveFromPlaylist {
         index: usize,
+        revision: Option<u64>,
     },
-    ClearPlaylist,
+    ClearPlaylist {
+        revision: Option<u64>,
+    },
     MovePlayListItem {
         old_index: usize,
         new_index: usize,
+        revision: Option<u64>,
     },
     SetPlaybackMode(PlaybackMode),
     SetVolume(f32),
@@ -529,6 +537,40 @@ pub enum PlayerCommand {
         request: u64,
         track: Option<HostedTrack>,
     },
+}
+
+impl PlayerCommand {
+    /// The revision the session editing the queue gave this command, for the commands that can
+    /// change the queue. The player stamps it where the command is applied, so that the playlist
+    /// snapshot the edit produces carries the revision that edit bumped.
+    fn queue_tag(&self) -> Option<u64> {
+        match self {
+            PlayerCommand::AddToPlaylist { revision, .. }
+            | PlayerCommand::EditPlaylist(_, revision)
+            | PlayerCommand::HandoffLoad { revision, .. }
+            | PlayerCommand::TakeBackBlock { revision, .. }
+            | PlayerCommand::ClearHandoffBlocks { revision, .. }
+            | PlayerCommand::RemoveFromPlaylist { revision, .. }
+            | PlayerCommand::ClearPlaylist { revision }
+            | PlayerCommand::MovePlayListItem { revision, .. } => *revision,
+            _ => None,
+        }
+    }
+
+    /// Tags the queue edit this command makes, for the commands that can change the queue.
+    pub(crate) fn tag_queue_edit(&mut self, tag: u64) {
+        match self {
+            PlayerCommand::AddToPlaylist { revision, .. }
+            | PlayerCommand::HandoffLoad { revision, .. }
+            | PlayerCommand::TakeBackBlock { revision, .. }
+            | PlayerCommand::ClearHandoffBlocks { revision, .. }
+            | PlayerCommand::RemoveFromPlaylist { revision, .. }
+            | PlayerCommand::ClearPlaylist { revision }
+            | PlayerCommand::MovePlayListItem { revision, .. } => *revision = Some(tag),
+            PlayerCommand::EditPlaylist(_, revision) => *revision = Some(tag),
+            _ => {}
+        }
+    }
 }
 
 /// What happened to this device's audio output. The player decides from its own state whether to
@@ -603,7 +645,7 @@ pub enum PlayerEvent {
     // The host that plays the current track, from when a hosted track becomes current until no
     // hosted track is.
     HostedChanged(Option<String>),
-    PlaylistUpdated(Vec<PlaylistItem>),
+    PlaylistUpdated(Vec<PlaylistItem>, u64),
     RealtimeFFT(Vec<f32>),
     Log(InternalLog),
 }
@@ -997,6 +1039,10 @@ pub(crate) struct PlayerInternal {
     // host contract, which the host plays on through while the player cannot run, so that an
     // album goes to it whole.
     host_run_limit: usize,
+    // The revision the session gave the last queue edit, set where the edit is applied so that
+    // the playlist snapshot it produces carries it. Mutations without one, such as the tracks a
+    // session was restored with, leave it.
+    queue_revision: u64,
 }
 
 impl PlayerInternal {
@@ -1061,6 +1107,7 @@ impl PlayerInternal {
             host_refused: HashMap::new(),
             host_run_request: 0,
             host_run_limit: RUN_LIMIT,
+            queue_revision: 0,
         }
     }
 
@@ -1107,7 +1154,7 @@ impl PlayerInternal {
                                 | PlayerCommand::Previous
                                 | PlayerCommand::Switch(_) => true,
                                 PlayerCommand::LoadAtPosition { play, .. } => *play,
-                                PlayerCommand::EditPlaylist(edit) => {
+                                PlayerCommand::EditPlaylist(edit, _) => {
                                     edit.load.as_ref().is_some_and(|load| load.play)
                                         || (edit.load.is_none()
                                             && !edit.tracks.is_empty()
@@ -1127,6 +1174,18 @@ impl PlayerInternal {
                         command => (command, None),
                     };
                     self.current_completion = completion;
+                    // The session's revision travels with the command and is stamped where the
+                    // command is applied, so a snapshot any emission after this point carries
+                    // pairs its items with the revision of the edit that produced them. A tagged
+                    // command that leaves the playlist as it is stamps nothing: its edit bumps
+                    // no revision either.
+                    let queue_tag = cmd.queue_tag();
+                    let playlist_before = queue_tag.map(|_| {
+                        self.playlist
+                            .iter()
+                            .map(|entry| (entry.item.clone(), entry.block))
+                            .collect::<Vec<_>>()
+                    });
                     match cmd {
                         PlayerCommand::WithCompletion { .. } => unreachable!(),
                         PlayerCommand::Restore { tracks, index, position, mode } => {
@@ -1284,10 +1343,10 @@ impl PlayerInternal {
                                 }
                             }
                         }
-                        PlayerCommand::AddToPlaylist { tracks, mode } => {
+                        PlayerCommand::AddToPlaylist { tracks, mode, .. } => {
                             self.add_to_playlist(tracks, mode);
                         },
-                        PlayerCommand::EditPlaylist(edit) => {
+                        PlayerCommand::EditPlaylist(edit, _) => {
                             let add_mode = match edit.placement {
                                 PlaylistPlacement::Replace | PlaylistPlacement::AppendToEnd => {
                                     AddMode::AppendToEnd
@@ -1324,7 +1383,7 @@ impl PlayerInternal {
                                 self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
                             }
                         },
-                        PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response } => {
+                        PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response, .. } => {
                             let interrupted = self.interrupted_item();
                             let current_index = self.current_queue_edit_index()
                                 .and_then(|_| self.current_playlist_index());
@@ -1345,7 +1404,7 @@ impl PlayerInternal {
                                 items: self.playlist.iter().map(queue_entry).collect(),
                             });
                         },
-                        PlayerCommand::TakeBackBlock { block, interrupted, response } => {
+                        PlayerCommand::TakeBackBlock { block, interrupted, response, .. } => {
                             if !self.playlist.iter().any(|item| item.block == Some(block)) {
                                 let _ = response.send(None);
                                 continue;
@@ -1402,7 +1461,7 @@ impl PlayerInternal {
                                 playing: was_playing,
                             }));
                         },
-                        PlayerCommand::ClearHandoffBlocks { response } => {
+                        PlayerCommand::ClearHandoffBlocks { response, .. } => {
                             let mut changed = false;
                             for item in &mut self.playlist {
                                 changed |= item.block.take().is_some();
@@ -1415,9 +1474,9 @@ impl PlayerInternal {
                                 items: self.playlist.iter().map(queue_entry).collect(),
                             });
                         },
-                        PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index)?,
-                        PlayerCommand::ClearPlaylist => self.clear_playlist()?,
-                        PlayerCommand::MovePlayListItem {old_index, new_index} => {
+                        PlayerCommand::RemoveFromPlaylist { index, .. } => self.remove_from_playlist(index)?,
+                        PlayerCommand::ClearPlaylist { .. } => self.clear_playlist()?,
+                        PlayerCommand::MovePlayListItem { old_index, new_index, .. } => {
                             self.move_playlist_item(old_index, new_index);
                         },
                         PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode)?,
@@ -1439,6 +1498,16 @@ impl PlayerInternal {
                             self.host_run_resolved(request, track);
                         }
                     };
+                    if let (Some(revision), Some(before)) = (queue_tag, playlist_before) {
+                        let after = self
+                            .playlist
+                            .iter()
+                            .map(|entry| (entry.item.clone(), entry.block))
+                            .collect::<Vec<_>>();
+                        if after != before {
+                            self.queue_revision = revision;
+                        }
+                    }
                     // Whatever the command changed, the host holds the tracks that follow.
                     self.sync_host_run();
                     self.complete_current(Ok(()));
@@ -3005,7 +3074,10 @@ impl PlayerInternal {
     fn send_playlist_updated(&self) -> Result<()> {
         let playlist_items: Vec<PlaylistItem> = self.playlist.clone();
         self.event_sender
-            .send(PlayerEvent::PlaylistUpdated(playlist_items))
+            .send(PlayerEvent::PlaylistUpdated(
+                playlist_items,
+                self.queue_revision,
+            ))
             .with_context(|| "Failed to send PlaylistUpdated event")?;
 
         Ok(())
@@ -4507,6 +4579,7 @@ mod stream_open_tests {
                             })
                             .collect(),
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
                     tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
@@ -4577,13 +4650,15 @@ mod stream_open_tests {
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: vec![track(file_uuids[0])],
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
                     tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
-                    commands_sender.send(PlayerCommand::ClearPlaylist)?;
+                    commands_sender.send(PlayerCommand::ClearPlaylist { revision: None })?;
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: vec![track(file_uuids[1]), track(file_uuids[2])],
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
                     commands_sender.send(PlayerCommand::Play)?;
@@ -4658,6 +4733,7 @@ mod stream_open_tests {
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: vec![(expected.clone(), PlaybackSource::LibraryStream)],
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(0))?;
                     tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
@@ -4830,6 +4906,7 @@ mod playback_state_tests {
         PlayerCommand::AddToPlaylist {
             tracks: library_tracks(library_id, file_uuids),
             mode: AddMode::AppendToEnd,
+            revision: None,
         }
     }
 
@@ -5117,6 +5194,7 @@ mod playback_state_tests {
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: original,
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(2))?;
                     let target_c = library_item(library_id, file_uuids[2]);
@@ -5128,17 +5206,20 @@ mod playback_state_tests {
                     expect_playing(&mut events, &target_d).await?;
                     assert_ne!(snapshot_index, 3);
 
-                    commands_sender.send(PlayerCommand::EditPlaylist(PlaylistEdit {
-                        tracks: library_tracks(library_id, &file_uuids[5..8]),
-                        placement: PlaylistPlacement::PlayNext,
-                        playback_mode: None,
-                        block: None,
-                        load: Some(PlaylistLoad {
-                            start_index: 1,
-                            position: Duration::from_secs(1),
-                            play: false,
-                        }),
-                    }))?;
+                    commands_sender.send(PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: library_tracks(library_id, &file_uuids[5..8]),
+                            placement: PlaylistPlacement::PlayNext,
+                            playback_mode: None,
+                            block: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 1,
+                                position: Duration::from_secs(1),
+                                play: false,
+                            }),
+                        },
+                        None,
+                    ))?;
                     let loaded = next_track_state(&mut events).await?;
                     assert!(
                         matches!(
@@ -5172,18 +5253,22 @@ mod playback_state_tests {
                     commands_sender.send(PlayerCommand::AddToPlaylist {
                         tracks: library_tracks(library_id, &file_uuids[..3]),
                         mode: AddMode::AppendToEnd,
+                        revision: None,
                     })?;
                     commands_sender.send(PlayerCommand::Switch(1))?;
                     expect_playing(&mut events, &library_item(library_id, file_uuids[1])).await?;
                     commands_sender.send(PlayerCommand::Stop)?;
 
-                    commands_sender.send(PlayerCommand::EditPlaylist(PlaylistEdit {
-                        tracks: library_tracks(library_id, &file_uuids[3..]),
-                        placement: PlaylistPlacement::PlayNext,
-                        playback_mode: None,
-                        block: None,
-                        load: None,
-                    }))?;
+                    commands_sender.send(PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: library_tracks(library_id, &file_uuids[3..]),
+                            placement: PlaylistPlacement::PlayNext,
+                            playback_mode: None,
+                            block: None,
+                            load: None,
+                        },
+                        None,
+                    ))?;
                     let started = next_track_state(&mut events).await?;
                     assert!(
                         matches!(started, PlayerEvent::Playing { ref item, index: 3, .. }
@@ -5223,11 +5308,11 @@ mod playback_state_tests {
                         playback_mode: None,
                         block: None,
                         load: None,
-                    }))?;
+                    }, None))?;
                     let updated = tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
                             match events.recv().await {
-                                Some(PlayerEvent::PlaylistUpdated(items))
+                                Some(PlayerEvent::PlaylistUpdated(items, _))
                                     if items.len() == file_uuids.len() =>
                                 {
                                     return Ok(items);
@@ -7369,7 +7454,7 @@ mod playback_state_tests {
                     block: None,
                 };
                 let completion =
-                    completed_command(&commands_sender, PlayerCommand::EditPlaylist(edit));
+                    completed_command(&commands_sender, PlayerCommand::EditPlaylist(edit, None));
                 assert_eq!(
                     tokio_time::timeout(TEST_DEADLINE, completion).await??,
                     Err(PlayerCommandError::OutputUnavailable)
@@ -7532,7 +7617,7 @@ mod playback_state_tests {
                 let runner = task::spawn_local(async move { internal.run().await });
                 commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
                 tokio_time::timeout(TEST_DEADLINE, async {
-                    while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(_))) {}
+                    while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(..))) {}
                 })
                 .await?;
 
@@ -7627,14 +7712,17 @@ mod playback_state_tests {
                     );
                 }
                 sender.send(if clear {
-                    PlayerCommand::ClearPlaylist
+                    PlayerCommand::ClearPlaylist { revision: None }
                 } else {
-                    PlayerCommand::RemoveFromPlaylist { index: 0 }
+                    PlayerCommand::RemoveFromPlaylist {
+                        index: 0,
+                        revision: None,
+                    }
                 })?;
                 tokio::select! {
                     result = internal.run() => bail!("the player stopped before the edit: {result:?}"),
                     result = tokio_time::timeout(TEST_DEADLINE, async {
-                        while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(ref items)) if items.is_empty()) {}
+                        while !matches!(events.recv().await, Some(PlayerEvent::PlaylistUpdated(ref items, _)) if items.is_empty()) {}
                     }) => { result?; }
                 }
                 assert!(
@@ -7694,7 +7782,10 @@ mod playback_state_tests {
                 },
             );
             // Both commands are already in the player's FIFO before a resolver can answer.
-            commands.send(PlayerCommand::RemoveFromPlaylist { index: 0 })?;
+            commands.send(PlayerCommand::RemoveFromPlaylist {
+                index: 0,
+                revision: None,
+            })?;
             let event = run_until_track_state(&mut player, &mut events).await?;
             assert!(
                 matches!(&event, PlayerEvent::Playing { index: 1, item, .. }
@@ -7828,6 +7919,7 @@ mod playback_state_tests {
         commands.send(PlayerCommand::MovePlayListItem {
             old_index: 3,
             new_index: 1,
+            revision: None,
         })?;
 
         let event = run_until_track_state(&mut player, &mut events).await?;
@@ -7961,7 +8053,7 @@ mod playback_state_tests {
                     let paused_at = expect_paused(&mut events, &track).await?;
 
                     // The track moves up one place, and the next play opens a new output for it.
-                    commands_sender.send(PlayerCommand::RemoveFromPlaylist { index: 0 })?;
+                    commands_sender.send(PlayerCommand::RemoveFromPlaylist { index: 0, revision: None })?;
                     commands_sender.send(PlayerCommand::Play)?;
                     let event = next_track_state(&mut events).await?;
                     assert!(
@@ -7997,7 +8089,10 @@ mod playback_state_tests {
                     commands_sender.send(PlayerCommand::Output(OutputEvent::DeviceLost))?;
                     expect_paused(&mut events, &track).await?;
 
-                    commands_sender.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+                    commands_sender.send(PlayerCommand::RemoveFromPlaylist {
+                        index: 1,
+                        revision: None,
+                    })?;
                     commands_sender.send(PlayerCommand::Play)?;
                     tokio_time::timeout(TEST_DEADLINE, async {
                         loop {

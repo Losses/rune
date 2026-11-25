@@ -17235,151 +17235,227 @@ async fn the_volume_control_leaves_the_host_while_another_player_is_current() ->
     Ok(())
 }
 
-// Test for issue #424: A stale queue can remove the wrong track even with the current revision
+// Test for issue #424: A stale queue can remove the wrong track even with the current revision.
+// A tracking broadcaster keeps the items every published playlist revision described and fails
+// any update whose items do not match its revision: the revision a snapshot goes out with must
+// be the revision of the queue state the snapshot shows.
+struct QueueRevisionAudit {
+    recorded: RecordedSignals,
+    // The item ids each revision was first published with.
+    revisions: StdMutex<HashMap<u64, Vec<String>>>,
+    violations: StdMutex<Vec<String>>,
+}
+
+impl QueueRevisionAudit {
+    fn new() -> Self {
+        Self {
+            recorded: RecordedSignals::default(),
+            revisions: StdMutex::new(HashMap::new()),
+            violations: StdMutex::new(Vec::new()),
+        }
+    }
+
+    fn violations(&self) -> Vec<String> {
+        self.violations.lock().unwrap().clone()
+    }
+}
+
+impl Broadcaster for QueueRevisionAudit {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        self.recorded.broadcast(message);
+        if message.name() != "PlaylistUpdate" {
+            return;
+        }
+        let Ok(update) =
+            rinf::deserialize::<PlaylistUpdate>(&message.encode_to_vec().unwrap())
+        else {
+            return;
+        };
+        let items = update
+            .items
+            .iter()
+            .map(|entry| match &entry.item {
+                PlayingItemRef::LibraryTrack { track, .. } => track.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect::<Vec<_>>();
+        let mut revisions = self.revisions.lock().unwrap();
+        match revisions.get(&update.revision) {
+            Some(known) if *known != items => {
+                self.violations.lock().unwrap().push(format!(
+                    "revision {} was published as {known:?} and again as {items:?}",
+                    update.revision
+                ));
+            }
+            None => {
+                revisions.insert(update.revision, items);
+            }
+            _ => {}
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn stale_queue_snapshot_does_not_remove_wrong_track() -> Result<()> {
-    use crate::utils::Broadcaster;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Condvar, Mutex as StdMutex};
-
-    struct DeliveryGate {
-        recorded: RecordedSignals,
-        mode: AtomicUsize,
-        permits: StdMutex<usize>,
-        wake: Condvar,
-        entered: tokio::sync::Notify,
-    }
-
-    impl DeliveryGate {
-        fn new() -> Self {
-            Self {
-                recorded: RecordedSignals::default(),
-                mode: AtomicUsize::new(0),
-                permits: StdMutex::new(0),
-                wake: Condvar::new(),
-                entered: tokio::sync::Notify::new(),
-            }
-        }
-
-        fn release(&self) {
-            let mut permits = self.permits.lock().unwrap();
-            *permits += 1;
-            self.wake.notify_all();
-        }
-    }
-
-    impl Broadcaster for DeliveryGate {
-        fn broadcast(&self, message: &dyn RinfRustSignal) {
-            self.recorded.broadcast(message);
-            let mode = self.mode.load(Ordering::SeqCst);
-            let name = message.name();
-            let should_hold = (mode == 1 && name == "PlaybackStatus")
-                || (mode == 2
-                    && name == "PlaylistUpdate"
-                    && rinf::deserialize::<PlaylistUpdate>(&message.encode_to_vec().unwrap())
-                        .is_ok_and(|p| p.revision == 2 && p.items.len() == 2));
-            if should_hold
-                && self
-                    .mode
-                    .compare_exchange(mode, 0, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-            {
-                self.entered.notify_one();
-                let mut permits = self.permits.lock().unwrap();
-                while *permits == 0 {
-                    permits = self.wake.wait(permits).unwrap();
-                }
-                *permits -= 1;
-            }
-        }
-    }
-
     let dir = tempfile::tempdir()?;
-    let gate = Arc::new(DeliveryGate::new());
-    let fixture = fixture_with_broadcaster(dir.path(), Uuid::new_v4(), Duration::from_secs(300), gate.clone()).await?;
+    let audit = Arc::new(QueueRevisionAudit::new());
+    let fixture = fixture_with_broadcaster(dir.path(), Uuid::new_v4(), Duration::from_secs(300), audit.clone()).await?;
 
     let ids = [
         session_audio(&fixture, "audit-rev-a.ogg").await?,
         session_audio(&fixture, "audit-rev-b.ogg").await?,
         session_audio(&fixture, "audit-rev-c.ogg").await?,
     ];
+    let items = future::join_all(ids.iter().map(|id| library_track_for_id(&fixture, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
 
-    queue_session(&fixture, &ids).await?;
+    // The queue must be populated through the session, as the UI loads it: a queue edit is what
+    // moves the revision, and edits outside it never produce one.
+    let revision = dispatch_gui_request(
+        &fixture.global_params,
+        &PlaylistRevisionRequest { call_id: None },
+    )
+    .await?
+    .context("initial queue revision")?
+    .revision;
+    assert_eq!(revision, 0);
+    dispatch_gui_request(
+        &fixture.global_params,
+        &LoadResolvedItemsRequest {
+            call_id: None,
+            items: items.iter().map(|item| PlayingItemRef::from(*item)).collect(),
+            start_index: None,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(0),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Pause,
+        },
+    )
+    .await?;
+    wait_player(&fixture, |status| status.playlist.len() == 3).await?;
 
-    let before = fixture.global_params.player.lock().await.get_status();
+    let uuid_of = async |id: i32| -> Result<String> {
+        Ok(file_uuids_by_id(&fixture.global_params.test_library().main_db, &[id])
+            .await?
+            .get(&id)
+            .copied()
+            .context("file uuid")?
+            .to_string())
+    };
+    let ua = uuid_of(ids[0]).await?;
+    let ub = uuid_of(ids[1]).await?;
+    let uc = uuid_of(ids[2]).await?;
 
-    // Wait for initial playlist delivery
+    // The loaded queue is published under revision 1.
     wait_until("initial playlist delivery", || async {
-        Ok(gate.recorded.decoded::<PlaylistUpdate>("PlaylistUpdate").iter().any(|p| p.items.len() == 3).then_some(()))
+        Ok(audit
+            .recorded
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .iter()
+            .any(|p| p.items.len() == 3 && p.revision == 1)
+            .then_some(()))
     })
     .await?;
 
-    // Start delaying PlaybackStatus messages
-    gate.mode.store(1, Ordering::SeqCst);
-
-    // Change volume to trigger a PlaybackStatus update
-    fixture.global_params.player.lock().await.set_volume(0.7);
-
-    // Wait for the gate to be entered
-    timeout(Duration::from_secs(5), gate.entered.notified()).await?;
-
-    // Session event consumer is held; player thread and request handlers remain real and live.
-    // Remove A (index 0) - this should create playlist [B, C] with revision 1
-    dispatch_gui_request(&fixture.global_params, &RemoveRequest { call_id: Some(6010), index: 0, expected_revision: Some(0) }).await?;
-    wait_player(&fixture, |s| s.playlist.len() == 2 && s.playlist[0] == before.playlist[1]).await?;
-
-    // Move B to end - this should create playlist [C, B] with revision 2
-    dispatch_gui_request(&fixture.global_params, &MovePlaylistItemRequest { call_id: Some(6011), old_index: 0, new_index: 1, expected_revision: Some(1) }).await?;
-    wait_player(&fixture, |s| s.playlist == [before.playlist[2].clone(), before.playlist[1].clone()]).await?;
-
-    // Start delaying PlaylistUpdate with revision 2 and 2 items ([B, C])
-    gate.mode.store(2, Ordering::SeqCst);
-    gate.release();
-
-    // Wait for the gate to be entered again
-    timeout(Duration::from_secs(5), gate.entered.notified()).await?;
-
-    // Release the delayed update
-    gate.release();
-
-    // Wait for all updates to be processed
-    wait_until("all playlist updates processed", || async {
-        let updates = gate.recorded.decoded::<PlaylistUpdate>("PlaylistUpdate");
-        Ok((updates.iter().filter(|p| p.items.len() == 2).count() >= 2).then_some(()))
+    // Remove A: the queue becomes [B, C] under revision 2.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &RemoveRequest { call_id: Some(6010), index: 0, expected_revision: Some(1) },
+    )
+    .await?;
+    // The debounced publication is the edit settling: it and the queue it shows arrive
+    // together, where waiting on the player's status races its lock against the report.
+    wait_until("the removal to settle", || async {
+        Ok(audit
+            .revisions
+            .lock()
+            .unwrap()
+            .get(&2)
+            .is_some_and(|items| items.len() == 2)
+            .then_some(()))
     })
     .await?;
 
-    // Get the updates - we should have:
-    // - PlaylistUpdate with revision 1, items [B, C] (from remove A)
-    // - PlaylistUpdate with revision 2, items [C, B] (from move B to end)
-    let updates = gate.recorded.decoded::<PlaylistUpdate>("PlaylistUpdate");
-    let playlist_updates: Vec<_> = updates.iter().filter(|p| p.items.len() == 2).collect();
-    assert!(playlist_updates.len() >= 2, "Expected at least 2 playlist updates with 2 items");
+    // A track becomes unavailable between the two edits. Its report is a playlist snapshot of
+    // its own, and it must not go out under the revision of the edit that follows it.
+    let media_root = fixture.global_params.test_library().media_root.clone();
+    fs::remove_file(Path::new(&media_root).join("audit-rev-c.ogg"))?;
+    fixture.global_params.player.lock().await.switch(1);
+    // Move B to the end immediately, so the edit and the in-flight unavailable report reach
+    // the session together: the queue becomes [C, B] under revision 3, and the unavailable
+    // snapshot must not go out under it.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &MovePlaylistItemRequest { call_id: Some(6011), old_index: 0, new_index: 1, expected_revision: Some(2) },
+    )
+    .await?;
+    wait_until("unavailable report", || async {
+        Ok(audit
+            .recorded
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .iter()
+            .any(|p| {
+                p.items
+                    .iter()
+                    .any(|entry| entry.unavailable.is_some())
+            })
+            .then_some(()))
+    })
+    .await?;
+    wait_until("the move to settle", || async {
+        let revisions = audit.revisions.lock().unwrap();
+        Ok(revisions
+            .get(&3)
+            .is_some_and(|items| items.first().map(String::as_str) == Some(uc.as_str()))
+            .then_some(()))
+    })
+    .await?;
 
-    // Find the update with revision 1 (should be [B, C])
-    let rev1_update = playlist_updates.iter().find(|p| p.revision == 1).context("Expected playlist update with revision 1")?;
-    assert_eq!(rev1_update.items[0].item, PlayingItemRef::from(library_track_for_id(&fixture, ids[1]).await?));
-    assert_eq!(rev1_update.items[1].item, PlayingItemRef::from(library_track_for_id(&fixture, ids[2]).await?));
+    // Every published snapshot pairs its items with the revision of the queue state they are:
+    // the empty queue with 0, [A, B, C] with 1, [B, C] with 2, [C, B] with 3, whichever of them
+    // debouncing publishes.
+    assert!(audit.revisions.lock().unwrap().contains_key(&3));
+    assert!(
+        audit.violations().is_empty(),
+        "snapshots went out under revisions they do not belong to: {:?}",
+        audit.violations()
+    );
+    {
+        let revisions = audit.revisions.lock().unwrap();
+        if let Some(items) = revisions.get(&0) {
+            assert!(items.is_empty());
+        }
+        if let Some(items) = revisions.get(&1) {
+            assert_eq!(*items, vec![ua.clone(), ub.clone(), uc.clone()]);
+        }
+        if let Some(items) = revisions.get(&2) {
+            assert_eq!(*items, vec![ub.clone(), uc.clone()]);
+        }
+        if let Some(items) = revisions.get(&3) {
+            assert_eq!(*items, vec![uc.clone(), ub.clone()]);
+        }
+    }
 
-    // Find the update with revision 2 (should be [C, B])
-    let rev2_update = playlist_updates.iter().find(|p| p.revision == 2).context("Expected playlist update with revision 2")?;
-    assert_eq!(rev2_update.items[0].item, PlayingItemRef::from(library_track_for_id(&fixture, ids[2]).await?));
-    assert_eq!(rev2_update.items[1].item, PlayingItemRef::from(library_track_for_id(&fixture, ids[1]).await?));
-
-    // Now try to remove index 0 from the stale snapshot [B, C] with revision 1
-    // This should be rejected because the current revision is 2
-    let result = dispatch_gui_request(&fixture.global_params, &RemoveRequest { call_id: Some(6012), index: 0, expected_revision: Some(1) }).await;
-
-    // The request should fail with a conflict error because revision 1 is stale
+    // An edit against the revision of the queue before the move is stale now.
+    let result = dispatch_gui_request(
+        &fixture.global_params,
+        &RemoveRequest { call_id: Some(6012), index: 0, expected_revision: Some(2) },
+    )
+    .await;
     assert!(result.is_err(), "Expected error when removing with stale revision");
     let error = result.unwrap_err();
     assert_eq!(classify(&error), RequestErrorKind::Conflict);
 
-    // The playlist should still be [C, B]
-    let actual = wait_player(&fixture, |s| s.playlist.len() == 2).await?;
-    assert_eq!(actual.playlist, [before.playlist[2].clone(), before.playlist[1].clone()]);
+    // The queue is untouched: revision 3's [C, B] did not remove C.
+    let revisions = audit.revisions.lock().unwrap().clone();
+    assert_eq!(
+        revisions.get(&3).map(Vec::as_slice),
+        Some([uc.clone(), ub.clone()].as_slice())
+    );
 
-    // Clean up
     fixture.global_params.node.shutdown().await?;
     Ok(())
 }

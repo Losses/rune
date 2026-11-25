@@ -1049,8 +1049,9 @@ impl Signal for LoadResolvedItemsRequest {
                                 play: request.play,
                             },
                         );
-                        completion =
-                            Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit)));
+                        completion = Some(
+                            player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                        );
                         changed
                     })
                     .await?;
@@ -1176,8 +1177,9 @@ impl Signal for LoadResolvedItemsRequest {
                             play: request.play,
                         },
                     );
-                    completion =
-                        Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit)));
+                    completion = Some(
+                        player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                    );
                     changed
                 })
                 .await?;
@@ -1472,7 +1474,7 @@ async fn apply_resolved_items_load(
                     },
                 );
                 completion =
-                    Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit)));
+                    Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)));
                 changed
             })
             .await?;
