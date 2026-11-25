@@ -27,7 +27,7 @@ use database::{
 use fsio::FsIo;
 use futures::future::BoxFuture;
 use playback::{
-    PlaybackMode,
+    MediaPlayback, MediaPosition, PlaybackMode,
     controller::{MediaControlManager, handle_media_control_event},
     player::{
         HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
@@ -1208,10 +1208,9 @@ async fn handle_status_event(
         item_request,
         session_id,
     );
-    if let Some(manager) = controls
-        && progress_goes_out(value.item.as_ref(), item_state.metadata_found, &value.state)
-    {
-        let _ = update_media_controls_progress(manager.clone(), &report).await;
+    if let Some(manager) = controls {
+        let playback = now_playing_playback(&value, item_state.metadata_found);
+        let _ = update_media_controls_progress(manager.clone(), playback).await;
     }
     broadcaster.broadcast(&report);
 
@@ -1306,16 +1305,18 @@ async fn handle_status_event(
     }
 }
 
-/// Whether the progress of a status goes to the system's Now Playing, which shows it against the
-/// metadata it was last given. The progress of an item whose metadata was not found waits until it
-/// is, as when a slow service names its track late: it would go out against the item before. A
-/// stop names no item, so it goes out at once.
-fn progress_goes_out(
-    item: Option<&PlayingItem>,
-    metadata_found: bool,
-    state: &PlaybackState,
-) -> bool {
-    item.is_none() || metadata_found || *state == PlaybackState::Stopped
+/// The playback a status gives the system's Now Playing, which shows it against the metadata it
+/// was last given. The state always goes, so that a pause or a stop shows at once, even when the
+/// item's metadata is never found. The position of an item whose metadata was not found waits
+/// until it is, as when a slow service names its track late: it would go out against the item
+/// before.
+fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> MediaPlayback {
+    let progress = metadata_found.then_some(MediaPosition(status.position));
+    match status.state {
+        PlaybackState::Playing => MediaPlayback::Playing { progress },
+        PlaybackState::Paused => MediaPlayback::Paused { progress },
+        PlaybackState::Stopped => MediaPlayback::Stopped,
+    }
 }
 
 fn playing_item_ref(item: &PlayingItem) -> Option<PlayingItemRef> {
