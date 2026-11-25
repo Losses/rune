@@ -471,6 +471,10 @@ impl LibraryLyrics {
                 }
             })
             .await;
+        // The user may have stopped the lookups while the answers kept were read.
+        if !self.allowed() {
+            return None;
+        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs());
@@ -818,6 +822,45 @@ mod tests {
         assert_eq!(find(&http.lrclib(), &song(200)).await.unwrap(), None);
         http.answer("/api/get", Some((404, "{}")));
         assert_eq!(find(&http.lrclib(), &song(200)).await.unwrap(), None);
+    }
+
+    /// A clock that does not move.
+    struct Still(Instant);
+
+    impl Clock for Still {
+        fn now(&self) -> Instant {
+            self.0
+        }
+    }
+
+    #[tokio::test]
+    async fn lookups_stopped_while_the_answers_kept_are_read_ask_nothing() {
+        use futures::FutureExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let http = Arc::new(FakeLrclib::default());
+        http.answer("/api/get", Some((200, SYNCED)));
+        let lyrics = LibraryLyrics::new(
+            dir.path(),
+            Uuid::new_v4(),
+            http.lrclib(),
+            Arc::new(Still(Instant::now())),
+        );
+        lyrics.set_allowed(true);
+        // The answers kept are being read, as the first lookup reads them, until the test lets
+        // the read end.
+        let release = tokio::sync::Notify::new();
+        let mut restore = Box::pin(lyrics.restored.get_or_init(|| release.notified()));
+        assert!(restore.as_mut().now_or_never().is_none());
+        let song = song(200);
+        let mut lookup = Box::pin(lyrics.lyrics_of("a", &song));
+        assert!(lookup.as_mut().now_or_never().is_none());
+        // The user stops the lookups meanwhile.
+        lyrics.set_allowed(false);
+        release.notify_one();
+        restore.await;
+        assert_eq!(lookup.await, None);
+        assert!(http.asked().is_empty());
     }
 
     #[test]
