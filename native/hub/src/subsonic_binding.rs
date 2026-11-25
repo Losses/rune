@@ -2577,94 +2577,92 @@ mod visualizer_feed_tests {
         server.abort();
     }
 
+    /// #895: a cover whose download ends after its library's record is removed must not bring
+    /// the library's folder back.
     #[tokio::test]
-    async fn remove_subsonic_library_record_deletes_cover_cache() {
+    async fn a_cover_download_that_ends_after_its_record_is_removed_leaves_no_folder() {
+        use crate::Signal;
+        use crate::messages::RemoveLibraryRecordRequest;
         use crate::node::NodeContext;
         use crate::server::utils::device::RunMode;
-        use crate::service::covers::cover_cache_root;
         use crate::service::folder::service_library_folder;
-        use std::sync::Arc;
-        use std::sync::atomic::Ordering;
-        use std::time::Duration;
+        use database::credentials::{Credential, Secret};
+        use database::library_registry::{
+            CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+            SubsonicOpenMode,
+        };
 
-        // Start a mock Subsonic server with delayed cover response
         let (url, state, server) = server(true, false).await;
-        state.delay_cover.store(true, Ordering::SeqCst);
-
-        let node_dir = TempDir::new().unwrap();
-        let path = node_dir.path().to_string_lossy().into_owned();
-        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
-        let signals = Arc::new(Signals::default());
+        let root = TempDir::new().unwrap();
+        let config = root.path().to_string_lossy().into_owned();
+        crate::test_node::disable_sync_listener(root.path()).unwrap();
         let node = NodeContext::new(
-            &path,
-            &path,
-            signals.clone(),
+            &config,
+            &config,
+            Arc::new(Signals::default()),
             false,
             RunMode::App,
             Arc::new(Visualizer::new()),
         )
         .await
         .unwrap();
-
-        let root = TempDir::new().unwrap();
-
-        // Create a Subsonic binding with a library_id
-        let subsonic_binding = open_binding(url.clone(), &root, Arc::new(Signals::default())).await;
-        let library_id = subsonic_binding.library_id;
-
-        // Manually register the cover cache with the node so it will be tracked
-        node.register_cover_cache(library_id, &subsonic_binding.covers);
-
-        // Set the binding as open so node knows about it
-        node.set_open_service_catalog(None, subsonic_binding.clone())
+        let binding = open_binding(url.clone(), &root, Arc::new(Signals::default())).await;
+        let library_id = binding.library_id;
+        node.register_cover_cache(library_id, &binding.covers);
+        let credential = node
+            .credentials
+            .put(Credential {
+                username: "alice".into(),
+                secret: Secret::new(b"secret".to_vec()),
+            })
             .await
-            .ok();
+            .unwrap();
+        LibraryRegistry::update(root.path(), |registry| {
+            registry.libraries.push(LibraryRecord {
+                record_id: LibraryRecordId(library_id),
+                alias: "Subsonic".into(),
+                library_id: None,
+                protocol: ProtocolAdapter::SubsonicTranslate {
+                    endpoint: url.to_string(),
+                    credential,
+                    mode: SubsonicOpenMode::PlayOnThisDevice,
+                },
+                fs: Vec::new(),
+                catalog: CatalogPlacement::None,
+                background_sync: false,
+            });
+            Ok(())
+        })
+        .await
+        .unwrap();
 
-        let covers = subsonic_binding.covers.clone();
-
-        // Get the cover cache directory path
-        let cover_cache_path = cover_cache_root(root.path(), library_id);
-        std::fs::create_dir_all(&cover_cache_path).unwrap();
-
-        // Trigger a cover download that will be held by the mock
-        let client = Arc::clone(&subsonic_binding.client);
-        let _download_task = tokio::spawn({
-            let covers = covers.clone();
-            async move { covers.ensure_cached(client, "test-cover-id").await }
+        // The mock holds the cover's response while the record is removed.
+        state.delay_cover.store(true, Ordering::SeqCst);
+        let download = tokio::spawn({
+            let (covers, client) = (Arc::clone(&binding.covers), Arc::clone(&binding.client));
+            async move { covers.ensure_cached(client, "cover").await }
         });
-
-        // Wait for the download request to reach the mock
-        tokio::time::timeout(Duration::from_secs(1), state.cover_started.notified())
+        timeout(TEST_DEADLINE, state.cover_started.notified())
             .await
-            .expect("Cover download request should reach mock server");
-
-        let cover_count_before = state.cover_calls.load(Ordering::SeqCst);
-        assert!(cover_count_before > 0, "Cover download should have started");
-
-        // Now simulate what RemoveLibraryRecordRequest does:
-        // 1. Cancel cover downloads for the library
-        node.cancel_cover_downloads_for_library(library_id).await;
-
-        // 2. Delete the service library folder (which includes the cover cache)
-        let service_folder = service_library_folder(root.path(), library_id);
-        let _ = std::fs::remove_dir_all(service_folder);
-
-        // Release the download to let it attempt to complete (it should be cancelled)
+            .expect("the cover request reaches the server");
+        let request = RemoveLibraryRecordRequest {
+            call_id: None,
+            record_id: library_id.to_string(),
+        };
+        let removed = tokio::spawn({
+            let node = Arc::clone(&node);
+            async move { request.handle(node, None, &request).await }
+        });
+        // The server answers only now, after the removal began.
         state.release_cover.notify_one();
+        timeout(TEST_DEADLINE, removed)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let _ = timeout(TEST_DEADLINE, download).await.unwrap().unwrap();
 
-        // Wait for any async operations
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Verify the cover cache directory does not exist
-        // With the fix, cancel_cover_downloads_for_library cancels all downloads
-        // which causes fetch_uncached to return early before create_dir_all
-        // and the folder deletion in RemoveLibraryRecordRequest removes it
-        assert!(
-            !cover_cache_path.exists(),
-            "Cover cache directory should not exist after RemoveLibraryRecordRequest. \
-             This tests that downloads are properly cancelled before directory operations."
-        );
-
+        assert!(!service_library_folder(root.path(), library_id).exists());
         server.abort();
     }
 
