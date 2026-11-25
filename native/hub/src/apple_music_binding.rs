@@ -424,9 +424,38 @@ impl AppleSongs {
     }
 
     /// These songs with `held`, the songs Rune holds in the library, after them, each unless it
-    /// is listed already, as a song the library has a copy of is, or names no song.
+    /// is listed already, as a song the library has a copy of is, or names no song. A song that
+    /// only one of the user's playlists lists so far moves among them, as Rune holds it in the
+    /// library.
     pub(crate) fn with_held(&self, held: impl IntoIterator<Item = LibrarySong>) -> Self {
-        let mut songs = self.clone();
+        let held: Vec<LibrarySong> = held.into_iter().collect();
+        let held_from = self.held_from();
+        let moved: HashSet<String> = held
+            .iter()
+            .filter_map(listed_track)
+            .filter(|track| {
+                self.library_twin(track).is_none()
+                    && self
+                        .index
+                        .get(track)
+                        .is_some_and(|&at| at < held_from && !is_library_song(&self.songs[at]))
+            })
+            .collect();
+        let mut songs = if moved.is_empty() {
+            self.clone()
+        } else {
+            let mut songs = Self {
+                twins: self.twins.clone(),
+                ..Self::default()
+            };
+            for (at, (track, song)) in self.entries().enumerate() {
+                if at >= held_from || !moved.contains(track) {
+                    songs.push(song.clone());
+                }
+            }
+            songs.held = self.held;
+            songs
+        };
         let before = songs.len();
         for song in held {
             songs.push(song);

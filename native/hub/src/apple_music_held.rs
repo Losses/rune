@@ -1369,6 +1369,62 @@ mod tests {
     }
 
     #[test]
+    fn a_song_only_a_playlist_lists_moves_into_the_library_once_rune_holds_it() {
+        let named = Named {
+            albums: Vec::new(),
+            playlists: Vec::new(),
+            tracks: vec!["catalog:900".into(), "catalog:1602".into()],
+        };
+        let mut read = Read::default();
+        read.tracks.insert(
+            "catalog:900".into(),
+            song("900", Some(("1800", "Night")), 2019),
+        );
+        read.tracks.insert(
+            "catalog:1602".into(),
+            song("1602", Some(("1600", "Remixes")), 2020),
+        );
+        let held = Held::built(&named, &read);
+        // One of the user's playlists lists 900, which the library does not hold, and 1602,
+        // which the library holds a copy of.
+        let listed = |id: &str| {
+            json!({"id": id, "type": "songs", "attributes": {
+                "name": id, "playParams": {"id": id, "kind": "song", "catalogId": id},
+            }})
+        };
+        let own: AppleSongs = serde_json::from_value(json!({
+            "songs": [
+                {"id": "i.copy", "type": "library-songs", "attributes": {
+                    "name": "Copy", "playParams": {"id": "i.copy", "kind": "song", "catalogId": "1602"},
+                }},
+                listed("900"),
+                listed("1602"),
+                listed("700"),
+            ],
+            "twins": {"1602": "i.copy"},
+        }))
+        .unwrap();
+        let songs = HeldStore::default().songs_with(Arc::new(own), &Arc::new(held), None);
+        let listed: Vec<(&str, Option<&str>)> = songs
+            .entries()
+            .map(|(track, song)| (track, song.album_id()))
+            .collect();
+        // 900 is listed once, among the songs Rune holds, on its album; 1602 stays the library's
+        // copy; 700 is still only the playlist's.
+        assert_eq!(
+            listed,
+            [
+                ("i.copy", None),
+                ("catalog:700", None),
+                ("catalog:900", Some("rune-album:1800")),
+            ]
+        );
+        assert!(songs.holds("catalog:900") && !songs.holds("catalog:700"));
+        let library: Vec<&str> = songs.library_entries().map(|(track, _)| track).collect();
+        assert_eq!(library, ["i.copy", "catalog:900"]);
+    }
+
+    #[test]
     fn an_album_rune_holds_takes_the_release_of_its_earliest_song() {
         let named = Named {
             albums: vec!["1600".into()],
