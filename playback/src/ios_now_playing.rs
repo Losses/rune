@@ -303,12 +303,24 @@ mod ios {
         /// A platform host plays the current track and shows Now Playing for it itself, in the
         /// app's own place. Rune's command targets go, so that a command from the lock screen
         /// reaches the host alone rather than acting twice, and so does what Rune showed, so that
-        /// the lock screen never shows Rune's earlier track over the host's. The commands stay
-        /// enabled, as the host may use the same ones. Nothing is shown until `reclaim_commands`.
-        /// Yielding again does it all again, which costs nothing when it is done already and
-        /// finishes it when the main thread did not get through it the first time.
+        /// the lock screen never shows Rune's earlier track over the host's, nor again once the
+        /// host lets go: the next metadata Rune sets is shown then, and a report without any, as
+        /// of a stop, shows no track. The commands stay enabled, as the host may use the same
+        /// ones. Nothing is shown until `reclaim_commands`. Yielding again does it all again,
+        /// which costs nothing when it is done already and finishes it when the main thread did
+        /// not get through it the first time.
         pub fn yield_commands(&mut self) -> Result<(), Error> {
-            lock(&self.state).yielded = true;
+            {
+                let mut state = lock(&self.state);
+                state.yielded = true;
+                state.title = None;
+                state.artist = None;
+                state.album = None;
+                state.duration = None;
+                state.image = None;
+                // Artwork still loading for what was shown is dropped when it lands.
+                state.generation = state.generation.wrapping_add(1);
+            }
             let main = Arc::clone(&self.main);
             on_main(move |mtm| main.get(mtm).borrow_mut().yield_commands());
             Ok(())
