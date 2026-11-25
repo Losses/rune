@@ -56,7 +56,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex as StdMutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc as std_mpsc,
     },
 };
@@ -135,6 +135,7 @@ use scrobbling::manager::ScrobblingManager;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::de::DeserializeOwned;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, copy as copy_io};
 use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(target_os = "linux")]
 use tokio::runtime::Builder;
@@ -14118,6 +14119,84 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     Ok(())
 }
 
+struct TestTcpProxy {
+    listen_addr: SocketAddr,
+    connection_count: Arc<AtomicUsize>,
+    request_bytes: Arc<AtomicUsize>,
+    server: JoinHandle<()>,
+}
+
+impl TestTcpProxy {
+    async fn new(target_addr: SocketAddr) -> Result<Self> {
+        let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+        let listen_addr = listener.local_addr()?;
+        let connection_count = Arc::new(AtomicUsize::new(0));
+        let request_bytes = Arc::new(AtomicUsize::new(0));
+        let server = tokio::spawn({
+            let connection_count = connection_count.clone();
+            let request_bytes = request_bytes.clone();
+            async move {
+                while let Ok((client, _)) = listener.accept().await {
+                    let _ = client.set_nodelay(true);
+                    connection_count.fetch_add(1, Ordering::SeqCst);
+                    let request_bytes = request_bytes.clone();
+                    tokio::spawn(async move {
+                        let Ok(server) = TcpStream::connect(target_addr).await else {
+                            return;
+                        };
+                        let _ = server.set_nodelay(true);
+                        let (mut client_reader, mut client_writer) = client.into_split();
+                        let (mut server_reader, mut server_writer) = server.into_split();
+                        let client_to_server = async move {
+                            let mut buffer = [0_u8; 8192];
+                            while let Ok(read) = client_reader.read(&mut buffer).await {
+                                if read == 0 {
+                                    break;
+                                }
+                                request_bytes.fetch_add(read, Ordering::SeqCst);
+                                if server_writer.write_all(&buffer[..read]).await.is_err() {
+                                    break;
+                                }
+                            }
+                            let _ = server_writer.shutdown().await;
+                        };
+                        let server_to_client = async move {
+                            let _ = copy_io(&mut server_reader, &mut client_writer).await;
+                            let _ = client_writer.shutdown().await;
+                        };
+                        tokio::join!(client_to_server, server_to_client);
+                    });
+                }
+            }
+        });
+        Ok(Self {
+            listen_addr,
+            connection_count,
+            request_bytes,
+            server,
+        })
+    }
+
+    fn reset(&self) {
+        self.connection_count.store(0, Ordering::SeqCst);
+        self.request_bytes.store(0, Ordering::SeqCst);
+    }
+
+    fn connection_count(&self) -> usize {
+        self.connection_count.load(Ordering::SeqCst)
+    }
+
+    fn request_bytes(&self) -> usize {
+        self.request_bytes.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for TestTcpProxy {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn remote_library_request_without_renderer_library_is_typed_and_not_sent() -> Result<()> {
     let controller_dir = tempfile::tempdir()?;
@@ -14133,18 +14212,22 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
     )
     .await?;
     let address = super::paired_full(&renderer, &controller).await?;
+    controller.stop_worker().await?;
+    renderer.stop_worker().await?;
     let fingerprint = super::info(&renderer).await?.fingerprint;
+    let proxy = TestTcpProxy::new(address).await?;
+    let proxy_host = format!("127.0.0.1:{}", proxy.listen_addr.port());
     controller
         .global_params
         .cert_validator
         .read()
         .await
-        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
+        .replace_hosts_for_fingerprint(&fingerprint, vec![proxy_host.clone()])
         .await?;
     let (params, _) = open_remote_library_for_fingerprint(
         controller.global_params.node.clone(),
         &fingerprint,
-        vec![format!("127.0.0.1:{}", address.port())],
+        vec![proxy_host],
         None,
     )
     .await?;
@@ -14154,7 +14237,6 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
         .renderer_link()?
         .context("remote renderer link")?;
     assert_eq!(link.active_library_id(), renderer.global_params.library_id);
-    let sent_before_close = link.sent_request_count();
 
     let renderer_ui = renderer.global_params.node.current_ui().await?;
     super::close_ui(&renderer_ui).await?;
@@ -14164,6 +14246,14 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
     .await
     .context("renderer close event did not clear the remote link library")?;
 
+    let before_probe = proxy.request_bytes();
+    dispatch_gui_request(&params, &SessionSnapshotRequest { call_id: None })
+        .await?
+        .context("barrier snapshot before closed-library request")?;
+    let barrier_bytes = proxy.request_bytes() - before_probe;
+    assert!(barrier_bytes > 0);
+
+    let before_request = proxy.request_bytes();
     let error =
         match dispatch_gui_request(&params, &GetMediaFilesCountRequest { call_id: None }).await {
             Ok(_) => anyhow::bail!("library request without renderer library must fail"),
@@ -14173,7 +14263,12 @@ async fn remote_library_request_without_renderer_library_is_typed_and_not_sent()
         error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unavailable { what: "library id" })
     ));
-    assert_eq!(link.sent_request_count(), sent_before_close);
+    // Barrier on the same link: once its reply arrives, any bytes the controller sent
+    // earlier have already passed through the proxy.
+    dispatch_gui_request(&params, &SessionSnapshotRequest { call_id: None })
+        .await?
+        .context("barrier snapshot after closed-library request")?;
+    assert_eq!(proxy.request_bytes() - before_request, barrier_bytes);
 
     controller.global_params.node.shutdown().await?;
     renderer.global_params.node.shutdown().await?;
@@ -14195,6 +14290,7 @@ struct ReconnectFixture {
     signals: Arc<RecordedSignals>,
     address: SocketAddr,
     fingerprint: String,
+    proxy: TestTcpProxy,
     _directories: [TempDir; 2],
 }
 
@@ -14231,9 +14327,15 @@ impl ReconnectFixture {
         .await?;
         let b = step("create renderer fixture", fixture(directories[1].path())).await?;
         let address = step("pair reconnect fixtures", super::paired_full(&b, &a)).await?;
+        step("stop background sync workers", async {
+            a.stop_worker().await?;
+            b.stop_worker().await
+        })
+        .await?;
         let fingerprint = step("read renderer identity", super::info(&b))
             .await?
             .fingerprint;
+        let proxy = step("start renderer proxy", TestTcpProxy::new(address)).await?;
         step("store reconnect endpoint", async {
             a.global_params
                 .cert_validator
@@ -14241,7 +14343,7 @@ impl ReconnectFixture {
                 .await
                 .replace_hosts_for_fingerprint(
                     &fingerprint,
-                    vec![format!("127.0.0.1:{}", address.port())],
+                    vec![format!("127.0.0.1:{}", proxy.listen_addr.port())],
                 )
                 .await?;
             Ok::<_, anyhow::Error>(())
@@ -14261,6 +14363,7 @@ impl ReconnectFixture {
         )
         .await?;
         signals.clear();
+        proxy.reset();
         Ok(Self {
             a,
             b,
@@ -14268,6 +14371,7 @@ impl ReconnectFixture {
             signals,
             address,
             fingerprint,
+            proxy,
             _directories: directories,
         })
     }
@@ -14402,7 +14506,11 @@ async fn rr_reconnect_deadline_uses_existing_loss_and_close() -> Result<()> {
     let loss: RemoteConnectionLost = f.wait_signal("RemoteConnectionLost").await?;
     assert_eq!(loss.kind, RemoteLossKind::ServerStopped);
     assert!(started.elapsed() >= Duration::from_millis(400));
-    assert!(f.a.global_params.node.reconnect_attempt_count() > 0);
+    let attempts = f.proxy.connection_count();
+    assert!(attempts > 0);
+    // The deadline-loss event is the barrier before checking that retries stopped.
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(f.proxy.connection_count(), attempts);
     let mut close = start::<CloseLibraryRequest>(&f.remote);
     close.send(CloseLibraryRequest { call_id: None });
     let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
@@ -14443,11 +14551,13 @@ async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Res
         .await?;
     let loss: RemoteConnectionLost = f.wait_signal("RemoteConnectionLost").await?;
     assert_eq!(loss.kind, RemoteLossKind::ProtocolIncompatible);
-    let attempts = f.a.global_params.node.reconnect_attempt_count();
+    let attempts = f.proxy.connection_count();
     // The permanent-loss event is the barrier before checking that no reconnect starts.
     sleep(Duration::from_millis(250)).await;
-    assert_eq!(f.a.global_params.node.reconnect_attempt_count(), attempts);
-    assert_eq!(attempts, 1);
+    assert_eq!(f.proxy.connection_count(), attempts);
+    // One reconnect attempt probes the host over TLS and then opens `/ws`, where 426 stops it
+    // before fetching device info.
+    assert_eq!(attempts, 2);
     f.shutdown().await
 }
 
@@ -14468,14 +14578,11 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
     ] {
         // The fixture is reused across exits and the attempt count never resets, so each
         // exit waits for an attempt made after its own disconnect.
-        let attempts_before = f.a.global_params.node.reconnect_attempt_count();
+        let attempts_before = f.proxy.connection_count();
         step("disconnect renderer", f.disconnect()).await?;
         step("wait for first reconnect attempt", async {
             wait_until("first reconnect attempt", || async {
-                Ok(
-                    (f.a.global_params.node.reconnect_attempt_count() > attempts_before)
-                        .then_some(()),
-                )
+                Ok((f.proxy.connection_count() > attempts_before).then_some(()))
             })
             .await
         })
@@ -14501,7 +14608,7 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
             Ok::<_, anyhow::Error>(())
         })
         .await?;
-        let attempts = f.a.global_params.node.reconnect_attempt_count();
+        let attempts = f.proxy.connection_count();
         step(
             "restart renderer",
             f.b.manager.clone().start(
@@ -14520,7 +14627,7 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
         .await;
         step("verify reconnect stopped", async {
             assert_eq!(
-                f.a.global_params.node.reconnect_attempt_count(),
+                f.proxy.connection_count(),
                 attempts,
                 "attempt after {exit:?}"
             );

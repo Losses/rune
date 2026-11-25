@@ -243,8 +243,6 @@ pub struct NodeContext {
     open_generation: AtomicU64,
     reconnect_config: ReconnectConfig,
     visualizer: NodeVisualizer,
-    #[cfg(test)]
-    reconnect_attempts: AtomicUsize,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
     pub library_tasks: Arc<StdMutex<LibraryTaskOwner>>,
@@ -471,8 +469,6 @@ impl NodeContext {
             open_generation: AtomicU64::new(0),
             reconnect_config,
             visualizer: NodeVisualizer::new(visualizer),
-            #[cfg(test)]
-            reconnect_attempts: AtomicUsize::new(0),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
             library_tasks: Arc::new(StdMutex::new(LibraryTaskOwner::default())),

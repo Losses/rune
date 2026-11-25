@@ -1,5 +1,3 @@
-#[cfg(test)]
-use std::sync::atomic::Ordering;
 use std::{
     iter::repeat,
     sync::{Arc, Weak},
@@ -113,12 +111,18 @@ impl Drop for ReconnectTask {
 impl NodeContext {
     fn begin_reconnect_attempt(&self, fingerprint: &str, cancel: &CancellationToken) -> bool {
         self.ui_library.lock().is_ok_and(|ui| {
-            let active = !cancel.is_cancelled() && matches!(&*ui, UiLibrary::Open(open) if matches!(&open.catalog, LibraryBinding::RemotePeer { fingerprint: current, reconnect: Some(_) } if current == fingerprint));
-            #[cfg(test)]
-            if active {
-                self.reconnect_attempts.fetch_add(1, Ordering::SeqCst);
-            }
-            active
+            !cancel.is_cancelled()
+                && matches!(
+                    &*ui,
+                    UiLibrary::Open(open)
+                        if matches!(
+                            &open.catalog,
+                            LibraryBinding::RemotePeer {
+                                fingerprint: current,
+                                reconnect: Some(_),
+                            } if current == fingerprint
+                        )
+                )
         })
     }
 
@@ -191,10 +195,5 @@ impl NodeContext {
         self.gui_broadcaster
             .broadcast(&RendererAttachmentChanged { renderer: None });
         None
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reconnect_attempt_count(&self) -> usize {
-        self.reconnect_attempts.load(Ordering::SeqCst)
     }
 }
