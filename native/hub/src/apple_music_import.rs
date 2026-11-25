@@ -95,7 +95,7 @@ async fn import_playlists(
             log::info!("Stopped importing the Apple Music playlists: the sign-in changed");
             return Ok((false, playlists));
         }
-        match import_playlist(binding, playlist).await {
+        match import_playlist(binding, playlist, changes).await {
             Ok(true) => binding.content_changed(),
             Ok(false) => {}
             Err(error) => {
@@ -109,13 +109,21 @@ async fn import_playlists(
     Ok((complete && binding.token_changes() == changes, playlists))
 }
 
-/// Imports one playlist; answers whether it was made, which it is not when it was imported
-/// meanwhile.
-async fn import_playlist(binding: &AppleMusicBinding, playlist: &LibraryPlaylist) -> Result<bool> {
+/// Imports one playlist for the sign-in `changes` counted; answers whether it was made, which it
+/// is not when it was imported meanwhile, or when the sign-in changed while its songs were read:
+/// they may be another account's.
+async fn import_playlist(
+    binding: &AppleMusicBinding,
+    playlist: &LibraryPlaylist,
+    changes: u64,
+) -> Result<bool> {
     let songs = binding
         .read_library_playlist_songs(&playlist.id)
         .await
         .map_err(|error| binding.request_error(error, "Apple Music playlist"))?;
+    if binding.token_changes() != changes {
+        return Ok(false);
+    }
     let tracks = songs
         .iter()
         .filter_map(|song| {

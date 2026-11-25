@@ -1032,6 +1032,9 @@ struct AppleOptions {
     apple_likes: Vec<&'static str>,
     /// Holds Apple's first answer of the ratings until the test lets it go.
     hold_ratings: Option<Arc<tokio::sync::Notify>>,
+    /// Holds Apple's first answer to a read whose path starts with this until the test lets it
+    /// go, unless it holds the ratings.
+    hold: Option<(&'static str, Arc<tokio::sync::Notify>)>,
     /// Fails the reads of the ratings from the one with this number on (see
     /// `AppleFake::fail_rating_reads_from`).
     fail_rating_reads_from: usize,
@@ -1074,7 +1077,11 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
             options
                 .hold_ratings
                 .clone()
-                .map(|release| ("/v1/me/ratings/library-songs".to_owned(), release)),
+                .map(|release| ("/v1/me/ratings/library-songs".to_owned(), release))
+                .or_else(|| {
+                    let (path, release) = options.hold.clone()?;
+                    Some((path.to_owned(), release))
+                }),
         ),
         credited: options.credited,
         unlisted_songs: options.unlisted_songs,
@@ -8665,6 +8672,32 @@ async fn the_first_sign_in_imports_every_playlist_of_apples_once() -> Result<()>
     let (_ui, _binding) = bind_again(&apple).await?;
     import_settled().await;
     assert_eq!(import_reads(&apple), reads);
+    assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_playlist_read_before_another_sign_in_is_read_again_for_it() -> Result<()> {
+    const JAZZ: &str = "/v1/me/library/playlists/p.sub1/tracks";
+    let dir = tempfile::tempdir()?;
+    // Apple holds the songs of "Evening Jazz" at the import of the first sign-in.
+    let release = Arc::new(tokio::sync::Notify::new());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            hold: Some((JAZZ, release.clone())),
+            import_unfinished: true,
+            ..with_playlists()
+        },
+    )
+    .await?;
+    fake_asked(&apple, JAZZ, 1).await?;
+    // Another sign-in comes meanwhile: what was read for the first is not written for it, and
+    // the import it starts reads the playlist again.
+    sign_in_again(&apple, APPLE_OTHER_TOKEN).await?;
+    release.notify_one();
+    import_ended(&apple, apple.record).await?;
+    assert_eq!(apple.fake.count(JAZZ), 2);
     assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
     apple.finish().await
 }
