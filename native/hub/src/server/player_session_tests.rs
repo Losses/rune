@@ -8065,8 +8065,9 @@ mod faulty_player {
             index: Option<usize>,
             position: Duration,
             mode: PlaybackMode,
+            revision: u64,
         ) {
-            self.0.restore_tagged(entries, index, position, mode)
+            self.0.restore_tagged(entries, index, position, mode, revision)
         }
         fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
             self.0.set_source_resolver(resolver)
@@ -17313,6 +17314,291 @@ async fn the_volume_control_leaves_the_host_while_another_player_is_current() ->
     )
     .await?;
 
+    node.shutdown().await?;
+    Ok(())
+}
+
+// Test for issue #424: A stale queue can remove the wrong track even with the current revision.
+// A tracking broadcaster keeps the items every published playlist revision described and fails
+// any update whose items do not match its revision: the revision a snapshot goes out with must
+// be the revision of the queue state the snapshot shows.
+struct QueueRevisionAudit {
+    recorded: RecordedSignals,
+    // The item ids each revision was first published with.
+    revisions: StdMutex<HashMap<u64, Vec<String>>>,
+    violations: StdMutex<Vec<String>>,
+}
+
+impl QueueRevisionAudit {
+    fn new() -> Self {
+        Self {
+            recorded: RecordedSignals::default(),
+            revisions: StdMutex::new(HashMap::new()),
+            violations: StdMutex::new(Vec::new()),
+        }
+    }
+
+    fn violations(&self) -> Vec<String> {
+        self.violations.lock().unwrap().clone()
+    }
+}
+
+impl Broadcaster for QueueRevisionAudit {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        self.recorded.broadcast(message);
+        if message.name() != "PlaylistUpdate" {
+            return;
+        }
+        let Ok(update) =
+            rinf::deserialize::<PlaylistUpdate>(&message.encode_to_vec().unwrap())
+        else {
+            return;
+        };
+        let items = update
+            .items
+            .iter()
+            .map(|entry| match &entry.item {
+                PlayingItemRef::LibraryTrack { track, .. } => track.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect::<Vec<_>>();
+        let mut revisions = self.revisions.lock().unwrap();
+        match revisions.get(&update.revision) {
+            Some(known) if *known != items => {
+                self.violations.lock().unwrap().push(format!(
+                    "revision {} was published as {known:?} and again as {items:?}",
+                    update.revision
+                ));
+            }
+            None => {
+                revisions.insert(update.revision, items);
+            }
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn stale_queue_snapshot_does_not_remove_wrong_track() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let audit = Arc::new(QueueRevisionAudit::new());
+    let fixture = fixture_with_broadcaster(dir.path(), Uuid::new_v4(), Duration::from_secs(300), audit.clone()).await?;
+
+    let ids = [
+        session_audio(&fixture, "audit-rev-a.ogg").await?,
+        session_audio(&fixture, "audit-rev-b.ogg").await?,
+        session_audio(&fixture, "audit-rev-c.ogg").await?,
+    ];
+    let items = future::join_all(ids.iter().map(|id| library_track_for_id(&fixture, *id)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+
+    // The queue must be populated through the session, as the UI loads it: a queue edit is what
+    // moves the revision, and edits outside it never produce one.
+    let revision = dispatch_gui_request(
+        &fixture.global_params,
+        &PlaylistRevisionRequest { call_id: None },
+    )
+    .await?
+    .context("initial queue revision")?
+    .revision;
+    assert_eq!(revision, 0);
+    dispatch_gui_request(
+        &fixture.global_params,
+        &LoadResolvedItemsRequest {
+            call_id: None,
+            items: items.iter().map(|item| PlayingItemRef::from(*item)).collect(),
+            start_index: None,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(0),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Pause,
+        },
+    )
+    .await?;
+    wait_player(&fixture, |status| status.playlist.len() == 3).await?;
+
+    let uuid_of = async |id: i32| -> Result<String> {
+        Ok(file_uuids_by_id(&fixture.global_params.test_library().main_db, &[id])
+            .await?
+            .get(&id)
+            .copied()
+            .context("file uuid")?
+            .to_string())
+    };
+    let ua = uuid_of(ids[0]).await?;
+    let ub = uuid_of(ids[1]).await?;
+    let uc = uuid_of(ids[2]).await?;
+
+    // The loaded queue is published under revision 1.
+    wait_until("initial playlist delivery", || async {
+        Ok(audit
+            .recorded
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .iter()
+            .any(|p| p.items.len() == 3 && p.revision == 1)
+            .then_some(()))
+    })
+    .await?;
+
+    // Remove A: the queue becomes [B, C] under revision 2.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &RemoveRequest { call_id: Some(6010), index: 0, expected_revision: Some(1) },
+    )
+    .await?;
+    // The debounced publication is the edit settling: it and the queue it shows arrive
+    // together, where waiting on the player's status races its lock against the report.
+    wait_until("the removal to settle", || async {
+        Ok(audit
+            .revisions
+            .lock()
+            .unwrap()
+            .get(&2)
+            .is_some_and(|items| items.len() == 2)
+            .then_some(()))
+    })
+    .await?;
+
+    // A track becomes unavailable between the two edits. Its report is a playlist snapshot of
+    // its own, and it must not go out under the revision of the edit that follows it.
+    let media_root = fixture.global_params.test_library().media_root.clone();
+    fs::remove_file(Path::new(&media_root).join("audit-rev-c.ogg"))?;
+    fixture.global_params.player.lock().await.switch(1);
+    // Move B to the end immediately, so the edit and the in-flight unavailable report reach
+    // the session together: the queue becomes [C, B] under revision 3, and the unavailable
+    // snapshot must not go out under it.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &MovePlaylistItemRequest { call_id: Some(6011), old_index: 0, new_index: 1, expected_revision: Some(2) },
+    )
+    .await?;
+    wait_until("unavailable report", || async {
+        Ok(audit
+            .recorded
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .iter()
+            .any(|p| {
+                p.items
+                    .iter()
+                    .any(|entry| entry.unavailable.is_some())
+            })
+            .then_some(()))
+    })
+    .await?;
+    wait_until("the move to settle", || async {
+        let revisions = audit.revisions.lock().unwrap();
+        Ok(revisions
+            .get(&3)
+            .is_some_and(|items| items.first().map(String::as_str) == Some(uc.as_str()))
+            .then_some(()))
+    })
+    .await?;
+
+    // Every published snapshot pairs its items with the revision of the queue state they are:
+    // the empty queue with 0, [A, B, C] with 1, [B, C] with 2, [C, B] with 3, whichever of them
+    // debouncing publishes.
+    assert!(audit.revisions.lock().unwrap().contains_key(&3));
+    assert!(
+        audit.violations().is_empty(),
+        "snapshots went out under revisions they do not belong to: {:?}",
+        audit.violations()
+    );
+    {
+        let revisions = audit.revisions.lock().unwrap();
+        if let Some(items) = revisions.get(&0) {
+            assert!(items.is_empty());
+        }
+        if let Some(items) = revisions.get(&1) {
+            assert_eq!(*items, vec![ua.clone(), ub.clone(), uc.clone()]);
+        }
+        if let Some(items) = revisions.get(&2) {
+            assert_eq!(*items, vec![ub.clone(), uc.clone()]);
+        }
+        if let Some(items) = revisions.get(&3) {
+            assert_eq!(*items, vec![uc.clone(), ub.clone()]);
+        }
+    }
+
+    // An edit against the revision of the queue before the move is stale now.
+    let result = dispatch_gui_request(
+        &fixture.global_params,
+        &RemoveRequest { call_id: Some(6012), index: 0, expected_revision: Some(2) },
+    )
+    .await;
+    assert!(result.is_err(), "Expected error when removing with stale revision");
+    let error = result.unwrap_err();
+    assert_eq!(classify(&error), RequestErrorKind::Conflict);
+
+    // The queue is untouched: revision 3's [C, B] did not remove C.
+    let revisions = audit.revisions.lock().unwrap().clone();
+    assert_eq!(
+        revisions.get(&3).map(Vec::as_slice),
+        Some([uc.clone(), ub.clone()].as_slice())
+    );
+
+    fixture.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+/// A restart must restore the queue under the revision it persisted with: the restore is no
+/// edit and bumps nothing, but its snapshots pair with the revision edits continue from, or
+/// the first Unavailable report after it goes out under a revision the queue never had.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_restores_the_queue_under_its_persisted_revision() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let id = session_audio(&fixture, "restart-revision.ogg").await?;
+    let item = library_track_for_id(&fixture, id).await?;
+
+    // One edit through the session: the queue and the persisted revision are 1.
+    dispatch_gui_request(
+        &fixture.global_params,
+        &LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::from(item)],
+            start_index: None,
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: Some(0),
+            playback_mode: None,
+            position_seconds: None,
+            play: LoadPlay::Pause,
+        },
+    )
+    .await?;
+    wait_player(&fixture, |status| status.playlist.len() == 1).await?;
+    let config_path = fixture.global_params.config_path.to_string();
+    fixture.global_params.node.shutdown().await?;
+
+    // The node comes back with its signals recorded, so the restored playlist's revision can
+    // be read against the session's.
+    let signals = Arc::new(RecordedSignals::default());
+    let node = NodeContext::new(
+        &config_path,
+        &config_path,
+        signals.clone(),
+        false,
+        RunMode::App,
+        Arc::new(Visualizer::new()),
+    )
+    .await?;
+    let session_revision = node.session()?.queue_revision().await;
+    assert_eq!(session_revision, 1, "the persisted revision survived the restart");
+
+    let restored = wait_until("the restored playlist publication", || async {
+        Ok(signals
+            .decoded::<PlaylistUpdate>("PlaylistUpdate")
+            .into_iter()
+            .find(|update| update.items.len() == 1))
+    })
+    .await?;
+    assert_eq!(
+        restored.revision, session_revision,
+        "the restored queue went out under revision {} while the session continues from {}",
+        restored.revision, session_revision
+    );
     node.shutdown().await?;
     Ok(())
 }

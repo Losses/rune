@@ -830,17 +830,20 @@ async fn remote_track_plays_and_seeks_again_after_a_restart_on_both_backends() -
             let fs = FsIo::new_opendal(config.clone(), Handle::current())?;
             let mut player = Player::new(Arc::new(fs), None);
             player
-                .command_with_completion(PlayerCommand::EditPlaylist(PlaylistEdit {
-                    tracks: vec![(track.clone(), PlaybackSource::from(&track))],
-                    placement: PlaylistPlacement::Replace,
-                    playback_mode: Some(PlaybackMode::Sequential),
-                    load: Some(PlaylistLoad {
-                        start_index: 0,
-                        position: Duration::ZERO,
-                        play: true,
-                    }),
-                    block: None,
-                }))
+                .command_with_completion(PlayerCommand::EditPlaylist(
+                    PlaylistEdit {
+                        tracks: vec![(track.clone(), PlaybackSource::from(&track))],
+                        placement: PlaylistPlacement::Replace,
+                        playback_mode: Some(PlaybackMode::Sequential),
+                        load: Some(PlaylistLoad {
+                            start_index: 0,
+                            position: Duration::ZERO,
+                            play: true,
+                        }),
+                        block: None,
+                    },
+                    None,
+                ))
                 .await
                 .with_context(|| format!("{backend} track did not play"))?;
             pause_and_seek_to_the_middle(&mut player, backend).await?;
@@ -855,6 +858,7 @@ async fn remote_track_plays_and_seeks_again_after_a_restart_on_both_backends() -
                     index: Some(0),
                     position: Duration::from_secs(2),
                     mode: PlaybackMode::Sequential,
+                    revision: 0,
                 })
                 .await
                 .with_context(|| format!("{backend} track was not restored"))?;

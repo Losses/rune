@@ -3,6 +3,7 @@ use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use std::{fmt, thread};
@@ -411,6 +412,7 @@ pub trait PlaybackSourceResolver: Send + Sync {
 pub struct PlaylistStatus {
     pub items: Vec<QueueEntry>,
     pub unavailable: HashMap<PlayingItem, UnavailableReason>,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -436,6 +438,13 @@ pub trait Playable: Send {
         &mut self,
         command: PlayerCommand,
     ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>>;
+    /// Tags the commands of the queue edit that follows with the revision the edit bumps, so
+    /// that the playlist snapshot the player reports for it pairs with the queue as the edit
+    /// leaves it. The edit's commands must all go out between this and
+    /// [`Self::clear_queue_revision_tag`].
+    fn tag_queue_revision(&mut self, _revision: u64) {}
+    /// Ends the queue edit [`Self::tag_queue_revision`] opened.
+    fn clear_queue_revision_tag(&mut self) {}
     /// Wait until commands already sent to the player have updated its public status.
     fn command_completion(
         &mut self,
@@ -536,6 +545,7 @@ pub trait Playable: Send {
         index: Option<usize>,
         position: Duration,
         mode: PlaybackMode,
+        revision: u64,
     );
     fn set_source_resolver(&self, _resolver: Arc<dyn PlaybackSourceResolver>) {}
     /// Where commands for hosted tracks go. Without one, hosted tracks cannot play.
@@ -603,6 +613,10 @@ pub struct Player {
     pcm_tap: Arc<PcmTap>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
+    /// The revision the session editing the queue bumps, set before the edit's commands go out
+    /// and cleared after, so that commands that change the queue carry it with them. Zero means
+    /// no edit is tagging commands.
+    edit_revision: Arc<AtomicU64>,
     /// Tells the player about calls and headphones while it lives.
     #[cfg(target_os = "ios")]
     _audio_session: crate::ios_session::Observers,
@@ -675,6 +689,7 @@ impl Player {
             crash_sender: crash_sender.clone(),
             log_sender: log_sender.clone(),
             cancellation_token: cancellation_token.clone(),
+            edit_revision: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "ios")]
             _audio_session: crate::ios_session::observe(cmd_tx.clone()),
         };
@@ -710,6 +725,9 @@ impl Player {
         let playlist_sender_clone = playlist_sender.clone();
         let realtime_fft_sender_clone = realtime_fft_sender.clone();
         thread::spawn(move || {
+            // The revision of the playlist as the events reported it last, so that the
+            // snapshots the Unavailable reports send pair with the queue they describe.
+            let mut queue_revision = 0;
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
                 match event {
@@ -819,6 +837,7 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: queue_revision,
                         });
                     }
                     PlayerEvent::UnavailableCleared(item) => {
@@ -834,9 +853,11 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: queue_revision,
                         });
                     }
-                    PlayerEvent::PlaylistUpdated(playlist) => {
+                    PlayerEvent::PlaylistUpdated(playlist, revision) => {
+                        queue_revision = revision;
                         let items: Vec<PlayingItem> =
                             playlist.iter().map(|entry| entry.item.clone()).collect();
                         status.unavailable.retain(|item| items.contains(item));
@@ -854,6 +875,7 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: queue_revision,
                         });
                     }
                     PlayerEvent::RealtimeFFT(data) => {
@@ -883,12 +905,23 @@ impl Player {
     pub fn command(&self, cmd: PlayerCommand) {
         // Acquire the lock and send the command
         if let Ok(commands) = self.commands.lock() {
-            if let Err(e) = commands.send(cmd) {
+            if let Err(e) = commands.send(self.tagged(cmd)) {
                 error!("Failed to send command: {e:?}");
             }
         } else {
             error!("Failed to lock commands for sending");
         }
+    }
+
+    /// The command as the queue edit in progress tags it, unchanged when none is or when the
+    /// command cannot change the queue. The tag travels with the command, so ordering in the
+    /// player's queue keeps the stamp where the edit is applied.
+    fn tagged(&self, mut cmd: PlayerCommand) -> PlayerCommand {
+        let tag = self.edit_revision.load(Ordering::SeqCst);
+        if tag != 0 {
+            cmd.tag_queue_edit(tag);
+        }
+        cmd
     }
 
     fn command_with_discarded_completion(&self, command: PlayerCommand) {
@@ -901,11 +934,20 @@ impl Player {
 }
 
 impl Playable for Player {
+    fn tag_queue_revision(&mut self, revision: u64) {
+        self.edit_revision.store(revision, Ordering::SeqCst);
+    }
+
+    fn clear_queue_revision_tag(&mut self) {
+        self.edit_revision.store(0, Ordering::SeqCst);
+    }
+
     fn command_with_completion(
         &mut self,
         command: PlayerCommand,
     ) -> BoxFuture<'static, result::Result<(), PlayerCommandError>> {
         let (response, result) = oneshot::channel();
+        let command = self.tagged(command);
         let sent = self
             .commands
             .lock()
@@ -1006,10 +1048,14 @@ impl Playable for Player {
         tracks: Vec<(PlayingItem, PlaybackSource)>,
         mode: AddMode,
     ) {
-        self.command(PlayerCommand::AddToPlaylist { tracks, mode });
+        self.command(PlayerCommand::AddToPlaylist {
+            tracks,
+            mode,
+            revision: None,
+        });
     }
     fn edit_playlist(&mut self, edit: PlaylistEdit) {
-        self.command(PlayerCommand::EditPlaylist(edit));
+        self.command(PlayerCommand::EditPlaylist(edit, None));
     }
     fn handoff_load(
         &self,
@@ -1028,6 +1074,7 @@ impl Playable for Player {
             position,
             play,
             playback_mode,
+            revision: None,
             response,
         });
         receiver
@@ -1041,13 +1088,17 @@ impl Playable for Player {
         self.command(PlayerCommand::TakeBackBlock {
             block,
             interrupted,
+            revision: None,
             response,
         });
         receiver
     }
     fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
         let (response, receiver) = oneshot::channel();
-        self.command(PlayerCommand::ClearHandoffBlocks { response });
+        self.command(PlayerCommand::ClearHandoffBlocks {
+            revision: None,
+            response,
+        });
         receiver
     }
     fn pause_reporting(&self) -> oneshot::Receiver<PausedPlayback> {
@@ -1075,12 +1126,14 @@ impl Playable for Player {
         index: Option<usize>,
         position: Duration,
         mode: PlaybackMode,
+        revision: u64,
     ) {
         self.command_with_discarded_completion(PlayerCommand::RestoreTagged {
             entries,
             index,
             position,
             mode,
+            revision,
         });
     }
     fn set_source_resolver(&self, resolver: Arc<dyn PlaybackSourceResolver>) {
@@ -1104,17 +1157,21 @@ impl Playable for Player {
     }
 
     fn remove_from_playlist(&self, index: usize) {
-        self.command(PlayerCommand::RemoveFromPlaylist { index });
+        self.command(PlayerCommand::RemoveFromPlaylist {
+            index,
+            revision: None,
+        });
     }
 
     fn clear_playlist(&self) {
-        self.command(PlayerCommand::ClearPlaylist);
+        self.command(PlayerCommand::ClearPlaylist { revision: None });
     }
 
     fn move_playlist_item(&self, old_index: usize, new_index: usize) {
         self.command(PlayerCommand::MovePlayListItem {
             old_index,
             new_index,
+            revision: None,
         });
     }
 
@@ -1290,6 +1347,7 @@ impl Playable for MockPlayer {
         _index: Option<usize>,
         _position: Duration,
         _mode: PlaybackMode,
+        _revision: u64,
     ) {
     }
     fn clear_playlist(&self) {}

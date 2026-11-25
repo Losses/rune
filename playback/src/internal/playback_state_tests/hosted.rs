@@ -428,6 +428,7 @@ impl Fixture {
                 .map(|item| (item.clone(), PlaybackSource::LibraryStream))
                 .collect(),
             mode: AddMode::AppendToEnd,
+            revision: None,
         })
     }
 
@@ -1077,7 +1078,10 @@ async fn removing_the_last_track_takes_it_from_its_host() -> Result<()> {
     with_engine(internal, f, async |f| {
         let hosted = f.hosted("1440");
         start_first(f, std::slice::from_ref(&hosted), None).await?;
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 0 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 0,
+            revision: None,
+        })?;
         wait_for(&mut f.events, |event| {
             matches!(event, PlayerEvent::HostedChanged(None))
         })
@@ -1634,7 +1638,7 @@ async fn events_about_an_older_track_or_from_another_host_change_nothing() -> Re
                 PlayerEvent::Progress { position, .. } => {
                     assert!(position < Duration::from_secs(1), "{position:?}");
                 }
-                PlayerEvent::PlaylistUpdated(_) | PlayerEvent::RealtimeFFT(_) => {}
+                PlayerEvent::PlaylistUpdated(..) | PlayerEvent::RealtimeFFT(_) => {}
                 event => panic!("{event:?}"),
             }
         }
@@ -1815,6 +1819,7 @@ async fn a_queue_edit_changes_the_next_track_in_place() -> Result<()> {
         f.send(PlayerCommand::MovePlayListItem {
             old_index: 2,
             new_index: 1,
+            revision: None,
         })?;
         assert_eq!(f.host.take(2).await?, vec![removed(3, 1), added(4, "1442")]);
 
@@ -1824,13 +1829,17 @@ async fn a_queue_edit_changes_the_next_track_in_place() -> Result<()> {
         assert!(f.host.sent_nothing());
 
         // Removing the next track makes the one after it next.
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 1,
+            revision: None,
+        })?;
         assert_eq!(f.host.take(2).await?, vec![removed(5, 1), added(6, "1441")]);
 
         // So does a track to play next.
         f.send(PlayerCommand::AddToPlaylist {
             tracks: vec![(f.hosted("1444"), PlaybackSource::LibraryStream)],
             mode: AddMode::PlayNext,
+            revision: None,
         })?;
         assert_eq!(f.host.take(2).await?, vec![removed(7, 1), added(8, "1444")]);
 
@@ -1964,7 +1973,10 @@ async fn a_move_on_to_a_track_taken_out_meanwhile_loads_what_comes_next() -> Res
         // the second track leaves the queue. The host plays on, as it never removes the
         // entry it plays.
         let moved = f.host.move_on();
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 1,
+            revision: None,
+        })?;
         assert_eq!(f.host.take(1).await?, vec![removed(3, 1)]);
         assert_eq!(f.host.queue().1.as_deref(), Some("1441"));
 
@@ -2010,6 +2022,7 @@ async fn a_move_on_that_crosses_a_new_next_track_hands_that_one_over() -> Result
         f.send(PlayerCommand::MovePlayListItem {
             old_index: 2,
             new_index: 1,
+            revision: None,
         })?;
         assert_eq!(f.host.take(2).await?, vec![removed(3, 1), added(4, "1442")]);
         f.report(f.host.status())?;
@@ -2236,6 +2249,7 @@ async fn an_answer_to_an_older_question_about_the_next_track_is_dropped() -> Res
         f.send(PlayerCommand::MovePlayListItem {
             old_index: 2,
             new_index: 1,
+            revision: None,
         })?;
         assert_eq!(f.host.take(1).await?, vec![removed(3, 1)]);
         f.send(PlayerCommand::HostRunResolved {
@@ -2534,7 +2548,10 @@ async fn a_queue_edit_inside_the_run_trims_it_from_the_tail() -> Result<()> {
 
         // Without the third track the fourth follows the second. The host loses both
         // from the tail, and gets the fourth again.
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 2 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 2,
+            revision: None,
+        })?;
         assert_eq!(
             f.host.take(2).await?,
             vec![trimmed(5, &[3, 2]), added(6, "1443")]
@@ -2545,6 +2562,7 @@ async fn a_queue_edit_inside_the_run_trims_it_from_the_tail() -> Result<()> {
         f.send(PlayerCommand::AddToPlaylist {
             tracks: vec![(f.local(0), PlaybackSource::LibraryStream)],
             mode: AddMode::PlayNext,
+            revision: None,
         })?;
         assert_eq!(f.host.take(1).await?, vec![trimmed(7, &[2, 1])]);
         seen.extend(f.settle().await?);
@@ -2738,7 +2756,10 @@ async fn an_end_of_an_entry_replaced_after_the_report_leaves_its_replacement_to_
         f.host.take(3).await?;
 
         // The second track leaves the queue, and the host gets the third in its place.
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 1,
+            revision: None,
+        })?;
         assert_eq!(
             f.host.take(2).await?,
             vec![trimmed(4, &[2, 1]), added(5, "1442")]
@@ -2775,7 +2796,10 @@ async fn a_move_on_past_an_entry_replaced_after_the_report_plays_the_replacement
         f.host.take(4).await?;
 
         // The second track leaves the queue, and the host gets the rest of the run again.
-        f.send(PlayerCommand::RemoveFromPlaylist { index: 1 })?;
+        f.send(PlayerCommand::RemoveFromPlaylist {
+            index: 1,
+            revision: None,
+        })?;
         assert_eq!(
             f.host.take(3).await?,
             vec![trimmed(5, &[3, 2, 1]), added(6, "1442"), added(7, "1443")]
@@ -2924,6 +2948,7 @@ async fn a_local_track_moved_into_the_run_ends_it_there() -> Result<()> {
         f.send(PlayerCommand::MovePlayListItem {
             old_index: 4,
             new_index: 2,
+            revision: None,
         })?;
         assert_eq!(f.host.take(1).await?, vec![trimmed(5, &[3, 2])]);
         f.settle().await?;

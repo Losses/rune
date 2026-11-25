@@ -272,11 +272,20 @@ impl PlayerSession {
             .into());
         }
         let mut player = self.player.lock().await;
-        if edit(&mut *player) {
-            state.queue_revision = state
-                .queue_revision
-                .checked_add(1)
-                .context("Queue revision overflow")?;
+        // The revision is committed before the edit's commands go out, because they must carry
+        // it: a playlist snapshot the player reports pairs its items with the revision it was
+        // stamped with where the edit was applied. An edit that ends up changing nothing rolls
+        // the bump back.
+        let candidate = state
+            .queue_revision
+            .checked_add(1)
+            .context("Queue revision overflow")?;
+        state.queue_revision = candidate;
+        player.tag_queue_revision(candidate);
+        let edit_made_changes = edit(&mut *player);
+        player.clear_queue_revision_tag();
+        if !edit_made_changes {
+            state.queue_revision -= 1;
         }
         let completion = player.command_completion();
         drop(player);
@@ -296,7 +305,13 @@ impl PlayerSession {
             }
             .into());
         }
-        let player = self.player.lock().await;
+        let mut player = self.player.lock().await;
+        player.tag_queue_revision(
+            state
+                .queue_revision
+                .checked_add(1)
+                .context("Queue revision overflow")?,
+        );
         let response = player.handoff_load(
             params.tracks,
             params.block,
@@ -305,6 +320,7 @@ impl PlayerSession {
             params.play,
             params.playback_mode,
         );
+        player.clear_queue_revision_tag();
         drop(player);
         let result = response
             .await
@@ -315,6 +331,7 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
+        drop(state);
         Ok(())
     }
 
@@ -330,8 +347,15 @@ impl PlayerSession {
             // metadata was refreshed. In that case the player command can remove
             // the block while preserving any current item outside it.
             .unwrap_or(InterruptedItem::Nothing);
-        let player = self.player.lock().await;
+        let mut player = self.player.lock().await;
+        player.tag_queue_revision(
+            state
+                .queue_revision
+                .checked_add(1)
+                .context("Queue revision overflow")?,
+        );
         let response = player.take_back_block(block, interrupted);
+        player.clear_queue_revision_tag();
         drop(player);
         let result = response
             .await
@@ -345,13 +369,22 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
-        Ok((result, state.queue_revision))
+        let new_revision = state.queue_revision;
+        drop(state);
+        Ok((result, new_revision))
     }
 
     pub(crate) async fn clear_handoff_blocks(&self) -> Result<()> {
         let mut state = self.state.lock().await;
-        let player = self.player.lock().await;
+        let mut player = self.player.lock().await;
+        player.tag_queue_revision(
+            state
+                .queue_revision
+                .checked_add(1)
+                .context("Queue revision overflow")?,
+        );
         let response = player.clear_handoff_blocks();
+        player.clear_queue_revision_tag();
         drop(player);
         let result = response
             .await
@@ -365,6 +398,7 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
+        drop(state);
         Ok(())
     }
 
@@ -377,9 +411,15 @@ impl PlayerSession {
     }
 
     pub(crate) async fn playback_snapshot(&self) -> (PlayerStatus, u64) {
+        // Locks are taken in the same order as queue edits (state then player): taking them
+        // together serializes this read against every edit, so the revision pairs with exactly
+        // the edits the snapshot waits for, none half applied. The barrier enqueued while the
+        // locks are held cannot slip behind an edit the revision already counts.
         let state = self.state.lock().await;
+        let player = self.player.lock().await;
         let revision = state.queue_revision;
-        let status_after_pending = self.player.lock().await.status_after_pending();
+        let status_after_pending = player.status_after_pending();
+        drop(player);
         drop(state);
         (status_after_pending.await, revision)
     }
@@ -422,11 +462,16 @@ impl PlayerSession {
         let Some(node) = self.node.upgrade() else {
             return Ok(());
         };
-        let status = self.player.lock().await.get_status();
-        let (session_id, revision) = {
-            let state = self.state.lock().await;
-            (state.session_id.to_string(), state.queue_revision)
-        };
+        // Taken in the same order as queue edits (state then player) and held across both
+        // reads, so that a queue edit cannot slip between them: it would show the queue from
+        // before the edit under the revision the edit already committed. The status waits for
+        // the commands enqueued so far, matching the revision exactly.
+        let state = self.state.lock().await;
+        let player = self.player.lock().await;
+        let (session_id, revision) = (state.session_id.to_string(), state.queue_revision);
+        let status = player.status_after_pending().await;
+        drop(player);
+        drop(state);
         let controls = self.controls.lock().await.clone();
         let mut item_state = ItemEventState {
             re_show: true,
@@ -445,15 +490,9 @@ impl PlayerSession {
         let playlist = PlaylistStatus {
             items: status.playlist,
             unavailable: status.unavailable_reasons,
-        };
-        send_playlist(
-            &node,
-            &playlist,
-            broadcaster.as_ref(),
-            &session_id,
             revision,
-        )
-        .await;
+        };
+        send_playlist(&node, &playlist, broadcaster.as_ref(), &session_id).await;
         Ok(())
     }
 
@@ -568,11 +607,14 @@ impl PlayerSession {
             item_capabilities_changed: Arc::new(Notify::new()),
         });
         session.start_events(node, show_receiver).await;
+        // The restored queue is the queue the persisted revision describes: restore is no
+        // edit and bumps nothing, but it must carry the revision edits continue from.
         session.player.lock().await.restore_tagged(
             state.queue_entries(),
             state.index,
             state.position,
             state.playback_mode(),
+            state.queue_revision,
         );
         Ok(session)
     }
@@ -628,7 +670,6 @@ impl PlayerSession {
         let scrobbler = self.scrobbler.clone();
         let cancel = self.cancel.clone();
         let session_id = self.state.lock().await.session_id.to_string();
-        let event_state = self.state.clone();
         let rename_items = self.rename_items.clone();
         let item_capabilities_changed = self.item_capabilities_changed.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
@@ -710,8 +751,10 @@ impl PlayerSession {
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
                         if let Some(node) = weak.upgrade() {
-                            let revision = event_state.lock().await.queue_revision;
-                            handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id, revision).await;
+                            // The player stamped the snapshot with the revision of the edit that
+                            // produced it, where the edit was applied, so the queue and the
+                            // revision it goes out with describe the same queue state.
+                            handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id).await;
                         }
                     }
                     // Taken in a later pass than the one that saw the barrier answered, and only
@@ -1501,9 +1544,8 @@ async fn handle_playlist_event(
     value: PlaylistStatus,
     broadcaster: &dyn Broadcaster,
     session_id: &str,
-    revision: u64,
 ) {
-    send_playlist(node, &value, broadcaster, session_id, revision).await;
+    send_playlist(node, &value, broadcaster, session_id).await;
 }
 
 async fn handle_played_event(
@@ -1646,8 +1688,8 @@ async fn send_playlist(
     playlist: &PlaylistStatus,
     broadcaster: &dyn Broadcaster,
     session_id: &str,
-    revision: u64,
 ) {
+    let revision = playlist.revision;
     let mut independent_items = Vec::new();
     for entry in &playlist.items {
         let item = &entry.item;
