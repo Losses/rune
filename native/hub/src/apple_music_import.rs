@@ -3,8 +3,6 @@
 //! Rune once and what Rune changes afterwards stays in Rune: nothing Rune does writes to the
 //! user's Apple account.
 
-use std::collections::HashSet;
-
 use anyhow::Result;
 use apple_music::models::LibraryPlaylist;
 
@@ -86,13 +84,8 @@ async fn import_playlists(
             .await
             .map_err(|error| binding.request_error(error, "Apple Music playlist"))?,
     };
-    let imported: HashSet<String> = binding
-        .rune_playlists
-        .list()
-        .await?
-        .iter()
-        .filter_map(|playlist| playlist.imported_from.clone())
-        .collect();
+    // One the user removed before the import was finished stays removed.
+    let imported = binding.rune_playlists.imported_sources().await?;
     let mut complete = true;
     for playlist in playlists
         .iter()

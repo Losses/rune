@@ -3,6 +3,7 @@
 //! nothing is written to the service. The service's own playlists come in once, as Rune's (see
 //! `RunePlaylists::import`).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,6 +20,11 @@ pub(crate) const PLAYLISTS_FILE: &str = "playlists.json";
 /// The extension of the marker beside the playlists that says the service's playlists were
 /// imported once, after which they never are again: `playlists.imported`.
 const IMPORTED_EXTENSION: &str = "imported";
+
+/// The extension of the note beside the playlists of the service's playlists an import brought
+/// in, by their ids: `playlists.imports`. One the user removed before the import was finished is
+/// not brought in again by the rest of it.
+const IMPORTS_EXTENSION: &str = "imports";
 
 /// The file beside the playlists that keeps some ids of the service account the library belongs
 /// to, which tell whose the records are once the library's record is removed.
@@ -80,6 +86,8 @@ pub(crate) struct RunePlaylists {
     store: DeviceStore<StoredPlaylist>,
     /// See `IMPORTED_EXTENSION`.
     imported_marker: PathBuf,
+    /// See `IMPORTS_EXTENSION`.
+    imports: PathBuf,
     /// See `ACCOUNT_FILE`.
     account: PathBuf,
 }
@@ -109,6 +117,7 @@ impl RunePlaylists {
     fn with_store(path: PathBuf, store: fn(PathBuf) -> DeviceStore<StoredPlaylist>) -> Self {
         Self {
             imported_marker: path.with_extension(IMPORTED_EXTENSION),
+            imports: path.with_extension(IMPORTS_EXTENSION),
             account: path.with_file_name(ACCOUNT_FILE),
             store: store(path),
         }
@@ -252,9 +261,10 @@ impl RunePlaylists {
     }
 
     /// Keeps a playlist imported from the service's playlist `from`, with `tracks` and what was
-    /// known of each in order, unless one imported from it is kept already. The playlist is
-    /// written whole, so an import cut short keeps all of it or none. Answers whether it was
-    /// made.
+    /// known of each in order, unless one imported from it is kept already or was brought in and
+    /// removed since (see `IMPORTS_EXTENSION`). The playlist is written whole, so an import cut
+    /// short keeps all of it or none. Answers whether it was made. The playlists of an import
+    /// come in one after another.
     pub(crate) async fn import(
         &self,
         name: &str,
@@ -276,7 +286,12 @@ impl RunePlaylists {
                 .collect(),
             imported_from: Some(from.to_owned()),
         };
-        self.store
+        let mut noted = self.noted_imports().await;
+        if noted.contains(from) {
+            return Ok(false);
+        }
+        let made = self
+            .store
             .change(move |playlists| {
                 if playlists
                     .iter()
@@ -287,7 +302,47 @@ impl RunePlaylists {
                 playlists.push(playlist);
                 Ok(true)
             })
+            .await?;
+        if made {
+            noted.insert(from.to_owned());
+            let mut ids: Vec<String> = noted.into_iter().collect();
+            ids.sort_unstable();
+            // The playlist is kept either way; without the note, one removed before the import
+            // is finished may come in again.
+            if let Err(error) = self
+                .store
+                .write_beside(self.imports.clone(), serde_json::to_vec(&ids)?)
+                .await
+            {
+                log::warn!("Could not note that a playlist was imported: {error:#}");
+            }
+        }
+        Ok(made)
+    }
+
+    /// The service's playlists an import brought in: those a playlist kept was imported from,
+    /// and those noted beside them, which the user may have removed since. A file that cannot be
+    /// read fails with `UnreadableStore`, which names it.
+    pub(crate) async fn imported_sources(&self) -> Result<HashSet<String>> {
+        let mut sources = self.noted_imports().await;
+        sources.extend(
+            self.list()
+                .await?
+                .iter()
+                .filter_map(|playlist| playlist.imported_from.clone()),
+        );
+        Ok(sources)
+    }
+
+    /// The service's playlists noted as brought in (see `IMPORTS_EXTENSION`); none when the
+    /// note cannot be read.
+    async fn noted_imports(&self) -> HashSet<String> {
+        tokio::fs::read(&self.imports)
             .await
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+            .map(|ids| ids.into_iter().collect())
+            .unwrap_or_default()
     }
 
     /// Whether the service's own playlists were imported once, after which they never are
@@ -521,6 +576,38 @@ mod tests {
         assert!(held.write_account(b"other".to_vec()).await.is_err());
         held.release().await;
         assert_eq!(held.list().await?.len(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_playlist_removed_before_its_import_is_finished_is_not_imported_again() -> Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let (path, playlists) = store(dir.path());
+        assert!(
+            playlists
+                .import("Road", "Imported", "p.1", Vec::new())
+                .await?
+        );
+        let road = playlists.list().await?[0].id.clone();
+        playlists.remove(&road).await?;
+        // The import, cut short, runs again: also in a store made afresh, as at the next sign-in.
+        for playlists in [&playlists, &RunePlaylists::new(path.clone())] {
+            assert!(playlists.imported_sources().await?.contains("p.1"));
+            assert!(
+                !playlists
+                    .import("Road", "Imported", "p.1", Vec::new())
+                    .await?
+            );
+        }
+        assert!(
+            playlists
+                .import("Jazz", "Imported", "p.2", Vec::new())
+                .await?
+        );
+        let sources = playlists.imported_sources().await?;
+        assert_eq!(sources, HashSet::from(["p.1".to_owned(), "p.2".to_owned()]));
+        assert_eq!(playlists.list().await?.len(), 1);
         Ok(())
     }
 
