@@ -597,7 +597,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         async move {
             let node = node.current().await?;
             request
-                .handle(Arc::clone(&node.gui_broadcaster), None, request)
+                .handle((Arc::clone(&node.gui_broadcaster), node), None, request)
                 .await
         }
     }
@@ -608,8 +608,8 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &SetVisualizerScenesRequest,
     ) -> impl Future<Output = Result<Option<()>>> + Send {
         async move {
-            node.current().await?;
-            request.handle((), None, request).await
+            let node = node.current().await?;
+            request.handle(node, None, request).await
         }
     }
 
@@ -632,8 +632,8 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &VisualizerSupportRequest,
     ) -> impl Future<Output = Result<Option<VisualizerSupportResponse>>> + Send {
         async move {
-            node.current().await?;
-            request.handle((), None, request).await
+            let node = node.current().await?;
+            request.handle(node, None, request).await
         }
     }
 
@@ -643,8 +643,8 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         request: &ListVisualizerPresetsRequest,
     ) -> impl Future<Output = Result<Option<ListVisualizerPresetsResponse>>> + Send {
         async move {
-            node.current().await?;
-            request.handle((), None, request).await
+            let node = node.current().await?;
+            request.handle(node, None, request).await
         }
     }
 

@@ -18,7 +18,7 @@ use crate::{
     messages::*,
     request_error::ExpectedRequestError,
     utils::{Broadcaster, GlobalParams, LocalLibrary, ParamsExtractor},
-    visualizer::{VISUALIZER, provide_covers},
+    visualizer::provide_covers,
 };
 use std::path as std_path;
 use std::result;
@@ -54,9 +54,13 @@ fn message_support(result: &Result<String, String>) -> VisualizerSupport {
 /// Errors of the visualizer controls go to the status (`last_error`) and the Log page, under
 /// `operation`, instead of crashing the request loop, since a missing scene or GPU is an ordinary
 /// condition.
-fn report(operation: &'static str, result: Result<()>) -> Result<Option<()>> {
+fn report(
+    operation: &'static str,
+    result: Result<()>,
+    visualizer: &::visualizer::Visualizer,
+) -> Result<Option<()>> {
     if let Err(e) = result {
-        VISUALIZER.report_error(operation, format!("{e:#}"));
+        visualizer.report_error(operation, format!("{e:#}"));
     }
     Ok(Some(()))
 }
@@ -116,14 +120,19 @@ impl Signal for StartVisualizerRequest {
         };
         provide_covers(&node, library_id, player.lock().await.get_status().item);
         let tap = player.lock().await.pcm_tap();
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         // A restart: take the audio back from the running visualizer first.
-        if let Some(input) = VISUALIZER.stop() {
+        if let Some(input) = visualizer.stop() {
             // Restore the consumer back to the tap, just like StopVisualizerRequest does.
             // The callback (on_consumer_abandoned) is no longer used for restarting.
             tap.restore_consumer(input.consumer);
         }
         let Some(consumer) = tap.take_consumer() else {
-            return report("start", Err(anyhow::anyhow!("The PCM tap is in use")));
+            return report(
+                "start",
+                Err(anyhow::anyhow!("The PCM tap is in use")),
+                &visualizer,
+            );
         };
         tap.set_enabled(true);
         let on_consumer_abandoned = {
@@ -136,8 +145,13 @@ impl Signal for StartVisualizerRequest {
             sample_rate: tap.sample_rate(),
             on_consumer_abandoned: Box::new(on_consumer_abandoned),
         };
-        flutter_bridge::prepare_visualizer(dart_signal.width, dart_signal.height).await;
-        let result = VISUALIZER.start(
+        flutter_bridge::prepare_visualizer(
+            Arc::clone(&visualizer),
+            dart_signal.width,
+            dart_signal.height,
+        )
+        .await;
+        let result = visualizer.start(
             input,
             dart_signal.width,
             dart_signal.height,
@@ -145,35 +159,36 @@ impl Signal for StartVisualizerRequest {
         );
         if result.is_err() {
             tap.set_enabled(false);
-            return report("start", result);
+            return report("start", result, &visualizer);
         }
-        flutter_bridge::visualizer_started().await;
+        flutter_bridge::visualizer_started(visualizer).await;
         Ok(Some(()))
     }
 }
 
 impl ParamsExtractor for StopVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<Mutex<dyn Playable>>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.player),)
+        (Arc::clone(&all_params.player), all_params.node.clone())
     }
 }
 
 impl Signal for StopVisualizerRequest {
-    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Params = (Arc<Mutex<dyn Playable>>, Arc<NodeContext>);
     type Response = ();
 
     async fn handle(
         &self,
-        (player,): Self::Params,
+        (player, node): Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let _turn = STARTING_OR_STOPPING.lock().await;
         let tap = player.lock().await.pcm_tap();
         tap.set_enabled(false);
-        if let Some(input) = flutter_bridge::stop_visualizer().await {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        if let Some(input) = flutter_bridge::stop_visualizer(visualizer).await {
             tap.restore_consumer(input.consumer);
         }
         Ok(Some(()))
@@ -181,197 +196,232 @@ impl Signal for StopVisualizerRequest {
 }
 
 impl ParamsExtractor for ResizeVisualizerRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for ResizeVisualizerRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let _turn = STARTING_OR_STOPPING.lock().await;
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         report(
             "resize",
-            flutter_bridge::resize_visualizer(dart_signal.width, dart_signal.height).await,
+            flutter_bridge::resize_visualizer(&visualizer, dart_signal.width, dart_signal.height)
+                .await,
+            &visualizer,
         )
     }
 }
 
 impl ParamsExtractor for SetVisualizerPresetDirsRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.node.gui_broadcaster)
+        (
+            Arc::clone(&all_params.node.gui_broadcaster),
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for SetVisualizerPresetDirsRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
     type Response = ();
 
     async fn handle(
         &self,
-        broadcaster: Self::Params,
+        (broadcaster, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let dirs: Vec<PathBuf> = dart_signal.paths.iter().map(PathBuf::from).collect();
-        let result = report("scan_scenes", VISUALIZER.set_preset_dirs(&dirs).map(|_| ()));
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        let result = report(
+            "scan_scenes",
+            visualizer.set_preset_dirs(&dirs).map(|_| ()),
+            &visualizer,
+        );
         // The list is ready now, also when a folder could not be read: the other scenes are.
-        announce_scenes(broadcaster.as_ref());
+        announce_scenes(broadcaster.as_ref(), &node);
         result
     }
 }
 
 impl ParamsExtractor for SetVisualizerAccentRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for SetVisualizerAccentRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        VISUALIZER.set_accent(dart_signal.argb);
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        visualizer.set_accent(dart_signal.argb);
         Ok(Some(()))
     }
 }
 
 impl ParamsExtractor for SetVisualizerVisibleRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for SetVisualizerVisibleRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        VISUALIZER.set_visible(dart_signal.visible);
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        visualizer.set_visible(dart_signal.visible);
         Ok(Some(()))
     }
 }
 
 impl ParamsExtractor for LoadVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for LoadVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         report(
             "load_scene",
-            VISUALIZER.load_preset(Location::parse(&dart_signal.path)),
+            visualizer.load_preset(Location::parse(&dart_signal.path)),
+            &visualizer,
         )
     }
 }
 
 impl ParamsExtractor for NextVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for NextVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report("switch_scene", VISUALIZER.next_preset())
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        report("switch_scene", visualizer.next_preset(), &visualizer)
     }
 }
 
 impl ParamsExtractor for PreviousVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for PreviousVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report("switch_scene", VISUALIZER.previous_preset())
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        report("switch_scene", visualizer.previous_preset(), &visualizer)
     }
 }
 
 impl ParamsExtractor for RandomVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for RandomVisualizerPresetRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        report("switch_scene", VISUALIZER.random_preset())
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        report("switch_scene", visualizer.random_preset(), &visualizer)
     }
 }
 
 impl ParamsExtractor for VisualizerStatusRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for VisualizerStatusRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = VisualizerStatusResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let status = VISUALIZER.status();
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        let status = visualizer.status();
         Ok(Some(VisualizerStatusResponse {
             call_id: None,
             runtime: message_runtime_status(&status),
@@ -440,45 +490,51 @@ impl Signal for ListVisualizerCreditsRequest {
 }
 
 impl ParamsExtractor for SetVisualizerScenesRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for SetVisualizerScenesRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         let parse = |paths: &[String]| paths.iter().map(|path| Location::parse(path)).collect();
-        VISUALIZER.set_scene_choice(parse(&dart_signal.order), parse(&dart_signal.disabled));
+        visualizer.set_scene_choice(parse(&dart_signal.order), parse(&dart_signal.disabled));
         if let Some(last) = &dart_signal.last {
-            VISUALIZER.resume_from(Location::parse(last));
+            visualizer.resume_from(Location::parse(last));
         }
         Ok(Some(()))
     }
 }
 
 impl ParamsExtractor for ImportVisualizerSceneRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.node.gui_broadcaster)
+        (
+            Arc::clone(&all_params.node.gui_broadcaster),
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for ImportVisualizerSceneRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
     type Response = ImportVisualizerSceneResponse;
 
     async fn handle(
         &self,
-        broadcaster: Self::Params,
+        (broadcaster, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -496,7 +552,7 @@ impl Signal for ImportVisualizerSceneRequest {
                 let imported = format!("Imported {} into {}", file.display(), path.display());
                 log::info!("{imported}");
                 crate::visualizer_log::diagnostic("import_scene", imported);
-                rescan(&dir, broadcaster.as_ref());
+                rescan(&dir, broadcaster.as_ref(), &node);
                 path.to_string_lossy().into_owned()
             }
             Err(e) => {
@@ -514,20 +570,23 @@ impl Signal for ImportVisualizerSceneRequest {
 }
 
 impl ParamsExtractor for RemoveVisualizerSceneRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        Arc::clone(&all_params.node.gui_broadcaster)
+        (
+            Arc::clone(&all_params.node.gui_broadcaster),
+            all_params.node.clone(),
+        )
     }
 }
 
 impl Signal for RemoveVisualizerSceneRequest {
-    type Params = Arc<dyn Broadcaster>;
+    type Params = (Arc<dyn Broadcaster>, Arc<NodeContext>);
     type Response = RemoveVisualizerSceneResponse;
 
     async fn handle(
         &self,
-        broadcaster: Self::Params,
+        (broadcaster, node): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -543,7 +602,7 @@ impl Signal for RemoveVisualizerSceneRequest {
         match removed {
             Ok(()) => {
                 log::info!("Deleted the scene {}", path.display());
-                rescan(&dir, broadcaster.as_ref());
+                rescan(&dir, broadcaster.as_ref(), &node);
             }
             Err(e) => {
                 log::error!("Failed to delete the scene {}: {e:#}", path.display());
@@ -559,16 +618,17 @@ impl Signal for RemoveVisualizerSceneRequest {
 }
 
 /// List the scenes of `dir` again after a scene came or went, and tell the app.
-fn rescan(dir: &std_path::Path, broadcaster: &dyn Broadcaster) {
-    if let Err(e) = VISUALIZER.set_preset_dirs(&[dir.to_path_buf()]) {
-        VISUALIZER.report_error("scan_scenes", format!("{e:#}"));
+fn rescan(dir: &std_path::Path, broadcaster: &dyn Broadcaster, node: &NodeContext) {
+    let visualizer = Arc::clone(node.node_visualizer().visualizer());
+    if let Err(e) = visualizer.set_preset_dirs(&[dir.to_path_buf()]) {
+        visualizer.report_error("scan_scenes", format!("{e:#}"));
     }
-    announce_scenes(broadcaster);
+    announce_scenes(broadcaster, node);
 }
 
 /// Every scene the visualizer lists now.
-fn scene_entries() -> Vec<VisualizerPresetEntry> {
-    VISUALIZER
+fn scene_entries(visualizer: &::visualizer::Visualizer) -> Vec<VisualizerPresetEntry> {
+    visualizer
         .list_presets()
         .into_iter()
         .map(|info| VisualizerPresetEntry {
@@ -585,9 +645,9 @@ fn scene_entries() -> Vec<VisualizerPresetEntry> {
 }
 
 /// Tell the app that the list of scenes is ready or changed, with the list.
-fn announce_scenes(broadcaster: &dyn Broadcaster) {
+fn announce_scenes(broadcaster: &dyn Broadcaster, node: &NodeContext) {
     broadcaster.broadcast(&VisualizerScenesChanged {
-        presets: scene_entries(),
+        presets: scene_entries(node.node_visualizer().visualizer()),
     });
 }
 
@@ -623,21 +683,24 @@ impl Signal for SetVisualizerLogRequest {
 static GPU: tokio_sync::OnceCell<result::Result<String, String>> = OnceCell::const_new();
 
 impl ParamsExtractor for VisualizerSupportRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for VisualizerSupportRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = VisualizerSupportResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         let gpu = GPU
             .get_or_init(|| async {
                 let probed = task::spawn_blocking(::visualizer::probe_gpu).await;
@@ -665,51 +728,56 @@ impl Signal for VisualizerSupportRequest {
         Ok(Some(VisualizerSupportResponse {
             call_id: None,
             support: message_support(gpu),
-            inputs: VISUALIZER.status().inputs.into(),
+            inputs: visualizer.status().inputs.into(),
         }))
     }
 }
 
 impl ParamsExtractor for ListVisualizerPresetsRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for ListVisualizerPresetsRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ListVisualizerPresetsResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         Ok(Some(ListVisualizerPresetsResponse {
             call_id: None,
-            presets: scene_entries(),
+            presets: scene_entries(&Arc::clone(node.node_visualizer().visualizer())),
         }))
     }
 }
 
 impl ParamsExtractor for SetVisualizerLabRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for SetVisualizerLabRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        VISUALIZER.set_inspecting(dart_signal.enabled);
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        visualizer.set_inspecting(dart_signal.enabled);
         Ok(Some(()))
     }
 }
@@ -764,23 +832,26 @@ impl From<VisualizerLabCommand> for LabCommand {
 }
 
 impl ParamsExtractor for VisualizerLabCommandRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for VisualizerLabCommandRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = ();
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         // A visualizer that is not running has nothing to tell.
-        if let Err(e) = VISUALIZER.lab(dart_signal.command.clone().into()) {
+        if let Err(e) = visualizer.lab(dart_signal.command.clone().into()) {
             log::warn!("The visualizer lab command was dropped: {e:#}");
         }
         Ok(Some(()))
@@ -901,26 +972,29 @@ fn message_plan(plan: &::visualizer::SongPlan) -> VisualizerPlan {
 }
 
 impl ParamsExtractor for VisualizerLabRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for VisualizerLabRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = VisualizerLabResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        let inspect = VISUALIZER.inspect();
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
+        let inspect = visualizer.inspect();
         // The samples are drained before the catalogue is read: a switch between the two calls
         // leaves samples of the old catalogue, which the app resets, not ones it would drop.
-        let samples = VISUALIZER.drain_lab_samples();
-        let columns = VISUALIZER
+        let samples = visualizer.drain_lab_samples();
+        let columns = visualizer
             .lab_columns()
             .filter(|columns| columns.version != dart_signal.columns_version)
             .map(|columns| VisualizerLabColumns {
@@ -946,12 +1020,12 @@ impl Signal for VisualizerLabRequest {
             });
         Ok(Some(VisualizerLabResponse {
             call_id: None,
-            inspecting: VISUALIZER.is_inspecting(),
+            inspecting: visualizer.is_inspecting(),
             song_time: inspect
                 .as_ref()
                 .map_or(0.0, |inspect| f64::from(inspect.music.time)),
-            plan_version: VISUALIZER.plan_version(),
-            events: VISUALIZER
+            plan_version: visualizer.plan_version(),
+            events: visualizer
                 .drain_lab_events()
                 .into_iter()
                 .filter_map(lab_event)
@@ -971,24 +1045,27 @@ impl Signal for VisualizerLabRequest {
 }
 
 impl ParamsExtractor for VisualizerPlanRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        all_params.node.clone()
+    }
 }
 
 impl Signal for VisualizerPlanRequest {
-    type Params = ();
+    type Params = Arc<NodeContext>;
     type Response = VisualizerPlanResponse;
 
     async fn handle(
         &self,
-        _: Self::Params,
+        node: Self::Params,
         _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
+        let visualizer = Arc::clone(node.node_visualizer().visualizer());
         // The version first: a plan made in between is then fetched again for its own version.
-        let version = VISUALIZER.plan_version();
-        let plan = VISUALIZER.plan().map(|plan| message_plan(&plan));
+        let version = visualizer.plan_version();
+        let plan = visualizer.plan().map(|plan| message_plan(&plan));
         Ok(Some(VisualizerPlanResponse {
             call_id: None,
             version,
@@ -1010,9 +1087,11 @@ mod tests {
         VisualizerMomentStrength, VisualizerRuntimeStatus, VisualizerSectionTier,
         VisualizerShotSize, VisualizerSupport, VisualizerTransport,
     };
+    use crate::node::NodeContext;
+    use crate::server::utils::device::RunMode;
 
     use super::{Arc, Broadcaster, SetVisualizerPresetDirsRequest, VisualizerScenesChanged};
-    use super::{VISUALIZER, VisualizerStatusRequest, message_runtime_status, message_support};
+    use super::{VisualizerStatusRequest, message_runtime_status, message_support};
 
     #[derive(Default)]
     struct Capture(std_sync::Mutex<Vec<VisualizerScenesChanged>>);
@@ -1031,13 +1110,25 @@ mod tests {
     #[tokio::test]
     async fn setting_the_scene_folders_announces_the_scene_list() {
         let dir = tempfile::tempdir().unwrap();
+        crate::test_node::disable_sync_listener(dir.path()).ok();
+        let path = dir.path().to_string_lossy();
         let capture = Arc::new(Capture::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            capture.clone(),
+            false,
+            RunMode::App,
+            Arc::clone(&crate::visualizer::VISUALIZER),
+        )
+        .await
+        .unwrap();
         let request = SetVisualizerPresetDirsRequest {
             paths: vec![dir.path().to_string_lossy().into_owned()],
             call_id: None,
         };
         request
-            .handle(capture.clone(), None, &request)
+            .handle((capture.clone(), node), None, &request)
             .await
             .unwrap();
 
@@ -1157,11 +1248,150 @@ mod tests {
 
     #[tokio::test]
     async fn visualizer_status_handler_returns_the_render_thread_state() {
+        // For this test to work with the node-based handler, we need a node.
+        // Since we're in a test and don't have a full node setup, we use the global VISUALIZER
+        // which is what the app node uses in production.
+        // The handler will use the node's visualizer, which for the app node is VISUALIZER.
+        // So we can create a minimal node for testing.
+        use crate::node::NodeContext;
+        use crate::server::utils::device::RunMode;
+        use crate::utils::Broadcaster;
+
+        #[derive(Default)]
+        struct TestBroadcaster;
+        impl Broadcaster for TestBroadcaster {
+            fn broadcast(&self, _message: &dyn crate::utils::RinfRustSignal) {}
+        }
+
+        // Create a test node with the global visualizer
+        // This simulates the app node in production
+        let dir = tempfile::tempdir().unwrap();
+        crate::test_node::disable_sync_listener(dir.path()).ok();
+        let path = dir.path().to_string_lossy();
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(TestBroadcaster),
+            false,
+            RunMode::App,
+            Arc::clone(&crate::visualizer::VISUALIZER),
+        )
+        .await
+        .unwrap();
+
         let request = VisualizerStatusRequest { call_id: None };
-        let response = request.handle((), None, &request).await.unwrap().unwrap();
+        let response = request.handle(node, None, &request).await.unwrap().unwrap();
         assert_eq!(
             response.runtime,
-            message_runtime_status(&VISUALIZER.status())
+            message_runtime_status(&crate::visualizer::VISUALIZER.status())
+        );
+    }
+
+    /// Regression test for issue #497: handlers route through the node's visualizer,
+    /// not the global VISUALIZER. Each node maintains its own inspecting state, and the
+    /// SetVisualizerLabRequest handler affects only the targeted node's visualizer.
+    #[tokio::test]
+    async fn visualizer_controls_use_node_instance() {
+        use crate::server::utils::device::RunMode;
+        use crate::utils::Broadcaster;
+        use ::visualizer::Visualizer;
+
+        #[derive(Default)]
+        struct TestBroadcaster;
+        impl Broadcaster for TestBroadcaster {
+            fn broadcast(&self, _message: &dyn crate::utils::RinfRustSignal) {}
+        }
+
+        // Save the original global VISUALIZER state to verify it remains unchanged
+        let original_global_inspecting = crate::visualizer::VISUALIZER.is_inspecting();
+        let original_global_preset_dirs = crate::visualizer::VISUALIZER.list_presets();
+
+        // Create two separate visualizers
+        let visualizer1 = Arc::new(Visualizer::new());
+        let visualizer2 = Arc::new(Visualizer::new());
+
+        // Create nodes with different visualizers and separate folders
+        let dir1 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+        crate::test_node::disable_sync_listener(dir1.path()).ok();
+        crate::test_node::disable_sync_listener(dir2.path()).ok();
+        let path1 = dir1.path().to_string_lossy();
+        let path2 = dir2.path().to_string_lossy();
+
+        let node1 = NodeContext::new(
+            &path1,
+            &path1,
+            Arc::new(TestBroadcaster),
+            false,
+            RunMode::App,
+            Arc::clone(&visualizer1),
+        )
+        .await
+        .unwrap();
+
+        let node2 = NodeContext::new(
+            &path2,
+            &path2,
+            Arc::new(TestBroadcaster),
+            false,
+            RunMode::App,
+            Arc::clone(&visualizer2),
+        )
+        .await
+        .unwrap();
+
+        // Verify that the nodes have different visualizers
+        let node1_vis = Arc::clone(node1.node_visualizer().visualizer());
+        let node2_vis = Arc::clone(node2.node_visualizer().visualizer());
+        assert!(!Arc::ptr_eq(&node1_vis, &node2_vis));
+
+        // Test: different values per node - inspecting state
+        node1_vis.set_inspecting(true);
+        node2_vis.set_inspecting(true);
+        assert!(node1_vis.is_inspecting());
+        assert!(node2_vis.is_inspecting());
+
+        // Test: SetVisualizerLabRequest through handler affects only node1
+        // Node1 starts true, node2 starts true
+        let request = crate::messages::SetVisualizerLabRequest {
+            enabled: false,
+            call_id: None,
+        };
+        request
+            .handle(Arc::clone(&node1), None, &request)
+            .await
+            .unwrap();
+        // Node1 should now be false, node2 should remain unchanged (true)
+        assert!(!node1_vis.is_inspecting());
+        assert!(node2_vis.is_inspecting());
+
+        // Now set node1 to false and node2 to true
+        node1_vis.set_inspecting(false);
+        node2_vis.set_inspecting(true);
+        assert!(!node1_vis.is_inspecting());
+        assert!(node2_vis.is_inspecting());
+
+        // Apply request to node2
+        let request2 = crate::messages::SetVisualizerLabRequest {
+            enabled: false,
+            call_id: None,
+        };
+        request2
+            .handle(Arc::clone(&node2), None, &request2)
+            .await
+            .unwrap();
+        // Node2 should now be false, node1 should remain unchanged (false)
+        assert!(!node1_vis.is_inspecting());
+        assert!(!node2_vis.is_inspecting());
+
+        // Test: global VISUALIZER remains unchanged
+        assert_eq!(
+            crate::visualizer::VISUALIZER.is_inspecting(),
+            original_global_inspecting
+        );
+        assert_eq!(
+            crate::visualizer::VISUALIZER.list_presets(),
+            original_global_preset_dirs
         );
     }
 }
