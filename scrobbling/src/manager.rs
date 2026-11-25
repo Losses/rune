@@ -1,4 +1,10 @@
-use std::{collections::VecDeque, fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -443,28 +449,35 @@ impl ScrobblingManager {
         }
     }
 
-    pub async fn authenticate_all(
+    /// Reads the login generations of every service in `credentials_list`,
+    /// for [`Self::authenticate_all`] to compare its restores against.
+    pub async fn restore_epochs(
+        manager: &Mutex<dyn ScrobblingServiceManager>,
+        credentials_list: &[ScrobblingCredential],
+    ) -> HashMap<ScrobblingService, u64> {
+        let manager = manager.lock().await;
+        credentials_list
+            .iter()
+            .map(|credentials| {
+                (
+                    credentials.service,
+                    manager.login_epoch(&credentials.service),
+                )
+            })
+            .collect()
+    }
+
+    /// Restores each saved account, skipping the ones `epochs` shows as
+    /// superseded. `epochs` comes from [`Self::restore_epochs`], called when
+    /// the restore batch starts: a login or logout committed afterwards
+    /// advances its generation, and the restore is skipped or discarded
+    /// instead of replacing the newer account or signing a logged-out user
+    /// back in.
+    pub fn authenticate_all(
         manager: Arc<Mutex<dyn ScrobblingServiceManager>>,
         credentials_list: Vec<ScrobblingCredential>,
+        epochs: HashMap<ScrobblingService, u64>,
     ) {
-        // The restore entries remember the login generations as they are when
-        // the restore batch is handled, before its worker is even spawned. A
-        // login or logout committed afterwards advances its generation, and
-        // the restore is skipped or discarded instead of replacing the newer
-        // account or signing a logged-out user back in.
-        let epochs = {
-            let manager = manager.lock().await;
-            credentials_list
-                .iter()
-                .map(|credentials| {
-                    (
-                        credentials.service,
-                        manager.login_epoch(&credentials.service),
-                    )
-                })
-                .collect::<std::collections::HashMap<_, _>>()
-        };
-
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
@@ -1795,7 +1808,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
 
@@ -1850,7 +1864,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
         gate.notify_one();
@@ -1886,7 +1901,8 @@ mod tests {
             saved(ScrobblingService::LastFm, "old-lastfm"),
             saved(ScrobblingService::ListenBrainz, "old-listenbrainz"),
         ];
-        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch).await;
+        let epochs = ScrobblingManager::restore_epochs(&*shared, &batch).await;
+        ScrobblingManager::authenticate_all(Arc::clone(&shared), batch, epochs);
 
         assert_eq!(next_event(&mut events).await, "staged:start:old-lastfm");
 
