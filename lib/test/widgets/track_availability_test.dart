@@ -1,0 +1,93 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../bindings/bindings.dart';
+import '../../l10n/app_localizations.dart';
+import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../widgets/track_list/large_screen_track_list_item.dart';
+import '../../utils/query_list.dart';
+
+InternalMediaFile item(
+  AudioAvailability availability, [
+  AudioOrigin origin = AudioOrigin.host,
+]) => InternalMediaFile(
+  id: 1,
+  path: '',
+  artist: 'Artist',
+  album: 'Album',
+  title: 'Track',
+  duration: 1,
+  coverArtPath: '',
+  trackNumber: 1,
+  audioAvailability: availability,
+  audioOrigin: origin,
+);
+
+void main() {
+  testWidgets(
+    'local state controls labels and pending playback without hiding rows',
+    (tester) async {
+      await tester.pumpWidget(
+        FluentApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) {
+              final rows = AudioAvailability.values.map(item).toList();
+              return Column(
+                children: [
+                  for (final row in rows)
+                    Text('${row.audioAvailability.name}: ${row.canPlay}'),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+      expect(find.text('local: true'), findsOneWidget);
+      expect(find.text('remoteOnly: true'), findsOneWidget);
+      expect(find.text('unavailable: false'), findsOneWidget);
+      expect(find.text('importPending: false'), findsOneWidget);
+    },
+  );
+  testWidgets('pending rows stay visible but cannot start playback', (
+    tester,
+  ) async {
+    Future<void> render(AudioAvailability state) async {
+      await tester.pumpWidget(
+        FluentApp(
+          locale: const Locale('en'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: SizedBox(
+            width: 400,
+            height: 80,
+            child: LargeScreenTrackListItem(
+              index: 0,
+              item: item(state),
+              queries: const QueryList(),
+              mode: PlaybackMode.sequential,
+              fallbackFileIds: const [],
+              coverArtPath: null,
+              isAlbumQuery: true,
+              position: 0,
+              reloadData: null,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    await render(AudioAvailability.importPending);
+    expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
+    await render(AudioAvailability.unavailable);
+    expect(tester.widget<Button>(find.byType(Button).first).onPressed, isNull);
+    await render(AudioAvailability.remoteOnly);
+    expect(
+      tester.widget<Button>(find.byType(Button).first).onPressed,
+      isNotNull,
+    );
+  });
+}

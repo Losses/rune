@@ -1,0 +1,1 @@
+const double defaultGapSize = 12;

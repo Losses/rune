@@ -1,0 +1,70 @@
+#!/bin/sh
+# Switches off controllers the kiosk does not use while it runs, and switches
+# them back on when the kiosk stops. Run as root.
+#
+#   rune-unused-devices apply     unbind every device in RUNE_UNUSED_DEVICES
+#                                 from its driver, and remember which ones
+#   rune-unused-devices restore   bind the remembered devices again
+#
+# RUNE_UNUSED_DEVICES is a list of <platform driver>/<device> names separated
+# by spaces, as they appear under /sys/bus/platform/drivers. A device that is
+# missing, or not bound to that driver, is left alone. So is one in use: a
+# network controller whose link is up, or a USB host with a device plugged in.
+# When the list is empty or missing, both do nothing. What apply remembers
+# stays in /run until restore binds it again, so only devices the kiosk
+# switched off come back.
+set -u
+
+. "$(dirname "$0")/rune-soc-profile"
+
+# Whether something is connected to the device at this sysfs path.
+in_use() {
+    for net in "$1"/net/*; do
+        if [ "$(cat "$net/carrier" 2>/dev/null)" = "1" ]; then
+            return 0
+        fi
+    done
+    # Under a root hub, 5-1 is a plugged device and 5-0:1.0 the hub itself.
+    for plugged in "$1"/usb*/[0-9]*-[0-9]*; do
+        case "$plugged" in
+            *:*) continue ;;
+        esac
+        if [ -e "$plugged" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+devices="${RUNE_UNUSED_DEVICES:-}"
+drivers="/sys/bus/platform/drivers"
+saved="/run/rune-kiosk-unused-devices"
+
+case "${1:-}" in
+    apply)
+        for entry in $devices; do
+            driver="${entry%%/*}"
+            device="${entry#*/}"
+            if [ -e "$drivers/$driver/$device" ] && ! in_use "$drivers/$driver/$device"; then
+                echo "$device" > "$drivers/$driver/unbind" && echo "$entry" >> "$saved"
+            fi
+        done
+        ;;
+    restore)
+        if [ ! -f "$saved" ]; then
+            exit 0
+        fi
+        while read -r entry; do
+            driver="${entry%%/*}"
+            device="${entry#*/}"
+            if [ -d "$drivers/$driver" ] && [ ! -e "$drivers/$driver/$device" ]; then
+                echo "$device" > "$drivers/$driver/bind"
+            fi
+        done < "$saved"
+        rm -f "$saved"
+        ;;
+    *)
+        echo "Usage: $0 apply|restore" >&2
+        exit 2
+        ;;
+esac

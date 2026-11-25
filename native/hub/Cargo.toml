@@ -1,0 +1,144 @@
+[package]
+# Do not change the name of this crate.
+name = "hub"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[lib]
+# `lib` is required for non-library targets,
+# such as tests and benchmarks.
+# `cdylib` is for Linux, Android, Windows, and web.
+# `staticlib` is for iOS and macOS.
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "rune-server"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "rune-client"
+path = "src/server/client/main.rs"
+
+[features]
+sync-crash-probe = ["database/sync-crash-probe"]
+
+[dependencies]
+rinf = "8.11.0"
+tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
+sea-orm = "2.0.4"
+lyric = { path = "../../lyric" }
+database = { path = "../../database" }
+sync = { path = "../../sync" }
+sync-orm = { path = "../../sync-orm" }
+analysis = { path = "../../analysis" }
+playback = { path = "../../playback" }
+visualizer = { path = "../../visualizer" }
+flutter-texture = { path = "../../flutter-texture" }
+scrobbling = { path = "../../scrobbling" }
+metadata = { path = "../../metadata" }
+discovery = { path = "../../discovery" }
+subsonic = { path = "../../subsonic" }
+lazy_static = "1.5.0"
+log = "0.4.22"
+tracing-subscriber = { version = "0.3.20", features = ["chrono", "registry"] }
+tokio-util = "0.7.11"
+num_cpus = "1.16.0"
+thiserror = "2"
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+futures = "0.3.30"
+blake3 = "1"
+async-trait = "0.1.83"
+tracing-appender = "0.2.3"
+chrono = { version = "0.4.38", features = ["serde"] }
+windows = { version = "0.58.0", features = ["Services", "Services_Store"] }
+tokio-tungstenite = { version = "0.26.2", features = [
+    "rustls",
+    "rustls-tls-webpki-roots",
+] }
+futures-channel = "0.3.31"
+futures-util = "0.3.31"
+strum = "0.26.3"
+strum_macros = "0.26.4"
+requests = { path = "../requests" }
+clap = "4.5.26"
+axum = { version = "0.8.1", features = ["ws", "macros"] }
+tower = { version = "0.5.2", features = ["util"] }
+tower-http = { version = "0.6.2", features = ["fs"] }
+axum-server = { version = "0.7.1", features = ["tls-rustls-no-provider"] }
+uuid = "1.11.1"
+url = "2.5.4"
+rustyline = { version = "15.0.0", features = ["with-sqlite-history"] }
+rustyline-derive = "0.11.0"
+radix_trie = "0.2.1"
+shlex = "1.3.0"
+regex = "1.11.1"
+term_size = "0.3.2"
+colored = "3.0.0"
+unicode-width = "0.2.0"
+clean-path = "0.2.1"
+dunce = "1.0.5"
+serde = "1.0.219"
+tower_governor = "0.6.0"
+rand = "0.8.0"
+sha2 = "0.10.8"
+rsa = "0.9.10"
+pem = "3.0.4"
+x509-parser = "0.17.0"
+reqwest = { version = "0.12.18", features = ["json", "rustls-tls", "stream"] }
+toml = "0.8.20"
+directories = "6.0.0"
+humantime = "2.1.0"
+rustls = { version = "0.23.23", features = ["ring"], default-features = false }
+serde_json = "1.0.140"
+urlencoding = "2.1.3"
+jsonwebtoken = "10.3.0"
+base64 = "0.22.1"
+bcrypt = "0.17.0"
+rpassword = "=7.3.1"
+bincode = { version = "2.0.1", features = ["serde"] }
+fsio = { version = "0.1.0", path = "../../fsio" }
+fsio_browse = { version = "0.1.0", path = "../../fsio-browse" }
+mimetype-detector = "0.1.1"
+http-request = { version = "0.1.0", path = "../../http-request" }
+
+[build-dependencies]
+anyhow = { version = "1.0.98", features = ["backtrace"] }
+vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
+
+# Uncomment below to target the web.
+# tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
+# wasm-bindgen = "0.2.92"
+
+# sysinfo does not build for iOS with the current libc
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
+
+# Android dependencies
+[target.'cfg(target_os = "android")'.dependencies]
+tracing-logcat = "0.1.0"
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+swift-rs = { version = "1.0.7", features = ["build"] }
+
+[dev-dependencies]
+md5 = "0.7.0"
+database = { path = "../../database", features = ["test-fixtures"] }
+fsio = { path = "../../fsio", features = ["test-fixtures"] }
+playback = { path = "../../playback", features = ["test-output"] }
+tokio = { version = "1.44.2", features = ["test-util"] }
+hyper = "1.6.0"
+portpicker = "0.1.1"
+env_logger = "0.11.8"
+rust_decimal = "1.36.0"
+rust_decimal_macros = "1.36.0"
+migration = { path = "../../migration" }
+simple_channel = { path = "../../simple-channel" }
+tempfile = "3.17.1"
+rcgen = "0.13.2"
+
+[lints]
+workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

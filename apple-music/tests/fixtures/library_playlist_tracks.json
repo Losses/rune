@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": "a.1542568135",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.1542568135",
+      "attributes": {
+        "artwork": {"width": 1200, "height": 1200, "url": "https://is2-ssl.mzstatic.com/image/thumb/Music124/v4/8c/8f/8a/8c8f8a29-8810-feb8-7091-18191ca2768a/886448619161.jpg/{w}x{h}bb.jpg"},
+        "artistName": "Dirk Maassen",
+        "discNumber": 2,
+        "genreNames": ["Classical Crossover"],
+        "durationInMillis": 169813,
+        "releaseDate": "2020-12-18",
+        "name": "Diaries (From Home)",
+        "hasLyrics": false,
+        "albumName": "Echoes",
+        "playParams": {"id": "a.1542568135", "kind": "song", "isLibrary": true, "catalogId": "1542568135"}
+      }
+    }
+  ]
+}

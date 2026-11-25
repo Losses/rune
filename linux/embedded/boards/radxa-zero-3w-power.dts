@@ -1,0 +1,29 @@
+/dts-v1/;
+/plugin/;
+
+/*
+ * Radxa ZERO 3W as a Rune kiosk: controllers the board has no connector for
+ * stay off from boot, with their clocks.
+ *
+ * The ZERO 3W has no Ethernet port, nothing wired to its four USB 2 hosts, and
+ * on boards that boot from an SD card no eMMC. Leave the sdhci node out on a
+ * board with eMMC.
+ *
+ * Build and install on a DietPi or Armbian image:
+ *
+ *   dtc -@ -I dts -O dtb -o rune-zero3w-power.dtbo radxa-zero-3w-power.dts
+ *   cp rune-zero3w-power.dtbo /boot/overlay-user/
+ *
+ * then set user_overlays=rune-zero3w-power in /boot/dietpiEnv.txt (or
+ * /boot/armbianEnv.txt) and restart.
+ */
+
+&gmac1 { status = "disabled"; };
+
+&usb_host0_ehci { status = "disabled"; };
+&usb_host0_ohci { status = "disabled"; };
+&usb_host1_ehci { status = "disabled"; };
+&usb_host1_ohci { status = "disabled"; };
+&usb2phy1 { status = "disabled"; };
+
+&sdhci { status = "disabled"; };

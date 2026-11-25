@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "rec-1",
+      "type": "personal-recommendation",
+      "attributes": {
+        "title": {"stringForDisplay": "Made for Someone"},
+        "kind": "music-recommendations",
+        "resourceTypes": ["playlists", "stations"]
+      },
+      "relationships": {"contents": {"data": [
+        {"id": "pl.pm-mix1", "type": "playlists", "attributes": {
+          "name": "Mix One", "curatorName": "Curator",
+          "artwork": {"url": "https://art.invalid/mix1/{w}x{h}.jpg", "width": 400, "height": 400}}},
+        {"id": "ra.station1", "type": "stations", "attributes": {"name": "A Station"}}
+      ]}}
+    },
+    {
+      "id": "rec-2",
+      "type": "personal-recommendation",
+      "attributes": {
+        "title": {"stringForDisplay": "Only Stations"},
+        "kind": "music-recommendations",
+        "resourceTypes": ["stations"]
+      },
+      "relationships": {"contents": {"data": [
+        {"id": "ra.station2", "type": "stations", "attributes": {"name": "Another Station"}}
+      ]}}
+    }
+  ],
+  "next": "/v1/me/recommendations?offset=10"
+}

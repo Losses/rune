@@ -1,0 +1,328 @@
+use crate::node::NodeContext;
+use crate::utils::CollectionCoverOptions;
+use std::{marker::PhantomData, sync::Arc};
+
+use anyhow::{Error, Result};
+use async_trait::async_trait;
+use futures::future::try_join_all;
+
+use crate::{
+    Session, Signal,
+    library_pool::LibraryHandle,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor, require_library},
+};
+use ::database::{
+    actions::{
+        collection::{
+            CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
+        },
+        file::{get_media_files, get_random_files, get_reverse_listed_media_files},
+        metadata::{MetadataSummary, get_metadata_summary_by_files},
+        mixes::query_mix_media_files,
+    },
+    connection::{MainDbConnection, RecommendationDbConnection},
+    entities::{albums, artists, genres, media_files, mixes, playlists},
+};
+
+#[async_trait]
+pub trait ComplexQuery: Send + Sync {
+    async fn execute(
+        &self,
+        main_db: &MainDbConnection,
+        recommend_db: &RecommendationDbConnection,
+        queue: &[i32],
+    ) -> Result<Vec<UnifiedCollection>>;
+}
+
+#[async_trait]
+impl<T> ComplexQuery for CollectionComplexQuery<T>
+where
+    T: CollectionQuery + Send + Sync,
+{
+    async fn execute(
+        &self,
+        main_db: &MainDbConnection,
+        _: &RecommendationDbConnection,
+        _: &[i32],
+    ) -> Result<Vec<UnifiedCollection>> {
+        self.query_model_collections(main_db).await
+    }
+}
+
+struct CollectionComplexQuery<T> {
+    limit: u32,
+    mode: CollectionQueryListMode,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> CollectionComplexQuery<T>
+where
+    T: CollectionQuery,
+{
+    fn new(limit: u32, mode: CollectionQueryListMode) -> Self {
+        Self {
+            limit,
+            mode,
+            _phantom: PhantomData,
+        }
+    }
+
+    async fn query_model_collections(
+        &self,
+        main_db: &MainDbConnection,
+    ) -> Result<Vec<UnifiedCollection>> {
+        let models = T::list(main_db, self.limit.into(), self.mode).await?;
+        let requests = models
+            .into_iter()
+            .map(|model| UnifiedCollection::from_model(main_db, model, false));
+
+        try_join_all(requests).await
+    }
+}
+
+struct NaiveTrackComplexQuery {
+    mode: CollectionQueryListMode,
+}
+
+struct MixTrackComplexQuery {
+    query: Vec<(String, String)>,
+}
+
+async fn build_track_collections(
+    main_db: &MainDbConnection,
+    tracks: Vec<media_files::Model>,
+) -> Result<Vec<UnifiedCollection>> {
+    let metadata = get_metadata_summary_by_files(main_db, tracks).await?;
+    let all_ids: Vec<String> = metadata.iter().map(|x| x.id.to_string()).collect();
+
+    Ok(metadata
+        .into_iter()
+        .enumerate()
+        .map(|(idx, x)| create_track_collection(x, &all_ids, idx))
+        .collect())
+}
+
+fn create_track_collection(
+    metadata: MetadataSummary,
+    all_ids: &[String],
+    idx: usize,
+) -> UnifiedCollection {
+    let mut queries = Vec::new();
+    for item in all_ids.iter().skip(idx) {
+        queries.push(("lib::track".to_string(), item.clone()));
+    }
+    for item in all_ids.iter().take(idx) {
+        queries.push(("lib::track".to_string(), item.clone()));
+    }
+
+    UnifiedCollection {
+        id: metadata.id,
+        name: metadata.title,
+        queries,
+        collection_type: CollectionQueryType::Track,
+        readonly: false,
+    }
+}
+
+#[async_trait]
+impl ComplexQuery for NaiveTrackComplexQuery {
+    async fn execute(
+        &self,
+        main_db: &MainDbConnection,
+        _: &RecommendationDbConnection,
+        _: &[i32],
+    ) -> Result<Vec<UnifiedCollection>> {
+        let tracks = match self.mode {
+            // This is actually fake since we didn't find anywhere that use this case
+            CollectionQueryListMode::Name => get_media_files(main_db, 0, 25).await,
+            CollectionQueryListMode::Forward => get_media_files(main_db, 0, 25).await,
+            CollectionQueryListMode::Reverse => {
+                get_reverse_listed_media_files(main_db, 0, 25).await
+            }
+            CollectionQueryListMode::Random => get_random_files(main_db, 25).await,
+        }?;
+
+        build_track_collections(main_db, tracks).await
+    }
+}
+
+#[async_trait]
+impl ComplexQuery for MixTrackComplexQuery {
+    async fn execute(
+        &self,
+        main_db: &MainDbConnection,
+        recommend_db: &RecommendationDbConnection,
+        queue: &[i32],
+    ) -> Result<Vec<UnifiedCollection>> {
+        let tracks =
+            query_mix_media_files(main_db, recommend_db, self.query.clone(), 0, 25, queue).await?;
+
+        build_track_collections(main_db, tracks).await
+    }
+}
+
+fn create_query(query: LibraryHomeQuery) -> Result<Box<dyn ComplexQuery>> {
+    let mode = |mode| match mode {
+        LibraryHomeListMode::Name => CollectionQueryListMode::Name,
+        LibraryHomeListMode::Forward => CollectionQueryListMode::Forward,
+        LibraryHomeListMode::Reverse => CollectionQueryListMode::Reverse,
+        LibraryHomeListMode::Random => CollectionQueryListMode::Random,
+    };
+    match query {
+        LibraryHomeQuery::Artists(list_mode) => Ok(Box::new(CollectionComplexQuery::<
+            artists::Model,
+        >::new(25, mode(list_mode)))),
+        LibraryHomeQuery::Albums(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<albums::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Genres(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<genres::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Playlists(list_mode) => Ok(Box::new(CollectionComplexQuery::<
+            playlists::Model,
+        >::new(25, mode(list_mode)))),
+        LibraryHomeQuery::Mixes(list_mode) => Ok(Box::new(
+            CollectionComplexQuery::<mixes::Model>::new(25, mode(list_mode)),
+        )),
+        LibraryHomeQuery::Tracks(list_mode) => Ok(Box::new(NaiveTrackComplexQuery {
+            mode: mode(list_mode),
+        })),
+        LibraryHomeQuery::Liked => Ok(Box::new(MixTrackComplexQuery {
+            query: vec![
+                ("lib::directory.deep".to_owned(), "/".to_owned()),
+                ("filter::liked".to_owned(), "true".to_owned()),
+            ],
+        })),
+        LibraryHomeQuery::Most => Ok(Box::new(MixTrackComplexQuery {
+            query: vec![
+                ("lib::directory.deep".to_owned(), "/".to_owned()),
+                ("sort::playedthrough".to_owned(), "false".to_owned()),
+            ],
+        })),
+    }
+}
+
+impl ParamsExtractor for ComplexQueryRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (all_params.library.clone(), all_params.node.clone())
+    }
+}
+
+impl Signal for ComplexQueryRequest {
+    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Response = ComplexQueryResponse;
+
+    async fn handle(
+        &self,
+        (library, node): Self::Params,
+        session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let library = require_library(library)?;
+        let fsio = Arc::clone(&library.fsio);
+        let main_db = Arc::clone(&library.main_db);
+        let recommend_db = Arc::clone(&library.recommend_db);
+        let library_id = library.library_id;
+        let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
+        let queries = &dart_signal.queries;
+        let session = session.as_ref();
+
+        let futures = queries.iter().map(|query| {
+            let main_db = main_db.clone();
+            let recommend_db = recommend_db.clone();
+            let fsio = Arc::clone(&fsio);
+            let queue = queue.clone();
+
+            {
+                let request_session = session;
+                async move {
+                    let fsio = Arc::clone(&fsio);
+                    let query_executor = create_query(query.query)?;
+                    let unified_collections = query_executor
+                        .execute(&main_db, &recommend_db, &queue)
+                        .await?;
+                    let entries_futures =
+                        unified_collections.into_iter().map(|unified_collection| {
+                            let fsio = Arc::clone(&fsio);
+                            let main_db = main_db.clone();
+                            let recommend_db = recommend_db.clone();
+                            let queue = queue.clone();
+                            async move {
+                                // Get the collection with processed cover art paths
+                                let mut collection =
+                                    Collection::from_unified_collection(unified_collection);
+                                if collection.cover_art_map.is_empty() {
+                                    collection = crate::utils::inject_cover_art_map(
+                                        &fsio,
+                                        &main_db,
+                                        recommend_db,
+                                        collection,
+                                        None,
+                                        CollectionCoverOptions {
+                                            bake: true,
+                                            library_id,
+                                            session: request_session,
+                                            playback_queue: &queue,
+                                        },
+                                    )
+                                    .await?;
+                                }
+
+                                Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
+                                    id: collection.id,
+                                    name: collection.name,
+                                    queries: collection.queries,
+                                    collection_type: collection.collection_type,
+                                    cover_art_map: collection.cover_art_map,
+                                    readonly: collection.readonly,
+                                })
+                            }
+                        });
+
+                    let entries = try_join_all(entries_futures).await?;
+
+                    Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
+                        domain: query.query.domain(),
+                        title: query.title.clone(),
+                        entries,
+                    })
+                }
+            }
+        });
+
+        let result = try_join_all(futures).await?;
+
+        Ok(Some(ComplexQueryResponse {
+            call_id: None,
+            result,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_query;
+    use crate::messages::{LibraryHomeListMode as Mode, LibraryHomeQuery as Query};
+
+    #[test]
+    fn every_home_domain_builds_its_query() {
+        for mode in [Mode::Name, Mode::Forward, Mode::Reverse, Mode::Random] {
+            for query in [
+                Query::Artists(mode),
+                Query::Albums(mode),
+                Query::Genres(mode),
+                Query::Playlists(mode),
+                Query::Mixes(mode),
+                Query::Tracks(mode),
+            ] {
+                assert!(create_query(query).is_ok(), "{query:?}");
+            }
+        }
+        for query in [Query::Liked, Query::Most] {
+            assert!(create_query(query).is_ok(), "{query:?}");
+        }
+    }
+}

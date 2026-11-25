@@ -1,0 +1,17 @@
+# Sourced by the kiosk's helpers. Gives the settings that /etc/rune-kiosk.conf
+# leaves out the values measured for this machine's chip.
+#
+# The chip is named by the device tree: each entry of /proc/device-tree/compatible
+# (for example rockchip,rk3566) is looked up as soc/<entry>.conf beside the
+# helpers' bin directory, the board's own entry first. A setting that
+# /etc/rune-kiosk.conf gives, even an empty one, is kept. On a chip with no
+# profile nothing is set and the helpers leave the machine alone.
+
+rune_soc_dir="$(dirname "$0")/../soc"
+if [ -r /proc/device-tree/compatible ]; then
+    for rune_soc in $(tr '\0' '\n' < /proc/device-tree/compatible); do
+        if [ -f "$rune_soc_dir/$rune_soc.conf" ]; then
+            . "$rune_soc_dir/$rune_soc.conf"
+        fi
+    done
+fi

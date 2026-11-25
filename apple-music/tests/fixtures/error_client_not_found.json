@@ -1,0 +1,1 @@
+{"errors":[{"id":"fixture-404","title":"Client Not Found","detail":"Client not found for the given developer token","status":"404","code":"NOT_FOUND"}]}

@@ -1,0 +1,68 @@
+use anyhow::Result;
+use database::test_fixtures::fixtures;
+use database::{
+    actions::{
+        analysis::if_analyze_exists, fingerprint::has_fingerprint, metadata::sync_file_descriptions,
+    },
+    connection::initialize_db,
+    entities::media_files,
+};
+use fsio::FsIo;
+use metadata::describe::describe_file;
+use sea_orm::{ConnectionTrait, Database, EntityTrait};
+use uuid::Uuid;
+
+#[tokio::test]
+async fn existence_queries_preserve_filters_duplicates_and_errors() -> Result<()> {
+    let db = Database::connect("sqlite::memory:").await?;
+    initialize_db(&db, "existence-test").await?;
+    let fs = FsIo::new();
+    let root = fs.canonicalize(&fixtures::asset_directory())?.path;
+    let actor = Uuid::new_v4();
+    let store = fixtures::open_library(db.clone(), actor, Some(Uuid::new_v4())).await?;
+    let node = fs.canonicalize(&root.join("startup_0.ogg"))?;
+    let mut descriptions = vec![Some(describe_file(&fs, &node, &Some(root))?)];
+    sync_file_descriptions(
+        &fs,
+        &db,
+        "existence-test",
+        &mut descriptions,
+        false,
+        &store.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find().one(&db).await?.unwrap();
+    let id = file.id;
+    let track_uuid = file.source_uuid;
+    let content_hash = file.content_hash.expect("scanned file has a content hash");
+    let content_size = file.content_size.expect("scanned file has a content size");
+    assert!(!if_analyze_exists(&db, id).await?);
+    assert!(!has_fingerprint(&db, id).await?);
+
+    for n in 0..2 {
+        db.execute_unprepared(&format!(
+            "INSERT INTO media_file_fingerprint (track_uuid,fingerprint,is_duplicated,source_uuid) VALUES ('{track_uuid}',X'0102',0,'fingerprint-{n}')"
+        )).await?;
+        db.execute_unprepared(&format!(
+            "INSERT INTO media_analysis (file_id,analysis_version,source_uuid,source_hash,source_size) \
+             VALUES ({id},1,'analysis-{n}','{content_hash}',{content_size})"
+        )).await?;
+    }
+    assert!(has_fingerprint(&db, id).await?);
+    assert!(!has_fingerprint(&db, id + 1).await?);
+    assert!(!if_analyze_exists(&db, id).await?);
+    db.execute_unprepared(&format!(
+        "UPDATE media_analysis SET analysis_version = {}",
+        analysis::CURRENT_ANALYSIS_VERSION
+    ))
+    .await?;
+    assert!(if_analyze_exists(&db, id).await?);
+    assert!(!if_analyze_exists(&db, id + 1).await?);
+
+    db.execute_unprepared("DROP TABLE media_analysis").await?;
+    db.execute_unprepared("DROP TABLE media_file_fingerprint")
+        .await?;
+    assert!(if_analyze_exists(&db, id).await.is_err());
+    assert!(has_fingerprint(&db, id).await.is_err());
+    Ok(())
+}

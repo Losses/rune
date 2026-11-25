@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": "i.xrXvO5vFv0VrNA",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.xrXvO5vFv0VrNA",
+      "attributes": {
+        "name": "Third Song",
+        "artistName": "Another Artist",
+        "albumName": "Another Album",
+        "trackNumber": 3,
+        "durationInMillis": 200500,
+        "genreNames": ["Pop"],
+        "playParams": {"id": "i.xrXvO5vFv0VrNA", "kind": "song", "isLibrary": true, "catalogId": "907242702"}
+      }
+    }
+  ]
+}

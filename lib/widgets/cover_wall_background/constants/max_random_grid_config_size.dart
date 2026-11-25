@@ -1,0 +1,1 @@
+const maxRandomGridConfigSize = 4;

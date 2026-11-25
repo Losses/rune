@@ -1,0 +1,8 @@
+use crate::analyzer::core_analyzer::Analyzer;
+
+pub trait SubAnalyzer: Sync + Send {
+    fn process_audio_chunk(&mut self, core_analyzer: &mut Analyzer, chunk: &[f32], force: bool);
+
+    /// Process any queued windows without adding a new window.
+    fn flush(&mut self, _core_analyzer: &mut Analyzer) {}
+}
