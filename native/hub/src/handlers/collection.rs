@@ -61,6 +61,7 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
         .map(|x| CollectionGroupSummary {
             group_title: x.0,
             count: x.1,
+            reserved: false,
         })
         .collect();
 

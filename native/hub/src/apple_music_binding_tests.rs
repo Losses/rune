@@ -1734,3 +1734,95 @@ fn a_listing_without_a_cover_keeps_the_cover_an_earlier_one_gave() {
     binding.remember_collection(generation, AppleIdKind::Artist, id, "Old", Some(&artwork));
     assert!(binding.collection_info(AppleIdKind::Artist, id).is_none());
 }
+
+#[test]
+fn kept_mixes_add_up_across_builds_until_too_many_and_only_under_their_sign_in() {
+    let (_dir, binding, _) = unserved();
+    let from = Arc::new(Vec::new());
+    let keep = |generation: u64, ids: std::ops::Range<i32>| {
+        let mixes = ids
+            .clone()
+            .map(|id| {
+                let mix = RecommendedMix {
+                    name: format!("Mix {id}"),
+                    group: "Made for You".into(),
+                    cover: None,
+                };
+                (id, mix)
+            })
+            .collect();
+        binding.keep_recommendations(
+            generation,
+            &from,
+            vec![("Made for You".into(), ids.collect())],
+            mixes,
+        );
+    };
+    let held = |id: i32| binding.recommended_mix(id).is_some();
+    let generation = binding.generation();
+    let half = MAX_KEPT_MIXES as i32 / 2;
+    keep(generation, 0..half);
+    // A later build adds to them, so a page opened from an earlier one finds its mix.
+    keep(generation, half..half + 10);
+    assert!(held(0) && held(half + 9));
+    assert_eq!(
+        binding.built_mix_groups(&from).unwrap()[0].1,
+        (half..half + 10).collect::<Vec<_>>()
+    );
+    // Recommendations read again are other ones, which the groups are built from anew.
+    assert!(binding.built_mix_groups(&Arc::new(Vec::new())).is_none());
+    // Mixes held already do not count again: listing them anew keeps the others.
+    keep(generation, 0..half);
+    assert!(held(0) && held(half + 9));
+    // Past the bound, only the last build's are held.
+    keep(generation, half + 10..2 * half + 10);
+    assert!(!held(0) && !held(half + 9) && held(half + 10));
+    // A sign-out drops them, and a build begun before it is not kept after it.
+    binding.sign_out();
+    assert!(!held(half + 10) && binding.built_mix_groups(&from).is_none());
+    keep(generation, 0..1);
+    assert!(!held(0) && binding.built_mix_groups(&from).is_none());
+}
+
+#[test]
+fn the_songs_of_catalog_collections_are_kept_within_their_bounds_least_used_first() {
+    let (_dir, binding, _) = unserved();
+    let songs = |count: usize, prefix: &str| -> Arc<Vec<Song>> {
+        Arc::new(
+            (0..count)
+                .map(|n| {
+                    serde_json::from_value(json!({"id": format!("{prefix}{n}"), "type": "songs"}))
+                        .unwrap()
+                })
+                .collect(),
+        )
+    };
+    let mut catalog = binding.catalog();
+    let (first, second, third) = (
+        CatalogCollection::Playlist(1),
+        CatalogCollection::Playlist(2),
+        CatalogCollection::Album(3),
+    );
+    catalog.keep_collection_songs(first, songs(12_000, "a"));
+    catalog.keep_collection_songs(second, songs(5_000, "b"));
+    // The first is used again, so the second goes when the third does not fit beside both.
+    assert!(catalog.used_collection_songs(first).is_some());
+    catalog.keep_collection_songs(third, songs(5_000, "c"));
+    assert!(catalog.used_collection_songs(second).is_none());
+    assert!(catalog.used_collection_songs(first).is_some());
+    assert!(catalog.used_collection_songs(third).is_some());
+    assert_eq!(
+        catalog.collection_song("c7").map(|song| song.id.as_str()),
+        Some("c7")
+    );
+    assert!(catalog.collection_song("b7").is_none());
+    // Songs that are more than the bound are not kept at all.
+    catalog.keep_collection_songs(second, songs(MAX_KEPT_COLLECTION_SONGS + 1, "b"));
+    assert!(catalog.used_collection_songs(second).is_none());
+    // Only so many collections are kept, the least recently used going first.
+    for id in 10..10 + MAX_KEPT_COLLECTIONS as i32 {
+        catalog.keep_collection_songs(CatalogCollection::Album(id), songs(1, &format!("x{id}.")));
+    }
+    assert_eq!(catalog.collection_songs.len(), MAX_KEPT_COLLECTIONS);
+    assert!(catalog.used_collection_songs(first).is_none());
+}

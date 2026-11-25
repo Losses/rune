@@ -10,6 +10,7 @@ pub(crate) mod mixes;
 pub(crate) mod positional_occurrences;
 pub(crate) mod reach;
 pub(crate) mod registry;
+pub(crate) mod rune_mixes;
 pub(crate) mod rune_playlists;
 pub(crate) mod store;
 

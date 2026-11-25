@@ -16,10 +16,13 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use crate::apple_music_binding::{AppleIdKind, AppleMusicBinding, CONTENT_CHANGED_DELAY, Tokens};
+use crate::apple_music_translate::mix_collections::{RECENTLY_PLAYED_GROUP, UNTITLED_GROUP};
 use crate::macros::{RequestSlots, capability_snapshot};
 use crate::messages::{
-    AddItemToPlaylistRequest, CallerQueue, CapabilityReason, CollectionType, ComplexQuery,
-    ComplexQueryRequest, CreatePlaylistRequest, ExcludedItems, FetchAllPlaylistsRequest,
+    AddItemToMixRequest, AddItemToPlaylistRequest, CallerQueue, CapabilityReason,
+    CollectionGroup, CollectionType, ComplexQuery, ComplexQueryRequest, CreatePlaylistRequest,
+    ExcludedItems, FetchAllMixesRequest, FetchMixQueriesRequest, GetMixByIdRequest,
+    RemoveMixRequest, UpdateMixRequest, FetchAllPlaylistsRequest,
     FetchCollectionByIdsRequest, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchMediaFileByIdsRequest, FetchMediaFilesRequest, FetchParsedMediaFileRequest,
     FetchPlaylistOccurrencesRequest, GetLyricByTrackIdRequest, GetLyricByTrackIdResponse,
@@ -95,6 +98,9 @@ struct AppleFake {
     /// Answers the songs of `old_library_songs` when they are asked for by id, though the list
     /// lacks them. Cleared, Apple no longer has them.
     old_songs: AtomicBool,
+    /// Recommends the catalog's albums and playlist (see `recommendations`); otherwise Apple
+    /// recommends nothing.
+    recommends: bool,
 }
 
 /// The id another account's library has for `id`, when `id` is a library id: "i.s1" is
@@ -285,6 +291,9 @@ impl AppleFake {
             "ci.ja" => ("Kana Song", "Shared Album", "Hiroyuki Sawano", Some(2)),
             "ci.en" => ("English Song", "Shared Album", "Hiroyuki Sawano", Some(3)),
             "ci.rev" => ("Reversed", "Shared Album", "Hiroyuki Sawano & Ann", Some(4)),
+            "900" => ("Dawn Chorus", "Dawn Remixes", "Dawn Singer", Some(3)),
+            "1601" => ("Remix One", "Dawn Remixes", "Dawn Singer", Some(1)),
+            "1602" => ("Remix Two", "Dawn Remixes", "Dawn Singer", Some(2)),
             _ => return None,
         };
         // Its catalog artists, as Apple names them with `include=artists`.
@@ -293,6 +302,7 @@ impl AppleFake {
             "ci.ja" | "ci.en" => &[("156", "Hiroyuki Sawano")],
             "ci.rev" => &[("156", "Hiroyuki Sawano"), ("400", "Ann")],
             "ci.s1" => &[("300", "Artist One")],
+            "900" | "1601" | "1602" => &[("301", "Dawn Singer")],
             _ => &[],
         };
         let artists: Vec<Value> = artists
@@ -389,6 +399,99 @@ impl AppleFake {
                 "artwork": self.artwork(name),
             },
         })
+    }
+
+    /// A catalog album the fake knows, with the ids of its songs: "1500" is the catalog copy of
+    /// the library's "Dawn Album".
+    fn catalog_album(&self, id: &str) -> Option<(Value, &'static [&'static str])> {
+        let (name, artist, songs): (_, _, &'static [&'static str]) = match id {
+            "1500" => ("Dawn Album", ("300", "Artist One"), &["ci.s1"]),
+            "1600" => ("Dawn Remixes", ("301", "Dawn Singer"), &["1602", "1601"]),
+            _ => return None,
+        };
+        let album = json!({
+            "id": id,
+            "type": "albums",
+            "attributes": {
+                "name": name,
+                "artistName": artist.1,
+                "trackCount": songs.len(),
+                "artwork": self.artwork(name),
+                "playParams": {"id": id, "kind": "album"},
+            },
+            "relationships": {"artists": {"data": [{"id": artist.0, "type": "artists"}]}},
+        });
+        Some((album, songs))
+    }
+
+    /// The catalog's playlist "Morning Picks".
+    fn catalog_playlist(&self) -> Value {
+        json!({
+            "id": "pl.cat1",
+            "type": "playlists",
+            "attributes": {
+                "name": "Morning Picks",
+                "curatorName": "Apple Music",
+                "artwork": self.artwork("Morning Picks"),
+                "playParams": {"id": "pl.cat1", "kind": "playlist"},
+            },
+        })
+    }
+
+    /// The user's recommendations: "Made for You" twice, which merge without listing their
+    /// common album twice, an album also in recent plays, a group without a title of each kind,
+    /// one of stations only, and a playlist without a name, alone in a group too.
+    fn recommendations(&self) -> Value {
+        let album = |id: &str, name: &str| {
+            json!({"id": id, "type": "albums", "attributes": {
+                "name": name, "artistName": "Dawn Singer", "artwork": self.artwork(name),
+            }})
+        };
+        let picks = json!({"id": "pl.cat1", "type": "playlists", "attributes": {
+            "name": "Morning Picks", "curatorName": "Apple Music",
+            "artwork": self.artwork("Morning Picks"),
+        }});
+        let station = json!({"id": "ra.1", "type": "stations", "attributes": {"name": "Radio"}});
+        // A playlist a user shared, which Apple gives without a name.
+        let gone = json!({"id": "pl.u-gone", "type": "playlists", "attributes": {"name": ""}});
+        let group = |id: &str, kind: &str, title: Option<&str>, contents: Vec<Value>| {
+            let mut attributes = json!({"kind": kind});
+            if let Some(title) = title {
+                attributes["title"] = json!({"stringForDisplay": title});
+            }
+            json!({
+                "id": id,
+                "type": "personal-recommendation",
+                "attributes": attributes,
+                "relationships": {"contents": {"data": contents}},
+            })
+        };
+        let (made, recent) = ("music-recommendations", "recently-played");
+        json!({"data": [
+            group(
+                "rec-1",
+                made,
+                Some("Made for You"),
+                vec![picks.clone(), album("1600", "Dawn Remixes"), station.clone()],
+            ),
+            group(
+                "rec-2",
+                recent,
+                Some("Recently Played"),
+                vec![album("1600", "Dawn Remixes"), album("1500", "Dawn Album")],
+            ),
+            group(
+                "rec-3",
+                made,
+                Some("Made for You"),
+                vec![album("1600", "Dawn Remixes"), album("1500", "Dawn Album")],
+            ),
+            group("rec-4", made, None, vec![picks.clone()]),
+            group("rec-5", made, Some("Stations"), vec![station]),
+            group("rec-6", recent, None, vec![picks, gone.clone()]),
+            // A group of only that playlist.
+            group("rec-7", made, Some("Gone"), vec![gone]),
+        ]})
     }
 
     fn catalog_songs(&self, ids: &[&str]) -> Value {
@@ -589,6 +692,23 @@ impl AppleFake {
             }
             "/v1/me/library/playlists/p.sub1/tracks" if self.playlists => {
                 json!({"data": [s2, s1]})
+            }
+            "/v1/me/recommendations" if self.recommends => self.recommendations(),
+            "/v1/me/recommendations" => json!({"data": []}),
+            "/v1/catalog/it/playlists/pl.cat1" => json!({"data": [self.catalog_playlist()]}),
+            "/v1/catalog/it/playlists/pl.cat1/tracks" => self.catalog_songs(&["900", "777"]),
+            catalog if catalog.starts_with("/v1/catalog/it/albums/") => {
+                let rest = &catalog["/v1/catalog/it/albums/".len()..];
+                let (id, tracks) = match rest.strip_suffix("/tracks") {
+                    Some(id) => (id, true),
+                    None => (rest, false),
+                };
+                let (album, songs) = self.catalog_album(id)?;
+                if tracks {
+                    self.catalog_songs(songs)
+                } else {
+                    json!({"data": [album]})
+                }
             }
             _ => return None,
         })
@@ -817,6 +937,8 @@ struct AppleOptions {
     catalog_credits: bool,
     /// Whether the user has playlists of their own in Apple Music (see `AppleFake::playlists`).
     playlists: bool,
+    /// Whether Apple recommends anything (see `AppleFake::recommendations`).
+    recommends: bool,
 }
 
 async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple> {
@@ -856,6 +978,7 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         writes: Mutex::default(),
         playlists: options.playlists,
         old_songs: AtomicBool::new(false),
+        recommends: options.recommends,
     });
     let app = Router::new().fallback(apple_fake).with_state(fake.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -976,6 +1099,14 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
         ReorderPlaylistItemPositionRequest::slot(&slots),
         RemoveItemFromPlaylistRequest::slot(&slots),
         FetchPlaylistOccurrencesRequest::slot(&slots),
+        // Rune's own mixes, kept on this device, and the ones Apple recommends.
+        FetchAllMixesRequest::slot(&slots),
+        GetMixByIdRequest::slot(&slots),
+        FetchMixQueriesRequest::slot(&slots),
+        crate::messages::CreateMixRequest::slot(&slots),
+        UpdateMixRequest::slot(&slots),
+        RemoveMixRequest::slot(&slots),
+        AddItemToMixRequest::slot(&slots),
     ] {
         assert_eq!(slot, Slot::Translate);
     }
@@ -1001,14 +1132,11 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
     ] {
         assert_eq!(slot, hidden);
     }
-    // What the library does not hold, its mixes, search and playlists made of files, it does
-    // not answer.
+    // What the library does not hold, its search and playlists made of files, it does not
+    // answer.
     for slot in [
         crate::messages::ScanAudioLibraryRequest::slot(&slots),
         crate::messages::CreateM3u8PlaylistRequest::slot(&slots),
-        crate::messages::FetchAllMixesRequest::slot(&slots),
-        crate::messages::CreateMixRequest::slot(&slots),
-        crate::messages::AddItemToMixRequest::slot(&slots),
         crate::messages::SearchForRequest::slot(&slots),
     ] {
         assert_eq!(slot, hidden);
@@ -1033,6 +1161,9 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.create_playlist_request,
         capabilities.add_item_to_playlist_request,
         capabilities.fetch_playlist_occurrences_request,
+        capabilities.fetch_all_mixes_request,
+        capabilities.create_mix_request,
+        capabilities.add_item_to_mix_request,
     ] {
         assert_eq!(capability, RequestCapability::Available);
     }
@@ -1041,7 +1172,6 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.get_analyze_count_request,
         capabilities.fetch_directory_tree_request,
         capabilities.search_for_request,
-        capabilities.fetch_all_mixes_request,
         capabilities.create_m3u8_playlist_request,
     ] {
         assert_eq!(capability, RequestCapability::Hidden);
@@ -1388,13 +1518,8 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
         .await?;
     assert_eq!(searched.result.len(), 1);
 
-    // Genres and folders are refused when asked, not hidden by a panic, and so are the mixes,
-    // which the library does not list.
-    for refused in [
-        CollectionType::Genre,
-        CollectionType::Directory,
-        CollectionType::Mix,
-    ] {
+    // Genres and folders are refused when asked, not hidden by a panic.
+    for refused in [CollectionType::Genre, CollectionType::Directory] {
         let error = apple
             .run(&FetchCollectionGroupsRequest {
                 call_id: None,
@@ -6632,5 +6757,1158 @@ async fn a_playlist_file_that_cannot_be_read_is_reported_and_left_as_it_is() -> 
         offered_playlists(&apple).await?,
         [("Night Drive".to_owned(), "Mood".to_owned())]
     );
+    apple.finish().await
+}
+
+// Mixes: Rune's own and the ones Apple recommends -------------------------------------------
+
+fn recommending() -> AppleOptions {
+    AppleOptions {
+        recommends: true,
+        ..AppleOptions::default()
+    }
+}
+
+/// The Mixes page as it starts: the title and count of each group.
+async fn mix_summary(apple: &OpenApple) -> Result<Vec<(String, i32)>> {
+    Ok(apple
+        .run(&FetchCollectionGroupSummaryRequest {
+            collection_type: CollectionType::Mix,
+            call_id: None,
+        })
+        .await?
+        .groups
+        .into_iter()
+        .map(|group| (group.group_title, group.count))
+        .collect())
+}
+
+/// The groups of mixes titled `titles`, as the Mixes page loads them.
+async fn mix_groups(apple: &OpenApple, titles: &[&str]) -> Result<Vec<CollectionGroup>> {
+    Ok(apple
+        .run(&FetchCollectionGroupsRequest {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: true,
+            group_titles: titles.iter().map(|title| (*title).to_owned()).collect(),
+            call_id: None,
+        })
+        .await?
+        .groups)
+}
+
+fn mix_names(group: &CollectionGroup) -> Vec<&str> {
+    group
+        .collections
+        .iter()
+        .map(|collection| collection.name.as_str())
+        .collect()
+}
+
+/// The queries a mix page plays, as it fetches them.
+async fn stored_queries(apple: &OpenApple, mix_id: i32) -> Result<Vec<MixQuery>> {
+    Ok(apple
+        .run(&FetchMixQueriesRequest {
+            mix_id,
+            call_id: None,
+        })
+        .await?
+        .result
+        .into_iter()
+        .map(|query| {
+            assert!(query.available);
+            MixQuery {
+                operator: query.operator,
+                parameter: query.parameter,
+            }
+        })
+        .collect())
+}
+
+fn home_mixes(mode: LibraryHomeListMode) -> ComplexQueryRequest {
+    ComplexQueryRequest {
+        queries: vec![ComplexQuery {
+            title: "Mixes".into(),
+            query: LibraryHomeQuery::Mixes(mode),
+        }],
+        call_id: None,
+    }
+}
+
+fn entry_names(response: &crate::messages::ComplexQueryResponse) -> Vec<&str> {
+    response.result[0]
+        .entries
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect()
+}
+
+fn query(operator: &str, parameter: impl ToString) -> MixQuery {
+    MixQuery {
+        operator: operator.into(),
+        parameter: parameter.to_string(),
+    }
+}
+
+/// Makes a Rune mix of `queries` in the group "Favorite".
+async fn create_mix(
+    apple: &OpenApple,
+    name: &str,
+    queries: Vec<MixQuery>,
+) -> Result<crate::messages::Mix> {
+    Ok(apple
+        .run(&crate::messages::CreateMixRequest {
+            name: name.into(),
+            group: "Favorite".into(),
+            mode: None,
+            queries,
+            call_id: None,
+        })
+        .await?
+        .mix)
+}
+
+/// The mixes the menus offer to add to.
+async fn rune_mixes(apple: &OpenApple) -> Result<Vec<crate::messages::Mix>> {
+    Ok(apple
+        .run(&FetchAllMixesRequest { call_id: None })
+        .await?
+        .mixes)
+}
+
+/// The titles of the songs a mix page lists for `queries`.
+async fn mix_titles(apple: &OpenApple, queries: Vec<MixQuery>) -> Result<Vec<String>> {
+    let mut request = mix("lib::all", "true");
+    request.queries = queries;
+    Ok(apple
+        .run(&request)
+        .await?
+        .files
+        .into_iter()
+        .map(|file| file.title)
+        .collect())
+}
+
+/// What Apple keys the items of a mix's queries by, in order.
+fn query_keys(binding: &AppleMusicBinding, queries: &[MixQuery]) -> Result<Vec<String>> {
+    queries
+        .iter()
+        .map(|query| {
+            let id = query.parameter.parse()?;
+            match query.operator.as_str() {
+                "lib::artist" => binding.resolve(AppleIdKind::Artist, id),
+                "lib::album" => binding.resolve(AppleIdKind::Album, id),
+                "lib::playlist" => binding.resolve(AppleIdKind::Playlist, id),
+                "lib::track" => binding.resolve_track(id),
+                other => anyhow::bail!("no item kind for {other}"),
+            }
+        })
+        .collect()
+}
+
+/// The names of the covers a mix is listed with once `count` have downloaded, by the names in
+/// their addresses, in order of name.
+async fn mix_cover_names(apple: &OpenApple, mix: i32, count: usize) -> Result<Vec<String>> {
+    let names = |collection: &crate::messages::Collection| -> Result<Vec<String>> {
+        let mut names = collection
+            .cover_art_map
+            .keys()
+            .map(|id| {
+                let url = apple.binding.resolve(AppleIdKind::CoverArt, *id)?;
+                let name = url
+                    .split("/art/")
+                    .nth(1)
+                    .and_then(|rest| rest.split('/').next())
+                    .context("a cover address")?;
+                Ok(name.to_owned())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        names.sort();
+        Ok(names)
+    };
+    wait_until("the covers of the mix to download", || async {
+        let by_ids = apple
+            .run(&FetchCollectionByIdsRequest {
+                collection_type: CollectionType::Mix,
+                bake_cover_arts: true,
+                ids: vec![mix],
+                call_id: None,
+            })
+            .await?;
+        let collection = by_ids.result.first().context("the mix")?;
+        (collection.cover_art_map.len() >= count)
+            .then(|| names(collection))
+            .transpose()
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn recommendation_groups_are_listed_as_locked_mixes_with_lasting_ids() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+
+    // Apple's groups and items in its order: the two of one title are one, without their
+    // common album twice; the groups of recent plays are one under a title of their own, and a
+    // group without a title of another kind is titled as untitled; the app names both; stations
+    // are left out, and so is the playlist without a name, with the group it is alone in.
+    assert_eq!(
+        mix_summary(&apple).await?,
+        [
+            ("Made for You".to_owned(), 3),
+            (RECENTLY_PLAYED_GROUP.to_owned(), 3),
+            (UNTITLED_GROUP.to_owned(), 1),
+        ]
+    );
+    let titles = ["Made for You", RECENTLY_PLAYED_GROUP, UNTITLED_GROUP, "Unknown"];
+    let groups = mix_groups(&apple, &titles).await?;
+    assert!(mix_groups(&apple, &["Gone"]).await?[0].collections.is_empty());
+    assert_eq!(
+        mix_names(&groups[0]),
+        ["Morning Picks", "Dawn Remixes", "Dawn Album"]
+    );
+    // The titled and the untitled group of recent plays are one.
+    assert_eq!(
+        mix_names(&groups[1]),
+        ["Dawn Remixes", "Dawn Album", "Morning Picks"]
+    );
+    assert_eq!(mix_names(&groups[2]), ["Morning Picks"]);
+    assert!(groups[3].collections.is_empty());
+    // Each mix is locked and plays the one album or playlist it is named after.
+    for collection in groups.iter().flat_map(|group| &group.collections) {
+        assert_eq!(collection.collection_type, CollectionType::Mix);
+        assert!(collection.readonly);
+        assert_eq!(collection.queries.len(), 1);
+    }
+    let picks = groups[0].collections[0].clone();
+    let remixes = groups[0].collections[1].clone();
+    assert_eq!(remixes.queries[0].operator, "lib::album");
+    assert_eq!(picks.queries[0].operator, "lib::playlist");
+    // What is recommended in two groups is one mix.
+    assert_eq!(groups[1].collections[0].id, remixes.id);
+    assert_eq!(groups[1].collections[2].id, picks.id);
+    assert_eq!(groups[2].collections[0].id, picks.id);
+    // The album opens by the id the mix's query names, from what the recommendations listed.
+    let album = apple
+        .run(&FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Album,
+            bake_cover_arts: false,
+            ids: vec![remixes.queries[0].parameter.parse()?],
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(album.result[0].name, "Dawn Remixes");
+    assert_eq!(apple.fake.count("/v1/catalog/it/albums"), 0);
+    wait_until("the covers of the mixes to download", || async {
+        let groups = mix_groups(&apple, &["Made for You"]).await?;
+        Ok(groups[0]
+            .collections
+            .iter()
+            .all(|mix| mix.cover_art_map.contains_key(&mix.id))
+            .then_some(()))
+    })
+    .await?;
+
+    // Asked again, the page lists the same mixes by the same ids.
+    let ids = |groups: &[CollectionGroup]| {
+        groups
+            .iter()
+            .map(|group| group.collections.iter().map(|mix| mix.id).collect())
+            .collect::<Vec<Vec<i32>>>()
+    };
+    mix_summary(&apple).await?;
+    assert_eq!(ids(&mix_groups(&apple, &titles).await?), ids(&groups));
+
+    // A mix is locked, in the group it was first listed in, and plays in the player's mode.
+    let mix = apple
+        .run(&GetMixByIdRequest {
+            mix_id: remixes.id,
+            call_id: None,
+        })
+        .await?
+        .mix;
+    assert_eq!(
+        (
+            mix.id,
+            mix.name.as_str(),
+            mix.group.as_str(),
+            mix.locked,
+            mix.mode
+        ),
+        (remixes.id, "Dawn Remixes", "Made for You", true, None)
+    );
+    let stored = apple
+        .run(&FetchMixQueriesRequest {
+            mix_id: picks.id,
+            call_id: None,
+        })
+        .await?
+        .result;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(
+        (stored[0].operator.as_str(), stored[0].parameter.as_str()),
+        ("lib::playlist", picks.queries[0].parameter.as_str())
+    );
+    assert!(stored[0].available && stored[0].target_uuid.is_none());
+
+    // By ids, the mixes the recommendations list, in order; others are left out.
+    let by_ids = apple
+        .run(&FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: false,
+            ids: vec![picks.id, 9999, remixes.id],
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        by_ids
+            .result
+            .iter()
+            .map(|mix| (mix.id, mix.name.as_str(), mix.readonly))
+            .collect::<Vec<_>>(),
+        [
+            (picks.id, "Morning Picks", true),
+            (remixes.id, "Dawn Remixes", true)
+        ]
+    );
+    // A mix they do not list is gone, as a removed mix of Rune's own is.
+    let missing = [
+        apple
+            .run(&GetMixByIdRequest {
+                mix_id: 9999,
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple
+            .run(&FetchMixQueriesRequest {
+                mix_id: 9999,
+                call_id: None,
+            })
+            .await
+            .err(),
+    ];
+    for error in missing {
+        assert!(not_found(&error.context("an unknown mix")?));
+    }
+    // Apple was asked once for all of this: the library keeps what it recommends a while.
+    assert_eq!(apple.fake.count("/v1/me/recommendations"), 1);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_mixes_page_reserves_the_groups_apple_fills() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    let dawn = apple.binding.intern(AppleIdKind::Album, "l.alb1")?;
+    create_mix(&apple, "Dawn", vec![query("lib::album", dawn)]).await?;
+    apple
+        .run(&crate::messages::CreateMixRequest {
+            name: "Mine Too".into(),
+            group: "Made for You".into(),
+            mode: None,
+            queries: vec![query("lib::album", dawn)],
+            call_id: None,
+        })
+        .await?;
+    let summary = apple
+        .run(&FetchCollectionGroupSummaryRequest {
+            collection_type: CollectionType::Mix,
+            call_id: None,
+        })
+        .await?;
+    // Rune's groups first, in the order first used; a group of Apple's title is one with
+    // Apple's, which the library fills, so no mix can be put in it.
+    assert_eq!(
+        summary
+            .groups
+            .iter()
+            .map(|group| (group.group_title.as_str(), group.count, group.reserved))
+            .collect::<Vec<_>>(),
+        [
+            ("Favorite", 1, false),
+            ("Made for You", 4, true),
+            (RECENTLY_PLAYED_GROUP, 3, true),
+            (UNTITLED_GROUP, 1, true),
+        ]
+    );
+    // No other page reserves a group.
+    let albums = apple
+        .run(&FetchCollectionGroupSummaryRequest {
+            collection_type: CollectionType::Album,
+            call_id: None,
+        })
+        .await?;
+    assert!(albums.groups.iter().all(|group| !group.reserved));
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_recommended_mix_lists_and_plays_the_songs_of_its_album_or_playlist() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    mix_summary(&apple).await?;
+    let groups = mix_groups(&apple, &["Made for You"]).await?;
+    let (picks, remixes) = (groups[0].collections[0].id, groups[0].collections[1].id);
+    let page = |queries| {
+        let mut page = mix("lib::all", "true");
+        page.queries = queries;
+        page
+    };
+    // The album's songs come by disc and number.
+    let album = apple
+        .run(&page(stored_queries(&apple, remixes).await?))
+        .await?;
+    assert_eq!(
+        album
+            .files
+            .iter()
+            .map(|file| (file.track.as_str(), file.title.as_str()))
+            .collect::<Vec<_>>(),
+        [("catalog:1601", "Remix One"), ("catalog:1602", "Remix Two")]
+    );
+    let picks_queries = stored_queries(&apple, picks).await?;
+    let playlist = apple.run(&page(picks_queries.clone())).await?;
+    assert_eq!(
+        playlist
+            .files
+            .iter()
+            .map(|file| file.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Dawn Chorus", "Catalog Tune"]
+    );
+    // The page of a mix that names a playlist pages through it as a playlist page does.
+    let picks_playlist = picks_queries[0].parameter.parse()?;
+    let occurrences = apple.run(&playlist_page(picks_playlist)).await?;
+    assert_eq!(
+        occurrences
+            .entries
+            .iter()
+            .map(|entry| entry.track_uuid.as_str())
+            .collect::<Vec<_>>(),
+        ["catalog:900", "catalog:777"]
+    );
+    // Its playlist is one of Apple Music's, which keeps its songs.
+    let opened = apple
+        .run(&GetPlaylistByIdRequest {
+            playlist_id: picks_playlist,
+            call_id: None,
+        })
+        .await?
+        .playlist;
+    assert_eq!(
+        (opened.name.as_str(), opened.group.as_str()),
+        ("Morning Picks", "Apple Music")
+    );
+    let by_ids = apple
+        .run(&FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Playlist,
+            bake_cover_arts: false,
+            ids: vec![picks_playlist],
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        (by_ids.result[0].name.as_str(), by_ids.result[0].readonly),
+        ("Morning Picks", true)
+    );
+    // Played from its second song, the mix plays all of its songs from there.
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries: picks_queries,
+            hint_position: 1,
+            initial_playback_item: Some(song_ref(&apple, "catalog:777")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        resolved.playing_items,
+        [
+            song_ref(&apple, "catalog:900"),
+            song_ref(&apple, "catalog:777")
+        ]
+    );
+    assert_eq!(resolved.start_index, Some(1));
+    // Each first page read the songs again; the later reads took what was kept.
+    assert_eq!(
+        apple.fake.count("/v1/catalog/it/playlists/pl.cat1/tracks"),
+        2
+    );
+    // Nothing of it is a playlist Rune can change.
+    let refused = add_song(&apple, picks_playlist, "i.s1", None)
+        .await
+        .err()
+        .context("a song added to a catalog playlist")?;
+    assert!(unsupported(&refused), "{refused:#}");
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_recommended_mix_cannot_be_changed_or_removed() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    mix_summary(&apple).await?;
+    let mix = mix_groups(&apple, &["Made for You"]).await?[0].collections[0].id;
+    let update = |mix_id| UpdateMixRequest {
+        mix_id,
+        name: "Renamed".into(),
+        group: String::new(),
+        mode: None,
+        queries: vec![query("lib::all", "true")],
+        call_id: None,
+    };
+    let refused = [
+        apple.run(&update(mix)).await.err(),
+        apple
+            .run(&RemoveMixRequest {
+                mix_id: mix,
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple
+            .run(&AddItemToMixRequest {
+                mix_id: mix,
+                operator: "lib::track".into(),
+                parameter: apple.binding.intern_track("i.s1")?.to_string(),
+                call_id: None,
+            })
+            .await
+            .err(),
+    ];
+    for error in refused {
+        assert!(unsupported(&error.context("a refused mix request")?));
+    }
+    // An id that names no mix is an input error.
+    let unknown = apple.run(&update(9999)).await.err().context("no mix")?;
+    assert!(invalid_input(&unknown), "{unknown:#}");
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    // The mix is as it was, and is not one the menus offer to add to.
+    let kept = apple
+        .run(&GetMixByIdRequest {
+            mix_id: mix,
+            call_id: None,
+        })
+        .await?
+        .mix;
+    assert_eq!(kept.name, "Morning Picks");
+    assert!(kept.locked);
+    assert!(rune_mixes(&apple).await?.is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rune_mixes_show_the_covers_of_what_they_play_from_what_is_kept() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // The Artists page was opened once, so the artist list is kept.
+    let one = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    for track in ["i.s1", "i.s2", "i.s3"] {
+        add_song(&apple, night.id, track, None).await?;
+    }
+    let night_album = apple.binding.intern(AppleIdKind::Album, "l.alb2")?;
+    let first = apple.binding.intern_track("i.s1")?;
+
+    // An artist without a picture shows the covers of its songs, each album's once.
+    let by_artist = create_mix(&apple, "One", vec![query("lib::artist", one)]).await?;
+    // A Rune playlist shows each of its songs' covers.
+    let by_playlist = create_mix(&apple, "Night", vec![query("lib::playlist", night.id)]).await?;
+    // A mix of several items shows the first cover of each, the same cover once.
+    let several = create_mix(
+        &apple,
+        "Several",
+        vec![
+            query("lib::album", night_album),
+            query("lib::artist", one),
+            query("lib::track", first),
+        ],
+    )
+    .await?;
+    assert_eq!(
+        mix_cover_names(&apple, by_artist.id, 1).await?,
+        ["Dawn_Album"]
+    );
+    assert_eq!(
+        mix_cover_names(&apple, by_playlist.id, 2).await?,
+        ["Dawn_Album", "Night_Album"]
+    );
+    assert_eq!(
+        mix_cover_names(&apple, several.id, 2).await?,
+        ["Dawn_Album", "Night_Album"]
+    );
+    // Listing them asks Apple for nothing but covers.
+    let reads = apple.fake.total();
+    for mix in [&by_artist, &by_playlist, &several] {
+        mix_cover_names(&apple, mix.id, 1).await?;
+    }
+    assert_eq!(apple.fake.total(), reads);
+
+    // The home shows the same covers, Rune's mixes in the order they were made.
+    wait_until("the covers of the home's mixes", || async {
+        let home = apple
+            .run(&home_mixes(LibraryHomeListMode::Forward))
+            .await?;
+        let covers: Vec<(String, usize, bool)> = home.result[0]
+            .entries
+            .iter()
+            .map(|entry| (entry.name.clone(), entry.cover_art_map.len(), entry.readonly))
+            .collect();
+        let wanted = [
+            ("One".to_owned(), 1, false),
+            ("Night".to_owned(), 2, false),
+            ("Several".to_owned(), 2, false),
+        ];
+        Ok((covers == wanted).then_some(()))
+    })
+    .await?;
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mix_of_an_artist_with_a_picture_shows_the_picture() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            credited: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let one = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    let mix = create_mix(&apple, "One", vec![query("lib::artist", one)]).await?;
+    assert_eq!(
+        mix_cover_names(&apple, mix.id, 1).await?,
+        ["Artist_One_Photo"]
+    );
+    apple.finish().await
+}
+
+/// What the restarted node lists as Rune's mixes, by name, with the keys of what each plays and
+/// the titles of its songs, as its binding numbers them.
+async fn restarted_mixes(
+    ui: &crate::utils::GlobalParams,
+    binding: &AppleMusicBinding,
+) -> Result<Vec<(String, Vec<String>, Vec<String>)>> {
+    let mixes = dispatch_gui_request(ui, &FetchAllMixesRequest { call_id: None })
+        .await?
+        .context("the mixes")?
+        .mixes;
+    let mut listed = Vec::new();
+    for found in mixes {
+        let queries: Vec<MixQuery> = dispatch_gui_request(
+            ui,
+            &FetchMixQueriesRequest {
+                mix_id: found.id,
+                call_id: None,
+            },
+        )
+        .await?
+        .context("the queries")?
+        .result
+        .into_iter()
+        .map(|stored| query(&stored.operator, stored.parameter))
+        .collect();
+        let mut page = mix("lib::all", "true");
+        page.queries = queries.clone();
+        let titles = dispatch_gui_request(ui, &page)
+            .await?
+            .context("the songs")?
+            .files
+            .into_iter()
+            .map(|file| file.title)
+            .collect();
+        listed.push((found.name, query_keys(binding, &queries)?, titles));
+    }
+    Ok(listed)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_rune_mix_lasts_through_a_new_binding_by_apples_keys() -> Result<()> {
+    use crate::service::device_records::device_records_folder;
+    use crate::service::rune_mixes::MIXES_FILE;
+
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let file = device_records_folder(Path::new(&*apple.node.config_path), apple.record.0)
+        .join(MIXES_FILE);
+    // The track menu's New Mix makes the mix, then adds the track to it.
+    let made = create_mix(&apple, "Night", Vec::new()).await?;
+    for track in ["i.s1", "catalog:900"] {
+        apple
+            .run(&AddItemToMixRequest {
+                mix_id: made.id,
+                operator: "lib::track".into(),
+                parameter: apple.binding.intern_track(track)?.to_string(),
+                call_id: None,
+            })
+            .await?;
+    }
+    let queries = stored_queries(&apple, made.id).await?;
+    assert_eq!(
+        query_keys(&apple.binding, &queries)?,
+        ["i.s1", "catalog:900"]
+    );
+    assert_eq!(
+        mix_titles(&apple, queries.clone()).await?,
+        ["First Light", "Dawn Chorus"]
+    );
+    // The file holds Apple's keys, not the ids this binding gave.
+    let written = std::fs::read_to_string(&file)?;
+    assert!(written.contains("\"i.s1\"") && written.contains("\"catalog:900\""));
+    for query in &queries {
+        assert!(!written.contains(&format!("\"{}\"", query.parameter)));
+    }
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // A binding made afresh, as after a restart, numbers what it lists anew.
+    let restarted = restart_apple(apple).await?;
+    let (ui, binding) = restarted.open().await?;
+    for n in 0..5 {
+        binding.intern_track(&format!("i.other{n}"))?;
+    }
+    restarted.sign_in(USER_TOKEN).await?;
+    assert_eq!(
+        restarted_mixes(&ui, &binding).await?,
+        [(
+            "Night".to_owned(),
+            vec!["i.s1".to_owned(), "catalog:900".to_owned()],
+            vec!["First Light".to_owned(), "Dawn Chorus".to_owned()]
+        )]
+    );
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn catalogue_items_in_rune_mixes_and_playlists_last_through_a_new_binding() -> Result<()> {
+    use crate::service::device_records::device_records_folder;
+    use crate::service::rune_mixes::MIXES_FILE;
+
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let folder = device_records_folder(Path::new(&*apple.node.config_path), apple.record.0);
+    // A mix of a catalog album and playlist, and a playlist of a catalog song.
+    let album = apple.binding.intern(AppleIdKind::Album, "catalog:1600")?;
+    let playlist = apple
+        .binding
+        .intern(AppleIdKind::Playlist, "catalog:pl.cat1")?;
+    let made = create_mix(
+        &apple,
+        "Catalog",
+        vec![query("lib::album", album), query("lib::playlist", playlist)],
+    )
+    .await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
+    add_song(&apple, mine.id, "catalog:777", None).await?;
+    let titles = ["Remix One", "Remix Two", "Dawn Chorus", "Catalog Tune"];
+    assert_eq!(
+        mix_titles(&apple, stored_queries(&apple, made.id).await?).await?,
+        titles
+    );
+    // Nothing was written to the account, and the files hold Apple's keys, not session ids.
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    let written = std::fs::read_to_string(folder.join(MIXES_FILE))?;
+    for key in ["catalog:1600", "catalog:pl.cat1"] {
+        assert!(written.contains(&format!("\"{key}\"")), "{written}");
+    }
+    let kept = std::fs::read_to_string(playlists_file(&apple))?;
+    assert!(kept.contains("\"catalog:777\""), "{kept}");
+
+    // A binding made afresh, as after a restart, numbers what it lists anew.
+    let restarted = restart_apple(apple).await?;
+    let (ui, binding) = restarted.open().await?;
+    for n in 0..5 {
+        binding.intern(AppleIdKind::Album, &format!("l.other{n}"))?;
+    }
+    restarted.sign_in(USER_TOKEN).await?;
+    let listed = restarted_mixes(&ui, &binding).await?;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].2, titles);
+    let playlists = dispatch_gui_request(&ui, &FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .context("the playlists")?
+        .playlists;
+    let page = dispatch_gui_request(&ui, &playlist_page(playlists[0].id))
+        .await?
+        .context("the playlist page")?;
+    assert_eq!(page.entries[0].track_uuid, "catalog:777");
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_rune_mix_is_renamed_refilled_and_removed_and_refuses_queries_it_cannot_play()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (apple, heard) = open_apple_heard(dir.path()).await?;
+    let dawn = apple.binding.intern(AppleIdKind::Album, "l.alb1")?;
+    let night = apple.binding.intern(AppleIdKind::Album, "l.alb2")?;
+    // Every change tells the UI once; a refused one does not. Nothing here lists songs, whose
+    // covers would tell it too.
+    let mut told = told_settled(&heard).await;
+    let made = create_mix(&apple, "Dawn", vec![query("lib::album", dawn)]).await?;
+    told = told_more(&heard, told, 1, "create").await?;
+    assert_eq!(
+        query_keys(&apple.binding, &stored_queries(&apple, made.id).await?)?,
+        ["l.alb1"]
+    );
+
+    // A genre is a query the translation cannot play, so it is refused and the mix is as it
+    // was.
+    let refused = apple
+        .run(&AddItemToMixRequest {
+            mix_id: made.id,
+            operator: "lib::genre".into(),
+            parameter: "1".into(),
+            call_id: None,
+        })
+        .await
+        .err()
+        .context("a genre")?;
+    assert!(unsupported(&refused));
+    assert_eq!(stored_queries(&apple, made.id).await?.len(), 1);
+    told = told_more(&heard, told, 0, "a refused query").await?;
+
+    let updated = apple
+        .run(&UpdateMixRequest {
+            mix_id: made.id,
+            name: "Night".into(),
+            group: "Mood".into(),
+            mode: Some(crate::messages::PlaybackMode::Shuffle),
+            queries: vec![query("lib::album", night)],
+            call_id: None,
+        })
+        .await?
+        .mix;
+    told_more(&heard, told, 1, "update").await?;
+    assert_eq!((updated.id, updated.name.as_str()), (made.id, "Night"));
+    let kept = apple
+        .run(&GetMixByIdRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?
+        .mix;
+    assert_eq!(kept.group, "Mood");
+    assert_eq!(kept.mode, Some(crate::messages::PlaybackMode::Shuffle));
+    assert!(!kept.locked);
+    assert_eq!(
+        mix_titles(&apple, stored_queries(&apple, made.id).await?).await?,
+        ["Third Road"]
+    );
+
+    apple
+        .run(&RemoveMixRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await?;
+    assert!(rune_mixes(&apple).await?.is_empty());
+    let gone = apple
+        .run(&GetMixByIdRequest {
+            mix_id: made.id,
+            call_id: None,
+        })
+        .await
+        .err()
+        .context("a removed mix")?;
+    assert!(not_found(&gone), "{gone:#}");
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mix_of_two_artists_lists_and_plays_both_and_pages_through_them() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let one = apple
+        .binding
+        .intern(AppleIdKind::Artist, "name:artist one")?;
+    let two = apple
+        .binding
+        .intern(AppleIdKind::Artist, "name:artist two")?;
+    let made = create_mix(
+        &apple,
+        "Both",
+        vec![query("lib::artist", one), query("lib::artist", two)],
+    )
+    .await?;
+    let queries = stored_queries(&apple, made.id).await?;
+    // The artist Apple names a catalog artist for is kept by it.
+    assert_eq!(
+        query_keys(&apple.binding, &queries)?,
+        ["artist:300", "name:artist two"]
+    );
+    assert_eq!(
+        mix_titles(&apple, queries.clone()).await?,
+        ["First Light", "Second Wind", "Third Road"]
+    );
+    // A page at a time, as the mix page scrolls.
+    let mut page = mix("lib::all", "true");
+    page.queries = queries.clone();
+    page.page_size = 2;
+    let titles = |files: Vec<crate::messages::MediaFile>| {
+        files.into_iter().map(|file| file.title).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        titles(apple.run(&page).await?.files),
+        ["First Light", "Second Wind"]
+    );
+    page.cursor = 2;
+    assert_eq!(titles(apple.run(&page).await?.files), ["Third Road"]);
+    page.cursor = 3;
+    assert!(apple.run(&page).await?.files.is_empty());
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries,
+            hint_position: 2,
+            initial_playback_item: Some(song_ref(&apple, "i.s3")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        resolved.playing_items,
+        [
+            song_ref(&apple, "i.s1"),
+            song_ref(&apple, "i.s2"),
+            song_ref(&apple, "i.s3")
+        ]
+    );
+    assert_eq!(resolved.start_index, Some(2));
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_album_and_tracks_together_list_the_tracks_first_each_song_once() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            bare_night: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let night = apple.binding.intern(AppleIdKind::Album, "l.alb2")?;
+    let track = |key: &str| -> Result<MixQuery> {
+        Ok(query("lib::track", apple.binding.intern_track(key)?))
+    };
+    let queries = vec![
+        query("lib::album", night),
+        track("i.s3")?,
+        track("i.s1")?,
+    ];
+    // "Third Road" is the album's song as well, and comes once, as a track.
+    assert_eq!(
+        mix_titles(&apple, queries.clone()).await?,
+        ["Third Road", "First Light"]
+    );
+    // The cover filter goes with them: the Night Album has no cover.
+    let mut covered = queries;
+    covered.push(query("filter::with_cover_art", "true"));
+    assert_eq!(mix_titles(&apple, covered).await?, ["First Light"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_item_added_to_a_rune_mix_of_a_collection_joins_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let dawn = apple.binding.intern(AppleIdKind::Album, "l.alb1")?;
+    let made = create_mix(&apple, "Dawn", vec![query("lib::album", dawn)]).await?;
+    // The collection menu's Add to Mix names the artist, then the track menu's a song.
+    for (operator, parameter) in [
+        (
+            "lib::artist",
+            apple
+                .binding
+                .intern(AppleIdKind::Artist, "name:artist two")?,
+        ),
+        ("lib::track", apple.binding.intern_track("catalog:900")?),
+    ] {
+        apple
+            .run(&AddItemToMixRequest {
+                mix_id: made.id,
+                operator: operator.into(),
+                parameter: parameter.to_string(),
+                call_id: None,
+            })
+            .await?;
+    }
+    let queries = stored_queries(&apple, made.id).await?;
+    assert_eq!(
+        query_keys(&apple.binding, &queries)?,
+        ["l.alb1", "name:artist two", "catalog:900"]
+    );
+    assert_eq!(
+        mix_titles(&apple, queries).await?,
+        ["Dawn Chorus", "First Light", "Second Wind", "Third Road"]
+    );
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_home_lists_the_recommended_mixes_by_the_ids_of_the_mixes_page() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    let forward = apple.run(&home_mixes(LibraryHomeListMode::Forward)).await?;
+    // Apple's order, each mix once.
+    assert_eq!(
+        entry_names(&forward),
+        ["Morning Picks", "Dawn Remixes", "Dawn Album"]
+    );
+    let entries = &forward.result[0].entries;
+    for entry in entries {
+        assert_eq!(entry.collection_type, CollectionType::Mix);
+        assert!(entry.readonly);
+    }
+    mix_summary(&apple).await?;
+    let page = mix_groups(&apple, &["Made for You"]).await?;
+    let opened = |id: i32, queries: &[MixQuery]| (id, queries[0].parameter.clone());
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| opened(entry.id, &entry.queries))
+            .collect::<Vec<_>>(),
+        page[0]
+            .collections
+            .iter()
+            .map(|mix| opened(mix.id, &mix.queries))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        entry_names(&apple.run(&home_mixes(LibraryHomeListMode::Reverse)).await?),
+        ["Dawn Album", "Dawn Remixes", "Morning Picks"]
+    );
+    assert_eq!(
+        entry_names(&apple.run(&home_mixes(LibraryHomeListMode::Name)).await?),
+        ["Dawn Album", "Dawn Remixes", "Morning Picks"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_recommendations_leave_the_home_mixes_empty_unless_the_sign_in_is_lost() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            empty: true,
+            recommends: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    *apple.fake.respond_path.lock().unwrap() = Some((
+        "/v1/me/recommendations".into(),
+        400,
+        r#"{"errors":[{"status":"400","code":"PARAMETER_ERROR"}]}"#.into(),
+    ));
+    let mode = LibraryHomeListMode::Forward;
+    let mut home = home_mixes(mode);
+    home.queries.insert(
+        0,
+        ComplexQuery {
+            title: "Albums".into(),
+            query: LibraryHomeQuery::Albums(mode),
+        },
+    );
+    // Nothing else has an entry, and still the home answers.
+    let response = apple.run(&home).await?;
+    assert_eq!(response.result.len(), 2);
+    assert!(response.result.iter().all(|group| group.entries.is_empty()));
+    // The Mixes page tells of the failure.
+    assert!(mix_summary(&apple).await.is_err());
+
+    *apple.fake.respond_path.lock().unwrap() = None;
+    assert_eq!(apple.run(&home).await?.result[1].entries.len(), 3);
+
+    // A sign-in that must be renewed fails the home, as for its other groups. What was
+    // recommended went with the sign-out, so the new sign-in reads it again.
+    apple.fake.reject_everything.store(true, Ordering::SeqCst);
+    apple.binding.sign_out();
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+    let error = apple
+        .run(&home_mixes(mode))
+        .await
+        .err()
+        .context("a lost sign-in")?;
+    assert_eq!(
+        request_failure_cause(&error),
+        Some(RequestFailureCause::ServiceSignInRequired {
+            record_id: apple.record.0.to_string(),
+        })
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn recommendations_read_before_a_sign_out_are_not_kept_after_it() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    mix_summary(&apple).await?;
+    let mix = mix_groups(&apple, &["Made for You"]).await?[0].collections[0].id;
+    assert!(apple.binding.recommended_mix(mix).is_some());
+    let asked = || apple.fake.count("/v1/me/recommendations");
+
+    // A sign-out forgets the mixes, and their ids stay; the next sign-in reads them again.
+    apple.binding.sign_out();
+    assert!(apple.binding.recommended_mix(mix).is_none());
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+    let reads = asked();
+    let found = apple
+        .run(&GetMixByIdRequest {
+            mix_id: mix,
+            call_id: None,
+        })
+        .await?
+        .mix;
+    assert_eq!(found.name, "Morning Picks");
+    assert_eq!(asked(), reads + 1);
+
+    // A read begun before a sign-out is not kept after it. Apple holds its answer until the
+    // sign-out is done.
+    apple.binding.sign_out();
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).context("tokens")?);
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() =
+        Some(("/v1/me/recommendations".into(), release.clone()));
+    let reads = asked();
+    let read = mix_summary(&apple);
+    let switch = async {
+        wait_until("the recommendations to be asked for", || async {
+            Ok((asked() > reads).then_some(()))
+        })
+        .await?;
+        apple.binding.sign_out();
+        apple
+            .binding
+            .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (read, switch) = tokio::join!(read, switch);
+    switch?;
+    // The caller that waited still gets what was read, and the library keeps none of it, so the
+    // next page reads it again.
+    assert_eq!(read?.len(), 3);
+    assert!(apple.binding.recommended_mix(mix).is_none());
+    assert_eq!(asked(), reads + 1);
+    mix_summary(&apple).await?;
+    assert_eq!(asked(), reads + 2);
     apple.finish().await
 }

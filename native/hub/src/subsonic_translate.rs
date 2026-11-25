@@ -1868,7 +1868,11 @@ pub(crate) async fn fetch_collection_group_summary_request(
         collection_type: request.collection_type,
         groups: groups
             .into_iter()
-            .map(|(group_title, count)| CollectionGroupSummary { group_title, count })
+            .map(|(group_title, count)| CollectionGroupSummary {
+                group_title,
+                count,
+                reserved: false,
+            })
             .collect(),
     }))
 }

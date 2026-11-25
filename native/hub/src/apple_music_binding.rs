@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use apple_music::models::{
-    Artwork, LibraryAlbum, LibraryArtist, LibraryEntry, LibraryPlaylist, LibrarySong, Relationship,
-    Resource, Song, SongWithArtists,
+    Album, Artwork, LibraryAlbum, LibraryArtist, LibraryEntry, LibraryPlaylist, LibrarySong,
+    Playlist, Recommendation, Relationship, Resource, Song, SongWithArtists,
 };
 use apple_music::{
     AppleMusicClient, CATALOG_SONGS_BATCH, Error as AppleApiError, StaticTokens, TokenSource,
@@ -49,6 +49,7 @@ use crate::{
         lists::{KeptList, ListSpec, ServiceLists, lists_folder},
         reach::Reach,
         registry::{Clock, SignInFailure},
+        rune_mixes::{MIXES_FILE, RuneMixes},
         rune_playlists::{PLAYLISTS_FILE, RunePlaylists},
     },
     utils::Broadcaster,
@@ -92,6 +93,14 @@ const READ_TRACKS_CHUNK: usize = 1000;
 /// them does not ask for them again each time it is shown.
 const MAX_MISSING_TRACKS: usize = 2000;
 
+/// How many catalog albums and playlists keep their songs at once, and how many songs they may
+/// hold in all.
+const MAX_KEPT_COLLECTIONS: usize = 64;
+const MAX_KEPT_COLLECTION_SONGS: usize = 20_000;
+
+/// How many recommended mixes are kept across reads of the recommendations.
+const MAX_KEPT_MIXES: usize = 1000;
+
 /// How a track names a catalog song: `catalog:<id>`. A library song is named by its library id,
 /// which starts with `i.`. The platform host takes a track as it is.
 const CATALOG_PREFIX: &str = "catalog:";
@@ -131,8 +140,15 @@ const SONG_ARTISTS: ListSpec = ListSpec {
     max_age: SHORT_LIST_AGE,
 };
 
+/// What Apple recommends to the user, in groups of albums, playlists and stations.
+const RECOMMENDATIONS: ListSpec = ListSpec {
+    name: "recommendations",
+    max_age: SHORT_LIST_AGE,
+};
+
 /// The kinds of ids the binding numbers. A library song and a catalog song share their numbers,
-/// as a media file id names a song of either.
+/// as a media file id names a song of either, and so do the kinds of ids one request takes
+/// for playlists, or for mixes.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum AppleIdKind {
     LibrarySong,
@@ -142,6 +158,14 @@ pub(crate) enum AppleIdKind {
     CoverArt,
     /// A Rune playlist kept on this device, by the id its store keeps it under.
     RunePlaylist,
+    /// A playlist of the catalog, by `catalog:` and its catalog id. `PlaylistRef` tells it from
+    /// a Rune playlist.
+    Playlist,
+    /// A Rune mix kept on this device, by the id its store keeps it under.
+    RuneMix,
+    /// A mix of one album or playlist Apple recommends, by `album:` or `playlist:` and the id of
+    /// what it plays. `MixRef` tells it from a Rune mix.
+    Mix,
 }
 
 impl AppleIdKind {
@@ -149,10 +173,61 @@ impl AppleIdKind {
     fn numbering(self) -> Self {
         match self {
             Self::CatalogSong => Self::LibrarySong,
+            Self::Playlist => Self::RunePlaylist,
+            Self::Mix => Self::RuneMix,
             other => other,
         }
     }
 }
+
+/// What a playlist id the UI holds names. Every request that takes one matches on it first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PlaylistRef {
+    /// A Rune playlist kept on this device, by the id its store keeps it under.
+    Rune(String),
+    /// A playlist of the catalog, by the id the UI holds, which may still be an id the binding
+    /// never gave.
+    Catalog(i32),
+}
+
+/// What a mix id the UI holds names. Every request that takes one matches on it first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MixRef {
+    /// A Rune mix kept on this device, by the id its store keeps it under.
+    Rune(String),
+    /// A mix Apple recommends, by the id the UI holds, which may still be an id the binding
+    /// never gave.
+    Recommended(i32),
+}
+
+/// An album or a playlist of the catalog whose songs a page lists, by the id the UI knows it by.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub(crate) enum CatalogCollection {
+    Album(i32),
+    Playlist(i32),
+}
+
+impl CatalogCollection {
+    /// The kind and the id the UI knows the collection by.
+    pub(crate) fn kind_and_id(self) -> (AppleIdKind, i32) {
+        match self {
+            Self::Album(id) => (AppleIdKind::Album, id),
+            Self::Playlist(id) => (AppleIdKind::Playlist, id),
+        }
+    }
+}
+
+/// A mix made of one album or playlist Apple recommends. Its id names what it plays.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RecommendedMix {
+    pub(crate) name: String,
+    /// The title of the recommendation group it was first listed in.
+    pub(crate) group: String,
+    pub(crate) cover: Option<String>,
+}
+
+/// The recommendation groups in Apple's order, each a title with the ids of its mixes.
+pub(crate) type MixGroups = Vec<(String, Vec<i32>)>;
 
 /// Whether an Apple id names a song of the user's library.
 pub(crate) fn is_library_song_id(id: &str) -> bool {
@@ -666,6 +741,20 @@ pub(crate) struct CollectionInfo {
     pub(crate) cover: Option<String>,
 }
 
+/// The songs of a catalog album or playlist, as read, with when they were last used.
+struct CollectionSongs {
+    songs: Arc<Vec<Song>>,
+    /// Where each song is in `songs`, by its catalog id.
+    index: HashMap<String, usize>,
+    used: u64,
+}
+
+/// The recommendation groups with the recommendations they were built from.
+struct BuiltMixGroups {
+    from: Arc<Vec<Recommendation>>,
+    groups: Arc<MixGroups>,
+}
+
 /// An artist list with the lists it was built from.
 struct BuiltNamedArtists {
     artists: Arc<Vec<LibraryArtist>>,
@@ -685,6 +774,14 @@ pub(crate) struct AppleCatalog {
     fetched: HashMap<String, AppleSong>,
     /// The tracks of songs Apple answered it does not have.
     missing: HashSet<String>,
+    /// The songs of the catalog albums and playlists read lately.
+    collection_songs: HashMap<CatalogCollection, CollectionSongs>,
+    /// Counts the uses of the collections' songs, which tells the least recently used.
+    uses: u64,
+    /// The recommended mixes by id, as the recommendations read under this sign-in listed them.
+    mixes: HashMap<i32, RecommendedMix>,
+    /// The recommendation groups built last.
+    mix_groups: Option<BuiltMixGroups>,
     /// The artist list built last.
     named_artists: Option<BuiltNamedArtists>,
     /// The lists asked for while the binding held no sign-in, which a sign-in reads again.
@@ -702,10 +799,76 @@ impl Default for AppleCatalog {
             songs: None,
             fetched: HashMap::new(),
             missing: HashSet::new(),
+            collection_songs: HashMap::new(),
+            uses: 0,
+            mixes: HashMap::new(),
+            mix_groups: None,
             named_artists: None,
             owed: HashSet::new(),
             generation: 0,
         }
+    }
+}
+
+impl AppleCatalog {
+    /// The kept songs of `collection`, which count as used now.
+    fn used_collection_songs(&mut self, collection: CatalogCollection) -> Option<Arc<Vec<Song>>> {
+        self.uses += 1;
+        let used = self.uses;
+        let kept = self.collection_songs.get_mut(&collection)?;
+        kept.used = used;
+        Some(Arc::clone(&kept.songs))
+    }
+
+    /// Keeps the songs of `collection`. The collections together hold a bounded number of
+    /// songs: the least recently used go until these fit, and songs that are more than the
+    /// bound are not kept.
+    fn keep_collection_songs(&mut self, collection: CatalogCollection, songs: Arc<Vec<Song>>) {
+        self.collection_songs.remove(&collection);
+        if songs.len() > MAX_KEPT_COLLECTION_SONGS {
+            return;
+        }
+        let mut held: usize = self
+            .collection_songs
+            .values()
+            .map(|kept| kept.songs.len())
+            .sum();
+        while self.collection_songs.len() >= MAX_KEPT_COLLECTIONS
+            || held + songs.len() > MAX_KEPT_COLLECTION_SONGS
+        {
+            let Some(oldest) = self
+                .collection_songs
+                .iter()
+                .min_by_key(|(_, kept)| kept.used)
+                .map(|(collection, _)| *collection)
+            else {
+                break;
+            };
+            if let Some(evicted) = self.collection_songs.remove(&oldest) {
+                held -= evicted.songs.len();
+            }
+        }
+        self.uses += 1;
+        let index = songs
+            .iter()
+            .enumerate()
+            .map(|(at, song)| (song.id.clone(), at))
+            .collect();
+        self.collection_songs.insert(
+            collection,
+            CollectionSongs {
+                songs,
+                index,
+                used: self.uses,
+            },
+        );
+    }
+
+    /// A song of a kept collection, by its catalog id.
+    fn collection_song(&self, catalog_id: &str) -> Option<&Song> {
+        self.collection_songs
+            .values()
+            .find_map(|kept| Some(&kept.songs[*kept.index.get(catalog_id)?]))
     }
 }
 
@@ -716,6 +879,7 @@ pub(crate) struct AppleLists {
     albums: KeptList<Vec<LibraryAlbum>, AppleError>,
     artists: KeptList<Vec<LibraryArtist>, AppleError>,
     song_artists: KeptList<SongArtists, AppleError>,
+    recommendations: KeptList<Vec<Recommendation>, AppleError>,
 }
 
 /// How a list is read from Apple by the binding.
@@ -763,6 +927,8 @@ pub(crate) struct AppleMusicBinding {
     lists: AppleLists,
     /// Rune's own playlists, kept on this device. Apple's own are never written to.
     pub(crate) rune_playlists: RunePlaylists,
+    /// Rune's own mixes, kept on this device beside the mixes Apple recommends.
+    pub(crate) rune_mixes: RuneMixes,
     catalog: Mutex<AppleCatalog>,
     pub(crate) covers: Arc<ServiceCoverCache>,
     cover_source: Arc<AppleCovers>,
@@ -857,6 +1023,9 @@ impl AppleMusicBinding {
                 song_artists: declare(&kept, SONG_ARTISTS, this, |binding| {
                     Box::pin(binding.read_song_artists())
                 }),
+                recommendations: declare(&kept, RECOMMENDATIONS, this, |binding| {
+                    Box::pin(binding.read_recommendations())
+                }),
                 kept,
             };
             Self {
@@ -867,6 +1036,9 @@ impl AppleMusicBinding {
                 lists,
                 rune_playlists: RunePlaylists::new(
                     device_records_folder(config_dir, library_id).join(PLAYLISTS_FILE),
+                ),
+                rune_mixes: RuneMixes::new(
+                    device_records_folder(config_dir, library_id).join(MIXES_FILE),
                 ),
                 catalog: Mutex::default(),
                 covers: Arc::new(ServiceCoverCache::new(
@@ -919,6 +1091,9 @@ impl AppleMusicBinding {
         catalog.songs = None;
         catalog.fetched.clear();
         catalog.missing.clear();
+        catalog.collection_songs.clear();
+        catalog.mixes.clear();
+        catalog.mix_groups = None;
         catalog.named_artists = None;
         catalog.owed.clear();
         catalog.generation += 1;
@@ -935,6 +1110,7 @@ impl AppleMusicBinding {
     /// after.
     pub(crate) async fn close_device_records(&self) {
         self.rune_playlists.close().await;
+        self.rune_mixes.close().await;
     }
 
     /// Whether the binding holds a sign-in.
@@ -964,13 +1140,17 @@ impl AppleMusicBinding {
             let now = binding.clock.now();
             let lists = &binding.lists;
             let wanted = |name: &'static str, kept: bool| owed.contains(name) || kept;
-            let (songs, albums, artists, song_artists) = (
+            let (songs, albums, artists, song_artists, recommendations) = (
                 wanted(SONGS.name, lists.songs.kept(now).await.is_some()),
                 wanted(ALBUMS.name, lists.albums.kept(now).await.is_some()),
                 wanted(ARTISTS.name, lists.artists.kept(now).await.is_some()),
                 wanted(
                     SONG_ARTISTS.name,
                     lists.song_artists.kept(now).await.is_some(),
+                ),
+                wanted(
+                    RECOMMENDATIONS.name,
+                    lists.recommendations.kept(now).await.is_some(),
                 ),
             );
             let read = async |wanted: bool, name: &str, read: BoxFuture<'_, Option<AppleError>>| {
@@ -998,6 +1178,11 @@ impl AppleMusicBinding {
                     song_artists,
                     SONG_ARTISTS.name,
                     lists.song_artists.current(now).map(Result::err).boxed(),
+                ),
+                read(
+                    recommendations,
+                    RECOMMENDATIONS.name,
+                    lists.recommendations.current(now).map(Result::err).boxed(),
                 ),
             );
         });
@@ -1128,6 +1313,129 @@ impl AppleMusicBinding {
             .get(self.clock.now())
             .await
             .map_err(|error| self.request_error(error, "Apple Music artist"))
+    }
+
+    /// The library's songs as kept, here or on disk, without a read; read again behind once old.
+    pub(crate) async fn kept_songs(&self) -> Option<Arc<AppleSongs>> {
+        let songs = self.lists.songs.kept(self.clock.now()).await?;
+        self.catalog().songs = Some(Arc::clone(&songs));
+        Some(songs)
+    }
+
+    /// The library's albums as kept, here or on disk, without a read; read again behind once
+    /// old.
+    pub(crate) async fn kept_albums(&self) -> Option<Arc<Vec<LibraryAlbum>>> {
+        self.lists.albums.kept(self.clock.now()).await
+    }
+
+    /// What Apple recommends to the user, as kept, or else read.
+    pub(crate) async fn recommendations(&self) -> Result<Arc<Vec<Recommendation>>> {
+        self.note_asked(RECOMMENDATIONS.name);
+        self.lists
+            .recommendations
+            .get(self.clock.now())
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music recommendation"))
+    }
+
+    /// Reads what Apple recommends to the user.
+    async fn read_recommendations(&self) -> Result<Vec<Recommendation>, AppleError> {
+        self.call(self.client.recommendations()).await
+    }
+
+    /// The recommendation groups built from `from`, if they were built last under this
+    /// sign-in.
+    pub(crate) fn built_mix_groups(
+        &self,
+        from: &Arc<Vec<Recommendation>>,
+    ) -> Option<Arc<MixGroups>> {
+        self.catalog()
+            .mix_groups
+            .as_ref()
+            .filter(|built| Arc::ptr_eq(&built.from, from))
+            .map(|built| Arc::clone(&built.groups))
+    }
+
+    /// Keeps the recommendation groups built from `from` and their mixes, by a build that began
+    /// under `generation`, unless a sign-out dropped what was read since. The mixes of earlier
+    /// builds stay until the binding holds too many; then only the ones of this build do.
+    pub(crate) fn keep_recommendations(
+        &self,
+        generation: u64,
+        from: &Arc<Vec<Recommendation>>,
+        groups: MixGroups,
+        mixes: HashMap<i32, RecommendedMix>,
+    ) -> Arc<MixGroups> {
+        let groups = Arc::new(groups);
+        let mut catalog = self.catalog();
+        if catalog.generation != generation {
+            return groups;
+        }
+        let added = mixes
+            .keys()
+            .filter(|id| !catalog.mixes.contains_key(id))
+            .count();
+        if catalog.mixes.len() + added > MAX_KEPT_MIXES {
+            catalog.mixes.clear();
+        }
+        catalog.mixes.extend(mixes);
+        catalog.mix_groups = Some(BuiltMixGroups {
+            from: Arc::clone(from),
+            groups: Arc::clone(&groups),
+        });
+        groups
+    }
+
+    /// A recommended mix a build of the recommendations listed under this sign-in.
+    pub(crate) fn recommended_mix(&self, id: i32) -> Option<RecommendedMix> {
+        self.catalog().mixes.get(&id).cloned()
+    }
+
+    /// The songs of the catalog album or playlist `collection`, whose catalog id is
+    /// `catalog_id`: as kept, unless `afresh` asks for them as Apple has them now or none are
+    /// kept, which reads them. An album's come by disc and number. What is read is kept, unless a
+    /// sign-out came meanwhile.
+    pub(crate) async fn catalog_collection_songs(
+        &self,
+        collection: CatalogCollection,
+        catalog_id: &str,
+        afresh: bool,
+    ) -> Result<Arc<Vec<Song>>> {
+        if !afresh && let Some(songs) = self.catalog().used_collection_songs(collection) {
+            return Ok(songs);
+        }
+        let generation = self.generation();
+        let songs = match collection {
+            CatalogCollection::Album(_) => self
+                .call(self.client.catalog_album_tracks(catalog_id))
+                .await
+                .map(by_disc_and_number)
+                .map_err(|error| self.request_error(error, "Apple Music album")),
+            CatalogCollection::Playlist(_) => self
+                .call(self.client.catalog_playlist_tracks(catalog_id))
+                .await
+                .map_err(|error| self.request_error(error, "Apple Music playlist")),
+        };
+        let songs = Arc::new(songs?);
+        let mut catalog = self.catalog();
+        if catalog.generation == generation {
+            catalog.keep_collection_songs(collection, Arc::clone(&songs));
+        }
+        Ok(songs)
+    }
+
+    /// The catalog album `catalog_id`, read from Apple.
+    pub(crate) async fn read_catalog_album(&self, catalog_id: &str) -> Result<Album> {
+        self.call(self.client.catalog_album(catalog_id))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music album"))
+    }
+
+    /// The catalog playlist `catalog_id`, read from Apple.
+    pub(crate) async fn read_catalog_playlist(&self, catalog_id: &str) -> Result<Playlist> {
+        self.call(self.client.catalog_playlist(catalog_id))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music playlist"))
     }
 
     /// Reads the user's songs: the library's songs, then the songs of the user's own playlists
@@ -1435,6 +1743,16 @@ impl AppleMusicBinding {
             });
         }
         Arc::default()
+    }
+
+    /// The library's artist list as built from the lists kept, here or on disk, without a read.
+    /// None when the artists are not kept.
+    pub(crate) async fn kept_named_artists(&self) -> Option<Arc<NamedArtists>> {
+        let now = self.clock.now();
+        let artists = self.lists.artists.kept(now).await?;
+        let songs = self.kept_songs().await;
+        let song_artists = self.lists.song_artists.kept(now).await.unwrap_or_default();
+        Some(self.built_named_artists(artists, songs, song_artists))
     }
 
     /// The catalog artists Apple names for the library's songs, as kept, read again behind once
@@ -1792,6 +2110,22 @@ impl AppleMusicBinding {
         catalog.missing.insert(track.to_owned());
     }
 
+    /// What the playlist id `id` names: a Rune playlist, or else one of the catalog.
+    pub(crate) fn playlist_ref(&self, id: i32) -> PlaylistRef {
+        match self.catalog().ids.resolve(AppleIdKind::RunePlaylist, id) {
+            Ok(stored) => PlaylistRef::Rune(stored.to_owned()),
+            Err(_) => PlaylistRef::Catalog(id),
+        }
+    }
+
+    /// What the mix id `id` names: a Rune mix, or else one Apple recommends.
+    pub(crate) fn mix_ref(&self, id: i32) -> MixRef {
+        match self.catalog().ids.resolve(AppleIdKind::RuneMix, id) {
+            Ok(stored) => MixRef::Rune(stored.to_owned()),
+            Err(_) => MixRef::Recommended(id),
+        }
+    }
+
     /// The song of `track` was listed again, as the UI just showed it, so it is no longer taken
     /// for missing.
     pub(crate) fn found_again(&self, track: &str) {
@@ -1805,7 +2139,17 @@ impl AppleMusicBinding {
         if let Some(song) = catalog.songs.as_ref().and_then(|list| list.get(track)) {
             return Some(AppleSong::Library(song.clone()));
         }
-        catalog.fetched.get(track).cloned()
+        if let Some(song) = catalog.fetched.get(track) {
+            return Some(song.clone());
+        }
+        // The songs of a catalog album or playlist read lately, which are not copied into
+        // `fetched`.
+        match song_of_track(track)? {
+            (AppleIdKind::CatalogSong, id) => catalog
+                .collection_song(id)
+                .map(|song| AppleSong::Catalog(song.clone())),
+            _ => None,
+        }
     }
 
     /// The song of `track`: held already, or else read from Apple.
@@ -1894,6 +2238,18 @@ impl AppleMusicBinding {
         }
         Ok(map)
     }
+}
+
+/// The songs of a catalog album, by disc and number.
+fn by_disc_and_number(mut songs: Vec<Song>) -> Vec<Song> {
+    songs.sort_by_key(|song| {
+        let song = SongRef::Catalog(song);
+        (
+            song.disc_number().unwrap_or_default(),
+            song.track_number().unwrap_or_default(),
+        )
+    });
+    songs
 }
 
 /// The catalog artists Apple names for a catalog song, with the song's id.

@@ -30,6 +30,9 @@ pub struct FetchCollectionGroupSummaryRequest {
 pub struct CollectionGroupSummary {
     pub group_title: String,
     pub count: i32,
+    /// The library fills this group itself, so no collection can be put in it.
+    #[serde(default)]
+    pub reserved: bool,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
