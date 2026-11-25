@@ -493,6 +493,8 @@ async fn subsonic_relogin_response(
         json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":jukebox}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
+    } else if action == "getArtists" {
+        json!({"subsonic-response":{"status":"ok","artists":{"index":[{"name":"A","artist":[{"id":"artist-1","name":"Artist One"}]}]}}})
     } else {
         json!({"subsonic-response":{"status":"ok","version":"1.16.1","openSubsonic":false}})
     };
@@ -2003,9 +2005,12 @@ async fn a_subsonic_library_whose_sign_in_was_rejected_opens_with_its_lists_and_
     };
     open_registered_here(&node, record_id.0).await?;
     let ui = node.current_ui().await?;
-    dispatch_gui_request(&ui, &summary)
-        .await?
-        .context("the artist summary")?;
+    let first = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the artist summary")?,
+    );
+    assert_eq!(first, [("A".to_owned(), 1)]);
     kept_on_disk(&node, record_id.0, &["artists", "probe"]).await?;
     node.close_ui(&ui.main_token).await;
 
@@ -2013,9 +2018,12 @@ async fn a_subsonic_library_whose_sign_in_was_rejected_opens_with_its_lists_and_
     state.rotated.store(true, Ordering::SeqCst);
     open_registered_here(&node, record_id.0).await?;
     let ui = node.current_ui().await?;
-    dispatch_gui_request(&ui, &summary)
-        .await?
-        .context("the kept artist summary")?;
+    let again = summary_groups(
+        dispatch_gui_request(&ui, &summary)
+            .await?
+            .context("the kept artist summary")?,
+    );
+    assert_eq!(again, first);
     let asked = wait_until("a sign-in asked for", || async {
         Ok(signals
             .decoded::<RequestFailedResponse>("RequestFailedResponse")
