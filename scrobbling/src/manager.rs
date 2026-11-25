@@ -1615,8 +1615,10 @@ mod tests {
             _api_secret: Option<String>,
             _enable_retry: bool,
         ) -> anyhow::Result<()> {
+            self.events
+                .send(format!("staged:start:{username}"))
+                .unwrap();
             if username == "old-lastfm" {
-                self.events.send("staged:start:old-lastfm".into()).unwrap();
                 self.gate.notified().await;
             }
             self.staged = Some((*service, username.to_owned()));
@@ -1639,42 +1641,6 @@ mod tests {
                     .send(format!("discarded:{service}:{username}"))
                     .unwrap();
             }
-        }
-
-        /// The trait's restore flow, mirrored so a skip is observable: a
-        /// restore superseded before it started leaves no trace in the login
-        /// state, it only reports that it never ran.
-        async fn authenticate_restore(
-            &mut self,
-            credential: &ScrobblingCredential,
-            enable_retry: bool,
-            epoch: u64,
-        ) -> anyhow::Result<()> {
-            let service = &credential.service;
-            if self.login_epoch(service) != epoch {
-                self.events
-                    .send(format!(
-                        "skipped:{service}:{username}",
-                        username = credential.username
-                    ))
-                    .unwrap();
-                return Ok(());
-            }
-            self.authenticate_staged(
-                service,
-                &credential.username,
-                &credential.password,
-                credential.api_key.clone(),
-                credential.api_secret.clone(),
-                enable_retry,
-            )
-            .await?;
-            if self.login_epoch(service) == epoch {
-                self.commit_staged_authentication().await;
-            } else {
-                self.discard_staged_authentication();
-            }
-            Ok(())
         }
 
         async fn update_now_playing(
@@ -1830,15 +1796,14 @@ mod tests {
         );
         assert_eq!(
             next_event(&mut events).await,
-            "committed:ListenBrainz:new-listenbrainz",
-            "the interactive login commits before the queued ListenBrainz restore"
+            "staged:start:new-listenbrainz",
+            "the interactive login starts before the queued ListenBrainz restore"
         );
         assert_eq!(
             next_event(&mut events).await,
-            "skipped:ListenBrainz:old-listenbrainz",
-            "the startup restore captured before the login must not replace it"
+            "committed:ListenBrainz:new-listenbrainz",
+            "the interactive login commits before the queued ListenBrainz restore"
         );
-
         scrobbler
             .lock()
             .await
@@ -1852,6 +1817,10 @@ mod tests {
             next_event(&mut events).await,
             "scrobbled:ListenBrainz:new-listenbrainz",
             "a later submission must use the newer login, not the restored account"
+        );
+        assert!(
+            events.try_recv().is_err(),
+            "the superseded restore must never be staged, committed, or scrobbled"
         );
     }
 
@@ -1871,6 +1840,10 @@ mod tests {
         gate.notify_one();
 
         assert_eq!(next_event(&mut events).await, "committed:LastFm:old-lastfm");
+        assert_eq!(
+            next_event(&mut events).await,
+            "staged:start:old-listenbrainz"
+        );
         assert_eq!(
             next_event(&mut events).await,
             "committed:ListenBrainz:old-listenbrainz"
@@ -1919,12 +1892,6 @@ mod tests {
 
         assert_eq!(next_event(&mut events).await, "committed:LastFm:old-lastfm");
         assert_eq!(next_event(&mut events).await, "logout:ListenBrainz");
-        assert_eq!(
-            next_event(&mut events).await,
-            "skipped:ListenBrainz:old-listenbrainz",
-            "the startup restore must not resurrect an account the user signed out of"
-        );
-
         scrobbler
             .lock()
             .await
@@ -1938,6 +1905,10 @@ mod tests {
             next_event(&mut events).await,
             "scrobbled:ListenBrainz:<logged out>",
             "after logout a later submission must not reach the restored account"
+        );
+        assert!(
+            events.try_recv().is_err(),
+            "the superseded restore must never be staged, committed, or scrobbled"
         );
     }
 }
