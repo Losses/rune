@@ -25,7 +25,9 @@ use crate::entities::{
 use crate::mix_operator::ArtistSection;
 
 use super::browse::{self, Kind};
-use super::mixes::{artist_uuid_condition, not_verified_duplicate};
+use super::mixes::{
+    artist_uuid_condition, mix_asset_eligibility, not_verified_duplicate, release_assets,
+};
 use super::resolved_metadata::{
     CreditScope, column, ensure_tracks_current, queries::field, query_models, release_durations,
 };
@@ -247,6 +249,8 @@ struct ArtistCatalog {
     songs: Vec<i32>,
     /// Selects the ids of the artist's own songs.
     song_query: SelectStatement,
+    /// Selects the releases the artist has songs on.
+    release_query: SelectStatement,
 }
 
 /// One song of a release.
@@ -325,7 +329,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         .and_where(artist_uuid_condition(Uuid::parse_str(&artist.id)?))
         .and_where(not_verified_duplicate())
         .to_owned();
-    let releases = Query::select()
+    let release_query = Query::select()
         .column(discs::Column::AlbumId.as_column_ref())
         .from(audio::Entity)
         .inner_join(
@@ -341,7 +345,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         .expr_as(column(media_files::Column::Id), "file_id")
         .from(media_files::Entity)
         .and_where(not_verified_duplicate());
-    by_release(&mut tracks, media_files::Column::Id, releases.clone());
+    by_release(&mut tracks, media_files::Column::Id, release_query.clone());
     let tracks: Vec<TrackRow> = query_models(db, &tracks).await?;
     let release_files = Query::select()
         .column(audio::Column::FileId.as_column_ref())
@@ -350,7 +354,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
             discs::Entity,
             column(discs::Column::Id).eq(column(audio::Column::DiscId)),
         )
-        .and_where(column(discs::Column::AlbumId).in_subquery(releases.clone()))
+        .and_where(column(discs::Column::AlbumId).in_subquery(release_query.clone()))
         .to_owned();
     let files: HashMap<i32, media_files::Model> = media_files::Entity::find()
         .filter(
@@ -379,7 +383,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         &Query::select()
             .columns(["id", "name", "source_uuid"].map(|c| (Alias::new("albums"), Alias::new(c))))
             .columns([S::ReleaseDate, S::ReleaseType, S::TrackCount].map(|c| c.as_column_ref()))
-            .from_subquery(browse::edition_albums(releases.clone()), "albums")
+            .from_subquery(browse::edition_albums(release_query.clone()), "albums")
             .left_join(
                 album_summaries::Entity,
                 column(S::AlbumId).eq(field("albums", "source_uuid")),
@@ -398,7 +402,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         .and_where(V::Scope.eq(CreditScope::Album as i32))
         .and_where(V::Field.eq(SECONDARY_TYPES))
         .and_where(V::Qualifier.is_in(SECTION_FLAGS.map(ReleaseSecondaryType::as_str)));
-    by_release(&mut flags, V::FileId, releases.clone());
+    by_release(&mut flags, V::FileId, release_query.clone());
     flags.order_by(V::Position.as_column_ref(), Order::Asc);
     let mut flagged: BTreeMap<(String, ReleaseSecondaryType), bool> = BTreeMap::new();
     for row in query_models::<FlagRow>(db, &flags).await? {
@@ -417,7 +421,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         .from(credits::Entity)
         .and_where(C::Scope.eq(CreditScope::Album as i32))
         .and_where(C::Role.eq(PRIMARY_ARTIST));
-    by_release(&mut album_artists, C::FileId, releases.clone());
+    by_release(&mut album_artists, C::FileId, release_query.clone());
     let mut credited: HashMap<String, Vec<ReleaseArtist>> = HashMap::new();
     for row in query_models::<CreditRow>(db, &album_artists).await? {
         let credit = ReleaseArtist {
@@ -430,7 +434,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         }
     }
 
-    let mut durations = release_durations(db, releases).await?;
+    let mut durations = release_durations(db, release_query.clone()).await?;
     let mut songs_of: HashMap<String, Vec<ReleaseTrack>> = HashMap::new();
     for track in tracks {
         if let Some(file) = files.get(&track.file_id) {
@@ -483,6 +487,7 @@ async fn load_catalog(db: &DatabaseConnection, artist_id: i32) -> Result<Option<
         files,
         songs: song_ids,
         song_query: songs,
+        release_query,
     }))
 }
 
@@ -543,8 +548,9 @@ pub async fn artist_page_sections(
 }
 
 /// A page of the songs of one section's releases, release by release, newest release first
-/// and each in disc and track order. An unknown artist has none. With `cover_only`, songs
-/// without cover art are left out before the page is cut.
+/// and each in disc and track order. Of a track a release holds in several versions, only the
+/// one the release plays is listed, as a release mix picks it. An unknown artist has none.
+/// With `cover_only`, songs without cover art are left out before the page is cut.
 pub async fn artist_section_files(
     db: &DatabaseConnection,
     artist_id: i32,
@@ -556,12 +562,26 @@ pub async fn artist_section_files(
     let Some(catalog) = load_catalog(db, artist_id).await? else {
         return Ok(Vec::new());
     };
+    let eligibility = mix_asset_eligibility(None, cover_only.then_some(true), None);
+    let assets = release_assets(catalog.release_query.clone(), eligibility);
+    let plays: HashSet<i32> = db
+        .query_all(
+            &Query::select()
+                .column(media_files::Column::Id)
+                .from(media_files::Entity)
+                .and_where(media_files::Column::Id.in_subquery(assets))
+                .to_owned(),
+        )
+        .await?
+        .iter()
+        .map(|row| row.try_get::<i32>("", "id"))
+        .collect::<std::result::Result<_, _>>()?;
     Ok(catalog.models(
         catalog
             .section(section)
             .flat_map(|release| release.tracks.iter())
-            .filter(|track| !cover_only || track.cover_art_uuid.is_some())
             .map(|track| track.file_id)
+            .filter(|id| plays.contains(id))
             .skip(cursor)
             .take(page_size),
     ))

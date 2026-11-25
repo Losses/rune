@@ -925,7 +925,7 @@ pub(super) fn not_verified_duplicate() -> SimpleExpr {
     Expr::not_exists(duplicates)
 }
 
-fn mix_asset_eligibility(
+pub(super) fn mix_asset_eligibility(
     filter_liked: Option<bool>,
     filter_cover_art: Option<bool>,
     filter_analyzed: Option<bool>,
@@ -981,6 +981,13 @@ fn mix_asset_eligibility(
 }
 
 fn release_condition(id: Uuid, eligibility: Condition) -> SimpleExpr {
+    let albums = super::browse::edition_ids(&id.to_string());
+    column(media_files::Column::Id).in_subquery(release_assets(albums, eligibility))
+}
+
+/// Selects the file that plays each logical track of the releases `albums` selects: the best
+/// version of it that `eligibility` keeps, or none when it keeps no version.
+pub(super) fn release_assets(albums: SelectStatement, eligibility: Condition) -> SelectStatement {
     use media_files::Column as F;
     use release_tracks::Column as T;
     use track_assets::Column as V;
@@ -1011,18 +1018,15 @@ fn release_condition(id: Uuid, eligibility: Condition) -> SimpleExpr {
         .order_by(F::Id.as_column_ref(), Order::Asc)
         .limit(1)
         .to_owned();
-    let assets = Query::select()
+    Query::select()
         .expr(Expr::from(candidate))
         .from(release_tracks::Entity)
         .inner_join(
             discs::Entity,
             column(discs::Column::Id).eq(column(T::DiscId)),
         )
-        .and_where(
-            column(discs::Column::AlbumId).in_subquery(super::browse::edition_ids(&id.to_string())),
-        )
-        .to_owned();
-    column(F::Id).in_subquery(assets)
+        .and_where(column(discs::Column::AlbumId).in_subquery(albums))
+        .to_owned()
 }
 
 fn sort_media_files(
