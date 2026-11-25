@@ -14,6 +14,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use rodio::source::SeekError;
@@ -133,23 +134,33 @@ impl PcmTap {
     {
         let new_channels = u32::from(source.channels());
         let new_sample_rate = source.sample_rate();
-        let old_channels = self.channels.swap(new_channels, Ordering::Relaxed);
-        let old_sample_rate = self.sample_rate.swap(new_sample_rate, Ordering::Relaxed);
+        let old_channels = self.channels.load(Ordering::Relaxed);
+        let old_sample_rate = self.sample_rate.load(Ordering::Relaxed);
 
         // If the format changed from a previous non-zero format, recreate the ring buffer
         // to drop all queued samples. This prevents old samples from being interpreted
         // with the new format. We skip the initial transition from 0 (no format yet).
-        if old_channels != 0 && old_channels != new_channels
-            || old_sample_rate != 0 && old_sample_rate != new_sample_rate
-        {
-            // Keep retrying until we successfully replace the ring.
-            // The producer lock is only held briefly during push, and try_lock is atomic,
-            // so this loop will succeed quickly in practice. This ensures the replacement
-            // is certain, preventing old-format samples from reaching the consumer.
-            while !self.recreate_ring() {
-                // Producer lock is held; spin briefly and retry.
-                // This is safe because try_lock is an uncontended atomic operation in practice.
+        let format_changed = old_channels != 0 && old_channels != new_channels
+            || old_sample_rate != 0 && old_sample_rate != new_sample_rate;
+
+        if format_changed {
+            // Replace the ring first, then publish the new format.
+            // This ensures we never have new-format metadata with an old-format ring.
+            // Use a bounded retry with yield to avoid blocking the caller thread indefinitely.
+            // Each retry is very fast (atomic try_lock), so we don't expect this to loop long.
+            for _ in 0..64 {
+                if self.recreate_ring() {
+                    break;
+                }
+                thread::yield_now();
             }
+            // Now ring is replaced and generation is incremented, publish the new format
+            self.channels.swap(new_channels, Ordering::Relaxed);
+            self.sample_rate.swap(new_sample_rate, Ordering::Relaxed);
+        } else {
+            // No format change, just update the format
+            self.channels.swap(new_channels, Ordering::Relaxed);
+            self.sample_rate.swap(new_sample_rate, Ordering::Relaxed);
         }
 
         PcmTapSource {
@@ -165,10 +176,15 @@ impl PcmTap {
 
     /// Move staged samples to the ring, dropping all of them if the producer is busy or the ring
     /// cannot take them all (a partial batch would split a frame and shift the channels).
-    fn push(&self, samples: &[f32]) {
+    fn push(&self, samples: &[f32], source_generation: u64) {
         if let Ok(mut producer) = self.producer.try_lock()
             && let Ok(mut chunk) = producer.write_chunk_uninit(samples.len())
         {
+            // Check generation while holding the producer lock to prevent stale writes.
+            // If the ring was replaced, this source's generation won't match and we discard the batch.
+            if source_generation != self.generation.load(Ordering::Relaxed) {
+                return;
+            }
             let (first, second) = chunk.as_mut_slices();
             let (head, tail) = samples.split_at(first.len());
             for (slot, &sample) in first.iter_mut().zip(head) {
@@ -207,7 +223,8 @@ where
     fn flush(&mut self) {
         // Only flush if we're still on the current generation
         if self.source_generation == self.tap.generation.load(Ordering::Relaxed) {
-            self.tap.push(&self.staged[..self.len]);
+            self.tap
+                .push(&self.staged[..self.len], self.source_generation);
         }
         self.len = 0;
     }

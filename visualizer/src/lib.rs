@@ -1431,11 +1431,13 @@ fn run(
         };
 
         // If the consumer is abandoned (due to a format change recreating the ring),
-        // get a new consumer and re-read channels from the new format.
+        // get a new consumer and re-read both channels and sample_rate from the new format.
+        // This ensures each drained batch uses the format published with the ring that produced it.
         if input.consumer.is_abandoned() {
             if let Some(new_consumer) = (input.on_consumer_abandoned)() {
                 input.consumer = new_consumer;
-                // Re-read channels after consumer replacement to get the current format
+                // Re-read both channels and sample_rate after consumer replacement
+                // to get the format that matches the new ring
                 channels = match input.channels.load(Ordering::Relaxed) {
                     0 => 2,
                     n => n as usize,
@@ -1450,7 +1452,8 @@ fn run(
             drain(&mut input.consumer, &mut pcm);
         }
         // The tracker hears every sample, also while the window is out of sight, so it keeps
-        // the beat for when it is back.
+        // the beat for when it is back. Read sample_rate after draining to ensure it matches
+        // the ring that produced the samples we just consumed.
         let sample_rate = input.sample_rate.load(Ordering::Relaxed);
         match sample_rate {
             0 => {}
