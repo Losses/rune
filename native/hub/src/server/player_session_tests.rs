@@ -13756,7 +13756,6 @@ async fn log_requests_answer_while_a_service_library_is_open() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
     use crate::messages::{SetVisualizerLogRequest, StartVisualizerRequest};
-    use crate::visualizer::VISUALIZER;
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -13787,7 +13786,8 @@ async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
     .await;
     tap.restore_consumer(audio);
     assert!(started?.is_some());
-    let reported = VISUALIZER.status().last_error.unwrap_or_default();
+    let node_visualizer = Arc::clone(node.node_visualizer().visualizer());
+    let reported = node_visualizer.status().last_error.unwrap_or_default();
     assert!(reported.contains("PCM tap"), "unexpected report: {reported}");
 
     server.abort();

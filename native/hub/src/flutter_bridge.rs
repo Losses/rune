@@ -24,7 +24,7 @@
 #[cfg(target_os = "linux")]
 use std::os::fd::OwnedFd;
 use std::ptr::NonNull;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 use tokio::runtime::Handle;
 
 use log::{error, info, warn};
@@ -37,7 +37,6 @@ use ::flutter_texture::{
 use ::visualizer::{DeviceUuids, PcmInput, Transport};
 
 use crate::messages::VisualizerTextureResponse;
-use crate::visualizer::VISUALIZER;
 use flutter_texture::PlatformHandle;
 #[cfg(target_os = "windows")]
 use std::env;
@@ -125,9 +124,13 @@ pub unsafe extern "system" fn Java_ci_not_rune_MainActivity_attachFlutter(
 /// the platform thread the first time), so that frames are shared with it (else they are read
 /// back). On Android, the window of the texture (of `width` by `height`) to present into, which
 /// is registered now. Applies from the visualizer's next start.
-pub async fn prepare_visualizer(width: u32, height: u32) {
+pub async fn prepare_visualizer(
+    visualizer: Arc<::visualizer::Visualizer>,
+    width: u32,
+    height: u32,
+) {
     #[cfg(target_os = "android")]
-    prepare_window(width, height).await;
+    prepare_window(visualizer, width, height).await;
     #[cfg(not(target_os = "android"))]
     let _ = (width, height);
     if TEXTURE_LAYER {
@@ -139,7 +142,7 @@ pub async fn prepare_visualizer(width: u32, height: u32) {
             // the shared surface. Prefer pixels until that path is verified.
             let prefer_readback = readback.as_deref().is_some_and(|value| value == "1")
                 || !shared.as_deref().is_some_and(|value| value == "1");
-            VISUALIZER.prefer_readback(prefer_readback);
+            visualizer.prefer_readback(prefer_readback);
             info!(
                 "Windows Flutter visualizer transport preference: {}",
                 if prefer_readback {
@@ -150,8 +153,8 @@ pub async fn prepare_visualizer(width: u32, height: u32) {
             );
         }
         let capabilities = flutter_texture::capabilities().await;
-        VISUALIZER.set_graphics_adapter(capabilities.adapter_luid);
-        VISUALIZER.set_graphics_device(capabilities.device_uuids.map(|uuids| DeviceUuids {
+        visualizer.set_graphics_adapter(capabilities.adapter_luid);
+        visualizer.set_graphics_device(capabilities.device_uuids.map(|uuids| DeviceUuids {
             device: uuids.device,
             driver: uuids.driver,
         }));
@@ -162,35 +165,43 @@ pub async fn prepare_visualizer(width: u32, height: u32) {
 /// of a run before, if the visualizer restarts), and give the visualizer its window. Without one,
 /// the visualizer has nothing to present into, which shows up in its status.
 #[cfg(target_os = "android")]
-async fn prepare_window(width: u32, height: u32) {
-    VISUALIZER.set_window(None);
+async fn prepare_window(visualizer: Arc<::visualizer::Visualizer>, width: u32, height: u32) {
+    visualizer.set_window(None);
+    let visualizer_weak = Arc::downgrade(&visualizer);
     let mut textures = TEXTURES.lock().await;
     if textures.current.is_none() {
         match flutter_texture::register_surface(width, height).await {
-            Ok(texture) => install(&mut textures, Kind::Surface, texture),
+            Ok(texture) => install(
+                &mut textures,
+                Kind::Surface,
+                texture,
+                visualizer_weak.clone(),
+            ),
             Err(e) => {
-                VISUALIZER.report_error(
+                visualizer.report_error(
                     "texture",
                     format!("Failed to register the visualizer texture: {e}"),
                 );
                 return;
             }
         }
-    } else if let Some((_, texture)) = &textures.current
-        && let Err(e) = texture.set_size(width, height).await
-    {
-        VISUALIZER.report_error(
-            "texture",
-            format!("Failed to resize the visualizer texture: {e}"),
-        );
-        return;
+    } else if let Some((_, texture, _)) = &textures.current {
+        if let Err(e) = texture.set_size(width, height).await {
+            visualizer.report_error(
+                "texture",
+                format!("Failed to resize the visualizer texture: {e}"),
+            );
+            return;
+        }
     }
-    let Some((_, texture)) = &textures.current else {
+    // After registering or resizing, set the window from the current texture for both cases.
+    // On Android, this is essential: the first start needs its window to present into.
+    let Some((_, texture, _)) = &textures.current else {
         return;
     };
     match texture.window().await {
-        Ok(window) => VISUALIZER.set_window(Some(Box::new(window))),
-        Err(e) => VISUALIZER.report_error(
+        Ok(window) => visualizer.set_window(Some(Box::new(window))),
+        Err(e) => visualizer.report_error(
             "texture",
             format!("The visualizer texture has no window: {e}"),
         ),
@@ -199,27 +210,44 @@ async fn prepare_window(width: u32, height: u32) {
 
 /// Frames of `width` by `height` from now on. On Android the texture's producer is told the new
 /// size, and the visualizer presents into the window it hands out for it.
-pub async fn resize_visualizer(width: u32, height: u32) -> anyhow::Result<()> {
+pub async fn resize_visualizer(
+    visualizer: &::visualizer::Visualizer,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<()> {
     #[cfg(target_os = "android")]
     {
         let textures = TEXTURES.lock().await;
-        if let Some((_, texture)) = &textures.current {
+        let visualizer_ptr = visualizer as *const _;
+        if let Some((_, texture, owner)) = &textures.current
+            && owner
+                .upgrade()
+                .is_some_and(|v| Arc::as_ptr(&v) == visualizer_ptr)
+        {
             texture.set_size(width, height).await?;
             let window = texture.window().await?;
-            return VISUALIZER.replace_window(Box::new(window), width, height);
+            return visualizer.replace_window(Box::new(window), width, height);
         }
     }
-    VISUALIZER.resize(width, height)
+    visualizer.resize(width, height)
 }
 
 /// The visualizer's frames, as they are: on the GPU (a pixel buffer, a shared texture or image)
 /// or read back. Each acquire takes the next frame in order, so that frames finished within one
 /// display refresh are shown on consecutive ones (see [`visualizer::Visualizer::next_frame`]).
-struct VisualizerFrames;
+struct VisualizerFrames {
+    visualizer: Arc<::visualizer::Visualizer>,
+}
+
+impl VisualizerFrames {
+    fn new(visualizer: Arc<::visualizer::Visualizer>) -> Self {
+        Self { visualizer }
+    }
+}
 
 impl FrameSource for VisualizerFrames {
     fn acquire(&self) -> Option<Acquired> {
-        let frame = VISUALIZER.next_frame()?;
+        let frame = self.visualizer.next_frame()?;
         #[cfg(target_vendor = "apple")]
         if let Some(buffer) = frame.pixel_buffer() {
             return Some(Acquired {
@@ -283,9 +311,9 @@ impl FrameSource for VisualizerFrames {
                     "transport",
                     format!("{error}; the visualizer reads frames back"),
                 );
-                VISUALIZER.fall_back_to_readback();
+                self.visualizer.fall_back_to_readback();
             }
-            error => VISUALIZER.report_error("texture", error.to_string()),
+            error => self.visualizer.report_error("texture", error.to_string()),
         }
     }
 }
@@ -326,11 +354,11 @@ struct Textures {
     /// The visualizer runs and may have a texture.
     running: bool,
     /// The texture Dart is told to show and the kind of frames it takes.
-    current: Option<(Kind, Texture)>,
+    current: Option<(Kind, Texture, Weak<::visualizer::Visualizer>)>,
     /// The id of `current` as last sent to Dart.
     announced: Option<i64>,
-    /// Each with the id of the texture that replaced it.
-    retiring: Vec<(i64, Texture)>,
+    /// Each with the id of the texture that replaced it and its owning visualizer.
+    retiring: Vec<(i64, Texture, Weak<::visualizer::Visualizer>)>,
 }
 
 static TEXTURES: LazyLock<Mutex<Textures>> = LazyLock::new(Mutex::default);
@@ -360,7 +388,7 @@ fn wanted_kind(transport: Option<Transport>) -> Option<Kind> {
 
 /// The visualizer started: make sure a texture shows it, as soon as it is known which kind, and
 /// tell Dart which one. A texture that cannot be registered shows up in the visualizer's status.
-pub async fn visualizer_started() {
+pub async fn visualizer_started(visualizer: Arc<::visualizer::Visualizer>) {
     if !TEXTURE_LAYER {
         return;
     }
@@ -372,47 +400,55 @@ pub async fn visualizer_started() {
     }
     // The render thread tells how its frames leave the GPU once it is up, and when that changes.
     let runtime = Handle::current();
-    VISUALIZER.set_transport_listener(Some(Arc::new(move |transport| {
+    let visualizer_weak = Arc::downgrade(&visualizer);
+    visualizer.set_transport_listener(Some(Arc::new(move |transport| {
+        let Some(visualizer) = visualizer_weak.upgrade() else {
+            return;
+        };
+        let status = visualizer.status();
         crate::visualizer_log::diagnostic(
             "transport",
-            format!(
-                "Frames leave {} by {transport:?}",
-                VISUALIZER.status().adapter
-            ),
+            format!("Frames leave {} by {transport:?}", status.adapter),
         );
         if let Some(kind) = wanted_kind(Some(transport)) {
-            runtime.spawn(show(kind));
+            runtime.spawn(async move { show(visualizer, kind).await });
         }
     })));
     // It may know already.
-    if let Some(kind) = wanted_kind(VISUALIZER.status().transport) {
-        show(kind).await;
+    if let Some(kind) = wanted_kind(visualizer.status().transport) {
+        show(visualizer, kind).await;
     }
 }
 
 /// Show the visualizer in a texture of `kind`, replacing the one of another kind, and tell Dart.
-async fn show(kind: Kind) {
+async fn show(visualizer: Arc<::visualizer::Visualizer>, kind: Kind) {
     let mut textures = TEXTURES.lock().await;
     if !textures.running {
         return;
     }
-    if textures.current.as_ref().map(|(current, _)| *current) != Some(kind) {
+    if textures.current.as_ref().map(|(current, _, _)| *current) != Some(kind) {
         // Android: the texture is made with its window before the visualizer starts; without
         // one, the error is in the status already.
         if cfg!(target_os = "android") {
             return;
         }
-        match flutter_texture::register(Arc::new(VisualizerFrames), kind).await {
-            Ok(texture) => install(&mut textures, kind, texture),
+        let visualizer_weak = Arc::downgrade(&visualizer);
+        match flutter_texture::register(
+            Arc::new(VisualizerFrames::new(Arc::clone(&visualizer))),
+            kind,
+        )
+        .await
+        {
+            Ok(texture) => install(&mut textures, kind, texture, visualizer_weak),
             Err(e) if kind != Kind::Pixels => {
                 // Not what the visualizer is told to avoid: it reads frames back from now on, and
                 // the pixel texture is made when it says so.
                 warn!("Failed to register the visualizer's GPU texture, reading frames back: {e}");
-                VISUALIZER.fall_back_to_readback();
+                visualizer.fall_back_to_readback();
                 return;
             }
             Err(e) => {
-                VISUALIZER.report_error(
+                visualizer.report_error(
                     "texture",
                     format!("Failed to register the visualizer texture: {e}"),
                 );
@@ -420,11 +456,11 @@ async fn show(kind: Kind) {
             }
         }
     }
-    let Some((_, texture)) = &textures.current else {
+    let Some((_, texture, _)) = &textures.current else {
         return;
     };
     let notifier = texture.notifier();
-    VISUALIZER.set_frame_listener(Some(Arc::new(move |_| notifier.mark_frame_available())));
+    visualizer.set_frame_listener(Some(Arc::new(move |_| notifier.mark_frame_available())));
     let id = texture.id();
     if textures.announced.replace(id) != Some(id) {
         VisualizerTextureResponse { texture_id: id }.send_signal_to_dart();
@@ -432,11 +468,16 @@ async fn show(kind: Kind) {
 }
 
 /// Make `texture` the one Dart shows; the one it replaces goes once Dart shows it.
-fn install(textures: &mut Textures, kind: Kind, texture: Texture) {
+fn install(
+    textures: &mut Textures,
+    kind: Kind,
+    texture: Texture,
+    visualizer_weak: Weak<::visualizer::Visualizer>,
+) {
     let id = texture.id();
-    if let Some((_, old)) = textures.current.replace((kind, texture)) {
+    if let Some((_, old, _)) = textures.current.replace((kind, texture, visualizer_weak)) {
         info!("Visualizer texture {} replaces {}", id, old.id());
-        textures.retiring.push((id, old));
+        textures.retiring.push((id, old, Weak::default()));
     }
 }
 
@@ -444,39 +485,52 @@ fn install(textures: &mut Textures, kind: Kind, texture: Texture) {
 pub async fn texture_shown(texture_id: i64) {
     let retired = {
         let mut textures = TEXTURES.lock().await;
-        let current = textures.current.as_ref().map(|(_, texture)| texture.id());
+        let current = textures
+            .current
+            .as_ref()
+            .map(|(_, texture, _)| texture.id());
         // The current texture shown: every earlier one can go, also any that were replaced before
         // Dart showed them.
         let (retired, kept) =
             mem::take(&mut textures.retiring)
                 .into_iter()
-                .partition(|(replacement, _)| {
+                .partition(|(replacement, _, _)| {
                     current == Some(texture_id) || *replacement == texture_id
                 });
         textures.retiring = kept;
         retired
     };
-    for (_, texture) in retired {
+    for (_, texture, _) in retired {
         texture.unregister().await;
     }
 }
 
 /// Stop the visualizer: stop telling the texture about frames, stop the render thread, then
 /// unregister the textures. Returns the PCM input, as [`visualizer::Visualizer::stop`] does.
-pub async fn stop_visualizer() -> Option<PcmInput> {
-    VISUALIZER.set_transport_listener(None);
-    VISUALIZER.set_frame_listener(None);
-    let input = VISUALIZER.stop();
+pub async fn stop_visualizer(visualizer: Arc<::visualizer::Visualizer>) -> Option<PcmInput> {
+    visualizer.set_transport_listener(None);
+    visualizer.set_frame_listener(None);
+    let input = visualizer.stop();
     // The window of a texture whose visualizer did not start.
     #[cfg(target_os = "android")]
-    VISUALIZER.set_window(None);
+    visualizer.set_window(None);
     let textures = mem::take(&mut *TEXTURES.lock().await);
-    for texture in textures
-        .current
-        .into_iter()
-        .map(|(_, texture)| texture)
-        .chain(textures.retiring.into_iter().map(|(_, texture)| texture))
+    let mut textures_to_unregister: Vec<Texture> = Vec::new();
+    if let Some((_, texture, owner)) = textures.current
+        && owner
+            .upgrade()
+            .is_some_and(|v| Arc::ptr_eq(&v, &visualizer))
     {
+        textures_to_unregister.push(texture);
+    }
+    for (_, texture, _owner) in textures.retiring.into_iter().filter(|(_, _, owner)| {
+        owner
+            .upgrade()
+            .is_some_and(|v| Arc::ptr_eq(&v, &visualizer))
+    }) {
+        textures_to_unregister.push(texture);
+    }
+    for texture in textures_to_unregister {
         texture.unregister().await;
     }
     input
