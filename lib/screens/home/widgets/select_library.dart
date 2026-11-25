@@ -3,12 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/apple_music_sign_in.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../bindings/bindings.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
+import '../../../utils/dialogs/library_sign_in.dart';
 import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_registry.dart';
 import '../../../providers/responsive_providers.dart';
@@ -36,7 +37,8 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
             LibraryRecordKindSummaryLocal() ||
             LibraryRecordKindSummaryReplica() ||
             LibraryRecordKindSummarySubsonic() ||
-            LibraryRecordKindSummaryOpenDal() => true,
+            LibraryRecordKindSummaryOpenDal() ||
+            LibraryRecordKindSummaryAppleMusic() => true,
             _ => false,
           },
         )
@@ -105,13 +107,15 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                         final fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() ||
                           LibraryRecordKindSummarySubsonic() ||
-                          LibraryRecordKindSummaryOpenDal() => record.alias,
+                          LibraryRecordKindSummaryOpenDal() ||
+                          LibraryRecordKindSummaryAppleMusic() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
                         return SettingsButton(
                           icon: switch (record.kind) {
-                            LibraryRecordKindSummarySubsonic() =>
+                            LibraryRecordKindSummarySubsonic() ||
+                            LibraryRecordKindSummaryAppleMusic() =>
                               Symbols.music_note,
                             LibraryRecordKindSummaryOpenDal() => Symbols.cloud,
                             _ => Symbols.folder,
@@ -122,15 +126,21 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                             LibraryRecordKindSummaryOpenDal(
                               :final endpoint,
                             ) => endpoint,
+                            LibraryRecordKindSummaryAppleMusic() =>
+                              appleMusicSubtitleText(S.of(context)),
                             _ => describeLibraryPath(S.of(context), itemPath),
                           },
                           onPressed: () async {
                             try {
-                              await openLibraryWithSubsonicRelogin(
+                              // A sign-in the user was told about and closed leaves
+                              // them here.
+                              if (!await openLibraryWithSignIn(
                                 context,
                                 registry,
                                 record.recordId,
-                              );
+                              )) {
+                                return;
+                              }
                               $$replace('/library');
                             } catch (error) {
                               if (!context.mounted) return;

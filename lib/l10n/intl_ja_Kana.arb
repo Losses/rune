@@ -1817,5 +1817,20 @@
   "artistSectionAppearsOn": "アピアーズオン",
   "artistSectionSinglesAndEps": "シングルズアンドイーピーズ",
   "artistSectionLatestRelease": "レイテストリリース",
-  "artistSectionEssentialAlbums": "エッセンシャルアルバムズ"
+  "artistSectionEssentialAlbums": "エッセンシャルアルバムズ",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "この Mac で Apple Music のライブラリーを プレイします。",
+  "appleMusicSubtitleIOS": "この iPhone か iPad で Apple Music のライブラリーを プレイします。",
+  "appleMusicAccessDenied": "Apple Music へのアクセスが キョカされませんでした。システムセッテイで Rune に キョカしてから、リトライしてください。",
+  "appleMusicAccessDeniedIOS": "Apple Music へのアクセスが キョカされませんでした。セッテイ > プライバシーとセキュリティ > メディアと Apple Music で Rune に キョカしてから、リトライしてください。",
+  "appleMusicNoToken": "Apple Music から ヒツヨウなアクセスを エられませんでした。リトライしてください。",
+  "appleMusicRegisterFailed": "Apple Music を ツイカできませんでした。",
+  "appleMusicSignInFailed": "Apple Music が ログインを ウけつけませんでした。リトライしてください。",
+  "appleMusicUnreachable": "Apple Music に セツゾクできませんでした。ネットワークを チェックしてから、リトライしてください。",
+  "appleMusicUnexpectedResponse": "Apple Music から ヨキしないレスポンスが カエされました。あとで リトライしてください。",
+  "appleMusicNeedsNewerMacOS": "Apple Music には macOS 14 イコウが ヒツヨウです。",
+  "appleMusicNeedsNewerIOS": "Apple Music には iOS 16.1 イコウが ヒツヨウです。",
+  "appleMusicAccountUnavailable": "この Mac の Apple Account では Apple Music を ツカえません。ミュージックアプリで アカウントを チェックしてから、リトライしてください。",
+  "appleMusicAccountUnavailableIOS": "このデバイスの Apple Account では Apple Music を ツカえません。ミュージックアプリで アカウントを チェックしてから、リトライしてください。",
+  "appleMusicPrivacyNotice": "ミュージックアプリを イチドオープンして プライバシーノーティスに ドウイしてから、リトライしてください。"
 }

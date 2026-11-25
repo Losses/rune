@@ -1815,5 +1815,20 @@
   "artistSectionAppearsOn": "З'являється на",
   "artistSectionSinglesAndEps": "Сингли та EP",
   "artistSectionLatestRelease": "Останній реліз",
-  "artistSectionEssentialAlbums": "Головні альбоми"
+  "artistSectionEssentialAlbums": "Головні альбоми",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "Відтворювати бібліотеку Apple Music через цей Mac.",
+  "appleMusicSubtitleIOS": "Відтворювати бібліотеку Apple Music на цьому iPhone або iPad.",
+  "appleMusicAccessDenied": "Доступ до Apple Music не надано. Дозвольте його для Rune в Системних параметрах і спробуйте ще раз.",
+  "appleMusicAccessDeniedIOS": "Доступ до Apple Music не надано. Дозвольте його для Rune в Параметри > Приватність і безпека > Медіа й Apple Music і спробуйте ще раз.",
+  "appleMusicNoToken": "Apple Music не надав Rune потрібного доступу. Спробуйте ще раз.",
+  "appleMusicRegisterFailed": "Rune не вдалося додати Apple Music.",
+  "appleMusicSignInFailed": "Apple Music не прийняв вхід. Спробуйте ще раз.",
+  "appleMusicUnreachable": "Rune не вдалося зв’язатися з Apple Music. Перевірте мережеве з’єднання і спробуйте ще раз.",
+  "appleMusicUnexpectedResponse": "Apple Music повернув неочікувану відповідь. Спробуйте пізніше.",
+  "appleMusicNeedsNewerMacOS": "Для Apple Music потрібна macOS 14 або новіша.",
+  "appleMusicNeedsNewerIOS": "Для Apple Music потрібна iOS 16.1 або новіша.",
+  "appleMusicAccountUnavailable": "Apple Account на цьому Mac не може користуватися Apple Music. Перевірте обліковий запис у програмі «Музика» і спробуйте ще раз.",
+  "appleMusicAccountUnavailableIOS": "Apple Account на цьому пристрої не може користуватися Apple Music. Перевірте обліковий запис у програмі «Музика» і спробуйте ще раз.",
+  "appleMusicPrivacyNotice": "Відкрийте програму «Музика» один раз і прийміть сповіщення про приватність, а потім спробуйте ще раз."
 }

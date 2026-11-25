@@ -1817,5 +1817,20 @@
   "artistSectionAppearsOn": "Compare In",
   "artistSectionSinglesAndEps": "Singoli ed EP",
   "artistSectionLatestRelease": "Ultima Uscita",
-  "artistSectionEssentialAlbums": "Album Essenziali"
+  "artistSectionEssentialAlbums": "Album Essenziali",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "Riproduci la tua libreria di Apple Music da questo Mac.",
+  "appleMusicSubtitleIOS": "Riproduci la tua libreria di Apple Music su questo iPhone o iPad.",
+  "appleMusicAccessDenied": "L'accesso ad Apple Music non è stato concesso. Consentilo per Rune in Impostazioni di Sistema, poi riprova.",
+  "appleMusicAccessDeniedIOS": "L'accesso ad Apple Music non è stato concesso. Consentilo per Rune in Impostazioni > Privacy e sicurezza > Media e Apple Music, poi riprova.",
+  "appleMusicNoToken": "Apple Music non ha dato a Rune l'accesso necessario. Riprova.",
+  "appleMusicRegisterFailed": "Rune non ha potuto aggiungere Apple Music.",
+  "appleMusicSignInFailed": "Apple Music non ha accettato l'accesso. Riprova.",
+  "appleMusicUnreachable": "Rune non ha potuto raggiungere Apple Music. Controlla la connessione di rete, poi riprova.",
+  "appleMusicUnexpectedResponse": "Apple Music ha restituito una risposta inattesa. Riprova più tardi.",
+  "appleMusicNeedsNewerMacOS": "Apple Music richiede macOS 14 o versioni successive.",
+  "appleMusicNeedsNewerIOS": "Apple Music richiede iOS 16.1 o versioni successive.",
+  "appleMusicAccountUnavailable": "L'Apple Account di questo Mac non può usare Apple Music. Controlla l'account nell'app Musica, poi riprova.",
+  "appleMusicAccountUnavailableIOS": "L'Apple Account di questo dispositivo non può usare Apple Music. Controlla l'account nell'app Musica, poi riprova.",
+  "appleMusicPrivacyNotice": "Apri una volta l'app Musica e accetta l'informativa sulla privacy, poi riprova."
 }

@@ -109,6 +109,65 @@ void main() {
     },
   );
 
+  test('a service registered again keeps its one record', () async {
+    const apple = LibraryRecordSummary(
+      recordId: 'apple-record',
+      alias: 'Apple Music',
+      kind: LibraryRecordKindSummaryAppleMusic(),
+      signedIn: true,
+    );
+    final services = <StreamingService>[];
+    final provider = LibraryRegistryProvider(
+      loadRecords: () async => _listed(),
+      registerService: (service, alias, signIn) async {
+        services.add(service);
+        return const RegisterLibraryResponse(
+          record: apple,
+          outcome: RegisterLibraryOutcomeRegistered(),
+        );
+      },
+    );
+    addTearDown(provider.dispose);
+    await provider.ready;
+
+    for (var round = 0; round < 2; round++) {
+      await provider.registerServiceLibrary(
+        StreamingService.appleMusic,
+        'Apple Music',
+        const ServiceSignInPlatform(userToken: 'user'),
+      );
+    }
+
+    expect(services, [
+      StreamingService.appleMusic,
+      StreamingService.appleMusic,
+    ]);
+    expect(provider.records.map((record) => record.recordId), [
+      'record-1',
+      'apple-record',
+    ]);
+  });
+
+  test('a sign-in goes to the record it is for', () async {
+    final signIns = <String>[];
+    final provider = LibraryRegistryProvider(
+      loadRecords: () async => _listed(),
+      signInService: (recordId, signIn) async {
+        final platform = signIn as ServiceSignInPlatform;
+        signIns.add('$recordId ${platform.userToken}');
+      },
+    );
+    addTearDown(provider.dispose);
+    await provider.ready;
+
+    await provider.signInServiceLibrary(
+      'apple-record',
+      const ServiceSignInPlatform(userToken: 'user'),
+    );
+
+    expect(signIns, ['apple-record user']);
+  });
+
   testWidgets('folder registration asks for a mode, retries, then opens', (
     tester,
   ) async {

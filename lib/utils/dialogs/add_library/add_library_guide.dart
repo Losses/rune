@@ -13,9 +13,13 @@ import '../../../utils/api/request_failure.dart';
 import '../../../utils/api/testlibrary_initialized.dart';
 import '../../../utils/api/library_registry.dart';
 import '../../../utils/add_library_flows.dart';
+import '../../../utils/apple_music_sign_in.dart';
+import '../../../utils/device_sign_in.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
+import '../../../utils/hosted_player/apple_music_host.dart';
+import '../../../utils/hosted_player/hosted_player.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/library_ui/library_ui_state.dart';
 import '../../../utils/router/navigation.dart';
@@ -25,7 +29,14 @@ import '../../../widgets/settings/settings_tile_title.dart';
 import '../../../screens/settings_neighbors/utils/show_add_remote_device_dialog.dart';
 import '../../../screens/settings_server/widgets/peer_libraries_dialog.dart';
 
-enum AddLibrarySource { localFolder, runeDevice, webDav, s3, subsonic }
+enum AddLibrarySource {
+  localFolder,
+  runeDevice,
+  webDav,
+  s3,
+  subsonic,
+  appleMusic,
+}
 
 class AddLibraryGuideDependencies {
   const AddLibraryGuideDependencies({
@@ -44,6 +55,7 @@ class AddLibraryGuideDependencies {
     this.testLocalLibrary,
     this.registerLocal,
     this.registerSubsonic,
+    this.hosts,
   });
 
   final Future<void> Function(BuildContext)? searchNeighbors;
@@ -76,6 +88,9 @@ class AddLibraryGuideDependencies {
     RegisterSubsonicLibraryRequest,
   )?
   registerSubsonic;
+
+  /// The platform hosts to sign in with. The ones this platform provides by default.
+  final Map<String, HostedPlayerHost>? hosts;
 }
 
 Future<void> showAddLibraryGuide(
@@ -122,6 +137,7 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
   Set<SubsonicOpenModeMessage> _subsonicAllowed = {};
   bool _loading = false;
   bool _registeringOpenDal = false;
+  bool _addingAppleMusic = false;
   final _openDalForm = _OpenDalFormController();
   final _busy = <String>{};
 
@@ -217,6 +233,13 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
         s.subsonic,
         s.subsonicSubtitle,
       ),
+      if (_appleMusicHost != null)
+        _sourceRow(
+          AddLibrarySource.appleMusic,
+          Symbols.music_note,
+          s.appleMusic,
+          appleMusicSubtitleText(s),
+        ),
     ],
   );
 
@@ -519,6 +542,70 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
       );
     }
   }
+
+  /// The host that authorizes Apple Music, on a platform that has it.
+  AuthorizingHost? get _appleMusicHost {
+    final host =
+        (widget.dependencies.hosts ?? platformHosts)[AppleMusicHost.family];
+    return host is AuthorizingHost ? host : null;
+  }
+
+  /// Authorizes Apple Music on this device and registers its library, or signs in again the
+  /// one this device has, then opens it. Nothing is registered without an authorization.
+  Future<void> _addAppleMusic() async {
+    final host = _appleMusicHost;
+    if (host == null || _addingAppleMusic) return;
+    final registry = Provider.of<LibraryRegistryProvider>(
+      context,
+      listen: false,
+    );
+    final alias = S.of(context).appleMusic;
+    setState(() => _addingAppleMusic = true);
+    try {
+      final result = await host.authorize(interactive: true);
+      if (!mounted) return;
+      final HostAuthorization authorization;
+      switch (result) {
+        case HostAuthorization():
+          authorization = result;
+        case HostAuthorizationFailed(:final failure):
+          await _appleMusicFailed(
+            appleMusicAuthorizationMessage(S.of(context), failure),
+          );
+          return;
+      }
+      final RegisterLibraryResponse response;
+      try {
+        response = await registry.registerServiceLibrary(
+          StreamingService.appleMusic,
+          alias,
+          platformSignIn(authorization),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        await _appleMusicFailed(
+          appleMusicSignInFailureMessage(S.of(context), error),
+        );
+        return;
+      }
+      final record = response.record;
+      if (!mounted) return;
+      if (record == null) {
+        await _appleMusicFailed(S.of(context).unknownError);
+        return;
+      }
+      await _openRecord(record.recordId);
+    } finally {
+      if (mounted) setState(() => _addingAppleMusic = false);
+    }
+  }
+
+  Future<void> _appleMusicFailed(String message) => showErrorDialog(
+    context: context,
+    title: S.of(context).addLibrary,
+    subtitle: S.of(context).appleMusicRegisterFailed,
+    errorMessage: message,
+  );
 
   Widget _openDalFormContent({
     required List<(String, TextEditingController)> fields,
@@ -926,6 +1013,8 @@ class _AddLibraryGuideDialogState extends State<_AddLibraryGuideDialog> {
                     setState(() => _step = 2);
                   } else if (source == AddLibrarySource.localFolder) {
                     _chooseLocalFolder();
+                  } else if (source == AddLibrarySource.appleMusic) {
+                    _addAppleMusic();
                   } else {
                     widget.$close(source);
                   }

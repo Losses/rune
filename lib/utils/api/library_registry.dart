@@ -23,6 +23,43 @@ Future<ReplaceSubsonicCredentialResponse> replaceSubsonicCredential(
   return response.message;
 }
 
+/// Registers the library of [service] with [signIn], or signs in again the one this device
+/// already has.
+Future<RegisterLibraryResponse> registerServiceLibrary(
+  StreamingService service,
+  String alias,
+  ServiceSignIn signIn,
+) async {
+  final response = await awaitResponse(
+    'RegisterServiceLibraryRequest',
+    RegisterLibraryResponse.rustSignalStream,
+    timeout: _timeout,
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => RegisterServiceLibraryRequest(
+      service: service,
+      alias: alias,
+      signIn: signIn,
+      callId: callId,
+    ).sendSignalToRust(),
+  );
+  return response.message;
+}
+
+/// Signs the streaming service library of [recordId] in with [signIn].
+Future<void> signInServiceLibrary(String recordId, ServiceSignIn signIn) async {
+  await awaitResponse(
+    'SignInServiceLibraryRequest',
+    SignInServiceLibraryResponse.rustSignalStream,
+    timeout: _timeout,
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => SignInServiceLibraryRequest(
+      recordId: recordId,
+      signIn: signIn,
+      callId: callId,
+    ).sendSignalToRust(),
+  );
+}
+
 Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
   final response = awaitResponse(
     'ListPeerLibrariesRequest',

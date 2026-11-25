@@ -1815,5 +1815,20 @@
   "artistSectionAppearsOn": "與列",
   "artistSectionSinglesAndEps": "單曲及 EP",
   "artistSectionLatestRelease": "新出",
-  "artistSectionEssentialAlbums": "要輯"
+  "artistSectionEssentialAlbums": "要輯",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "藉此 Mac 奏 Apple Music 之庫。",
+  "appleMusicSubtitleIOS": "於此 iPhone 或 iPad 奏 Apple Music 之庫。",
+  "appleMusicAccessDenied": "Apple Music 未許取用。請於系統設定許 Rune，而後復試。",
+  "appleMusicAccessDeniedIOS": "Apple Music 未許取用。請於「設定」>「隱私與安全」>「媒體與 Apple Music」許 Rune，而後復試。",
+  "appleMusicNoToken": "Apple Music 未予 Rune 所需之權，請復試。",
+  "appleMusicRegisterFailed": "Rune 不能增 Apple Music。",
+  "appleMusicSignInFailed": "Apple Music 不受籍名，請復試。",
+  "appleMusicUnreachable": "Rune 不可連 Apple Music。請察網路，而後復試。",
+  "appleMusicUnexpectedResponse": "Apple Music 所答非所期，請稍後復試。",
+  "appleMusicNeedsNewerMacOS": "Apple Music 須 macOS 14 以上。",
+  "appleMusicNeedsNewerIOS": "Apple Music 須 iOS 16.1 以上。",
+  "appleMusicAccountUnavailable": "此 Mac 之 Apple 帳戶不可用 Apple Music。請於「音樂」App 察其帳戶，而後復試。",
+  "appleMusicAccountUnavailableIOS": "此器之 Apple 帳戶不可用 Apple Music。請於「音樂」App 察其帳戶，而後復試。",
+  "appleMusicPrivacyNotice": "請先啟「音樂」App 一次，允其隱私之告，而後復試。"
 }

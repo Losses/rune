@@ -2102,5 +2102,28 @@
   "@artistSectionEssentialAlbums": {
     "description": "The name of the tile on an artist's page that opens the albums picked as the artist's essential ones, when the library gives the section no name."
   },
-  "capabilityDeviceOnly": "This library stays on this device, so no other device can play it."
+  "capabilityDeviceOnly": "This library stays on this device, so no other device can play it.",
+  "appleMusic": "Apple Music",
+  "@appleMusic": {
+  },
+  "appleMusicSubtitle": "Play your Apple Music library through this Mac.",
+  "@appleMusicSubtitle": {
+  },
+  "appleMusicSubtitleIOS": "Play your Apple Music library on this iPhone or iPad.",
+  "@appleMusicSubtitleIOS": {
+  },
+  "appleMusicAccessDenied": "Apple Music access was not granted. Allow it for Rune in System Settings, then try again.",
+  "appleMusicAccessDeniedIOS": "Apple Music access was not granted. Allow it for Rune in Settings > Privacy & Security > Media & Apple Music, then try again.",
+  "appleMusicNoToken": "Apple Music did not give Rune the access it needs. Try again.",
+  "appleMusicRegisterFailed": "Rune could not add Apple Music.",
+  "@appleMusicRegisterFailed": {
+  },
+  "appleMusicSignInFailed": "Apple Music did not accept the sign-in. Try again.",
+  "appleMusicUnreachable": "Rune could not reach Apple Music. Check the network connection, then try again.",
+  "appleMusicUnexpectedResponse": "Apple Music returned an unexpected response. Try again later.",
+  "appleMusicNeedsNewerMacOS": "Apple Music needs macOS 14 or later.",
+  "appleMusicNeedsNewerIOS": "Apple Music needs iOS 16.1 or later.",
+  "appleMusicAccountUnavailable": "The Apple Account on this Mac can't use Apple Music. Check the account in the Music app, then try again.",
+  "appleMusicAccountUnavailableIOS": "The Apple Account on this device can't use Apple Music. Check the account in the Music app, then try again.",
+  "appleMusicPrivacyNotice": "Open the Music app once and agree to its privacy notice, then try again."
 }

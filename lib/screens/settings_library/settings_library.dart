@@ -4,8 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/apple_music_sign_in.dart';
 import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
+import '../../utils/dialogs/library_sign_in.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
@@ -121,7 +122,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
             LibraryRecordKindSummaryLocal() ||
             LibraryRecordKindSummaryReplica() ||
             LibraryRecordKindSummarySubsonic() ||
-            LibraryRecordKindSummaryOpenDal() => true,
+            LibraryRecordKindSummaryOpenDal() ||
+            LibraryRecordKindSummaryAppleMusic() => true,
             _ => false,
           },
         )
@@ -250,6 +252,13 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           // path.
                           LibraryRecordKindSummaryOpenDal(:final endpoint) =>
                             LibraryRowState(null, endpoint),
+                          // An Apple Music library keeps no catalog on this
+                          // device either. Its row says where it plays.
+                          LibraryRecordKindSummaryAppleMusic() =>
+                            LibraryRowState(
+                              null,
+                              appleMusicSubtitleText(S.of(context)),
+                            ),
                           _ => libraryRowState(
                             itemPath,
                             registeredLibraries,
@@ -285,7 +294,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         String fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() ||
                           LibraryRecordKindSummarySubsonic() ||
-                          LibraryRecordKindSummaryOpenDal() => record.alias,
+                          LibraryRecordKindSummaryOpenDal() ||
+                          LibraryRecordKindSummaryAppleMusic() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
@@ -302,7 +312,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         return ListTile.selectable(
                           title: SettingsTileTitle(
                             icon: switch (record.kind) {
-                              LibraryRecordKindSummarySubsonic() =>
+                              LibraryRecordKindSummarySubsonic() ||
+                              LibraryRecordKindSummaryAppleMusic() =>
                                 Symbols.music_note,
                               LibraryRecordKindSummaryOpenDal() =>
                                 Symbols.cloud,
@@ -319,11 +330,15 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                 Button(
                                   onPressed: whileWorking(() async {
                                     try {
-                                      await openLibraryWithSubsonicRelogin(
+                                      // A sign-in the user was told about
+                                      // and closed leaves them here.
+                                      if (!await openLibraryWithSignIn(
                                         context,
                                         registry,
                                         record.recordId,
-                                      );
+                                      )) {
+                                        return;
+                                      }
                                     } catch (error) {
                                       if (!context.mounted) return;
                                       await showFailedToInitializeLibrary(

@@ -1817,5 +1817,20 @@
   "artistSectionAppearsOn": "参加作品",
   "artistSectionSinglesAndEps": "単曲・EP",
   "artistSectionLatestRelease": "最新作",
-  "artistSectionEssentialAlbums": "必聴歌集"
+  "artistSectionEssentialAlbums": "必聴歌集",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "此 Mac 経由 Apple Music 資料集再生。",
+  "appleMusicSubtitleIOS": "此 iPhone 或 iPad 上 Apple Music 資料集再生。",
+  "appleMusicAccessDenied": "Apple Music 接続許可無。系統設定於 Rune 許可後、再試行。",
+  "appleMusicAccessDeniedIOS": "Apple Music 接続許可無。設定 > 私事保護与安全性 > 媒体与 Apple Music 於 Rune 許可後、再試行。",
+  "appleMusicNoToken": "Apple Music 必要接続権不与。再試行。",
+  "appleMusicRegisterFailed": "Apple Music 追加不可。",
+  "appleMusicSignInFailed": "Apple Music 登録不受付。再試行。",
+  "appleMusicUnreachable": "Apple Music 接続不可。網絡接続確認後、再試行。",
+  "appleMusicUnexpectedResponse": "Apple Music 予期外応答返却。後刻再試行。",
+  "appleMusicNeedsNewerMacOS": "Apple Music 必要 macOS 14 以降。",
+  "appleMusicNeedsNewerIOS": "Apple Music 必要 iOS 16.1 以降。",
+  "appleMusicAccountUnavailable": "此 Mac 之 Apple Account、Apple Music 利用不可。音楽 App 内口座確認後、再試行。",
+  "appleMusicAccountUnavailableIOS": "此装置之 Apple Account、Apple Music 利用不可。音楽 App 内口座確認後、再試行。",
+  "appleMusicPrivacyNotice": "音楽 App 一度開、私事保護通知同意後、再試行。"
 }

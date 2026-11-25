@@ -1815,5 +1815,20 @@
   "artistSectionAppearsOn": "参加作品",
   "artistSectionSinglesAndEps": "単曲と EP",
   "artistSectionLatestRelease": "最新作",
-  "artistSectionEssentialAlbums": "必聴歌集"
+  "artistSectionEssentialAlbums": "必聴歌集",
+  "appleMusic": "Apple Music",
+  "appleMusicSubtitle": "この Mac で Apple Music のライブラリを再生します。",
+  "appleMusicSubtitleIOS": "この iPhone または iPad で Apple Music のライブラリを再生します。",
+  "appleMusicAccessDenied": "Apple Music へのアクセスが許可されませんでした。システム設定で Rune に許可してから、もう一度お試しください。",
+  "appleMusicAccessDeniedIOS": "Apple Music へのアクセスが許可されませんでした。「設定」>「プライバシーとセキュリティ」>「メディアと Apple Music」で Rune に許可してから、もう一度お試しください。",
+  "appleMusicNoToken": "Apple Music から必要なアクセスを得られませんでした。もう一度お試しください。",
+  "appleMusicRegisterFailed": "Apple Music を追加できませんでした。",
+  "appleMusicSignInFailed": "Apple Music がサインインを受け付けませんでした。もう一度お試しください。",
+  "appleMusicUnreachable": "Apple Music に接続できませんでした。ネットワーク接続を確認してから、もう一度お試しください。",
+  "appleMusicUnexpectedResponse": "Apple Music から予期しない応答が返されました。しばらくしてからもう一度お試しください。",
+  "appleMusicNeedsNewerMacOS": "Apple Music には macOS 14 以降が必要です。",
+  "appleMusicNeedsNewerIOS": "Apple Music には iOS 16.1 以降が必要です。",
+  "appleMusicAccountUnavailable": "この Mac の Apple Account では Apple Music を利用できません。ミュージック App でアカウントを確認してから、もう一度お試しください。",
+  "appleMusicAccountUnavailableIOS": "このデバイスの Apple Account では Apple Music を利用できません。ミュージック App でアカウントを確認してから、もう一度お試しください。",
+  "appleMusicPrivacyNotice": "ミュージック App を一度開いてプライバシーに関する通知に同意してから、もう一度お試しください。"
 }

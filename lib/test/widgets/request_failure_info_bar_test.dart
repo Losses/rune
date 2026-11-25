@@ -20,6 +20,7 @@ import '../../providers/visualizer_lab.dart';
 import '../../providers/visualizer_scenes.dart';
 import '../../screens/bsod/bsod.dart';
 import '../../utils/api/request_failure.dart';
+import '../../utils/device_sign_in.dart';
 import '../../widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import '../../widgets/router/rune_router_frame_implementation.dart';
 
@@ -297,6 +298,10 @@ Future<void> _pumpApp(WidgetTester tester) async {
               invalidRecords: [],
             ),
           ),
+        ),
+        Provider(
+          create: (context) =>
+              DeviceSignIns(context.read<LibraryRegistryProvider>()),
         ),
         ChangeNotifierProvider(
           create: (context) => LibraryOpenStateProvider(
