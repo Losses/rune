@@ -1,10 +1,12 @@
-//! Answers the library requests of an open Apple Music library from the lists its binding keeps
-//! and from Apple's API, mapping Apple's models to the hub's messages.
+//! Answers the library requests of an open Apple Music library from the lists its binding keeps,
+//! from Rune's own playlists it keeps on this device and from Apple's API, mapping Apple's models
+//! to the hub's messages.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
 use apple_music::models::{Artwork, LibraryAlbum, LibrarySong};
+use database::actions::playlists::OCCURRENCE_PAGE_SIZES;
 use database::actions::utils::generate_group_name;
 use database::error::ExpectedError;
 use futures::{StreamExt, TryStreamExt, stream};
@@ -14,22 +16,29 @@ use rand::rngs::StdRng;
 use crate::TypedRequest;
 use crate::apple_music_artists::{NamedArtist, catalog_artist_remote, named_artist_remote};
 use crate::apple_music_binding::{
-    AppleIdKind, AppleMusicBinding, AppleSong, AppleSongs, CollectionInfo, SongRef, cover_url,
-    is_library_song,
+    AppleIdKind, AppleMusicBinding, AppleSong, AppleSongs, CollectionInfo, SongRef, catalog_track,
+    cover_url, is_library_song, is_library_song_id,
 };
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
-    Album, Artist, AudioOrigin, Collection, CollectionGroup, CollectionGroupSummary,
+    AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist, AudioAvailability,
+    AudioOrigin, Collection, CollectionGroup, CollectionGroupSummary,
     CollectionGroupSummaryResponse, CollectionType, ComplexQueryRequest, ComplexQueryResponse,
-    FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
-    FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
-    FetchMediaFileByIdsResponse, FetchMediaFilesRequest, FetchMediaFilesResponse,
-    FetchParsedMediaFileRequest, FetchParsedMediaFileResponse, GetLikedRequest,
-    GetLyricByTrackIdRequest, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
-    GetPrimaryColorByTrackIdRequest, MediaFile, MediaFileSummary, MixQueryRequest,
-    MixQueryResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
+    CreatePlaylistRequest, CreatePlaylistResponse, FetchAllPlaylistsRequest,
+    FetchAllPlaylistsResponse, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
+    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
+    FetchMediaFilesRequest, FetchMediaFilesResponse, FetchParsedMediaFileRequest,
+    FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
+    FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLyricByTrackIdRequest,
+    GetMediaFilesCountRequest, GetMediaFilesCountResponse, GetPlaylistByIdRequest,
+    GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest, MediaFile, MediaFileSummary,
+    MixQueryRequest, MixQueryResponse, Playlist, PlaylistOccurrence, PlaylistOccurrenceCursor,
+    RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemovePlaylistRequest,
+    RemovePlaylistResponse, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
     SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest,
-    SearchMediaFileSummaryResponse, SetLikedRequest,
+    SearchMediaFileSummaryResponse, SetLikedRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot};
@@ -37,6 +46,7 @@ use crate::service::{
     ServiceBinding, ServiceFuture,
     home::{self, HomeItem, HomeSource, HomeTrack},
     mixes::{self, MixItem, MixSource, MixTarget, Plan, unsupported_query},
+    rune_playlists::{StoredEntry, StoredPlaylist, TrackAbout},
 };
 
 /// How many songs are looked up at once when a request names songs the binding lacks.
@@ -44,6 +54,12 @@ const LOOKUP_PARALLELISM: usize = 4;
 
 /// How many albums of an artist are read at once.
 const ALBUM_READS: usize = 4;
+
+/// How many of a Rune playlist's first tracks are looked at for its cover.
+const RUNE_COVER_CANDIDATES: usize = 10;
+
+/// How many tracks of a Rune playlist are looked up together while a mix page is filled.
+const RUNE_PAGE_STEP: usize = 64;
 
 /// What the ids of albums and artists of the catalog hold before Apple's id, so they never pass
 /// for those of the library.
@@ -53,7 +69,9 @@ fn id_kind(collection_type: CollectionType, request: &'static str) -> Result<App
     match collection_type {
         CollectionType::Album => Ok(AppleIdKind::Album),
         CollectionType::Artist => Ok(AppleIdKind::Artist),
-        // The library lists no playlists or mixes, and genres and folders are not served.
+        // The playlists are Rune's own: Apple's are not listed.
+        CollectionType::Playlist => Ok(AppleIdKind::RunePlaylist),
+        // The library lists no mixes, and genres and folders are not served.
         _ => Err(unsupported_query(request)),
     }
 }
@@ -76,16 +94,20 @@ fn album_artwork(album: &LibraryAlbum) -> Option<&Artwork> {
     album.attributes.as_ref()?.artwork.as_ref()
 }
 
-/// One album or artist as listed, with the id the UI knows it by.
+/// One album, artist or playlist as listed, with the id the UI knows it by.
 struct Entry {
     id: i32,
     name: String,
     cover: Option<String>,
-    /// The group it is listed in: its first letter.
+    /// The group it is listed in: an album's or an artist's first letter, or a playlist's own
+    /// group.
     group: String,
+    /// Whether it cannot be changed here, as only Rune's own playlists can.
+    readonly: bool,
 }
 
-/// Every library collection of one kind, numbered and remembered for later pages.
+/// Every library collection of one kind, numbered and remembered for later pages. The playlists
+/// are Rune's own, kept on this device.
 async fn entries(
     binding: &AppleMusicBinding,
     kind: AppleIdKind,
@@ -106,6 +128,7 @@ async fn entries(
             name: name.to_owned(),
             cover,
             group: generate_group_name(name),
+            readonly: true,
         });
         Ok::<_, anyhow::Error>(())
     };
@@ -121,11 +144,33 @@ async fn entries(
                 add(&artist.remote(), &artist.name, artist.artwork.as_ref())?;
             }
         }
+        AppleIdKind::RunePlaylist => {
+            for playlist in binding.rune_playlists.listed().await?.iter() {
+                found.push(rune_entry(binding, playlist)?);
+            }
+        }
         AppleIdKind::LibrarySong | AppleIdKind::CatalogSong | AppleIdKind::CoverArt => {
             return Err(unsupported_query(request));
         }
     }
     Ok(found)
+}
+
+/// A Rune playlist as listed. Its cover is that of the first of its first few tracks the binding
+/// holds with a cover; no song is read for it.
+fn rune_entry(binding: &AppleMusicBinding, playlist: &StoredPlaylist) -> Result<Entry> {
+    let cover = playlist
+        .entries
+        .iter()
+        .take(RUNE_COVER_CANDIDATES)
+        .find_map(|entry| cover_url(binding.known_song(&entry.track)?.as_ref().artwork()));
+    Ok(Entry {
+        id: binding.intern(AppleIdKind::RunePlaylist, &playlist.id)?,
+        name: playlist.name.clone(),
+        cover,
+        group: playlist.group.clone(),
+        readonly: false,
+    })
 }
 
 async fn collection_of(
@@ -144,7 +189,7 @@ async fn collection_of(
         queries: Vec::new(),
         collection_type,
         cover_art_map: binding.cover_map(covers).await?,
-        readonly: true,
+        readonly: entry.readonly,
     })
 }
 
@@ -277,6 +322,13 @@ pub(crate) async fn fetch_collection_by_ids_request(
         }));
     }
     let kind = id_kind(request.collection_type, wire_name)?;
+    if kind == AppleIdKind::RunePlaylist {
+        return Ok(Some(FetchCollectionByIdsResponse {
+            call_id: None,
+            collection_type: request.collection_type,
+            result: rune_playlists_by_ids(binding, &request.ids).await?,
+        }));
+    }
     let mut result = Vec::with_capacity(request.ids.len());
     for id in &request.ids {
         let info = match binding.collection_info(kind, *id) {
@@ -336,6 +388,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
             group: generate_group_name(&info.name),
             name: info.name,
             cover: info.cover,
+            readonly: true,
         };
         result.push(collection_of(binding, &entry, request.collection_type).await?);
     }
@@ -344,6 +397,24 @@ pub(crate) async fn fetch_collection_by_ids_request(
         collection_type: request.collection_type,
         result,
     }))
+}
+
+/// The Rune playlists among `ids`, as they are listed. One removed meanwhile is left out, as a
+/// local library leaves it out, and so is every one while their file cannot be read.
+async fn rune_playlists_by_ids(
+    binding: &AppleMusicBinding,
+    ids: &[i32],
+) -> Result<Vec<Collection>> {
+    let kept = binding.rune_playlists.listed().await?;
+    let mut result = Vec::with_capacity(ids.len());
+    for id in ids {
+        let stored = stored_playlist_id(binding, *id)?;
+        if let Some(playlist) = kept.iter().find(|playlist| playlist.id == stored) {
+            let entry = rune_entry(binding, playlist)?;
+            result.push(collection_of(binding, &entry, CollectionType::Playlist).await?);
+        }
+    }
+    Ok(result)
 }
 
 pub(crate) async fn search_collection_summary_request(
@@ -612,7 +683,420 @@ pub(crate) async fn search_media_file_summary_request(
     }))
 }
 
-/// The collection a `MixQuery` asks the songs of.
+/// The id the store keeps the Rune playlist the UI numbered `id` under.
+fn stored_playlist_id(binding: &AppleMusicBinding, id: i32) -> Result<String> {
+    binding.resolve(AppleIdKind::RunePlaylist, id)
+}
+
+/// The Rune playlist the UI numbered `id`, as kept.
+async fn rune_playlist(binding: &AppleMusicBinding, id: i32) -> Result<StoredPlaylist> {
+    let stored = stored_playlist_id(binding, id)?;
+    binding.rune_playlists.playlist(&stored).await
+}
+
+/// A Rune playlist in wire form.
+fn rune_playlist_of(binding: &AppleMusicBinding, playlist: &StoredPlaylist) -> Result<Playlist> {
+    Ok(Playlist {
+        id: binding.intern(AppleIdKind::RunePlaylist, &playlist.id)?,
+        name: playlist.name.clone(),
+        group: playlist.group.clone(),
+    })
+}
+
+/// A position a request gives, which may not be negative.
+fn position(value: i32) -> Result<usize> {
+    usize::try_from(value)
+        .map_err(|_| ExpectedRequestError::invalid_input("Invalid playlist position").into())
+}
+
+/// A position as a response gives it.
+fn wire_position(index: usize) -> Result<i32> {
+    i32::try_from(index)
+        .map_err(|_| ExpectedRequestError::invalid_input("Playlist is too long").into())
+}
+
+/// The playlists a song can be added to, which is what the UI lists them for: Rune's own, by
+/// group, as a local library lists them. Apple's own are not listed, and never written to.
+pub(crate) async fn fetch_all_playlists_request(
+    binding: &AppleMusicBinding,
+    _: &FetchAllPlaylistsRequest,
+) -> Result<Option<FetchAllPlaylistsResponse>> {
+    let mut playlists = binding
+        .rune_playlists
+        .listed()
+        .await?
+        .iter()
+        .map(|playlist| rune_playlist_of(binding, playlist))
+        .collect::<Result<Vec<_>>>()?;
+    playlists.sort_by(|left, right| left.group.cmp(&right.group));
+    Ok(Some(FetchAllPlaylistsResponse {
+        playlists,
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn get_playlist_by_id_request(
+    binding: &AppleMusicBinding,
+    request: &GetPlaylistByIdRequest,
+) -> Result<Option<GetPlaylistByIdResponse>> {
+    let playlist = rune_playlist(binding, request.playlist_id).await?;
+    Ok(Some(GetPlaylistByIdResponse {
+        playlist: rune_playlist_of(binding, &playlist)?,
+        call_id: None,
+    }))
+}
+
+/// Makes a Rune playlist, kept on this device.
+pub(crate) async fn create_playlist_request(
+    binding: &AppleMusicBinding,
+    request: &CreatePlaylistRequest,
+) -> Result<Option<CreatePlaylistResponse>> {
+    let made = binding
+        .rune_playlists
+        .create(&request.name, &request.group)
+        .await?;
+    binding.content_changed();
+    Ok(Some(CreatePlaylistResponse {
+        playlist: rune_playlist_of(binding, &made)?,
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn update_playlist_request(
+    binding: &AppleMusicBinding,
+    request: &UpdatePlaylistRequest,
+) -> Result<Option<UpdatePlaylistResponse>> {
+    let stored = stored_playlist_id(binding, request.playlist_id)?;
+    let playlist = binding
+        .rune_playlists
+        .update(&stored, &request.name, &request.group)
+        .await?;
+    binding.content_changed();
+    Ok(Some(UpdatePlaylistResponse {
+        playlist: rune_playlist_of(binding, &playlist)?,
+        call_id: None,
+    }))
+}
+
+pub(crate) async fn remove_playlist_request(
+    binding: &AppleMusicBinding,
+    request: &RemovePlaylistRequest,
+) -> Result<Option<RemovePlaylistResponse>> {
+    let stored = stored_playlist_id(binding, request.playlist_id)?;
+    binding.rune_playlists.remove(&stored).await?;
+    binding.content_changed();
+    Ok(Some(RemovePlaylistResponse {
+        playlist_id: request.playlist_id,
+        call_id: None,
+    }))
+}
+
+/// What is known of the song of `track`, as a Rune playlist keeps it with its entry: enough to
+/// play it once its library copy is gone, or to name it once Apple no longer has it.
+fn track_about(track: &str, song: SongRef<'_>) -> TrackAbout {
+    let catalog_id = match song {
+        SongRef::Library(song) if is_library_song_id(track) => song.store_id().map(str::to_owned),
+        _ => None,
+    };
+    TrackAbout {
+        catalog_id,
+        title: Some(song.title())
+            .filter(|title| !title.is_empty())
+            .map(str::to_owned),
+        artist: song.artist().map(str::to_owned),
+        album: song.album().map(str::to_owned),
+    }
+}
+
+/// Puts a song of the library or of the catalog into a Rune playlist, at the position asked or
+/// last. A catalog song is kept as it is, and nothing is added to the library. Its entry keeps
+/// the occurrence id answered for as long as it is in the playlist, and what the binding holds
+/// of the song.
+pub(crate) async fn add_item_to_playlist_request(
+    binding: &AppleMusicBinding,
+    request: &AddItemToPlaylistRequest,
+) -> Result<Option<AddItemToPlaylistResponse>> {
+    let stored = stored_playlist_id(binding, request.playlist_id)?;
+    let track = binding.resolve_track(request.media_file_id)?;
+    let at = request.position.map(position).transpose()?;
+    // The UI just listed it, so Apple has it.
+    binding.found_again(&track);
+    let about = binding
+        .known_song(&track)
+        .map(|song| track_about(&track, song.as_ref()))
+        .unwrap_or_default();
+    let occurrence_id = binding
+        .rune_playlists
+        .add(&stored, &track, about, at)
+        .await?;
+    binding.content_changed();
+    Ok(Some(AddItemToPlaylistResponse {
+        occurrence_id,
+        call_id: None,
+    }))
+}
+
+/// Moves a track of a Rune playlist so that it ends up at the position asked, or last.
+pub(crate) async fn reorder_playlist_item_position_request(
+    binding: &AppleMusicBinding,
+    request: &ReorderPlaylistItemPositionRequest,
+) -> Result<Option<ReorderPlaylistItemPositionResponse>> {
+    let stored = stored_playlist_id(binding, request.playlist_id)?;
+    let to = position(request.new_position)?;
+    binding
+        .rune_playlists
+        .move_entry(&stored, &request.occurrence_id, to)
+        .await?;
+    binding.content_changed();
+    Ok(Some(ReorderPlaylistItemPositionResponse { call_id: None }))
+}
+
+pub(crate) async fn remove_item_from_playlist_request(
+    binding: &AppleMusicBinding,
+    request: &RemoveItemFromPlaylistRequest,
+) -> Result<Option<RemoveItemFromPlaylistResponse>> {
+    let stored = stored_playlist_id(binding, request.playlist_id)?;
+    binding
+        .rune_playlists
+        .remove_entry(&stored, &request.occurrence_id)
+        .await?;
+    binding.content_changed();
+    Ok(Some(RemoveItemFromPlaylistResponse { call_id: None }))
+}
+
+/// The catalog song an entry's library song was a copy of, when that was known when it was
+/// added. It plays the entry once the library copy is gone.
+fn catalog_copy(entry: &StoredEntry) -> Option<String> {
+    if !is_library_song_id(&entry.track) {
+        return None;
+    }
+    entry.about.catalog_id.as_deref().map(catalog_track)
+}
+
+/// Whether Apple said it does not have the song of `track`, and nothing listed it since.
+fn gone(binding: &AppleMusicBinding, track: &str) -> bool {
+    binding.known_missing(track) && binding.known_song(track).is_none()
+}
+
+/// The track a Rune playlist's entry plays: its own, or the catalog song its library song was a
+/// copy of once Apple said the library copy is gone. Nothing is read for it.
+fn playing_track(binding: &AppleMusicBinding, entry: &StoredEntry) -> String {
+    if gone(binding, &entry.track)
+        && let Some(copy) = catalog_copy(entry)
+    {
+        return copy;
+    }
+    entry.track.clone()
+}
+
+/// The songs of a Rune playlist's entries, in order, with the tracks they play: those the binding
+/// holds, then those it lacks, read together. An entry whose library song is gone plays the
+/// catalog song it was a copy of, when that is known. A track Apple no longer has, or that names
+/// no song, is None, so its entry is still listed and can be removed; Apple is not asked for it
+/// again under this sign-in.
+async fn rune_songs(binding: &AppleMusicBinding, entries: &[StoredEntry]) -> Vec<Option<Listed>> {
+    let mut read = binding
+        .read_unknown_tracks(entries.iter().map(|entry| entry.track.clone()))
+        .await;
+    // A library song that read found gone plays its catalog copy, which is read too.
+    let copies: Vec<String> = entries
+        .iter()
+        .map(|entry| playing_track(binding, entry))
+        .zip(entries)
+        .filter(|(track, entry)| *track != entry.track)
+        .map(|(track, _)| track)
+        .collect();
+    if !copies.is_empty() {
+        read.extend(binding.read_unknown_tracks(copies).await);
+    }
+    entries
+        .iter()
+        .map(|entry| rune_song(binding, &read, entry))
+        .collect()
+}
+
+/// The song of one entry of a Rune playlist, as `rune_songs` reads them: from what was read, else
+/// from what the binding holds.
+fn rune_song(
+    binding: &AppleMusicBinding,
+    read: &HashMap<String, AppleSong>,
+    entry: &StoredEntry,
+) -> Option<Listed> {
+    let held = |track: &str| {
+        if gone(binding, track) {
+            return None;
+        }
+        read.get(track)
+            .cloned()
+            .or_else(|| binding.known_song(track))
+    };
+    if let Some(song) = held(&entry.track) {
+        return Some((entry.track.clone(), song));
+    }
+    let copy = catalog_copy(entry)?;
+    held(&copy).map(|song| (copy, song))
+}
+
+/// An entry whose song Apple no longer has, named as it was when it was added; None when nothing
+/// was known of it. It cannot play, and its id is 0, as the UI numbers an entry without a file.
+fn remembered_file(binding: &AppleMusicBinding, entry: &StoredEntry) -> Option<MediaFile> {
+    let title = entry.about.title.clone()?;
+    Some(MediaFile {
+        id: 0,
+        library_id: ServiceBinding::library_id(binding).to_string(),
+        track: entry.track.clone(),
+        path: String::new(),
+        artist: entry.about.artist.clone().unwrap_or_default(),
+        album: entry.about.album.clone().unwrap_or_default(),
+        title,
+        duration: 0.0,
+        cover_art_id: None,
+        track_number: None,
+        audio_availability: AudioAvailability::Unavailable,
+        audio_origin: AudioOrigin::Remote,
+    })
+}
+
+/// Where a page of `entries` starts: after the entry the page before ended with, or, when that
+/// entry was taken out meanwhile, at the position it had.
+fn page_start(entries: &[StoredEntry], after: Option<&PlaylistOccurrenceCursor>) -> Result<usize> {
+    let Some(after) = after else {
+        return Ok(0);
+    };
+    let start = match entries
+        .iter()
+        .position(|entry| entry.occurrence == after.occurrence_id)
+    {
+        Some(index) => index + 1,
+        None => usize::try_from(after.position)
+            .map_err(|_| ExpectedRequestError::invalid_input("Invalid occurrence cursor"))?,
+    };
+    Ok(start.min(entries.len()))
+}
+
+/// The entries of `page`, which starts at the position `start`, as a playlist page lists them,
+/// and the `(media file id, address)` pairs of their covers. An entry that plays its catalog copy
+/// is named by that song's track.
+async fn listed_occurrences(
+    binding: &AppleMusicBinding,
+    page: &[StoredEntry],
+    start: usize,
+) -> Result<(Vec<PlaylistOccurrence>, Vec<(i32, String)>)> {
+    let songs = rune_songs(binding, page).await;
+    let found: Vec<Listed> = songs.iter().flatten().cloned().collect();
+    let (files, covers) = media_files(binding, song_refs(&found))?;
+    let mut files = files.into_iter();
+    let listed = page
+        .iter()
+        .zip(&songs)
+        .enumerate()
+        .map(|(offset, (entry, song))| {
+            let (track_uuid, file) = match song {
+                Some((track, _)) => (track.clone(), files.next()),
+                None => (entry.track.clone(), remembered_file(binding, entry)),
+            };
+            Ok(PlaylistOccurrence {
+                occurrence_id: entry.occurrence.clone(),
+                position: wire_position(start + offset)?,
+                track_uuid,
+                file,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((listed, covers))
+}
+
+/// Where the page after one that ends before the position `end` of `entries` starts; None when
+/// that page ends the playlist.
+fn next_cursor(entries: &[StoredEntry], end: usize) -> Result<Option<PlaylistOccurrenceCursor>> {
+    match entries[..end].last() {
+        Some(last) if end < entries.len() => Ok(Some(PlaylistOccurrenceCursor {
+            position: wire_position(end - 1)?,
+            occurrence_id: last.occurrence.clone(),
+        })),
+        _ => Ok(None),
+    }
+}
+
+/// A page of a Rune playlist. Its entries keep their occurrence ids however the others move, so
+/// a page starts after the entry the one before ended with. An entry whose song Apple no longer
+/// has is listed too, so it can be removed.
+pub(crate) async fn fetch_playlist_occurrences_request(
+    binding: &AppleMusicBinding,
+    request: &FetchPlaylistOccurrencesRequest,
+) -> Result<Option<FetchPlaylistOccurrencesResponse>> {
+    if !OCCURRENCE_PAGE_SIZES.contains(&request.page_size) {
+        return Err(ExpectedRequestError::invalid_input(format!(
+            "Playlist page size must be {}..={}",
+            OCCURRENCE_PAGE_SIZES.start(),
+            OCCURRENCE_PAGE_SIZES.end()
+        ))
+        .into());
+    }
+    let playlist = rune_playlist(binding, request.playlist_id).await?;
+    let entries = &playlist.entries;
+    let start = page_start(entries, request.after.as_ref())?;
+    let end = start
+        .saturating_add(usize::try_from(request.page_size)?)
+        .min(entries.len());
+    let (listed, covers) = listed_occurrences(binding, &entries[start..end], start).await?;
+    let cover_art_map = if request.bake_cover_arts {
+        binding.cover_map(covers).await?
+    } else {
+        HashMap::new()
+    };
+    Ok(Some(FetchPlaylistOccurrencesResponse {
+        request_id: request.request_id.clone(),
+        entries: listed,
+        next: next_cursor(entries, end)?,
+        cover_art_map,
+        call_id: request.call_id,
+    }))
+}
+
+/// The songs of the Rune playlist the UI numbered `id` that Apple still has, in order.
+async fn rune_playlist_songs(binding: &AppleMusicBinding, id: i32) -> Result<Vec<Listed>> {
+    let playlist = rune_playlist(binding, id).await?;
+    Ok(rune_songs(binding, &playlist.entries)
+        .await
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// A page of the songs of the Rune playlist the UI numbered `id` that Apple still has, and that
+/// have a cover when `cover_only` is set, which is what a mix query pages through. Its tracks are
+/// looked up a step at a time until the page is full or the playlist ends, so a page is short
+/// only at the end. The pages before it are looked up again to count the songs that are left
+/// out; the binding holds what it found, and what is gone, so that costs Apple nothing the
+/// second time.
+async fn rune_playlist_page(
+    binding: &AppleMusicBinding,
+    id: i32,
+    cover_only: bool,
+    cursor: usize,
+    count: usize,
+) -> Result<Vec<Listed>> {
+    let playlist = rune_playlist(binding, id).await?;
+    let wanted = cursor.saturating_add(count);
+    let mut found = Vec::new();
+    for step in playlist.entries.chunks(RUNE_PAGE_STEP) {
+        if found.len() >= wanted {
+            break;
+        }
+        found.extend(
+            rune_songs(binding, step)
+                .await
+                .into_iter()
+                .flatten()
+                .filter(|(_, song)| !cover_only || song_has_cover(song)),
+        );
+    }
+    Ok(found.into_iter().skip(cursor).take(count).collect())
+}
+
+/// The collection of the library a `MixQuery` asks the songs of. A playlist is one of Rune's
+/// own, which `rune_playlist_songs` lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DetailQuery {
     Artist(i32),
@@ -620,16 +1104,6 @@ enum DetailQuery {
 }
 
 impl DetailQuery {
-    /// The query for the songs of `target`, which `request` asks for. The library lists no
-    /// playlists.
-    fn of(target: MixTarget, request: &'static str) -> Result<Self> {
-        match target {
-            MixTarget::Album(id) => Ok(Self::Album(id)),
-            MixTarget::Artist(id) => Ok(Self::Artist(id)),
-            MixTarget::Playlist(_) => Err(unsupported_query(request)),
-        }
-    }
-
     /// The kind and the id of the collection.
     fn collection(self) -> (AppleIdKind, i32) {
         match self {
@@ -809,6 +1283,17 @@ async fn mix_detail_songs(binding: &AppleMusicBinding, query: DetailQuery) -> Re
     detail_songs(binding, query).await
 }
 
+/// The songs of a collection that a mix query names: an album's or an artist's as
+/// `mix_detail_songs` gives them, or those of a Rune playlist that Apple still has.
+async fn collection_songs(binding: &AppleMusicBinding, target: MixTarget) -> Result<Vec<Listed>> {
+    let query = match target {
+        MixTarget::Album(id) => DetailQuery::Album(id),
+        MixTarget::Artist(id) => DetailQuery::Artist(id),
+        MixTarget::Playlist(id) => return rune_playlist_songs(binding, id).await,
+    };
+    mix_detail_songs(binding, query).await
+}
+
 /// Whether a song has a cover.
 fn song_has_cover(song: &AppleSong) -> bool {
     song.as_ref().artwork().is_some()
@@ -828,16 +1313,16 @@ pub(crate) async fn mix_query_request(
     // The cover wall draws at random and shows only covers, which it reads once.
     let cover_wall = planned.cover_only && matches!(planned.plan, Plan::Random(_));
     let mut page: Vec<Listed> = match planned.plan {
-        Plan::Collection(target) => {
-            let query = DetailQuery::of(target, MixQueryRequest::wire_name())?;
-            mix_detail_songs(binding, query)
-                .await?
-                .into_iter()
-                .filter(|(_, song)| !planned.cover_only || song_has_cover(song))
-                .skip(cursor)
-                .take(count)
-                .collect()
+        Plan::Collection(MixTarget::Playlist(id)) => {
+            rune_playlist_page(binding, id, planned.cover_only, cursor, count).await?
         }
+        Plan::Collection(target) => collection_songs(binding, target)
+            .await?
+            .into_iter()
+            .filter(|(_, song)| !planned.cover_only || song_has_cover(song))
+            .skip(cursor)
+            .take(count)
+            .collect(),
         Plan::All => binding
             .songs()
             .await?
@@ -925,18 +1410,16 @@ async fn items_songs(binding: &AppleMusicBinding, items: &[MixItem]) -> Result<V
     binding.read_unknown_tracks(tracks).await;
     let mut songs = Vec::new();
     for item in mixes::union_order(items) {
-        let target = match item {
+        match item {
             MixItem::Track(id) => {
                 if let Ok(track) = binding.resolve_track(id)
                     && let Some(song) = apple_song(binding, &track).await?
                 {
                     songs.push((track, song));
                 }
-                continue;
             }
-            MixItem::Collection(target) => DetailQuery::of(target, MixQueryRequest::wire_name())?,
-        };
-        songs.extend(mix_detail_songs(binding, target).await?);
+            MixItem::Collection(target) => songs.extend(collection_songs(binding, target).await?),
+        }
     }
     Ok(mixes::first_of_each_key(songs, |(track, _)| track.clone()))
 }
@@ -948,8 +1431,16 @@ impl MixSource for AppleMusicBinding {
 
     fn collection_tracks(&self, target: MixTarget) -> ServiceFuture<'_, Vec<String>> {
         Box::pin(async move {
-            let query = DetailQuery::of(target, ResolveMixQueryRequest::wire_name())?;
-            let songs = mix_detail_songs(self, query).await?;
+            // A Rune playlist names the track each entry plays, without a read.
+            if let MixTarget::Playlist(id) = target {
+                let playlist = rune_playlist(self, id).await?;
+                return Ok(playlist
+                    .entries
+                    .iter()
+                    .map(|entry| playing_track(self, entry))
+                    .collect());
+            }
+            let songs = collection_songs(self, target).await?;
             Ok(songs.into_iter().map(|(track, _)| track).collect())
         })
     }
@@ -989,10 +1480,6 @@ fn home_track(track: &str, song: &LibrarySong) -> HomeTrack {
 impl HomeSource for AppleMusicBinding {
     fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>> {
         Box::pin(async move {
-            // The library lists no playlists.
-            if collection_type == CollectionType::Playlist {
-                return Ok(Vec::new());
-            }
             let kind = id_kind(collection_type, ComplexQueryRequest::wire_name())?;
             let mut items: Vec<HomeItem> = entries(self, kind, ComplexQueryRequest::wire_name())
                 .await?
@@ -1011,9 +1498,9 @@ impl HomeSource for AppleMusicBinding {
         })
     }
 
-    /// Nothing in the library can be renamed or removed here.
-    fn editable(&self, _collection_type: CollectionType) -> bool {
-        false
+    /// Rune's own playlists can be renamed and removed here; nothing of Apple's can.
+    fn editable(&self, collection_type: CollectionType) -> bool {
+        collection_type == CollectionType::Playlist
     }
 
     fn tracks(&self, _limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
@@ -1092,7 +1579,7 @@ fn is_not_found(error: &anyhow::Error) -> bool {
 /// The song of `track`, unless Apple said it does not have it and nothing listed it since. A
 /// song Apple answers it does not have is remembered as missing.
 async fn apple_song(binding: &AppleMusicBinding, track: &str) -> Result<Option<AppleSong>> {
-    if binding.known_missing(track) && binding.known_song(track).is_none() {
+    if gone(binding, track) {
         return Ok(None);
     }
     let generation = binding.generation();
@@ -1164,6 +1651,15 @@ apple_music_requests! {
         MixQueryRequest => mix_query_request as translate_mix_query_request,
         ResolveMixQueryRequest => resolve_mix_query_request as translate_resolve_mix_query_request,
         ComplexQueryRequest => complex_query_request as translate_complex_query_request,
+        FetchAllPlaylistsRequest => fetch_all_playlists_request as translate_fetch_all_playlists_request,
+        GetPlaylistByIdRequest => get_playlist_by_id_request as translate_get_playlist_by_id_request,
+        CreatePlaylistRequest => create_playlist_request as translate_create_playlist_request,
+        UpdatePlaylistRequest => update_playlist_request as translate_update_playlist_request,
+        RemovePlaylistRequest => remove_playlist_request as translate_remove_playlist_request,
+        AddItemToPlaylistRequest => add_item_to_playlist_request as translate_add_item_to_playlist_request,
+        ReorderPlaylistItemPositionRequest => reorder_playlist_item_position_request as translate_reorder_playlist_item_position_request,
+        RemoveItemFromPlaylistRequest => remove_item_from_playlist_request as translate_remove_item_from_playlist_request,
+        FetchPlaylistOccurrencesRequest => fetch_playlist_occurrences_request as translate_fetch_playlist_occurrences_request,
     }
     // This device answers these by the library of the item each names, whichever library is
     // open: the items of another library are that library's to answer.

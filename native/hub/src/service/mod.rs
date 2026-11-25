@@ -1,6 +1,7 @@
 //! What the hub needs from a streaming service's library, whichever service it is.
 
 pub(crate) mod covers;
+pub(crate) mod device_records;
 pub(crate) mod folder;
 pub(crate) mod home;
 pub(crate) mod ids;
@@ -9,6 +10,7 @@ pub(crate) mod mixes;
 pub(crate) mod positional_occurrences;
 pub(crate) mod reach;
 pub(crate) mod registry;
+pub(crate) mod rune_playlists;
 pub(crate) mod store;
 
 use std::sync::Arc;

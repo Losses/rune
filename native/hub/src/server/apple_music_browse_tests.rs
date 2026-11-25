@@ -18,15 +18,17 @@ use tokio::net::TcpListener;
 use crate::apple_music_binding::{AppleIdKind, AppleMusicBinding, CONTENT_CHANGED_DELAY, Tokens};
 use crate::macros::{RequestSlots, capability_snapshot};
 use crate::messages::{
-    CallerQueue, CapabilityReason, CollectionType, ComplexQuery, ComplexQueryRequest,
-    ExcludedItems, FetchAllPlaylistsRequest, FetchCollectionByIdsRequest,
-    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest, FetchMediaFileByIdsRequest,
-    FetchMediaFilesRequest, FetchParsedMediaFileRequest, GetLyricByTrackIdRequest,
-    GetLyricByTrackIdResponse, GetMediaFilesCountRequest, GetPrimaryColorByTrackIdRequest,
+    AddItemToPlaylistRequest, CallerQueue, CapabilityReason, CollectionType, ComplexQuery,
+    ComplexQueryRequest, CreatePlaylistRequest, ExcludedItems, FetchAllPlaylistsRequest,
+    FetchCollectionByIdsRequest, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    FetchMediaFileByIdsRequest, FetchMediaFilesRequest, FetchParsedMediaFileRequest,
+    FetchPlaylistOccurrencesRequest, GetLyricByTrackIdRequest, GetLyricByTrackIdResponse,
+    GetMediaFilesCountRequest, GetPlaylistByIdRequest, GetPrimaryColorByTrackIdRequest,
     LibraryContentChanged, LibraryHomeListMode, LibraryHomeQuery, LibraryTaskState,
-    LibraryTaskStateChanged, MixQuery, MixQueryRequest, PlayingItemRef, RequestCapability,
-    RequestFailureCause, ResolveMixQueryRequest, SearchCollectionSummaryRequest,
-    SearchMediaFileSummaryRequest, SetLikedRequest,
+    LibraryTaskStateChanged, MixQuery, MixQueryRequest, PlayingItemRef,
+    RemoveItemFromPlaylistRequest, RemovePlaylistRequest, ReorderPlaylistItemPositionRequest,
+    RequestCapability, RequestFailureCause, ResolveMixQueryRequest, SearchCollectionSummaryRequest,
+    SearchMediaFileSummaryRequest, SetLikedRequest, UpdatePlaylistRequest,
 };
 use crate::node::NodeContext;
 use crate::request_error::{ExpectedRequestError, classify, request_failure_cause};
@@ -84,6 +86,15 @@ struct AppleFake {
     /// Whether the library is that of another account: the same, but every library id has
     /// "b-" after its kind (see `other_account_id`).
     other_account: AtomicBool,
+    /// Every request that is not a read, as its method and target: Apple would take it as a
+    /// change to the account.
+    writes: Mutex<Vec<String>>,
+    /// Lists the user's own playlist "Road Trip", whose songs join the song list, and the
+    /// subscribed "Evening Jazz".
+    playlists: bool,
+    /// Answers the songs of `old_library_songs` when they are asked for by id, though the list
+    /// lacks them. Cleared, Apple no longer has them.
+    old_songs: AtomicBool,
 }
 
 /// The id another account's library has for `id`, when `id` is a library id: "i.s1" is
@@ -340,6 +351,46 @@ impl AppleFake {
         }
     }
 
+    /// "i.copy", the library's copy of the catalog song "777", and "i.lost", a song of no catalog
+    /// song, which the song list lacks (see `old_songs`).
+    fn old_library_songs(&self) -> [Value; 2] {
+        let old = |id: &str, title: &str| {
+            self.song(
+                id,
+                title,
+                ("l.old", "Old Album"),
+                ("r.old", "Old Artist"),
+                1,
+            )
+        };
+        let mut copy = old("i.copy", "Copied Tune");
+        copy["attributes"]["playParams"]["catalogId"] = json!("777");
+        let mut lost = old("i.lost", "Lost Song");
+        lost["attributes"]["playParams"]
+            .as_object_mut()
+            .expect("play parameters")
+            .remove("catalogId");
+        [copy, lost]
+    }
+
+    /// One of the user's library playlists: one the user made when `editable`, and one
+    /// subscribed from the catalog otherwise.
+    fn library_playlist(&self, id: &str, name: &str, editable: bool) -> Value {
+        json!({
+            "id": id,
+            "type": "library-playlists",
+            "href": format!("/v1/me/library/playlists/{id}"),
+            "attributes": {
+                "name": name,
+                "canEdit": editable,
+                "hasCatalog": !editable,
+                "isPublic": false,
+                "playParams": {"id": id, "kind": "playlist", "isLibrary": true},
+                "artwork": self.artwork(name),
+            },
+        })
+    }
+
     fn catalog_songs(&self, ids: &[&str]) -> Value {
         json!({"data": ids.iter().filter_map(|id| self.catalog_song(id)).collect::<Vec<_>>()})
     }
@@ -445,6 +496,9 @@ impl AppleFake {
                         ("r.art2", "Artist Two"),
                         9,
                     ));
+                    if self.old_songs.load(Ordering::SeqCst) {
+                        songs.extend(self.old_library_songs());
+                    }
                     songs.retain(|song| asked.iter().any(|id| song["id"] == id.as_str()));
                 }
                 json!({"data": songs})
@@ -524,8 +578,18 @@ impl AppleFake {
                 json!({"data": [artist]})
             }
             "/v1/me/library/artists/r.art1/albums" => json!({"data": [albums[0]]}),
-            // The song list holds the songs of the library's playlists too; it has none.
+            // The song list holds the songs of the user's own playlists too.
+            "/v1/me/library/playlists" if self.playlists => json!({"data": [
+                self.library_playlist("p.mine1", "Road Trip", true),
+                self.library_playlist("p.sub1", "Evening Jazz", false),
+            ]}),
             "/v1/me/library/playlists" => json!({"data": []}),
+            "/v1/me/library/playlists/p.mine1/tracks" if self.playlists => {
+                json!({"data": [s1, s3]})
+            }
+            "/v1/me/library/playlists/p.sub1/tracks" if self.playlists => {
+                json!({"data": [s2, s1]})
+            }
             _ => return None,
         })
     }
@@ -542,6 +606,12 @@ async fn apple_fake(
         .path_and_query()
         .map(|target| target.as_str().to_owned())
         .unwrap_or_default();
+    if method != Method::GET {
+        fake.writes
+            .lock()
+            .unwrap()
+            .push(format!("{method} {target}"));
+    }
     fake.seen.lock().unwrap().push((target, authed));
     let path = uri.path();
     let _in_flight = path.starts_with("/v1/catalog/it/songs").then(|| {
@@ -745,6 +815,8 @@ struct AppleOptions {
     solo: bool,
     /// Whether the songs of `catalog_credited_songs` are listed too.
     catalog_credits: bool,
+    /// Whether the user has playlists of their own in Apple Music (see `AppleFake::playlists`).
+    playlists: bool,
 }
 
 async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple> {
@@ -781,6 +853,9 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         catalog_songs_in_flight: AtomicUsize::new(0),
         most_catalog_songs_in_flight: AtomicUsize::new(0),
         other_account: AtomicBool::new(false),
+        writes: Mutex::default(),
+        playlists: options.playlists,
+        old_songs: AtomicBool::new(false),
     });
     let app = Router::new().fallback(apple_fake).with_state(fake.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -891,6 +966,16 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
         MixQueryRequest::slot(&slots),
         ResolveMixQueryRequest::slot(&slots),
         ComplexQueryRequest::slot(&slots),
+        // Rune's own playlists, kept on this device.
+        FetchAllPlaylistsRequest::slot(&slots),
+        GetPlaylistByIdRequest::slot(&slots),
+        CreatePlaylistRequest::slot(&slots),
+        UpdatePlaylistRequest::slot(&slots),
+        RemovePlaylistRequest::slot(&slots),
+        AddItemToPlaylistRequest::slot(&slots),
+        ReorderPlaylistItemPositionRequest::slot(&slots),
+        RemoveItemFromPlaylistRequest::slot(&slots),
+        FetchPlaylistOccurrencesRequest::slot(&slots),
     ] {
         assert_eq!(slot, Slot::Translate);
     }
@@ -916,14 +1001,11 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
     ] {
         assert_eq!(slot, hidden);
     }
-    // What the library does not hold, its playlists, mixes and search, it does not answer.
+    // What the library does not hold, its mixes, search and playlists made of files, it does
+    // not answer.
     for slot in [
         crate::messages::ScanAudioLibraryRequest::slot(&slots),
-        FetchAllPlaylistsRequest::slot(&slots),
-        crate::messages::GetPlaylistByIdRequest::slot(&slots),
-        crate::messages::FetchPlaylistOccurrencesRequest::slot(&slots),
-        crate::messages::CreatePlaylistRequest::slot(&slots),
-        crate::messages::AddItemToPlaylistRequest::slot(&slots),
+        crate::messages::CreateM3u8PlaylistRequest::slot(&slots),
         crate::messages::FetchAllMixesRequest::slot(&slots),
         crate::messages::CreateMixRequest::slot(&slots),
         crate::messages::AddItemToMixRequest::slot(&slots),
@@ -947,6 +1029,10 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.get_primary_color_by_track_id_request,
         capabilities.get_lyric_by_track_id_request,
         capabilities.set_liked_request,
+        capabilities.fetch_all_playlists_request,
+        capabilities.create_playlist_request,
+        capabilities.add_item_to_playlist_request,
+        capabilities.fetch_playlist_occurrences_request,
     ] {
         assert_eq!(capability, RequestCapability::Available);
     }
@@ -955,8 +1041,8 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.get_analyze_count_request,
         capabilities.fetch_directory_tree_request,
         capabilities.search_for_request,
-        capabilities.fetch_all_playlists_request,
         capabilities.fetch_all_mixes_request,
+        capabilities.create_m3u8_playlist_request,
     ] {
         assert_eq!(capability, RequestCapability::Hidden);
     }
@@ -1302,12 +1388,11 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
         .await?;
     assert_eq!(searched.result.len(), 1);
 
-    // Genres and folders are refused when asked, not hidden by a panic, and so are the
-    // playlists and mixes, which the library does not list.
+    // Genres and folders are refused when asked, not hidden by a panic, and so are the mixes,
+    // which the library does not list.
     for refused in [
         CollectionType::Genre,
         CollectionType::Directory,
-        CollectionType::Playlist,
         CollectionType::Mix,
     ] {
         let error = apple
@@ -1462,7 +1547,7 @@ async fn apple_music_home_lists_its_groups_and_leaves_the_rest_empty() -> Result
     );
     assert_eq!(names(0), ["Artist One", "Artist Two"]);
     assert_eq!(names(1), ["Dawn Album", "Night Album"]);
-    // The library lists no playlists, mixes or likes.
+    // Rune made no playlists here, and the library lists no mixes or likes.
     assert!(names(2).is_empty());
     assert_eq!(names(3), ["First Light", "Second Wind", "Third Road"]);
     for empty in 4..8 {
@@ -5630,6 +5715,922 @@ async fn an_artist_the_library_no_longer_lists_is_skipped_by_the_collections_fet
             .map(|artist| (artist.id, artist.name.as_str()))
             .collect::<Vec<_>>(),
         [(held, "Artist One")]
+    );
+    apple.finish().await
+}
+
+// Rune's own playlists ----------------------------------------------------------------------
+
+/// Waits for the changes to come to rest, and fails unless the UI was told of them `times` more
+/// times than `told`; answers how often it was told.
+async fn told_more(heard: &Heard, told: usize, times: usize, change: &str) -> Result<usize> {
+    let now = told_settled(heard).await;
+    anyhow::ensure!(
+        now == told + times,
+        "{change}: told {} times, not {times}",
+        now.saturating_sub(told)
+    );
+    Ok(now)
+}
+
+/// Where the Rune playlists of the open Apple library are kept.
+fn playlists_file(apple: &OpenApple) -> std::path::PathBuf {
+    use crate::service::device_records::device_records_folder;
+    use crate::service::rune_playlists::PLAYLISTS_FILE;
+
+    device_records_folder(Path::new(&*apple.node.config_path), apple.record.0).join(PLAYLISTS_FILE)
+}
+
+/// Makes a Rune playlist in the open Apple library.
+async fn make_rune_playlist(
+    apple: &OpenApple,
+    name: &str,
+    group: &str,
+) -> Result<crate::messages::Playlist> {
+    Ok(apple
+        .run(&CreatePlaylistRequest {
+            name: name.into(),
+            group: group.into(),
+            call_id: None,
+        })
+        .await?
+        .playlist)
+}
+
+/// Adds the song `track` to a playlist at `position`, and answers its occurrence id.
+async fn add_song(
+    apple: &OpenApple,
+    playlist_id: i32,
+    track: &str,
+    position: Option<i32>,
+) -> Result<String> {
+    Ok(apple
+        .run(&AddItemToPlaylistRequest {
+            playlist_id,
+            media_file_id: apple.binding.intern_track(track)?,
+            position,
+            call_id: None,
+        })
+        .await?
+        .occurrence_id)
+}
+
+async fn playlist_named(apple: &OpenApple, name: &str) -> Result<i32> {
+    apple
+        .run(&FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .playlists
+        .into_iter()
+        .find(|playlist| playlist.name == name)
+        .map(|playlist| playlist.id)
+        .with_context(|| format!("the playlist {name}"))
+}
+
+fn playlist_page(playlist_id: i32) -> FetchPlaylistOccurrencesRequest {
+    FetchPlaylistOccurrencesRequest {
+        request_id: "page".into(),
+        playlist_id,
+        after: None,
+        page_size: 30,
+        bake_cover_arts: false,
+        call_id: None,
+    }
+}
+
+/// The tracks of a playlist page and their occurrence ids, in order.
+fn occurrences(page: &crate::messages::FetchPlaylistOccurrencesResponse) -> Vec<(&str, &str)> {
+    page.entries
+        .iter()
+        .map(|entry| (entry.track_uuid.as_str(), entry.occurrence_id.as_str()))
+        .collect()
+}
+
+/// The tracks of a mix page, in order.
+fn mix_tracks(page: crate::messages::MixQueryResponse) -> Vec<String> {
+    page.files.into_iter().map(|file| file.track).collect()
+}
+
+fn invalid_input(error: &anyhow::Error) -> bool {
+    classify(error) == crate::messages::RequestErrorKind::InvalidInput
+}
+
+fn not_found(error: &anyhow::Error) -> bool {
+    classify(error) == crate::messages::RequestErrorKind::NotFound
+}
+
+/// The names and groups of the playlists songs can be added to, in order.
+async fn offered_playlists(apple: &OpenApple) -> Result<Vec<(String, String)>> {
+    Ok(apple
+        .run(&FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .playlists
+        .into_iter()
+        .map(|playlist| (playlist.name, playlist.group))
+        .collect())
+}
+
+/// The groups of the Playlists page, with how many playlists each holds.
+async fn playlist_groups(apple: &OpenApple) -> Result<Vec<(String, i32)>> {
+    Ok(apple
+        .run(&FetchCollectionGroupSummaryRequest {
+            call_id: None,
+            collection_type: CollectionType::Playlist,
+        })
+        .await?
+        .groups
+        .into_iter()
+        .map(|group| (group.group_title, group.count))
+        .collect())
+}
+
+/// The home's Playlists group, as names and whether each can be changed.
+async fn home_playlists(apple: &OpenApple) -> Result<Vec<crate::messages::ComplexQueryEntry>> {
+    let home = apple
+        .run(&ComplexQueryRequest {
+            queries: vec![ComplexQuery {
+                title: "Playlists".into(),
+                query: LibraryHomeQuery::Playlists(LibraryHomeListMode::Forward),
+            }],
+            call_id: None,
+        })
+        .await?;
+    Ok(home.result.into_iter().next().context("the group")?.entries)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_playlist_of_apples_is_listed_or_written_to() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            playlists: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    // The song list read Apple's playlists, and no page lists one of them.
+    assert!(apple.fake.count("/v1/me/library/playlists/p.mine1/tracks") > 0);
+    assert!(offered_playlists(&apple).await?.is_empty());
+    assert!(playlist_groups(&apple).await?.is_empty());
+    assert!(home_playlists(&apple).await?.is_empty());
+    let searched = apple
+        .run(&SearchCollectionSummaryRequest {
+            call_id: None,
+            collection_type: Some(CollectionType::Playlist),
+            bake_cover_arts: Some(false),
+            n: 10,
+        })
+        .await?;
+    assert!(searched.result.is_empty());
+
+    // So no id names one, and a request that names an id nothing was given for is refused.
+    let unknown = 4242;
+    let refused = [
+        apple
+            .run(&GetPlaylistByIdRequest {
+                playlist_id: unknown,
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple.run(&playlist_page(unknown)).await.err(),
+        add_song(&apple, unknown, "i.s2", None).await.err(),
+        apple
+            .run(&UpdatePlaylistRequest {
+                playlist_id: unknown,
+                name: "Renamed".into(),
+                group: String::new(),
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple
+            .run(&RemovePlaylistRequest {
+                playlist_id: unknown,
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple
+            .run(&ReorderPlaylistItemPositionRequest {
+                playlist_id: unknown,
+                occurrence_id: "0".into(),
+                new_position: 1,
+                call_id: None,
+            })
+            .await
+            .err(),
+        apple
+            .run(&RemoveItemFromPlaylistRequest {
+                playlist_id: unknown,
+                occurrence_id: "0".into(),
+                call_id: None,
+            })
+            .await
+            .err(),
+    ];
+    for error in refused {
+        let error = error.context("a refused playlist request")?;
+        assert!(invalid_input(&error), "{error:#}");
+    }
+
+    // A playlist of Rune's is made, filled and changed on this device only.
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    let first = add_song(&apple, mine.id, "i.s1", None).await?;
+    add_song(&apple, mine.id, "i.s2", Some(0)).await?;
+    apple
+        .run(&ReorderPlaylistItemPositionRequest {
+            playlist_id: mine.id,
+            occurrence_id: first,
+            new_position: 0,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        offered_playlists(&apple).await?,
+        [("Mine".to_owned(), "Mood".to_owned())]
+    );
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_rune_playlist_takes_songs_anywhere_and_keeps_their_occurrences_as_they_move()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (apple, heard) = open_apple_heard(dir.path()).await?;
+    // Every change tells the UI once; a refused one does not.
+    let mut told = told_settled(&heard).await;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    told = told_more(&heard, told, 1, "create").await?;
+    assert_eq!(
+        (night.name.as_str(), night.group.as_str()),
+        ("Night Drive", "Mood")
+    );
+
+    let first = add_song(&apple, night.id, "i.s1", None).await?;
+    told = told_more(&heard, told, 1, "add at the end").await?;
+    let third = add_song(&apple, night.id, "i.s3", Some(0)).await?;
+    told = told_more(&heard, told, 1, "add first").await?;
+    // A catalog song is kept as it is: nothing is added to the library.
+    let catalog = add_song(&apple, night.id, "catalog:777", Some(1)).await?;
+    told = told_more(&heard, told, 1, "add a catalog song").await?;
+    let second = add_song(&apple, night.id, "i.s2", Some(99)).await?;
+    told = told_more(&heard, told, 1, "add past the end").await?;
+    let mut page = playlist_page(night.id);
+    let all = apple.run(&page).await?;
+    assert_eq!(
+        occurrences(&all),
+        [
+            ("i.s3", third.as_str()),
+            ("catalog:777", catalog.as_str()),
+            ("i.s1", first.as_str()),
+            ("i.s2", second.as_str()),
+        ]
+    );
+    assert_eq!(
+        all.entries
+            .iter()
+            .map(|entry| (
+                entry.position,
+                entry.file.as_ref().map(|file| file.title.as_str())
+            ))
+            .collect::<Vec<_>>(),
+        [
+            (0, Some("Third Road")),
+            (1, Some("Catalog Tune")),
+            (2, Some("First Light")),
+            (3, Some("Second Wind")),
+        ]
+    );
+    // Pages follow each other by the entry the last one ended with.
+    page.page_size = 3;
+    let head = apple.run(&page).await?;
+    assert_eq!(head.entries.len(), 3);
+    page.after = head.next.clone();
+    let tail = apple.run(&page).await?;
+    assert_eq!(occurrences(&tail), [("i.s2", second.as_str())]);
+    assert!(tail.next.is_none());
+    // A page larger than a listing takes is refused.
+    page.page_size = 129;
+    let too_large = apple.run(&page).await.err().context("a page too large")?;
+    assert!(invalid_input(&too_large), "{too_large:#}");
+
+    apple
+        .run(&ReorderPlaylistItemPositionRequest {
+            playlist_id: night.id,
+            occurrence_id: second.clone(),
+            new_position: 0,
+            call_id: None,
+        })
+        .await?;
+    told = told_more(&heard, told, 1, "reorder").await?;
+    let remove = RemoveItemFromPlaylistRequest {
+        playlist_id: night.id,
+        occurrence_id: catalog.clone(),
+        call_id: None,
+    };
+    apple.run(&remove).await?;
+    told = told_more(&heard, told, 1, "remove").await?;
+    let after = apple.run(&playlist_page(night.id)).await?;
+    assert_eq!(
+        occurrences(&after),
+        [
+            ("i.s2", second.as_str()),
+            ("i.s3", third.as_str()),
+            ("i.s1", first.as_str()),
+        ]
+    );
+    // An entry already taken out is not found again, and a page that ended with it goes on
+    // from where it was.
+    let again = apple.run(&remove).await.err().context("a removed entry")?;
+    assert!(not_found(&again), "{again:#}");
+    told = told_more(&heard, told, 0, "a refused removal").await?;
+    let mut from_removed = playlist_page(night.id);
+    from_removed.after = Some(crate::messages::PlaylistOccurrenceCursor {
+        position: 1,
+        occurrence_id: catalog,
+    });
+    assert_eq!(
+        occurrences(&apple.run(&from_removed).await?),
+        [("i.s3", third.as_str()), ("i.s1", first.as_str())]
+    );
+    let before = add_song(&apple, night.id, "i.s1", Some(-1))
+        .await
+        .err()
+        .context("a negative position")?;
+    assert!(invalid_input(&before), "{before:#}");
+    told_more(&heard, told, 0, "a refused position").await?;
+
+    // Nothing reached Apple.
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_rune_playlist_is_renamed_regrouped_and_removed() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    let update = |name: &str, group: &str| UpdatePlaylistRequest {
+        playlist_id: night.id,
+        name: name.into(),
+        group: group.into(),
+        call_id: None,
+    };
+    // A group is kept as it is given, and may be empty, as in a local library.
+    let ungrouped = apple.run(&update("Night Drive", "")).await?.playlist;
+    assert_eq!(ungrouped.group, "");
+    let renamed = apple.run(&update("Late Drive", "Calm")).await?.playlist;
+    assert_eq!(
+        (renamed.id, renamed.name.as_str(), renamed.group.as_str()),
+        (night.id, "Late Drive", "Calm")
+    );
+    let opened = apple
+        .run(&GetPlaylistByIdRequest {
+            playlist_id: night.id,
+            call_id: None,
+        })
+        .await?
+        .playlist;
+    assert_eq!(
+        (opened.name.as_str(), opened.group.as_str()),
+        ("Late Drive", "Calm")
+    );
+
+    let removed = apple
+        .run(&RemovePlaylistRequest {
+            playlist_id: night.id,
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(removed.playlist_id, night.id);
+    let gone = apple
+        .run(&GetPlaylistByIdRequest {
+            playlist_id: night.id,
+            call_id: None,
+        })
+        .await
+        .err()
+        .context("a removed playlist")?;
+    assert!(not_found(&gone), "{gone:#}");
+    let renamed_gone = apple
+        .run(&update("Later", "Calm"))
+        .await
+        .err()
+        .context("a removed playlist renamed")?;
+    assert!(not_found(&renamed_gone), "{renamed_gone:#}");
+    assert!(offered_playlists(&apple).await?.is_empty());
+    // A page that still holds its id leaves it out, as a local library does.
+    let by_ids = apple
+        .run(&FetchCollectionByIdsRequest {
+            call_id: None,
+            collection_type: CollectionType::Playlist,
+            bake_cover_arts: false,
+            ids: vec![night.id],
+        })
+        .await?;
+    assert!(by_ids.result.is_empty());
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    add_song(&apple, night.id, "i.s3", None).await?;
+    add_song(&apple, night.id, "i.s1", None).await?;
+    make_rune_playlist(&apple, "Morning", "Calm").await?;
+
+    // Songs can be added to Rune's playlists, by group.
+    assert_eq!(
+        offered_playlists(&apple).await?,
+        [
+            ("Morning".to_owned(), "Calm".to_owned()),
+            ("Night Drive".to_owned(), "Mood".to_owned()),
+        ]
+    );
+    assert_eq!(
+        playlist_groups(&apple).await?,
+        [("Calm".to_owned(), 1), ("Mood".to_owned(), 1)]
+    );
+    let groups = apple
+        .run(&FetchCollectionGroupsRequest {
+            call_id: None,
+            collection_type: CollectionType::Playlist,
+            bake_cover_arts: false,
+            group_titles: vec!["Calm".into(), "Mood".into()],
+        })
+        .await?;
+    let shown = |index: usize| {
+        groups.groups[index]
+            .collections
+            .iter()
+            .map(|collection| (collection.name.as_str(), collection.readonly))
+            .collect::<Vec<_>>()
+    };
+    // Rune's can be changed here.
+    assert_eq!(shown(0), [("Morning", false)]);
+    assert_eq!(shown(1), [("Night Drive", false)]);
+    // Its cover is that of its first song, which the binding holds already.
+    wait_until("the cover of the Rune playlist", || async {
+        let by_ids = apple
+            .run(&FetchCollectionByIdsRequest {
+                call_id: None,
+                collection_type: CollectionType::Playlist,
+                bake_cover_arts: true,
+                ids: vec![night.id],
+            })
+            .await?;
+        assert_eq!(by_ids.result[0].name, "Night Drive");
+        assert!(!by_ids.result[0].readonly);
+        Ok((!by_ids.result[0].cover_art_map.is_empty()).then_some(()))
+    })
+    .await?;
+    assert!(apple.fake.count("/art/Night_Album/") > 0);
+    let searched = apple
+        .run(&SearchCollectionSummaryRequest {
+            call_id: None,
+            collection_type: Some(CollectionType::Playlist),
+            bake_cover_arts: Some(false),
+            n: 1,
+        })
+        .await?;
+    assert_eq!(
+        searched
+            .result
+            .iter()
+            .map(|playlist| playlist.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Night Drive"]
+    );
+
+    let home = home_playlists(&apple).await?;
+    assert_eq!(
+        home.iter()
+            .map(|entry| (entry.name.as_str(), entry.readonly))
+            .collect::<Vec<_>>(),
+        [("Night Drive", false), ("Morning", false)]
+    );
+    let entry = &home[0];
+    assert_eq!(entry.queries.len(), 1);
+    assert_eq!(
+        (
+            entry.queries[0].operator.as_str(),
+            entry.queries[0].parameter.clone()
+        ),
+        ("lib::playlist", night.id.to_string())
+    );
+
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries: entry.queries.clone(),
+            hint_position: 1,
+            initial_playback_item: Some(song_ref(&apple, "i.s1")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        resolved.playing_items,
+        [song_ref(&apple, "i.s3"), song_ref(&apple, "i.s1")]
+    );
+    assert_eq!(resolved.start_index, Some(1));
+    assert_eq!(
+        mix_tracks(apple.run(&mix("lib::playlist", night.id)).await?),
+        ["i.s3", "i.s1"]
+    );
+    // Together with a song, as a mix of several items plays them.
+    let mut together = mix("lib::playlist", night.id);
+    together.queries.push(MixQuery {
+        operator: "lib::track".into(),
+        parameter: apple.binding.intern_track("i.s2")?.to_string(),
+    });
+    assert_eq!(
+        mix_tracks(apple.run(&together).await?),
+        ["i.s2", "i.s3", "i.s1"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rune_playlists_last_through_sign_ins_and_new_bindings() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let file = playlists_file(&apple);
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    let occurrence = add_song(&apple, night.id, "i.s2", None).await?;
+    assert!(file.exists());
+    let tracks_of = |page: crate::messages::FetchPlaylistOccurrencesResponse| {
+        page.entries
+            .into_iter()
+            .map(|entry| (entry.track_uuid, entry.occurrence_id))
+            .collect::<Vec<_>>()
+    };
+    let kept = [("i.s2".to_owned(), occurrence.clone())];
+
+    // Signing out drops what was read from Apple, not Rune's playlists or their ids.
+    apple.binding.sign_out();
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+    assert_eq!(playlist_named(&apple, "Night Drive").await?, night.id);
+    assert_eq!(tracks_of(apple.run(&playlist_page(night.id)).await?), kept);
+
+    // A binding made afresh, as after a restart, reads them from the file before its sign-in.
+    let restarted = restart_apple(apple).await?;
+    let (ui, binding) = restarted.open().await?;
+    let id = dispatch_gui_request(&ui, &FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .context("the playlists")?
+        .playlists
+        .into_iter()
+        .find(|playlist| playlist.name == "Night Drive")
+        .context("the playlist")?
+        .id;
+    let page = |id| {
+        let ui = &ui;
+        async move {
+            dispatch_gui_request(ui, &playlist_page(id))
+                .await?
+                .context("the playlist page")
+        }
+    };
+    assert_eq!(tracks_of(page(id).await?), kept);
+    restarted.sign_in(USER_TOKEN).await?;
+    let signed_in = page(id).await?;
+    assert_eq!(
+        signed_in.entries[0]
+            .file
+            .as_ref()
+            .map(|file| file.title.as_str()),
+        Some("Second Wind")
+    );
+
+    // Once its record is retired, its binding writes nothing any more.
+    restarted.node.services.retire(restarted.record).await;
+    let written = std::fs::read(&file)?;
+    let refused = binding
+        .rune_playlists
+        .create("Late", "Mood")
+        .await
+        .err()
+        .context("a change after the record is retired")?;
+    assert!(matches!(
+        refused.downcast_ref::<ExpectedRequestError>(),
+        Some(ExpectedRequestError::Unavailable { .. })
+    ));
+    assert_eq!(std::fs::read(&file)?, written);
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn songs_apple_no_longer_has_are_asked_for_once_and_mix_pages_still_fill() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    for track in ["i.gone", "i.s1", "i.lost", "i.s3", "i.s2"] {
+        add_song(&apple, night.id, track, None).await?;
+    }
+    let asked_for = |track: &str| {
+        apple
+            .fake
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| {
+                target.starts_with("/v1/me/library/songs?") && target.contains(track)
+            })
+            .count()
+    };
+    let page = apple.run(&playlist_page(night.id)).await?;
+    assert_eq!(
+        page.entries
+            .iter()
+            .map(|entry| (
+                entry.track_uuid.as_str(),
+                entry.file.as_ref().map(|file| file.title.as_str())
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("i.gone", None),
+            ("i.s1", Some("First Light")),
+            ("i.lost", None),
+            ("i.s3", Some("Third Road")),
+            ("i.s2", Some("Second Wind")),
+        ]
+    );
+    let (gone, lost) = (asked_for("i.gone"), asked_for("i.lost"));
+    assert!(gone > 0 && lost > 0);
+    // Listed again, the songs Apple said it does not have are not asked for again.
+    apple.run(&playlist_page(night.id)).await?;
+    assert_eq!((asked_for("i.gone"), asked_for("i.lost")), (gone, lost));
+
+    // A mix query pages through the songs Apple has, a full page at a time.
+    let mut query = mix("lib::playlist", night.id);
+    query.page_size = 2;
+    assert_eq!(mix_tracks(apple.run(&query).await?), ["i.s1", "i.s3"]);
+    query.cursor = 2;
+    assert_eq!(mix_tracks(apple.run(&query).await?), ["i.s2"]);
+    query.cursor = 3;
+    assert!(mix_tracks(apple.run(&query).await?).is_empty());
+    query.cursor = 0;
+    query.page_size = 3;
+    assert_eq!(
+        mix_tracks(apple.run(&query).await?),
+        ["i.s1", "i.s3", "i.s2"]
+    );
+    assert_eq!((asked_for("i.gone"), asked_for("i.lost")), (gone, lost));
+
+    // Another sign-in may have them, so it asks again.
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+    apple.run(&playlist_page(night.id)).await?;
+    assert!(asked_for("i.gone") > gone);
+    apple.finish().await
+}
+
+/// How often Apple was asked for library songs by id, in all and for `track`.
+fn asked_by_id(apple: &OpenApple, track: &str) -> (usize, usize) {
+    let seen = apple.fake.seen.lock().unwrap();
+    let lookups: Vec<&String> = seen
+        .iter()
+        .map(|(target, _)| target)
+        .filter(|target| target.starts_with("/v1/me/library/songs?") && target.contains("ids="))
+        .collect();
+    let of_track = lookups
+        .iter()
+        .filter(|target| target.contains(track))
+        .count();
+    (lookups.len(), of_track)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mix_pages_of_a_long_rune_playlist_fill_across_its_lookup_steps() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_big_apple(dir.path(), 70).await?;
+    // 72 entries, looked up 64 at a time: one gone song in each step.
+    let made = apple
+        .binding
+        .rune_playlists
+        .create("Long Drive", "Mood")
+        .await?;
+    let mut extras = (0..70).map(|n| format!("i.x{n:04}"));
+    for index in 0..72 {
+        let track = match index {
+            10 => "i.gone1".to_owned(),
+            66 => "i.gone2".to_owned(),
+            _ => extras.next().context("an extra song")?,
+        };
+        apple
+            .binding
+            .rune_playlists
+            .add(&made.id, &track, Default::default(), None)
+            .await?;
+    }
+    let long = playlist_named(&apple, "Long Drive").await?;
+    let page = |cursor: i32, page_size: i32| {
+        let mut query = mix("lib::playlist", long);
+        query.cursor = cursor;
+        query.page_size = page_size;
+        query
+    };
+    let songs =
+        |from: usize, to: usize| (from..to).map(|n| format!("i.x{n:04}")).collect::<Vec<_>>();
+    assert_eq!(mix_tracks(apple.run(&page(0, 30)).await?), songs(0, 30));
+    // These need the songs of the second step.
+    assert_eq!(mix_tracks(apple.run(&page(62, 3)).await?), songs(62, 65));
+    assert_eq!(mix_tracks(apple.run(&page(60, 30)).await?), songs(60, 70));
+    assert!(mix_tracks(apple.run(&page(70, 30)).await?).is_empty());
+    // Every page looked the songs before it up again, but Apple was asked for each gone song
+    // once, in the lookup of its step, and for no song of the list at all.
+    assert_eq!(asked_by_id(&apple, "i.gone1"), (2, 1));
+    assert_eq!(asked_by_id(&apple, "i.gone2"), (2, 1));
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_taken_for_missing_is_found_again_once_it_is_listed() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    add_song(&apple, night.id, "i.s1", None).await?;
+    let titles = || async {
+        Ok::<_, anyhow::Error>(
+            apple
+                .run(&playlist_page(night.id))
+                .await?
+                .entries
+                .into_iter()
+                .map(|entry| entry.file.map(|file| file.title))
+                .collect::<Vec<_>>(),
+        )
+    };
+    // Apple's song list holds it, so a page finds it though it was taken for missing.
+    apple
+        .binding
+        .remember_missing(apple.binding.generation(), "i.s1");
+    assert_eq!(titles().await?, [Some("First Light".to_owned())]);
+    // A song the list lacks is found again once the UI lists it to be added.
+    apple
+        .binding
+        .remember_missing(apple.binding.generation(), "i.s9");
+    add_song(&apple, night.id, "i.s9", None).await?;
+    assert_eq!(
+        titles().await?,
+        [Some("First Light".to_owned()), Some("Ninth Moon".to_owned())]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_entry_whose_song_is_gone_plays_its_catalog_copy_or_keeps_its_name() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    // Two songs the UI lists before they are added, which Apple no longer has later.
+    apple.fake.old_songs.store(true, Ordering::SeqCst);
+    let listed = apple
+        .run(&FetchMediaFileByIdsRequest {
+            call_id: None,
+            ids: vec![
+                apple.binding.intern_track("i.copy")?,
+                apple.binding.intern_track("i.lost")?,
+            ],
+            bake_cover_arts: false,
+        })
+        .await?;
+    assert_eq!(listed.media_files.len(), 2);
+    let copy = add_song(&apple, night.id, "i.copy", None).await?;
+    let lost = add_song(&apple, night.id, "i.lost", None).await?;
+    let file = std::fs::read_to_string(playlists_file(&apple))?;
+    assert!(file.contains("\"catalog_id\": \"777\"") && file.contains("Lost Song"));
+
+    // Signed out and in again, the binding holds neither, and Apple has neither any more.
+    apple.fake.old_songs.store(false, Ordering::SeqCst);
+    apple.binding.sign_out();
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).context("tokens")?);
+    let page = apple.run(&playlist_page(night.id)).await?;
+    let [copied, gone] = &page.entries[..] else {
+        anyhow::bail!("two entries, not {}", page.entries.len());
+    };
+    // The library copy is gone, so the catalog song it was a copy of plays in its place.
+    assert_eq!(
+        (copied.occurrence_id.as_str(), copied.track_uuid.as_str()),
+        (copy.as_str(), "catalog:777")
+    );
+    let copied = copied.file.as_ref().context("the catalog song")?;
+    assert_eq!(
+        (copied.title.as_str(), copied.audio_availability),
+        ("Catalog Tune", AudioAvailability::RemoteOnly)
+    );
+    assert!(copied.id > 0);
+    // The other keeps the name it had, and cannot play.
+    assert_eq!(
+        (gone.occurrence_id.as_str(), gone.track_uuid.as_str()),
+        (lost.as_str(), "i.lost")
+    );
+    let gone = gone.file.as_ref().context("the remembered song")?;
+    assert_eq!(
+        (
+            gone.id,
+            gone.title.as_str(),
+            gone.artist.as_str(),
+            gone.album.as_str(),
+            gone.audio_availability
+        ),
+        (
+            0,
+            "Lost Song",
+            "Old Artist",
+            "Old Album",
+            AudioAvailability::Unavailable
+        )
+    );
+
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::playlist".into(),
+                parameter: night.id.to_string(),
+            }],
+            hint_position: 0,
+            initial_playback_item: Some(song_ref(&apple, "catalog:777")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(
+        resolved.playing_items,
+        [song_ref(&apple, "catalog:777"), song_ref(&apple, "i.lost")]
+    );
+    assert_eq!(resolved.start_index, Some(0));
+    assert_eq!(
+        mix_tracks(apple.run(&mix("lib::playlist", night.id)).await?),
+        ["catalog:777"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_playlist_file_that_cannot_be_read_is_reported_and_left_as_it_is() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // The file is spoiled before the library first reads it.
+    let file = playlists_file(&apple);
+    std::fs::create_dir_all(file.parent().context("the records folder")?)?;
+    std::fs::write(&file, b"{ not the playlists")?;
+
+    // No playlist is listed, and the lists that show them still answer.
+    assert!(offered_playlists(&apple).await?.is_empty());
+    assert!(playlist_groups(&apple).await?.is_empty());
+    assert!(home_playlists(&apple).await?.is_empty());
+
+    // What uses a Rune playlist fails, naming the file it could not read.
+    let names_the_file = |error: Option<anyhow::Error>| {
+        let error = format!("{:#}", error.expect("a refusal"));
+        assert!(
+            error.contains("could not be read") && error.contains(&file.display().to_string()),
+            "{error}"
+        );
+    };
+    names_the_file(
+        make_rune_playlist(&apple, "Night Drive", "Mood")
+            .await
+            .err(),
+    );
+    // An id the UI held from before.
+    let held = apple.binding.intern(AppleIdKind::RunePlaylist, "held")?;
+    names_the_file(
+        apple
+            .run(&GetPlaylistByIdRequest {
+                playlist_id: held,
+                call_id: None,
+            })
+            .await
+            .err(),
+    );
+    names_the_file(apple.run(&playlist_page(held)).await.err());
+    names_the_file(add_song(&apple, held, "i.s1", None).await.err());
+    assert_eq!(std::fs::read(&file)?, b"{ not the playlists");
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // Once the file is gone, Rune's playlists are made and listed again.
+    std::fs::remove_file(&file)?;
+    make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    assert_eq!(
+        offered_playlists(&apple).await?,
+        [("Night Drive".to_owned(), "Mood".to_owned())]
     );
     apple.finish().await
 }

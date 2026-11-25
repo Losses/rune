@@ -43,11 +43,13 @@ use crate::{
     service::{
         ServiceBinding, ServiceFuture,
         covers::{CoverSource, MAX_COVER_BYTES, ServiceCoverCache, cover_cache_root},
+        device_records::device_records_folder,
         folder::prepare_service_library_folder,
         ids::RemoteIdMap,
         lists::{KeptList, ListSpec, ServiceLists, lists_folder},
         reach::Reach,
         registry::{Clock, SignInFailure},
+        rune_playlists::{PLAYLISTS_FILE, RunePlaylists},
     },
     utils::Broadcaster,
     visualizer::RANDOM_COVERS,
@@ -138,6 +140,8 @@ pub(crate) enum AppleIdKind {
     Album,
     Artist,
     CoverArt,
+    /// A Rune playlist kept on this device, by the id its store keeps it under.
+    RunePlaylist,
 }
 
 impl AppleIdKind {
@@ -757,6 +761,8 @@ pub(crate) struct AppleMusicBinding {
     client: AppleMusicClient,
     tokens: Arc<SessionTokens>,
     lists: AppleLists,
+    /// Rune's own playlists, kept on this device. Apple's own are never written to.
+    pub(crate) rune_playlists: RunePlaylists,
     catalog: Mutex<AppleCatalog>,
     pub(crate) covers: Arc<ServiceCoverCache>,
     cover_source: Arc<AppleCovers>,
@@ -859,6 +865,9 @@ impl AppleMusicBinding {
                 client,
                 tokens,
                 lists,
+                rune_playlists: RunePlaylists::new(
+                    device_records_folder(config_dir, library_id).join(PLAYLISTS_FILE),
+                ),
                 catalog: Mutex::default(),
                 covers: Arc::new(ServiceCoverCache::new(
                     cover_cache_root(config_dir, library_id),
@@ -919,6 +928,13 @@ impl AppleMusicBinding {
     /// binding is going away with its record.
     pub(crate) async fn shut_down_covers(&self) {
         self.covers.close_and_wait_downloads().await;
+    }
+
+    /// Waits for a change to what the library keeps on this device being written, then refuses
+    /// every later one: the binding is going away with its record, whose folder is deleted
+    /// after.
+    pub(crate) async fn close_device_records(&self) {
+        self.rune_playlists.close().await;
     }
 
     /// Whether the binding holds a sign-in.
@@ -1774,6 +1790,12 @@ impl AppleMusicBinding {
             catalog.missing.clear();
         }
         catalog.missing.insert(track.to_owned());
+    }
+
+    /// The song of `track` was listed again, as the UI just showed it, so it is no longer taken
+    /// for missing.
+    pub(crate) fn found_again(&self, track: &str) {
+        self.catalog().missing.remove(track);
     }
 
     /// A song this binding already holds, from the song list as last read or an earlier fetch.

@@ -321,8 +321,10 @@ impl ServiceRegistry {
         let binding = self.apple_music().remove(&record_id);
         if let Some(binding) = binding {
             binding.close();
-            // The binding may outlive its record in other hands. A cover still downloading
-            // must not make its folder again after the removal deletes it.
+            // The binding may outlive its record in other hands. Neither a change to what it
+            // keeps on this device nor a cover still downloading may make its folder again
+            // after the removal deletes it.
+            binding.close_device_records().await;
             binding.shut_down_covers().await;
             binding.sign_out();
         }
