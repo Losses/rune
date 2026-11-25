@@ -8,6 +8,8 @@ import 'package:file_selector/file_selector.dart' show XTypeGroup;
 
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
+import '../../utils/api/get_all_playlists.dart';
+import '../../utils/api/add_item_to_playlist.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/mix/remove_mix_dialog.dart';
@@ -26,9 +28,11 @@ import '../build_collection_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 import '../dialogs/play_on/play_on_dialog.dart';
+import '../dialogs/add_to_playlist/show_add_to_playlist_dialog.dart';
 
 import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
+import 'utils/collection_file_ids.dart';
 import 'offers_mixes.dart';
 import 'offline_selection.dart';
 import '../dialogs/file_dialog/pick_files.dart';
@@ -113,6 +117,93 @@ Map<CollectionType, String> typeToRemoveLabel(BuildContext context) => {
   CollectionType.mix: S.of(context).removeMix,
 };
 
+/// The play, queue and roam items every menu of a playable item starts with,
+/// on a large screen. [afterPlay] goes between the first two.
+List<MenuFlyoutItemBase> _largeScreenPlayItems(
+  BuildContext context, {
+  required Future<void> Function() play,
+  required Future<void> Function() queue,
+  required Future<void> Function() roam,
+  MenuFlyoutItemBase? afterPlay,
+}) => [
+  MenuFlyoutItem(
+    leading: const Icon(Symbols.play_circle),
+    text: Text(S.of(context).startPlaying),
+    onPressed: () async {
+      await _handleCollectionRequest(context, play);
+    },
+  ),
+  ?afterPlay,
+  MenuFlyoutItem(
+    leading: const Icon(Symbols.playlist_add),
+    text: Text(S.of(context).addToQueue),
+    onPressed: () async {
+      await _handleCollectionRequest(context, queue);
+    },
+  ),
+  if (canStartRoaming(context))
+    MenuFlyoutItem(
+      leading: const Icon(Symbols.rocket),
+      text: Text(S.of(context).startRoaming),
+      onPressed: () async {
+        await _handleCollectionRequest(context, roam);
+      },
+    ),
+];
+
+/// The same items as the buttons of the menu of a band or dock screen.
+FlyoutContent _bandScreenPlayMenu(
+  BuildContext context,
+  bool isBand, {
+  required Future<void> Function() play,
+  required Future<void> Function() queue,
+  required Future<void> Function() roam,
+  CommandBarButton? afterPlay,
+}) {
+  final items = [
+    CommandBarButton(
+      icon: Tooltip(
+        message: S.of(context).startPlaying,
+        child: const Icon(Symbols.play_circle),
+      ),
+      onPressed: () async {
+        await _handleCollectionRequest(context, play);
+      },
+    ),
+    ?afterPlay,
+    CommandBarButton(
+      icon: Tooltip(
+        message: S.of(context).addToQueue,
+        child: const Icon(Symbols.playlist_add),
+      ),
+      onPressed: () async {
+        await _handleCollectionRequest(context, queue);
+      },
+    ),
+    if (canStartRoaming(context))
+      CommandBarButton(
+        icon: Tooltip(
+          message: S.of(context).startRoaming,
+          child: const Icon(Symbols.rocket),
+        ),
+        onPressed: () async {
+          await _handleCollectionRequest(context, roam);
+        },
+      ),
+  ];
+
+  return FlyoutContent(
+    child: Container(
+      constraints: const BoxConstraints(maxHeight: 96, maxWidth: 96),
+      child: CommandBar(
+        primaryItems: items,
+        direction: isBand ? Axis.horizontal : Axis.vertical,
+        overflowBehavior: CommandBarOverflowBehavior.scrolling,
+      ),
+    ),
+  );
+}
+
 void openCollectionItemContextMenu(
   Offset localPosition,
   BuildContext context,
@@ -124,6 +215,7 @@ void openCollectionItemContextMenu(
   void Function()? refreshList,
   bool? readonly,
   Future<List<Mix>> Function() loadMixes = getAllMixes,
+  Future<List<Playlist>> Function() loadPlaylists = getAllPlaylists,
 ]) async {
   final targetContext = contextAttachKey.currentContext;
 
@@ -160,8 +252,12 @@ void openCollectionItemContextMenu(
   }
 
   final withMixes = offersMixes(context);
+  // A library that lists no playlists is not asked for them.
+  final withPlaylists = canListPlaylists(context);
+  late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   try {
+    playlists = withPlaylists ? await loadPlaylists() : const [];
     mixes = withMixes ? await loadMixes() : null;
   } on RequestFailure catch (error) {
     if (context.mounted) {
@@ -185,6 +281,8 @@ void openCollectionItemContextMenu(
       mixes,
       refreshList,
       readonly,
+      const [],
+      playlists,
     ),
   );
 }
@@ -200,6 +298,17 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   void Function()? refreshList,
   bool? readonly,
   List<int> fallbackFileIds = const [],
+  List<Playlist> playlists = const [],
+  Future<List<int>> Function(CollectionType type, int id) loadFileIds =
+      collectionFileIds,
+  Future<void> Function(int playlistId, int fileId) addFileToPlaylist =
+      addItemToPlaylist,
+  Future<List<(String, String)>> Function(CollectionType type, int id)
+      loadQueries =
+      buildQuery,
+  Future<void> Function(int mixId, String operator, String parameter)
+      addQueryToMix =
+      addItemToMix,
 ]) {
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
@@ -207,79 +316,92 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   final libraryState = context.read<LibraryOpenStateProvider>();
   final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
 
-  final List<MenuFlyoutItem>? mixItems = mixes?.where((x) => !x.locked).map((
-    mix,
-  ) {
-    return MenuFlyoutItem(
-      leading: const Icon(Symbols.magic_button),
-      text: Text(mix.name),
-      onPressed: () {
-        final host = Navigator.of(context).context;
-        Flyout.of(context).close();
-        _handleCollectionRequest(
-          host,
-          () => addItemToMix(mix.id, operator ?? "lib::unknown", id.toString()),
-        );
-      },
-    );
-  }).toList();
+  final isMix = type == CollectionType.mix;
+  // Whether the collection resolves to queries, which the adds work from.
+  final hasQueries = operator != null || isMix;
 
-  List<MenuFlyoutItemBase> items = [
-    MenuFlyoutItem(
-      leading: const Icon(Symbols.play_circle),
-      text: Text(S.of(context).startPlaying),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => startPlaying(type, id, fallbackFileIds),
+  // Adds what the collection is made of to a mix: the collection itself, or
+  // each query of a mix.
+  Future<void> addToMix(int mixId) async {
+    for (final (operator, parameter) in await loadQueries(type, id)) {
+      await addQueryToMix(mixId, operator, parameter);
+    }
+  }
+
+  // Adds the songs of the collection that a playlist does not have yet, in
+  // the collection's order, in a dialog that shows how far it is.
+  Future<void> addToPlaylist(BuildContext host, int playlistId) =>
+      showAddToPlaylistDialog(
+        host,
+        type,
+        id,
+        playlistId,
+        loadFileIds: loadFileIds,
+        addFileToPlaylist: addFileToPlaylist,
+      );
+
+  final List<MenuFlyoutItem> playlistItems = playlists
+      .where((x) => type != CollectionType.playlist || x.id != id)
+      .map((playlist) {
+        return MenuFlyoutItem(
+          leading: const Icon(Symbols.list_alt),
+          text: Text(playlist.name),
+          onPressed: () {
+            final host = Navigator.of(context).context;
+            Flyout.of(context).close();
+            addToPlaylist(host, playlist.id);
+          },
         );
-      },
-    ),
-    if (libraryState.openRecord != null &&
-        !libraryState.isRemoteControl &&
-        canPlayOnOtherDevice(context))
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.cast),
-        text: Text(S.of(context).playOn),
-        onPressed: () async {
-          final host = Navigator.of(context).context;
-          Flyout.of(context).close();
-          await _handleCollectionRequest(host, () async {
-            await showCastOnDialog(
-              host,
-              libraryId: castLibraryId!,
-              cast: (candidate) => castCollectionWithSettings(
-                type,
-                id,
-                fallbackFileIds,
-                candidate.fingerprint,
-              ),
-            );
-          });
-        },
-      ),
-    MenuFlyoutItem(
-      leading: const Icon(Symbols.playlist_add),
-      text: Text(S.of(context).addToQueue),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => addToQueue(type, id, fallbackFileIds),
+      })
+      .toList();
+
+  // A mix is not added to itself.
+  final List<MenuFlyoutItem>? mixItems = mixes
+      ?.where((x) => !x.locked && !(isMix && x.id == id))
+      .map((mix) {
+        return MenuFlyoutItem(
+          leading: const Icon(Symbols.magic_button),
+          text: Text(mix.name),
+          onPressed: () {
+            final host = Navigator.of(context).context;
+            Flyout.of(context).close();
+            _handleCollectionRequest(host, () => addToMix(mix.id));
+          },
         );
-      },
-    ),
-    if (canStartRoaming(context))
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.rocket),
-        text: Text(S.of(context).startRoaming),
-        onPressed: () async {
-          await _handleCollectionRequest(
-            context,
-            () => startRoaming(context, type, id, fallbackFileIds),
-          );
-        },
-      ),
-  ];
+      })
+      .toList();
+
+  List<MenuFlyoutItemBase> items = _largeScreenPlayItems(
+    context,
+    play: () => startPlaying(type, id, fallbackFileIds),
+    queue: () => addToQueue(type, id, fallbackFileIds),
+    roam: () => startRoaming(context, type, id, fallbackFileIds),
+    afterPlay:
+        libraryState.openRecord != null &&
+            !libraryState.isRemoteControl &&
+            canPlayOnOtherDevice(context)
+        ? MenuFlyoutItem(
+            leading: const Icon(Symbols.cast),
+            text: Text(S.of(context).playOn),
+            onPressed: () async {
+              final host = Navigator.of(context).context;
+              Flyout.of(context).close();
+              await _handleCollectionRequest(host, () async {
+                await showCastOnDialog(
+                  host,
+                  libraryId: castLibraryId!,
+                  cast: (candidate) => castCollectionWithSettings(
+                    type,
+                    id,
+                    fallbackFileIds,
+                    candidate.fingerprint,
+                  ),
+                );
+              });
+            },
+          )
+        : null,
+  );
 
   if (edit != null && !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
@@ -311,10 +433,45 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     );
   }
 
-  if (mixItems != null &&
-      operator != null &&
+  if (hasQueries &&
+      canListPlaylists(context) &&
       !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
     items.add(const MenuFlyoutSeparator());
+    items.add(
+      MenuFlyoutSubItem(
+        leading: const Icon(Symbols.list_alt),
+        text: Text(S.of(context).addToPlaylist),
+        items: (context) => [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.add),
+            text: Text(S.of(context).newPlaylist),
+            onPressed: () async {
+              final host = Navigator.of(context).context;
+              Flyout.of(context).close();
+
+              final playlist = await showCreateEditPlaylistDialog(
+                host,
+                title,
+                playlistId: null,
+              );
+
+              if (playlist == null) return;
+
+              if (host.mounted) {
+                await addToPlaylist(host, playlist.id);
+              }
+            },
+          ),
+          if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
+          ...playlistItems,
+        ],
+      ),
+    );
+  }
+
+  if (mixItems != null &&
+      hasQueries &&
+      !context.read<LibraryOpenStateProvider>().isReadOnlyReplica) {
     items.add(
       MenuFlyoutSubItem(
         leading: const Icon(Symbols.magic_button),
@@ -324,14 +481,23 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             leading: const Icon(Symbols.add),
             text: Text(S.of(context).newMix),
             onPressed: () async {
+              final host = Navigator.of(context).context;
               Flyout.of(context).close();
 
-              await showCreateEditMixDialog(
-                context,
+              // The dialog takes one query, so the queries of a mix are added
+              // to the new mix once it is made.
+              final mix = await showCreateEditMixDialog(
+                host,
                 title,
                 mixId: null,
-                operator: (operator, id.toString()),
+                operator: operator == null ? null : (operator, id.toString()),
               );
+
+              if (mix == null || operator != null) return;
+
+              if (host.mounted) {
+                await _handleCollectionRequest(host, () => addToMix(mix.id));
+              }
             },
           ),
           if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
@@ -409,83 +575,42 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
-  bool isBand, [
+  bool isBand, {
   List<int> fallbackFileIds = const [],
-]) {
+}) {
   final libraryState = context.read<LibraryOpenStateProvider>();
   final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
-  List<CommandBarButton> items = [
-    CommandBarButton(
-      icon: Tooltip(
-        message: S.of(context).startPlaying,
-        child: const Icon(Symbols.play_circle),
-      ),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => startPlaying(type, id, fallbackFileIds),
-        );
-      },
-    ),
-    if (libraryState.openRecord != null &&
-        !libraryState.isRemoteControl &&
-        canPlayOnOtherDevice(context))
-      CommandBarButton(
-        icon: Tooltip(
-          message: S.of(context).playOn,
-          child: const Icon(Symbols.cast),
-        ),
-        onPressed: () async {
-          final host = Navigator.of(context).context;
-          await _handleCollectionRequest(host, () async {
-            await showCastOnDialog(
-              host,
-              libraryId: castLibraryId!,
-              cast: (candidate) => castCollectionWithSettings(
-                type,
-                id,
-                fallbackFileIds,
-                candidate.fingerprint,
-              ),
-            );
-          });
-        },
-      ),
-    CommandBarButton(
-      icon: Tooltip(
-        message: S.of(context).addToQueue,
-        child: const Icon(Symbols.playlist_add),
-      ),
-      onPressed: () async {
-        await _handleCollectionRequest(
-          context,
-          () => addToQueue(type, id, fallbackFileIds),
-        );
-      },
-    ),
-    if (canStartRoaming(context))
-      CommandBarButton(
-        icon: Tooltip(
-          message: S.of(context).startRoaming,
-          child: const Icon(Symbols.rocket),
-        ),
-        onPressed: () async {
-          await _handleCollectionRequest(
-            context,
-            () => startRoaming(context, type, id, fallbackFileIds),
-          );
-        },
-      ),
-  ];
-
-  return FlyoutContent(
-    child: Container(
-      constraints: const BoxConstraints(maxHeight: 96, maxWidth: 96),
-      child: CommandBar(
-        primaryItems: items,
-        direction: isBand ? Axis.horizontal : Axis.vertical,
-        overflowBehavior: CommandBarOverflowBehavior.scrolling,
-      ),
-    ),
+  return _bandScreenPlayMenu(
+    context,
+    isBand,
+    play: () => startPlaying(type, id, fallbackFileIds),
+    queue: () => addToQueue(type, id, fallbackFileIds),
+    roam: () => startRoaming(context, type, id, fallbackFileIds),
+    afterPlay:
+        libraryState.openRecord != null &&
+            !libraryState.isRemoteControl &&
+            canPlayOnOtherDevice(context)
+        ? CommandBarButton(
+            icon: Tooltip(
+              message: S.of(context).playOn,
+              child: const Icon(Symbols.cast),
+            ),
+            onPressed: () async {
+              final host = Navigator.of(context).context;
+              await _handleCollectionRequest(host, () async {
+                await showCastOnDialog(
+                  host,
+                  libraryId: castLibraryId!,
+                  cast: (candidate) => castCollectionWithSettings(
+                    type,
+                    id,
+                    fallbackFileIds,
+                    candidate.fingerprint,
+                  ),
+                );
+              });
+            },
+          )
+        : null,
   );
 }

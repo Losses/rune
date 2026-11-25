@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../api/request_failure.dart';
 import '../dialogs/information/error.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,8 @@ import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/api/get_all_playlists.dart';
 import '../../utils/api/add_item_to_playlist.dart';
 import '../../utils/api/get_parsed_media_file.dart';
+import '../../utils/api/get_liked.dart';
+import '../../utils/api/set_liked.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../bindings/bindings.dart';
 import '../../providers/responsive_providers.dart';
@@ -24,6 +27,8 @@ import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
 import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
+import '../playing_item.dart';
+import 'like_item.dart';
 import 'offers_mixes.dart';
 import 'offline_selection.dart';
 
@@ -92,6 +97,8 @@ void openTrackItemContextMenu(
   Future<List<Mix>> Function() loadMixes = getAllMixes,
   Future<FetchParsedMediaFileResponse> Function(int fileId) loadMediaFile =
       getParsedMediaFile,
+  Future<bool> Function(PlayingItem item) fetchLikedStatus = getLiked,
+  Future<bool> Function(PlayingItem item, bool liked) setLikedStatus = setLiked,
 }) async {
   final targetContext = contextAttachKey.currentContext;
 
@@ -135,10 +142,32 @@ void openTrackItemContextMenu(
   late final List<Playlist> playlists;
   late final List<Mix>? mixes;
   late final FetchParsedMediaFileResponse parsedMediaFile;
+  // Whether the track is liked, or null where the menu does not offer Like.
+  bool? liked;
   try {
-    playlists = withPlaylists ? await loadPlaylists() : const [];
-    mixes = withMixes ? await loadMixes() : null;
-    parsedMediaFile = await loadMediaFile(fileId);
+    // The three do not depend on each other, so they are asked together. Whether the track
+    // is liked needs the track, and is asked after.
+    (playlists, mixes, parsedMediaFile) = await (
+      withPlaylists ? loadPlaylists() : Future.value(const <Playlist>[]),
+      withMixes ? loadMixes() : Future<List<Mix>?>.value(null),
+      loadMediaFile(fileId),
+    ).wait;
+    if (!context.mounted) return;
+    final track = likeableTrack(parsedMediaFile.file);
+    if (trackLikeOffered(context, track)) {
+      liked = await readTrackLiked(context, track, fetchLikedStatus);
+    }
+  } on ParallelWaitError<dynamic, dynamic> catch (error) {
+    // The loads are asked together, so a failure of one arrives wrapped.
+    final (playlistsError, mixesError, fileError) =
+        error.errors as (AsyncError?, AsyncError?, AsyncError?);
+    final failure = [playlistsError, mixesError, fileError]
+        .map((x) => x?.error)
+        .whereType<RequestFailure>()
+        .firstOrNull;
+    if (failure == null) rethrow;
+    if (context.mounted) await _showRequestFailure(context, failure);
+    return;
   } on RequestFailure catch (error) {
     if (context.mounted) await _showRequestFailure(context, error);
     return;
@@ -164,6 +193,8 @@ void openTrackItemContextMenu(
           playlistId: playlistId,
           occurrenceId: occurrenceId,
           refreshList: refreshList,
+          liked: liked,
+          setLikedStatus: setLikedStatus,
         );
       },
     );
@@ -181,12 +212,15 @@ void openTrackItemContextMenu(
       occurrenceId,
       playlistId,
       refreshList,
+      liked: liked,
+      setLikedStatus: setLikedStatus,
     ),
   );
 }
 
 /// The track menu of a large screen. [mixes] is `null` when the open library
-/// keeps no mixes, which leaves out Add to Mix.
+/// keeps no mixes, which leaves out Add to Mix. [liked] is whether the track is
+/// liked, or null where Like is not offered.
 Widget buildTrackItemContextMenu(
   BuildContext context,
   FetchParsedMediaFileResponse item,
@@ -194,8 +228,10 @@ Widget buildTrackItemContextMenu(
   List<Mix>? mixes,
   String? occurrenceId,
   int? playlistId,
-  void Function()? refreshList,
-) {
+  void Function()? refreshList, {
+  bool? liked,
+  Future<bool> Function(PlayingItem item, bool liked) setLikedStatus = setLiked,
+}) {
   final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.list_alt),
@@ -356,6 +392,17 @@ Widget buildTrackItemContextMenu(
       ),
       if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         const MenuFlyoutSeparator(),
+      if (liked != null)
+        likeMenuItem(
+          context,
+          liked: liked,
+          onPressed: () async {
+            await _runTrackAction(
+              context,
+              () => setLikedStatus(likeableTrack(item.file), !liked),
+            );
+          },
+        ),
       if (!context.read<LibraryOpenStateProvider>().isReadOnlyReplica)
         MenuFlyoutSubItem(
           leading: const Icon(Symbols.list_alt),
@@ -435,6 +482,8 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
   int? playlistId,
   String? occurrenceId,
   void Function()? refreshList,
+  bool? liked,
+  Future<bool> Function(PlayingItem item, bool liked) setLikedStatus = setLiked,
 }) {
   final libraryState = context.read<LibraryOpenStateProvider>();
   final castLibraryId = libraryState.catalogLibraryId ?? libraryState.openRecord?.recordId;
@@ -519,6 +568,19 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           } catch (error) {
             error$(error.toString());
           }
+        },
+      ),
+    if (liked != null)
+      likeBandButton(
+        context,
+        liked: liked,
+        onPressed: () async {
+          final host = Navigator.of(context).context;
+          Flyout.of(context).close();
+          await _runTrackAction(
+            host,
+            () => setLikedStatus(likeableTrack(item.file), !liked),
+          );
         },
       ),
   ];

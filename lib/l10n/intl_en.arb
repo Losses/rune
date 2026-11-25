@@ -2053,5 +2053,25 @@
   "fileDialogItems": "Items",
   "@fileDialogItems": {
     "description": "Accessible name of the area listing the folder's items."
+  },
+  "addingToPlaylist": "Adding to Playlist",
+  "@addingToPlaylist": {
+    "description": "The title of the dialog that shows the progress of adding the songs of an album, an artist, a playlist or a mix to a playlist."
+  },
+  "addingToPlaylistPreparing": "Preparing",
+  "@addingToPlaylistPreparing": {
+    "description": "The text of the button of the dialog that adds songs to a playlist, while it reads which songs are to be added."
+  },
+  "addingToPlaylistProgress": "{added} of {total}",
+  "@addingToPlaylistProgress": {
+    "description": "The text of the button of the dialog that adds songs to a playlist, saying how many of the songs are added so far.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

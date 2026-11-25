@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -137,6 +138,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(asked, 1);
     expect(heartFill(tester), 1);
+  });
+
+  testWidgets('a like set elsewhere, as from a menu, shows on its item only', (
+    tester,
+  ) async {
+    // The signal arrives in a microtask, and the heart is drawn on the next
+    // frame.
+    Future<void> likeSet(PlayingItemRef item, bool liked) async {
+      assignRustSignal['SetLikedResponse']!(
+        SetLikedResponse(item: item, liked: liked).bincodeSerialize(),
+        Uint8List(0),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    await tester.pumpWidget(likeButton(fetch: (_) async => false));
+    await tester.pump();
+    expect(heartFill(tester), 0);
+
+    await likeSet(
+      const PlayingItemRefLibraryTrack(
+        libraryId: 'other-record',
+        track: 'i.other',
+      ),
+      true,
+    );
+    expect(heartFill(tester), 0);
+
+    await likeSet(serviceRef, true);
+    expect(heartFill(tester), 1);
+
+    await likeSet(serviceRef, false);
+    expect(heartFill(tester), 0);
   });
 
   testWidgets('the next track declared first leaves this one waiting', (

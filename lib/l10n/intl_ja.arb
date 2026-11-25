@@ -1805,5 +1805,8 @@
   "fileDialogReplace": "置き換える",
   "fileDialogItemCount": "{count, plural, other{{count} 個の項目}}",
   "fileDialogNavigationPane": "ナビゲーション ウィンドウ",
-  "fileDialogItems": "項目"
+  "fileDialogItems": "項目",
+  "addingToPlaylist": "再生一覧表に追加中",
+  "addingToPlaylistPreparing": "準備中",
+  "addingToPlaylistProgress": "{added} / {total}"
 }

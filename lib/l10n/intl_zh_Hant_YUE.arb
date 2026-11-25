@@ -1805,5 +1805,8 @@
   "fileDialogReplace": "取代",
   "fileDialogItemCount": "{count, plural, other{{count} 個項目}}",
   "fileDialogNavigationPane": "導覽窗格",
-  "fileDialogItems": "項目"
+  "fileDialogItems": "項目",
+  "addingToPlaylist": "加入緊播放列表",
+  "addingToPlaylistPreparing": "準備緊",
+  "addingToPlaylistProgress": "{added} / {total}"
 }

@@ -67,6 +67,7 @@ class _TrackRowState extends State<_TrackRow> {
           expect(fileId, _track.file.id);
           return _track;
         },
+        fetchLikedStatus: (_) async => false,
       ),
       onMiddleClick: (_) {},
       child: const SizedBox(

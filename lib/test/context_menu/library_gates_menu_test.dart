@@ -111,6 +111,7 @@ class _MenuTargetState extends State<_MenuTarget> {
         },
         loadMixes: () async => const [],
         loadMediaFile: (_) async => _track,
+        fetchLikedStatus: (_) async => false,
       );
     } else {
       openCollectionItemContextMenu(
@@ -124,6 +125,10 @@ class _MenuTargetState extends State<_MenuTarget> {
         null,
         true,
         () async => const [],
+        () async {
+          _playlistLoads++;
+          return const [];
+        },
       );
     }
   }
@@ -411,11 +416,11 @@ void main() {
     });
 
     testWidgets(
-      'of another record leaves a track menu the open library\'s playlists',
+      'of another record leaves the menus the open library\'s playlists',
       (tester) async {
         // The open library lists playlists, and the renderer this device plays
         // on sends a snapshot of a library that lists none.
-        final renderer = RequestCapabilitiesProvider(
+        RequestCapabilitiesProvider renderer() => RequestCapabilitiesProvider(
           changes: Stream.value(
             _files.copyWith(
               recordId: () => 'renderer-record',
@@ -424,14 +429,19 @@ void main() {
           ),
           initial: _files.copyWith(recordId: () => folderRecord.recordId),
         );
-        _playlistLoads = 0;
-        await _menuEntries(
-          tester,
-          record: folderRecord,
-          capabilities: renderer,
-          target: const _MenuTarget.track(),
-        );
-        expect(_playlistLoads, 1);
+        for (final target in const [
+          _MenuTarget.track(),
+          _MenuTarget.collection(),
+        ]) {
+          _playlistLoads = 0;
+          await _menuEntries(
+            tester,
+            record: folderRecord,
+            capabilities: renderer(),
+            target: target,
+          );
+          expect(_playlistLoads, 1);
+        }
       },
     );
 
