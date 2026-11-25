@@ -458,7 +458,7 @@ impl AnySource {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackMode {
     Sequential,
     RepeatOne,
@@ -534,6 +534,7 @@ pub enum PlayerCommand {
         block: HandoffBlockId,
         interrupted: InterruptedItem,
         revision: Option<u64>,
+        resume: bool,
         response: oneshot::Sender<Option<TakeBackBlockResult>>,
     },
     ClearHandoffBlocks {
@@ -1344,6 +1345,7 @@ impl PlayerInternal {
                                         answered,
                                     }))?;
                                     self.mark_unavailable(&item, reason, refused_by);
+                                    self.flush_playlist_update()?;
                                     self.event_sender.send(PlayerEvent::Unavailable(item, reason))?;
                                     self.complete_load_completions(Err(PlayerCommandError::SourceUnavailable));
                                     // Advance from the failed load, including when no track has loaded yet.
@@ -1458,7 +1460,7 @@ impl PlayerInternal {
                                 items: self.playlist.iter().map(queue_entry).collect(),
                             });
                         },
-                        PlayerCommand::TakeBackBlock { block, interrupted, response, .. } => {
+                        PlayerCommand::TakeBackBlock { block, interrupted, resume, response, .. } => {
                             if !self.playlist.iter().any(|item| item.block == Some(block)) {
                                 let _ = response.send(None);
                                 continue;
@@ -1485,19 +1487,42 @@ impl PlayerInternal {
                             let indices = self.playlist.iter().enumerate()
                                 .filter_map(|(index, item)| (item.block == Some(block)).then_some(index))
                                 .collect::<Vec<_>>();
-                            for index in indices.into_iter().rev() {
+                            for index in indices.iter().copied().rev() {
                                 self.remove_from_playlist(index)?;
                             }
-                            if was_inside {
-                                match interrupted {
-                                    InterruptedItem::Nothing => self.stop()?,
-                                    InterruptedItem::Item { index_hint, item, position } => {
-                                        let index = self.playlist.iter().position(|entry| entry.item == item)
-                                            .unwrap_or_else(|| index_hint.min(self.playlist.len().saturating_sub(1)));
+                            // A rollback undoes the handoff wherever the failure recovery left
+                            // the player: the interrupted state replaces whatever plays now. An
+                            // ordinary handback restores it only while the player is still
+                            // inside the block, and keeps a track outside it.
+                            if resume || was_inside {
+                                let (interrupted_item, playback_mode, playing) = match interrupted {
+                                    InterruptedItem::Nothing { playback_mode } => (None, playback_mode, false),
+                                    InterruptedItem::Item { index_hint, item, position, playback_mode, playing } =>
+                                        (Some((index_hint, item, position)), playback_mode, playing),
+                                };
+                                // The mode the load replaced and the state the interruption
+                                // stopped come back with the rollback.
+                                if resume && let Some(mode) = playback_mode {
+                                    self.set_playback_mode(mode)?;
+                                }
+                                match interrupted_item {
+                                    None => self.stop()?,
+                                    Some((index_hint, item, position)) => {
                                         if self.playlist.is_empty() {
                                             self.stop()?;
                                         } else {
+                                            // The hint names where the interruption stood. Of the
+                                            // equal occurrences the removal leaves, the nearest is
+                                            // the one that played, not the first copy in the queue.
+                                            let index = self.playlist.iter().enumerate()
+                                                .filter(|(_, entry)| entry.item == item)
+                                                .min_by_key(|(index, _)| index.abs_diff(index_hint))
+                                                .map(|(index, _)| index)
+                                                .unwrap_or_else(|| index_hint.min(self.playlist.len() - 1));
                                             self.load_at(Some(index), false, false, Some(position))?;
+                                            if resume && playing {
+                                                self.play()?;
+                                            }
                                         }
                                     }
                                 }
@@ -2728,15 +2753,20 @@ impl PlayerInternal {
     }
 
     fn interrupted_item(&self) -> InterruptedItem {
+        let playback_mode = Some(self.playback_mode);
+        // A track that shows as paused without output keeps its selection inside as Stopped;
+        // it is interrupted the same as any paused track. A genuinely stopped target, whose
+        // stop cleared the stale output, interrupts nothing.
+        let interrupted = self.state != InternalPlaybackState::Stopped || self.output_stale;
         match (self.current_track_index, self.current_item.as_ref()) {
-            (Some(index_hint), Some(item)) if self.state != InternalPlaybackState::Stopped => {
-                InterruptedItem::Item {
-                    index_hint: self.current_playlist_index().unwrap_or(index_hint),
-                    item: item.clone(),
-                    position: self.current_position().unwrap_or_default(),
-                }
-            }
-            _ => InterruptedItem::Nothing,
+            (Some(index_hint), Some(item)) if interrupted => InterruptedItem::Item {
+                index_hint: self.current_playlist_index().unwrap_or(index_hint),
+                item: item.clone(),
+                position: self.current_position().unwrap_or_default(),
+                playback_mode,
+                playing: self.plays_or_starts_playing(),
+            },
+            _ => InterruptedItem::Nothing { playback_mode },
         }
     }
 
@@ -2921,6 +2951,17 @@ impl PlayerInternal {
         None
     }
 
+    // The Unavailable reports make listeners resend their playlist snapshot, and a pending
+    // debounced update still describes the queue from before the edit that raised them. That
+    // stale snapshot must not arrive after the resend, or a listener that tracks edits — such
+    // as the session store's handoff records — applies them in the wrong order.
+    fn flush_playlist_update(&mut self) -> Result<()> {
+        if self.debounce_timer.take().is_some() {
+            self.send_playlist_updated()?;
+        }
+        Ok(())
+    }
+
     // Marks `item` unavailable. `refused_by` names the host whose saying that it cannot play is
     // the cause, so that the mark goes once that host can play. A mark of any other cause stays
     // then, even where it replaces such a mark.
@@ -2951,6 +2992,7 @@ impl PlayerInternal {
             }
         };
         if changed {
+            self.flush_playlist_update()?;
             self.event_sender
                 .send(PlayerEvent::UnavailableCleared(item))
                 .context("Failed to clear unavailable status")?;
@@ -3013,6 +3055,7 @@ impl PlayerInternal {
                     }))?;
                     self.stop()?;
                     self.mark_unavailable(&item, reason, None);
+                    self.flush_playlist_update()?;
                     self.event_sender
                         .send(PlayerEvent::Unavailable(item, reason))?;
                     if let Some(next) = self.find_available_after(failed_index) {
@@ -4189,6 +4232,7 @@ impl PlayerInternal {
             self.stop()?;
         }
         self.mark_unavailable(&item, reason, refused_by);
+        self.flush_playlist_update()?;
         self.event_sender
             .send(PlayerEvent::Unavailable(item, reason))?;
         if loading {
@@ -8483,6 +8527,159 @@ mod playback_state_tests {
     #[tokio::test]
     async fn load_at_a_position_during_a_load_comes_up_paused_there() -> Result<()> {
         check_load_at_position_during_a_load(false).await
+    }
+
+    // A handoff that is rolled back restores what it interrupted: the same occurrence of a
+    // repeated track, the playback mode it replaced and the playing state. A target that was
+    // playing in RepeatAll goes on playing the second copy of its track, not the first copy
+    // paused in RepeatOne, and a paused target comes back paused.
+    async fn check_rolled_back_handoff(playing_target: bool) -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let mut internal = internal;
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let [a, b] = file_uuids;
+                    let a_item = library_item(library_id, a);
+                    // The target plays the second copy of a repeated track in RepeatAll.
+                    commands_sender.send(add_library_tracks(library_id, &[a, b, a, b]))?;
+                    commands_sender
+                        .send(PlayerCommand::SetPlaybackMode(PlaybackMode::RepeatAll))?;
+                    commands_sender.send(PlayerCommand::Switch(2))?;
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Playing { item, index: 2, playback_mode: PlaybackMode::RepeatAll, .. } if *item == a_item),
+                        "{event:?}"
+                    );
+                    if !playing_target {
+                        commands_sender.send(PlayerCommand::Pause)?;
+                        let event = next_track_state(&mut events).await?;
+                        assert!(
+                            matches!(&event, PlayerEvent::Paused { item, index: 2, playback_mode: PlaybackMode::RepeatAll, .. } if *item == a_item),
+                            "{event:?}"
+                        );
+                    }
+                    // The handoff inserts its block after the current track, starts it playing
+                    // and brings its own playback mode along.
+                    let block = HandoffBlockId(Uuid::new_v4());
+                    let (handed, handed_receiver) = oneshot::channel();
+                    commands_sender.send(PlayerCommand::HandoffLoad {
+                        tracks: library_tracks(library_id, &[b]),
+                        block,
+                        start_index: Some(0),
+                        position: Duration::ZERO,
+                        play: true,
+                        playback_mode: Some(PlaybackMode::RepeatOne),
+                        revision: None,
+                        response: handed,
+                    })?;
+                    let result = tokio_time::timeout(TEST_DEADLINE, handed_receiver).await??;
+                    let event = next_track_state(&mut events).await?;
+                    assert!(
+                        matches!(&event, PlayerEvent::Playing { index: 3, playback_mode: PlaybackMode::RepeatOne, .. }),
+                        "{event:?}"
+                    );
+                    let InterruptedItem::Item {
+                        index_hint,
+                        item,
+                        position,
+                        playback_mode,
+                        playing,
+                    } = result.interrupted.clone()
+                    else {
+                        bail!("a playing target has an interrupted item: {:?}", result.interrupted)
+                    };
+                    assert_eq!(index_hint, 2);
+                    assert_eq!(item, a_item);
+                    assert_eq!(playback_mode, Some(PlaybackMode::RepeatAll));
+                    assert_eq!(playing, playing_target);
+
+                    // The handoff never confirms, so the block is taken back to roll it back.
+                    let (taken, taken_receiver) = oneshot::channel();
+                    commands_sender.send(PlayerCommand::TakeBackBlock {
+                        block,
+                        interrupted: result.interrupted.clone(),
+                        revision: None,
+                        resume: true,
+                        response: taken,
+                    })?;
+                    let taken_back = tokio_time::timeout(TEST_DEADLINE, taken_receiver)
+                        .await??
+                        .context("the block is there to take back")?;
+                    assert_eq!(taken_back.items.len(), 1);
+                    // The play that follows the load reports the track that is giving way
+                    // first, like every play during a load; the restored track settles it.
+                    let event = tokio_time::timeout(TEST_DEADLINE, async {
+                        let mut last = None;
+                        loop {
+                            match next_track_state(&mut events).await {
+                                Ok(event) => {
+                                    let settled = matches!(&event, PlayerEvent::Loaded { item, index: 2, .. } | PlayerEvent::Playing { item, index: 2, .. } | PlayerEvent::Paused { item, index: 2, .. } if *item == a_item);
+                                    if settled {
+                                        break Ok::<PlayerEvent, anyhow::Error>(event);
+                                    }
+                                    last = Some(event);
+                                }
+                                Err(error) => break Err(error.context(format!("before settling, last track state: {last:?}"))),
+                            }
+                        }
+                    })
+                    .await??;
+                    if playing_target {
+                        assert!(
+                            matches!(&event, PlayerEvent::Playing {
+                                item,
+                                index: 2,
+                                playback_mode: PlaybackMode::RepeatAll,
+                                ..
+                            } if *item == a_item),
+                            "the rollback restores the second copy in RepeatAll playing: {event:?}"
+                        );
+                        assert!(
+                            position_of(&event) + Duration::from_millis(500) >= position
+                                && position_of(&event) <= position + Duration::from_secs(2),
+                            "restored {:?} vs interrupted {position:?}",
+                            position_of(&event)
+                        );
+                    } else {
+                        assert!(
+                            matches!(&event, PlayerEvent::Paused {
+                                item,
+                                index: 2,
+                                playback_mode: PlaybackMode::RepeatAll,
+                                ..
+                            } | PlayerEvent::Loaded {
+                                item,
+                                index: 2,
+                                playback_mode: PlaybackMode::RepeatAll,
+                                ..
+                            } if *item == a_item),
+                            "the rollback restores the second copy in RepeatAll, not playing: {event:?}"
+                        );
+                        assert_about(position_of(&event), position);
+                    }
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_rolled_back_handoff_restores_the_interrupted_state() -> Result<()> {
+        check_rolled_back_handoff(true).await
+    }
+
+    #[tokio::test]
+    async fn a_rolled_back_handoff_restores_the_interrupted_paused_state() -> Result<()> {
+        check_rolled_back_handoff(false).await
     }
 
     // Hosted tracks, which a platform host plays. The fake host records the batches it is sent

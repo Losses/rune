@@ -489,6 +489,11 @@ pub struct HandoffLoadRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct TakeBackHandoffBlockRequest {
     pub block: HandoffBlockId,
+    /// The take-back rolls a failed handoff back rather than handing playback back: the target
+    /// restores the playback mode and playing state the handoff interrupted instead of pausing
+    /// where its own track stood. A device that does not send it hands back, as before.
+    #[serde(default)]
+    pub resume: bool,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

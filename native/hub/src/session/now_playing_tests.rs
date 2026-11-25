@@ -517,8 +517,10 @@ impl Playable for ScriptedPlayer {
         &self,
         block: HandoffBlockId,
         interrupted: InterruptedItem,
+        resume: bool,
     ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
-        MockPlayer.take_back_block(block, interrupted)
+        let _ = resume;
+        MockPlayer.take_back_block(block, interrupted, resume)
     }
     fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult> {
         MockPlayer.clear_handoff_blocks()

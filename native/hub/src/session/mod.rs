@@ -338,6 +338,7 @@ impl PlayerSession {
     pub(crate) async fn take_back_handoff_block(
         &self,
         block: HandoffBlockId,
+        resume: bool,
     ) -> Result<(TakeBackBlockResult, u64)> {
         let mut state = self.state.lock().await;
         let interrupted: InterruptedItem = state
@@ -346,7 +347,9 @@ impl PlayerSession {
             // A renderer can still have the tagged queue block after its session
             // metadata was refreshed. In that case the player command can remove
             // the block while preserving any current item outside it.
-            .unwrap_or(InterruptedItem::Nothing);
+            .unwrap_or(InterruptedItem::Nothing {
+                playback_mode: None,
+            });
         let mut player = self.player.lock().await;
         player.tag_queue_revision(
             state
@@ -354,7 +357,7 @@ impl PlayerSession {
                 .checked_add(1)
                 .context("Queue revision overflow")?,
         );
-        let response = player.take_back_block(block, interrupted);
+        let response = player.take_back_block(block, interrupted, resume);
         player.clear_queue_revision_tag();
         drop(player);
         let result = response

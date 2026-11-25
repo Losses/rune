@@ -965,7 +965,10 @@ impl Signal for TakeBackHandoffBlockRequest {
         }
         let (result, revision) = node
             .session()?
-            .take_back_handoff_block(PlayerHandoffBlockId::try_from(&request.block)?)
+            .take_back_handoff_block(
+                PlayerHandoffBlockId::try_from(&request.block)?,
+                request.resume,
+            )
             .await?;
         let items = result
             .items
@@ -1853,6 +1856,7 @@ impl Signal for HandoffRequest {
             let take_back = source
                 .call(&TakeBackHandoffBlockRequest {
                     block: block.into(),
+                    resume: false,
                     call_id: None,
                 })
                 .await;
@@ -2164,6 +2168,7 @@ async fn hand_off_to_renderer(
         let rollback = link
             .call(&TakeBackHandoffBlockRequest {
                 block: block.into(),
+                resume: true,
                 call_id: None,
             })
             .await;

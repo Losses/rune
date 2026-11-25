@@ -115,26 +115,40 @@ pub(crate) struct HandoffBlock {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum StoredInterruptedItem {
-    Nothing,
+    Nothing {
+        // A record written before the mode was captured has none; it restores nothing then.
+        #[serde(default)]
+        playback_mode: Option<WirePlaybackMode>,
+    },
     Item {
         index_hint: usize,
         item: StoredItem,
         position: Duration,
+        #[serde(default)]
+        playback_mode: Option<WirePlaybackMode>,
+        #[serde(default)]
+        playing: bool,
     },
 }
 
 impl From<InterruptedItem> for StoredInterruptedItem {
     fn from(value: InterruptedItem) -> Self {
         match value {
-            InterruptedItem::Nothing => Self::Nothing,
+            InterruptedItem::Nothing { playback_mode } => Self::Nothing {
+                playback_mode: playback_mode.map(Into::into),
+            },
             InterruptedItem::Item {
                 index_hint,
                 item,
                 position,
+                playback_mode,
+                playing,
             } => Self::Item {
                 index_hint,
                 item: item.into(),
                 position,
+                playback_mode: playback_mode.map(Into::into),
+                playing,
             },
         }
     }
@@ -143,15 +157,21 @@ impl From<InterruptedItem> for StoredInterruptedItem {
 impl From<StoredInterruptedItem> for InterruptedItem {
     fn from(value: StoredInterruptedItem) -> Self {
         match value {
-            StoredInterruptedItem::Nothing => Self::Nothing,
+            StoredInterruptedItem::Nothing { playback_mode } => Self::Nothing {
+                playback_mode: playback_mode.map(Into::into),
+            },
             StoredInterruptedItem::Item {
                 index_hint,
                 item,
                 position,
+                playback_mode,
+                playing,
             } => Self::Item {
                 index_hint,
                 item: item.into(),
                 position,
+                playback_mode: playback_mode.map(Into::into),
+                playing,
             },
         }
     }
@@ -332,7 +352,9 @@ mod tests {
         let mut state = SessionState::default();
         state.handoff_blocks.push(HandoffBlock {
             id: id.0,
-            interrupted: StoredInterruptedItem::Nothing,
+            interrupted: StoredInterruptedItem::Nothing {
+                playback_mode: None,
+            },
         });
         let item = PlayingItem::from(ServiceItem {
             library_id: Uuid::new_v4(),
@@ -360,7 +382,12 @@ mod tests {
             item: item.clone(),
             block: Some(id),
         }]);
-        state.add_handoff_block(id, InterruptedItem::Nothing);
+        state.add_handoff_block(
+            id,
+            InterruptedItem::Nothing {
+                playback_mode: None,
+            },
+        );
         let encoded = serde_json::to_vec(&state).unwrap();
         let restored: SessionState = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(restored, state);

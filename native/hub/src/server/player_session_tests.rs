@@ -8081,8 +8081,9 @@ mod faulty_player {
             &self,
             block: HandoffBlockId,
             interrupted: InterruptedItem,
+            resume: bool,
         ) -> Receiver<Option<TakeBackBlockResult>> {
-            self.0.take_back_block(block, interrupted)
+            self.0.take_back_block(block, interrupted, resume)
         }
         fn clear_handoff_blocks(
             &self,
@@ -8849,6 +8850,18 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     .context("rollback should remove the handoff block and retain the concurrent queue edit")?;
     assert_eq!(target_after.index, target_before.index);
     assert_eq!(target_after.item, target_before.item);
+    // The rollback undoes the handoff completely on the target: the playback mode it replaced
+    // is back and the interrupted track goes on playing, as it did before the interruption.
+    assert_eq!(
+        target_after.state,
+        PlayerPlaybackState::Playing,
+        "the interrupted track resumes playing after the rollback: {target_after:?}"
+    );
+    assert_eq!(
+        target_after.playback_mode,
+        PlaybackMode::RepeatAll,
+        "the rollback restores the playback mode the handoff replaced: {target_after:?}"
+    );
     let source_after =
         wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     assert_eq!(source_after.item, Some(expected_item));
@@ -9557,6 +9570,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         block: HandoffBlockId {
             uuid: Uuid::new_v4().to_string(),
         },
+        resume: false,
         call_id: None,
     };
     let b_link = controller
