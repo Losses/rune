@@ -3478,6 +3478,68 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// An ownership change reaches the session store by itself, checked before any clean
+    /// shutdown could flush it: the recording of the owner marks the store dirty even though
+    /// the load issued no player command that would, and so does the revocation that releases
+    /// the owner, which emits no player event at all.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_owner_reaches_the_store_before_a_clean_shutdown() -> Result<()> {
+        use discovery::access_policy::PeerIdentity;
+
+        use crate::session::store::SessionState;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let store_path =
+            std::path::Path::new(&*player.global_params.config_path).join("sessions/local.json");
+        let read_owner = |path: &std::path::Path| {
+            SessionState::read(path)
+                .ok()
+                .and_then(|state| state.playback_owner.map(|owner| owner.fingerprint))
+        };
+        // The ownership is recorded without any load: the edit changes nothing and issues no
+        // command, so no queue or status report can carry the owner to the store.
+        player
+            .global_params
+            .node
+            .session()?
+            .edit_queue_with_load(
+                None,
+                Some(PeerIdentity {
+                    fingerprint: fingerprint.clone(),
+                    public_key: String::new(),
+                }),
+                |_player| (false, true),
+            )
+            .await?;
+        wait_until("the recorded owner to reach the session store", || async {
+            Ok((read_owner(&store_path).as_deref() == Some(fingerprint.as_str())).then_some(()))
+        })
+        .await
+        .context("recording the owner did not persist it before a clean shutdown")?;
+        // The revocation releases the owner without any player event, and the release must
+        // reach the store just the same.
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&fingerprint)
+            .await?;
+        wait_until("the released owner to leave the session store", || async {
+            Ok((read_owner(&store_path).is_none()).then_some(()))
+        })
+        .await
+        .context("releasing the owner did not persist before a clean shutdown")?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
     /// How a controller that stopped reading ends its session.
     #[derive(Clone, Copy)]
     enum StalledControllerEnd {

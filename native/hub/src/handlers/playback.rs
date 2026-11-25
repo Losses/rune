@@ -541,17 +541,13 @@ impl Signal for PauseReportingRequest {
     }
 }
 
-/// Names the session of a started load the owner of the playback the queue continues: the
-/// controller device's identity for a remote load, `None` for one this device itself made. A
-/// device in controller-only mode owns no player session, so recording does nothing there.
-async fn record_playback_initiator(node: &NodeContext, session: Option<&Session>) {
-    let owner = session.map(|session| PeerIdentity {
+/// Names who started a load: the controller device's identity for a remote load, `None` for
+/// one this device itself made.
+fn load_initiator(session: Option<&Session>) -> Option<PeerIdentity> {
+    session.map(|session| PeerIdentity {
         fingerprint: session.fingerprint.clone(),
         public_key: session.public_key.clone(),
-    });
-    if let Ok(player_session) = node.session() {
-        player_session.record_playback_initiator(owner).await;
-    }
+    })
 }
 
 async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
@@ -1083,36 +1079,37 @@ impl Signal for LoadResolvedItemsRequest {
                         ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
                     })?;
                 let mut completion = None;
-                let mut starts_playback = false;
                 node.session()?
-                    .edit_queue(request.expected_revision, |player| {
-                        let (changed, edit) = edit_playlist(
-                            player,
-                            &prepared,
-                            PlaylistEditOptions {
-                                mode: request.mode,
-                                start_index,
-                                playback_mode: request.playback_mode,
-                                position: request
-                                    .position_seconds
-                                    .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok()),
-                                play: request.play,
-                            },
-                        );
-                        starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                        completion = Some(
-                            player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
-                        );
-                        changed
-                    })
+                    .edit_queue_with_load(
+                        request.expected_revision,
+                        load_initiator(session.as_ref()),
+                        |player| {
+                            let (changed, edit) = edit_playlist(
+                                player,
+                                &prepared,
+                                PlaylistEditOptions {
+                                    mode: request.mode,
+                                    start_index,
+                                    playback_mode: request.playback_mode,
+                                    position: request.position_seconds.and_then(|seconds| {
+                                        Duration::try_from_secs_f64(seconds).ok()
+                                    }),
+                                    play: request.play,
+                                },
+                            );
+                            let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                            completion =
+                                Some(player.command_with_completion(PlayerCommand::EditPlaylist(
+                                    edit, None,
+                                )));
+                            (changed, starts_playback)
+                        },
+                    )
                     .await?;
                 if let Some(completion) = completion {
                     completion
                         .await
                         .map_err(|error| Error::new(player_command_error(error)))?;
-                }
-                if starts_playback {
-                    record_playback_initiator(&node, session.as_ref()).await;
                 }
                 return Ok(Some(LoadResolvedItemsResponse {
                     call_id: None,
@@ -1218,34 +1215,34 @@ impl Signal for LoadResolvedItemsRequest {
                     )
                 })?;
             let mut completion = None;
-            let mut starts_playback = false;
             node.session()?
-                .edit_queue(request.expected_revision, |player| {
-                    let (changed, edit) = edit_playlist(
-                        player,
-                        &prepared,
-                        PlaylistEditOptions {
-                            mode: request.mode,
-                            start_index,
-                            playback_mode: request.playback_mode,
-                            position,
-                            play: request.play,
-                        },
-                    );
-                    starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                    completion = Some(
-                        player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
-                    );
-                    changed
-                })
+                .edit_queue_with_load(
+                    request.expected_revision,
+                    load_initiator(session.as_ref()),
+                    |player| {
+                        let (changed, edit) = edit_playlist(
+                            player,
+                            &prepared,
+                            PlaylistEditOptions {
+                                mode: request.mode,
+                                start_index,
+                                playback_mode: request.playback_mode,
+                                position,
+                                play: request.play,
+                            },
+                        );
+                        let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                        completion = Some(
+                            player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                        );
+                        (changed, starts_playback)
+                    },
+                )
                 .await?;
             if let Some(completion) = completion {
                 completion
                     .await
                     .map_err(|error| Error::new(player_command_error(error)))?;
-            }
-            if starts_playback {
-                record_playback_initiator(&node, session.as_ref()).await;
             }
         }
         Ok(Some(LoadResolvedItemsResponse {
@@ -1521,40 +1518,39 @@ async fn apply_resolved_items_load(
                 position,
                 play,
                 playback_mode: request.playback_mode.map(Into::into),
+                initiator: load_initiator(session),
             })
             .await?;
-        if play {
-            record_playback_initiator(node, session).await;
-        }
     } else {
         let mut completion = None;
-        let mut starts_playback = false;
         node.session()?
-            .edit_queue(request.expected_revision, |player| {
-                let (changed, edit) = edit_playlist(
-                    player,
-                    &prepared,
-                    PlaylistEditOptions {
-                        mode: request.mode,
-                        start_index,
-                        playback_mode: request.playback_mode,
-                        position,
-                        play: request.play,
-                    },
-                );
-                starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
-                completion =
-                    Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)));
-                changed
-            })
+            .edit_queue_with_load(
+                request.expected_revision,
+                load_initiator(session),
+                |player| {
+                    let (changed, edit) = edit_playlist(
+                        player,
+                        &prepared,
+                        PlaylistEditOptions {
+                            mode: request.mode,
+                            start_index,
+                            playback_mode: request.playback_mode,
+                            position,
+                            play: request.play,
+                        },
+                    );
+                    let starts_playback = edit.load.as_ref().is_some_and(|load| load.play);
+                    completion = Some(
+                        player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                    );
+                    (changed, starts_playback)
+                },
+            )
             .await?;
         if let Some(completion) = completion {
             completion
                 .await
                 .map_err(|error| Error::new(player_command_error(error)))?;
-        }
-        if starts_playback {
-            record_playback_initiator(node, session).await;
         }
     }
     Ok((result, handoff_item))

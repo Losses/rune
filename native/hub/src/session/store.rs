@@ -116,6 +116,11 @@ pub(crate) struct SessionState {
     pub mode: WirePlaybackMode,
     #[serde(default)]
     pub playback_owner: Option<StoredPlaybackOwner>,
+    /// Stamps the load that recorded `playback_owner`, so an interrupted load can hand the
+    /// ownership back only while nothing newer has taken it. It lives in memory only: after a
+    /// restart no interrupted load survives to roll anything back.
+    #[serde(skip)]
+    pub playback_owner_generation: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -200,6 +205,7 @@ impl Default for SessionState {
             position: Duration::ZERO,
             mode: WirePlaybackMode::Sequential,
             playback_owner: None,
+            playback_owner_generation: 0,
         }
     }
 }
