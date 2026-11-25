@@ -1587,13 +1587,14 @@ async fn handle_played_event(
 
 /// A playback failure reaches the application log, and when no request answer already carried
 /// it, also reaches the user as a typed request failure: nothing else reports a playback that
-/// stops on its own.
+/// stops on its own. The first failure of a chain through broken tracks is reported, and its
+/// continuations stay in the log, so a queue of broken tracks does not bury the user in reports.
 async fn handle_log_event(node: &NodeContext, error: InternalLog, broadcaster: &dyn Broadcaster) {
     let detail = error.error.clone();
     if let Some(item) = &error.item {
         let _ = item_log(node, item, error.domain.clone(), detail.clone()).await;
     }
-    if error.answered {
+    if error.answered || error.chain_continuation {
         return;
     }
     let kind = match error.failure {

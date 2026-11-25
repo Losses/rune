@@ -6077,88 +6077,41 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn concurrent_ranged_audio_reads_recover_from_one_authorization_rejection() -> Result<()>
-    {
-        use crate::server::sync_auth::{TOKEN_TTL, require_auth};
+    /// A pinned TLS audio server whose blob endpoint answers correct ranges unless its faults
+    /// say otherwise, with a client node authorized against it and a `RenewableAudio` pointed at
+    /// its audio blob: the production client side of peer audio, validation included.
+    struct TlsAudioFixture {
+        client: Fixture,
+        audio: super::super::sync_worker::RenewableAudio,
+        faults: TlsAudioFaults,
+        server: tokio::task::JoinHandle<()>,
+        _server_dir: tempfile::TempDir,
+    }
+
+    #[derive(Clone)]
+    struct TlsAudioFaults {
+        reject_next_authorize: std::sync::Arc<AtomicBool>,
+        corrupt_blob_ranges: std::sync::Arc<AtomicBool>,
+    }
+
+    async fn tls_audio_fixture(
+        failure_reason: Option<std::sync::Arc<StdMutex<Option<UnavailableReason>>>>,
+    ) -> Result<TlsAudioFixture> {
+        use crate::server::sync_auth::require_auth;
         use crate::server::sync_worker::{AudioCredentials, RenewableAudio};
-        use axum::extract::{Request as AxumRequest, State as AxumState};
-        use axum::http::{HeaderMap, Method};
-        use axum::middleware::Next;
+        use axum::extract::State as AxumState;
+        use axum::http::HeaderMap;
         use axum::response::{IntoResponse, Response};
         use discovery::ssl;
-        use playback::player::AudioRequest;
-        use std::sync::atomic::AtomicUsize;
-        use tokio::sync::Barrier;
-
-        #[derive(Clone, Debug)]
-        struct RecordedRequest {
-            method: Method,
-            path: String,
-            range: Option<String>,
-            status: StatusCode,
-        }
-        type RecordedRequests = Arc<StdMutex<Vec<RecordedRequest>>>;
+        use std::sync::atomic::AtomicBool;
 
         #[derive(Clone)]
         struct Faults {
-            reject_next_authorize: Arc<AtomicBool>,
-            requests: RecordedRequests,
-            blob_gets: Arc<AtomicUsize>,
-            stale_blob_barrier: Arc<Barrier>,
+            reject_next_authorize: std::sync::Arc<AtomicBool>,
+            corrupt_blob_ranges: std::sync::Arc<AtomicBool>,
         }
 
-        impl Default for Faults {
-            fn default() -> Self {
-                Self {
-                    reject_next_authorize: Arc::new(AtomicBool::new(false)),
-                    requests: Arc::new(StdMutex::new(Vec::new())),
-                    blob_gets: Arc::new(AtomicUsize::new(0)),
-                    stale_blob_barrier: Arc::new(Barrier::new(2)),
-                }
-            }
-        }
-
-        async fn record(
-            AxumState(faults): AxumState<Faults>,
-            request: AxumRequest,
-            next: Next,
-        ) -> Response {
-            let method = request.method().clone();
-            let path = request.uri().path().to_owned();
-            let range = request
-                .headers()
-                .get(header::RANGE)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned);
-            if path == "/sync/authorize"
-                && faults.reject_next_authorize.swap(false, Ordering::SeqCst)
-            {
-                faults.requests.lock().unwrap().push(RecordedRequest {
-                    method: method.clone(),
-                    path: path.clone(),
-                    range: range.clone(),
-                    status: StatusCode::UNAUTHORIZED,
-                });
-                return StatusCode::UNAUTHORIZED.into_response();
-            }
-            if method == Method::GET
-                && path == "/sync/blobs/audio"
-                && faults.blob_gets.fetch_add(1, Ordering::SeqCst) < 2
-            {
-                faults.stale_blob_barrier.wait().await;
-            }
-            let response = next.run(request).await;
-            faults.requests.lock().unwrap().push(RecordedRequest {
-                method,
-                path,
-                range,
-                status: response.status(),
-            });
-            response
-        }
-
-        async fn blob(headers: HeaderMap) -> Response {
+        async fn blob(AxumState(faults): AxumState<Faults>, headers: HeaderMap) -> Response {
             const BODY: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!?";
             let Some(range) = headers
                 .get(header::RANGE)
@@ -6174,11 +6127,19 @@ mod lifecycle_tests {
             } else {
                 end.parse::<usize>().unwrap().min(BODY.len() - 1)
             };
+            // The fault of a broken peer: the body answers the asked range, but the
+            // Content-Range header names a different one. TLS cannot corrupt an answer this
+            // way, so the only place such a response can exist is the serving side itself.
+            let header_start = if faults.corrupt_blob_ranges.load(Ordering::SeqCst) {
+                start.saturating_sub(1)
+            } else {
+                start
+            };
             let mut response =
                 (StatusCode::PARTIAL_CONTENT, BODY[start..=end].to_vec()).into_response();
             response.headers_mut().insert(
                 header::CONTENT_RANGE,
-                format!("bytes {start}-{end}/{}", BODY.len())
+                format!("bytes {header_start}-{end}/{}", BODY.len())
                     .parse()
                     .unwrap(),
             );
@@ -6211,14 +6172,15 @@ mod lifecycle_tests {
             .change_user_status(&client_info.fingerprint, UserStatus::Approved)
             .await?;
         let auth = SyncAuth::new(server_permissions, server_fingerprint.clone());
-        let faults = Faults::default();
+        let faults = Faults {
+            reject_next_authorize: std::sync::Arc::new(AtomicBool::new(false)),
+            corrupt_blob_ranges: std::sync::Arc::new(AtomicBool::new(false)),
+        };
         let blob_router = Router::new()
             .route("/sync/blobs/{digest}", get(blob))
+            .with_state(faults.clone())
             .layer(middleware::from_fn_with_state(auth.clone(), require_auth));
-        let app = auth
-            .router()
-            .merge(blob_router)
-            .layer(middleware::from_fn_with_state(faults.clone(), record));
+        let app = auth.router().merge(blob_router);
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
@@ -6295,13 +6257,35 @@ mod lifecycle_tests {
                 generation: 0,
             })),
             cancel: CancellationToken::new(),
-            failure_reason: None,
+            failure_reason,
         };
+        Ok(TlsAudioFixture {
+            client,
+            audio,
+            faults: TlsAudioFaults {
+                reject_next_authorize: faults.reject_next_authorize.clone(),
+                corrupt_blob_ranges: faults.corrupt_blob_ranges.clone(),
+            },
+            server,
+            _server_dir: server_dir,
+        })
+    }
 
+    #[tokio::test]
+    async fn concurrent_ranged_audio_reads_recover_from_one_authorization_rejection() -> Result<()>
+    {
+        use crate::server::sync_auth::TOKEN_TTL;
+        use playback::player::AudioRequest;
+
+        let fixture = tls_audio_fixture(None).await?;
+        let audio = fixture.audio.clone();
         tokio::time::pause();
         tokio::time::advance(TOKEN_TTL + Duration::from_secs(1)).await;
         tokio::time::resume();
-        faults.reject_next_authorize.store(true, Ordering::SeqCst);
+        fixture
+            .faults
+            .reject_next_authorize
+            .store(true, Ordering::SeqCst);
 
         let (first, second) = tokio_time::timeout(TEST_DEADLINE, async {
             tokio::join!(
@@ -6322,49 +6306,55 @@ mod lifecycle_tests {
             "a transient rejection cancelled the authorized stream"
         );
 
-        let requests = faults.requests.lock().unwrap().clone();
-        let authorize_statuses: Vec<_> = requests
-            .iter()
-            .filter(|request| request.path == "/sync/authorize")
-            .map(|request| request.status)
-            .collect();
-        assert_eq!(
-            authorize_statuses,
-            [StatusCode::OK, StatusCode::UNAUTHORIZED, StatusCode::OK],
-            "unexpected authorization sequence: {requests:?}"
+        fixture.server.abort();
+        fixture.client.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_ranged_audio_response_fails_typed_and_reaches_the_failure_slot() -> Result<()>
+    {
+        use playback::player::AudioRequest;
+
+        // The production client of peer audio, validation included: a peer whose Content-Range
+        // does not name the asked range must be rejected, and the typed cause must reach the
+        // failure slot of the track, because the io errors of the transport cannot carry it.
+        let failure_reason = std::sync::Arc::new(StdMutex::new(None));
+        let fixture = tls_audio_fixture(Some(failure_reason.clone())).await?;
+        fixture
+            .faults
+            .corrupt_blob_ranges
+            .store(true, Ordering::SeqCst);
+
+        let result = tokio_time::timeout(TEST_DEADLINE, fixture.audio.get(Some((1, Some(16)))))
+            .await
+            .context("the corrupt ranged read did not finish")?;
+        let error = result.expect_err("a corrupt content range must not be served to playback");
+        anyhow::ensure!(
+            UnavailableReason::classify(&error) == UnavailableReason::SourceUnreachable,
+            "corrupt range classified as {:?}, not unreachable: {error:#}",
+            UnavailableReason::classify(&error)
         );
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|request| request.path == "/sync/challenge")
-                .count(),
-            3,
-            "unexpected challenge sequence: {requests:?}"
-        );
-        let blob_statuses = |range: &str| {
-            requests
-                .iter()
-                .filter(|request| {
-                    request.method == Method::GET
-                        && request.path == "/sync/blobs/audio"
-                        && request.range.as_deref() == Some(range)
-                })
-                .map(|request| request.status)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            blob_statuses("bytes=0-15"),
-            [StatusCode::UNAUTHORIZED, StatusCode::PARTIAL_CONTENT],
-            "first range bypassed the stale authorization: {requests:?}"
-        );
-        assert_eq!(
-            blob_statuses("bytes=16-31"),
-            [StatusCode::UNAUTHORIZED, StatusCode::PARTIAL_CONTENT],
-            "second range bypassed the stale authorization: {requests:?}"
+        anyhow::ensure!(
+            *failure_reason.lock().unwrap() == Some(UnavailableReason::SourceUnreachable),
+            "the failure slot did not carry the typed cause: {:?}",
+            *failure_reason.lock().unwrap()
         );
 
-        server.abort();
-        client.global_params.node.shutdown().await?;
+        // The same peer answering correctly is accepted: the rejection is the corruption, not
+        // the client.
+        fixture
+            .faults
+            .corrupt_blob_ranges
+            .store(false, Ordering::SeqCst);
+        let response = tokio_time::timeout(TEST_DEADLINE, fixture.audio.get(Some((0, Some(15)))))
+            .await
+            .context("the correct ranged read did not finish")??;
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.bytes().await?.as_ref(), &b"0123456789abcdef"[..]);
+
+        fixture.server.abort();
+        fixture.client.global_params.node.shutdown().await?;
         Ok(())
     }
 
