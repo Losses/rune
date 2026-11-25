@@ -1810,5 +1810,12 @@
   "fileDialogItems": "Elementi",
   "addingToPlaylist": "Aggiunta alla playlist",
   "addingToPlaylistPreparing": "Preparazione",
-  "addingToPlaylistProgress": "{added} di {total}"
+  "addingToPlaylistProgress": "{added} di {total}",
+  "releases": "Pubblicazioni",
+  "artistSectionCompilations": "Compilation",
+  "artistSectionLive": "Live",
+  "artistSectionAppearsOn": "Compare In",
+  "artistSectionSinglesAndEps": "Singoli ed EP",
+  "artistSectionLatestRelease": "Ultima Uscita",
+  "artistSectionEssentialAlbums": "Album Essenziali"
 }

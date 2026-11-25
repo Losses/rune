@@ -1810,5 +1810,12 @@
   "fileDialogItems": "Eroj",
   "addingToPlaylist": "Aldonado al Ludlisto",
   "addingToPlaylistPreparing": "Preparado",
-  "addingToPlaylistProgress": "{added} el {total}"
+  "addingToPlaylistProgress": "{added} el {total}",
+  "releases": "Eldonoj",
+  "artistSectionCompilations": "Kompilaĵoj",
+  "artistSectionLive": "Viva",
+  "artistSectionAppearsOn": "Aperas En",
+  "artistSectionSinglesAndEps": "Unuopaĵoj & EP-oj",
+  "artistSectionLatestRelease": "Plej Nova Eldono",
+  "artistSectionEssentialAlbums": "Esencaj Albumoj"
 }

@@ -1808,5 +1808,12 @@
   "fileDialogItems": "Елементи",
   "addingToPlaylist": "Додавання до плейлиста",
   "addingToPlaylistPreparing": "Підготовка",
-  "addingToPlaylistProgress": "{added} з {total}"
+  "addingToPlaylistProgress": "{added} з {total}",
+  "releases": "Релізи",
+  "artistSectionCompilations": "Збірки",
+  "artistSectionLive": "Концертні записи",
+  "artistSectionAppearsOn": "З'являється на",
+  "artistSectionSinglesAndEps": "Сингли та EP",
+  "artistSectionLatestRelease": "Останній реліз",
+  "artistSectionEssentialAlbums": "Головні альбоми"
 }

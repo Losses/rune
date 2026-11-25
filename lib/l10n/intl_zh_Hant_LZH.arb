@@ -1808,5 +1808,12 @@
   "fileDialogItems": "諸物",
   "addingToPlaylist": "增至錄中",
   "addingToPlaylistPreparing": "備",
-  "addingToPlaylistProgress": "{total} 之 {added}"
+  "addingToPlaylistProgress": "{total} 之 {added}",
+  "releases": "所出",
+  "artistSectionCompilations": "合輯",
+  "artistSectionLive": "臨場",
+  "artistSectionAppearsOn": "與列",
+  "artistSectionSinglesAndEps": "單曲及 EP",
+  "artistSectionLatestRelease": "新出",
+  "artistSectionEssentialAlbums": "要輯"
 }
