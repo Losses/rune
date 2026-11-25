@@ -157,6 +157,8 @@ struct SlowService {
     started: AtomicUsize,
     /// How many lookups ran to the end, so a lookup that was stopped is not counted.
     answered: AtomicUsize,
+    /// Held by a test to keep the session waiting as it tells the service that a track started.
+    starts: tokio::sync::RwLock<()>,
 }
 
 impl SlowService {
@@ -209,7 +211,9 @@ impl ServiceBinding for SlowService {
 
     fn track_started<'a>(&'a self, _track: &'a str, _start_time: u64) -> BoxFuture<'a, ()> {
         self.started.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async {})
+        Box::pin(async move {
+            drop(self.starts.read().await);
+        })
     }
 
     fn visualizer_covers<'a>(
@@ -237,6 +241,7 @@ async fn a_track_that_a_slow_service_names_late_is_named_again() -> Result<()> {
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
+        starts: tokio::sync::RwLock::new(()),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -297,6 +302,7 @@ async fn a_slow_lookup_stops_when_nothing_follows_the_player() -> Result<()> {
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
+        starts: tokio::sync::RwLock::new(()),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -323,6 +329,7 @@ async fn a_slow_lookup_stops_when_the_binding_already_names_the_track() -> Resul
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
+        starts: tokio::sync::RwLock::new(()),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -376,6 +383,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
         lookups: AtomicUsize::new(0),
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
+        starts: tokio::sync::RwLock::new(()),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -455,6 +463,12 @@ impl ScriptedPlayer {
     fn report(&self, status: PlayerStatus) {
         *self.status.lock().unwrap() = status.clone();
         self.reports.send(status);
+    }
+
+    /// Moves on to `status` without reporting it yet, as a player whose report of the move is
+    /// still to be queued.
+    fn moves(&self, status: PlayerStatus) {
+        *self.status.lock().unwrap() = status;
     }
 }
 
@@ -636,6 +650,7 @@ impl ScriptedSession {
             lookups: AtomicUsize::new(0),
             started: AtomicUsize::new(0),
             answered: AtomicUsize::new(0),
+            starts: tokio::sync::RwLock::new(()),
         });
         let binding: Arc<dyn ServiceBinding> = service.clone();
         node.set_open_service_catalog(None, binding).await?;
@@ -765,6 +780,14 @@ async fn a_late_name_never_goes_out_ahead_of_reports_queued_before_it() -> Resul
         ScriptedSession::playing(&last, Duration::ZERO),
     ];
     session.plays(&slow, Duration::from_secs(1)).await;
+    session.until_told("slow", "Unknown Title").await?;
+    // Nor is it the player's status when the name lands: the player has moved on by then, and
+    // its reports of that are still to be queued.
+    session
+        .player
+        .lock()
+        .await
+        .moves(ScriptedSession::playing(&last, Duration::ZERO));
     session.until_told("slow", "Late Name").await?;
     session.plays(&next, Duration::ZERO).await;
     session.plays(&last, Duration::ZERO).await;
@@ -780,6 +803,40 @@ async fn a_late_name_never_goes_out_ahead_of_reports_queued_before_it() -> Resul
         ]
     );
     assert_eq!(session.service.started.load(Ordering::SeqCst), 3);
+    session.stop().await
+}
+
+/// A late name and the reports the player queued meanwhile can all be ready by the time the
+/// session gets to them. The reports go first and in their order, and the track they left is not
+/// shown again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reports_ready_with_a_late_name_go_out_first() -> Result<()> {
+    let session = ScriptedSession::start().await?;
+    let [slow, next, last] = ["slow", "next", "last"].map(|track| session.track(track));
+    // The session waits as it tells the service that `slow` started, while the name lands and the
+    // player moves on twice.
+    let held = session.service.starts.write().await;
+    session.plays(&slow, Duration::from_secs(1)).await;
+    wait_until("the late lookup", || {
+        let answered = session.service.answered.load(Ordering::SeqCst);
+        async move { Ok((answered == 1).then_some(())) }
+    })
+    .await?;
+    // The lookup tells the session right after it lands.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    session.plays(&next, Duration::ZERO).await;
+    session.plays(&last, Duration::ZERO).await;
+    drop(held);
+    session.until_told("last", "Late Name").await?;
+    let told = |track: &str, title: &str| (track.to_owned(), title.to_owned());
+    assert_eq!(
+        session.told(),
+        [
+            told("slow", "Unknown Title"),
+            told("next", "Late Name"),
+            told("last", "Late Name"),
+        ]
+    );
     session.stop().await
 }
 
