@@ -1905,25 +1905,28 @@ impl AppleMusicBinding {
         let mut extra = Vec::new();
         let mut unread = None;
         for songs in read {
-            match songs {
-                Ok(songs) => extra.extend(songs),
-                Err(error) if rejects_tokens(&error) => return Err(self.judged(error).await),
-                // One playlist that cannot be read does not cost a first song list.
-                Err(error) => {
-                    log::warn!(
-                        "Skipped an Apple Music playlist that could not be read: {}",
-                        apple_detail(&error)
-                    );
-                    unread = unread.or(Some(error));
+            let error = match songs {
+                Ok(songs) => {
+                    extra.extend(songs);
+                    continue;
                 }
-            }
+                // An expired sign-in stops the read; Apple refusing this playlist alone does not.
+                Err(error) if rejects_tokens(&error) => match self.judged(error).await {
+                    AppleError::SignedOut => return Err(AppleError::SignedOut),
+                    refused => refused,
+                },
+                Err(error) => classified(&error),
+            };
+            // One playlist that cannot be read does not cost a first song list.
+            log::warn!("Skipped an Apple Music playlist that could not be read: {error}");
+            unread = unread.or(Some(error));
         }
         // A list without the songs only that playlist holds must not replace one that has
         // them: a failed read is not a removal. The kept list is served until a read works.
         if let Some(error) = unread
             && self.lists.songs.kept(self.clock.now()).await.is_some()
         {
-            return Err(classified(&error));
+            return Err(error);
         }
 
         let catalog_copies = extra

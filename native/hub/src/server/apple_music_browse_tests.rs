@@ -1043,6 +1043,9 @@ struct AppleOptions {
     /// Whether the open does not wait for the import the sign-in started to finish, as when the
     /// test holds or fails what it reads.
     import_unfinished: bool,
+    /// Answers every read of this path with this status and body (see
+    /// `AppleFake::respond_path`).
+    respond: Option<(&'static str, u16, &'static str)>,
 }
 
 async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple> {
@@ -1066,7 +1069,11 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         seen: Mutex::default(),
         reject_everything: AtomicBool::new(false),
         reject_next_read: AtomicBool::new(false),
-        respond_path: Mutex::default(),
+        respond_path: Mutex::new(
+            options
+                .respond
+                .map(|(path, status, body)| (path.to_owned(), status, body.to_owned())),
+        ),
         delay_path: Mutex::default(),
         empty: AtomicBool::new(options.empty),
         night_added_last: AtomicBool::new(false),
@@ -8723,6 +8730,27 @@ async fn the_first_sign_in_imports_every_playlist_of_apples_once() -> Result<()>
     import_settled().await;
     assert_eq!(import_reads(&apple), reads);
     assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_playlist_apple_refuses_alone_costs_no_first_song_list() -> Result<()> {
+    const SUNDAY: &str = "/v1/me/library/playlists/p.mine2/tracks";
+    let dir = tempfile::tempdir()?;
+    // Apple refuses the songs of "Sunday", though the sign-in is fine.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            respond: Some((SUNDAY, 403, r#"{"errors":[{"status":"403"}]}"#)),
+            import_unfinished: true,
+            ..with_playlists()
+        },
+    )
+    .await?;
+    let songs = apple.binding.songs().await?;
+    assert_eq!(songs.len(), 3);
+    assert!(apple.fake.count(SUNDAY) > 0);
+    assert!(apple.binding.is_signed_in());
     apple.finish().await
 }
 
