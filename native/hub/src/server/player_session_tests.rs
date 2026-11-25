@@ -8194,13 +8194,16 @@ async fn start_gated_reload_to_play(
         .load_at_position(0, Duration::from_millis(500), true);
 }
 
-/// Waits until the stalled reload completed, by the position it starts at: the track stood
-/// paused at its first second, the reload starts half a second before that, and a short
-/// track repeats under RepeatAll, so the position is under two seconds only just after the
-/// reload and whenever playback wrapped since.
+/// Waits until the stalled reload completed and plays, by the position it starts at: the
+/// track stood paused at its first second, the reload starts half a second before that, and
+/// a short track repeats under RepeatAll, so the position is under two seconds only just
+/// after the reload and whenever playback wrapped since. The state is part of the answer:
+/// the paused track before the reload already stands under two seconds.
 async fn reload_completed(f: &Fixture) -> Result<PlayerStatus> {
     wait_player(f, |status| {
-        status.index == Some(0) && status.position < Duration::from_millis(2000)
+        status.state == PlayerPlaybackState::Playing
+            && status.index == Some(0)
+            && status.position < Duration::from_millis(2000)
     })
     .await
 }

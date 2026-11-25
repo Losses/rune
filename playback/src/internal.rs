@@ -1694,10 +1694,16 @@ impl PlayerInternal {
         result
     }
 
-    // Whether playback plays, or starts once the track that is loading is ready.
+    // Whether playback plays, or starts once the track that is loading is ready. A load
+    // queued behind the one in flight takes over once that completes, so its answer stands
+    // over the one of the active load.
     fn plays_or_starts_playing(&self) -> bool {
         self.state == InternalPlaybackState::Playing
-            || (self.state == InternalPlaybackState::Loading && self.play_when_loaded)
+            || (self.state == InternalPlaybackState::Loading
+                && self
+                    .pending_load
+                    .as_ref()
+                    .map_or(self.play_when_loaded, |pending| pending.play))
     }
 
     // Loads a track that seeks to `restore_position` once it is ready. The position belongs to
@@ -7023,6 +7029,69 @@ mod playback_state_tests {
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::Playing);
                     expect_paused(&mut events, &track).await?;
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pause_reporting_answers_the_intent_of_a_queued_load() -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let (resolver, wav_path) = delayed_resolver_fixture_with_samples(
+            &file_uuids,
+            ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[1],
+            LONG_TRACK_SAMPLES,
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuids[1]);
+                    let pause_reporting = || {
+                        let (response, paused) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                        Ok::<_, anyhow::Error>(paused)
+                    };
+
+                    // The restore loads the first track paused, and the resolver stalls it, so
+                    // the play of the second track queues behind it. Player commands run in
+                    // order, so the reporting pause is answered after the queue is set: the
+                    // queued load would start playing once the stalled one finishes, and that
+                    // is its answer.
+                    commands_sender.send(restore(
+                        library_id,
+                        &file_uuids,
+                        0,
+                        1.5,
+                        PlaybackMode::Sequential,
+                    ))?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    commands_sender.send(PlayerCommand::Switch(1))?;
+                    assert_eq!(pause_reporting()?.await?, PausedPlayback::Playing);
+
+                    // The queue settles on the switched track once the stalled load is
+                    // released, and the pause that reported it holds there.
+                    release.notify_one();
+                    assert_eq!(
+                        expect_loaded(&mut events, &track).await?.as_secs(),
+                        0,
+                        "the queued load starts the track it asked for"
+                    );
 
                     runner.abort();
                     let _ = fs::remove_file(wav_path);
