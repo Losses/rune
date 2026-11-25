@@ -420,6 +420,10 @@ struct ReloginServer {
     hold_next_user: AtomicBool,
     user_received: Notify,
     release_user: Notify,
+    /// Gives the account the jukebox role whatever its password.
+    jukebox: AtomicBool,
+    /// How many jukebox requests the server got.
+    jukebox_calls: AtomicUsize,
 }
 
 async fn subsonic_relogin_mock() -> (String, Arc<ReloginServer>, JoinHandle<()>) {
@@ -462,6 +466,9 @@ async fn subsonic_relogin_response(
     Query(query): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let action = action.strip_suffix(".view").unwrap_or(&action);
+    if action == "jukeboxControl" {
+        state.jukebox_calls.fetch_add(1, Ordering::SeqCst);
+    }
     let rotated = state.rotated.load(Ordering::SeqCst);
     let password = if rotated {
         "new-password"
@@ -482,7 +489,8 @@ async fn subsonic_relogin_response(
             state.user_received.notify_one();
             state.release_user.notified().await;
         }
-        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":rotated}}})
+        let jukebox = rotated || state.jukebox.load(Ordering::SeqCst);
+        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":jukebox}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
     } else {
@@ -2079,6 +2087,65 @@ async fn a_subsonic_library_opened_from_what_it_kept_takes_the_probe_its_server_
         Ok(kept
             .is_some_and(|probe| probe.roles.jukebox_role)
             .then_some(()))
+    })
+    .await?;
+
+    server.abort();
+    node.close_ui(&ui.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A Subsonic library that plays on its server's jukebox, opened from a probe kept without the
+/// jukebox role, follows the jukebox once the check of the server grants the role.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subsonic_jukebox_is_followed_once_the_server_check_grants_its_role() -> Result<()> {
+    use database::library_registry::LibraryRecord;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, state, server) = subsonic_relogin_mock().await;
+    // A record that plays on the jukebox, as one registered while the account had the role.
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "alice".into(),
+            secret: Secret::new(b"old-password".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Jukebox".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint,
+            credential,
+            mode: SubsonicOpenMode::RemoteControl,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    let record_id = record.record_id.0;
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    kept_on_disk(&node, record_id, &["probe"]).await?;
+    node.close_ui(&ui.main_token).await;
+
+    // The server grants the role, and the library opens from the probe it kept without it.
+    state.jukebox.store(true, Ordering::SeqCst);
+    let before = state.jukebox_calls.load(Ordering::SeqCst);
+    open_registered_here(&node, record_id).await?;
+    let ui = node.current_ui().await?;
+    // Following the jukebox polls it again and again.
+    wait_until("the jukebox followed", || async {
+        Ok((state.jukebox_calls.load(Ordering::SeqCst) >= before + 4).then_some(()))
     })
     .await?;
 

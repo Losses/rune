@@ -19,6 +19,7 @@ use crate::{
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::str;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -113,6 +114,8 @@ pub(crate) struct SubsonicBinding {
     pub(crate) lists: SubsonicLists,
     pub(crate) covers: Arc<ServiceCoverCache>,
     jukebox_poll: Mutex<Option<CancellationToken>>,
+    /// Whether the jukebox is followed, as the UI's player, until the library closes.
+    followed: AtomicBool,
     jukebox_state: Arc<Mutex<Option<JukeboxPollState>>>,
     playback_starts: Mutex<HashMap<String, u64>>,
     /// Songs fetched by id, kept so that what is asked about a song right after it was fetched,
@@ -600,6 +603,7 @@ impl SubsonicBinding {
                 broadcaster,
             )),
             jukebox_poll: Mutex::new(None),
+            followed: AtomicBool::new(false),
             jukebox_state: Arc::new(Mutex::new(None)),
             playback_starts: Mutex::new(HashMap::new()),
             fetched_songs: Mutex::new(HashMap::new()),
@@ -637,8 +641,12 @@ impl SubsonicBinding {
 
     /// Takes what the check of the server, made under the sign-in the library opened with,
     /// found, unless the sign-in was renewed since: a probe replaces the kept one, on disk too,
-    /// and a sign-in the server rejects asks for a new one. Says whether the probe changed.
-    pub(crate) fn take_check(&self, probed: Result<SubsonicProbe, SubsonicError>) -> bool {
+    /// and a sign-in the server rejects asks for a new one. A probe that grants the jukebox role
+    /// starts following the jukebox, where it is followed. Says whether the probe changed.
+    pub(crate) fn take_check(
+        self: &Arc<Self>,
+        probed: Result<SubsonicProbe, SubsonicError>,
+    ) -> bool {
         // A renewal cancels under this lock, so it comes wholly before the check is taken, which
         // it then makes stale, or wholly after.
         let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
@@ -648,8 +656,19 @@ impl SubsonicBinding {
         match probed {
             Ok(probe) => {
                 let changed = *kept != probe;
+                let granted = probe.roles.jukebox_role && !kept.roles.jukebox_role;
                 *kept = probe.clone();
+                // Kept on disk under the lock, so a renewal to another account clears it after.
                 self.lists.kept.keep(PROBE, probe);
+                drop(kept);
+                if granted && self.followed.load(Ordering::Acquire) {
+                    // The poll found no role when the jukebox became the UI's player.
+                    self.start_jukebox_polling();
+                    // A close meanwhile stops what this started.
+                    if !self.followed.load(Ordering::Acquire) {
+                        self.stop_jukebox_polling();
+                    }
+                }
                 changed
             }
             Err(SubsonicError::Server {
@@ -1167,6 +1186,7 @@ impl ServiceBinding for SubsonicBinding {
     }
 
     fn close(&self) {
+        self.followed.store(false, Ordering::Release);
         self.stop_jukebox_polling();
     }
 }
@@ -1196,6 +1216,7 @@ impl ServicePlayer for SubsonicBinding {
     }
 
     fn follow(self: Arc<Self>) {
+        self.followed.store(true, Ordering::Release);
         self.start_jukebox_polling();
     }
 }
