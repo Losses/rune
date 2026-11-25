@@ -8,6 +8,10 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   dropped). The `reqwest-middleware` feature still expects reqwest 0.13 and is unused.
   The `reqwest-retry` dev-dependency, used only by doc examples, is dropped.
 
+- `README.md` backticks the project names `OpenDAL` and `YouTube` where they appear bare,
+  so `clippy::doc_markdown` passes on the vendored prose (it is included as the crate
+  documentation). No other README text changes.
+
 - Seeks (`src/source/mod.rs`, `handle_seek`): a queued seek to bytes already downloaded,
   or to the end of the stream, acknowledges the waiting reader instead of looking for a
   missing range (upstream 0.24.5 leaves the reader asleep until another chunk arrives;
@@ -75,8 +79,26 @@ This is stream-download 0.24.5 from crates.io, with its original licenses, used 
   larger than the buffer size. Tests: `src/storage/adaptive_tests.rs`; on unpatched 0.24.5 the
   oversized read and seek tests stall.
 
+- Reads across an undownloaded gap (`impl Read for StreamDownload` in `src/lib.rs`,
+  `Source::write` in `src/source/mod.rs`, and `src/source/handle.rs`): a read whose buffer
+  spans a hole the downloader skipped woke when any write passed the end of its range,
+  including a write to a disjoint later range, and returned the hole as storage zeros. The
+  reader now waits for the uninterrupted run of downloaded bytes at its position to reach
+  the end of the read instead, rechecking it after every wake, and the writer wakes it once
+  the run covers the range it asked for, so a write filling the hole wakes the read even
+  when the write ends before the read's end position. A download that finishes with a hole
+  it never re-downloads, possible for a stream of unknown length, ends the read at the hole
+  instead of returning its zeros, like a short read at the end of the stream. Tests:
+  `read_across_gap_waits_for_the_hole_and_returns_stream_bytes` and
+  `read_at_eof_with_unfilled_hole_stops_at_the_hole` in `src/source/lifecycle_tests.rs`; on
+  unpatched 0.24.5 the first returns while the hole is missing and fails. The second runs
+  over `TempStorageProvider`, so it exercises a sparse file: it fails when the read is not
+  truncated at the hole (memory storage never hands out a hole's bytes, so it cannot guard
+  that).
+
 Regression tests: `src/source/lifecycle_tests.rs` (on unpatched 0.24.5 the cached-seek,
-zero-prefetch and downloader-panic tests fail; the two gap tests guard the 0.22.4 panic), run from this directory with
+zero-prefetch, downloader-panic and read-across-gap tests fail; the two gap tests guard
+the 0.22.4 panic), run from this directory with
 `cargo test --lib source::lifecycle_tests --target-dir ../target`.
 
 Remove this copy once upstream releases the fixes below and the workspace moves to

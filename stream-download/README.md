@@ -120,10 +120,10 @@ trait. A few types of transports are provided out of the box:
 Only `http` is enabled by default. You can provide a custom transport by
 implementing `SourceStream` yourself.
 
-### OpenDAL
+### `OpenDAL`
 
 If you need to support other types of transports, you may wish to use
-[OpenDAL](https://crates.io/crates/opendal). An adapter is provided as a
+[`OpenDAL`](https://crates.io/crates/opendal). An adapter is provided as a
 [separate crate](https://crates.io/crates/stream-download-opendal).
 
 ## Streams with Unknown Length
@@ -186,19 +186,19 @@ derivatives, check out the [icy-metadata](https://crates.io/crates/icy-metadata)
 crate. There are examples for how to use it with `stream-download`
 [in the repo](https://github.com/aschey/icy-metadata/tree/main/examples).
 
-## Streaming from YouTube and Similar Sites
+## Streaming from `YouTube` and Similar Sites
 
 Some websites with embedded audio or video streams can be tricky to handle
 directly. For these cases, it's easier to use a dedicated program such as
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) which can parse media from specific
-websites (it supports more websites than just YouTube, despite the name). If you
+websites (it supports more websites than just `YouTube`, despite the name). If you
 enable the `process` feature, you can integrate with external programs like
 `yt-dlp` that can send their output to `stdout`. Some helpers for interacting
 with `yt-dlp` and `ffmpeg` (for post-processing) are also included.
 
 See
 [youtube_simple](https://github.com/aschey/stream-download-rs/blob/main/examples/examples/youtube_simple.rs)
-for a simple way to stream audio from a YouTube video.
+for a simple way to stream audio from a `YouTube` video.
 
 See
 [yt_dlp](https://github.com/aschey/stream-download-rs/blob/main/examples/examples/yt_dlp.rs)
@@ -207,7 +207,7 @@ for a more complex example of handling different kinds of URLs with `yt-dlp`.
 ## Registry
 
 Some applications may need to use multiple types of stream handlers. For
-example, you may want to handle YouTube URLs with `yt-dlp`, normal HTTP URLs
+example, you may want to handle `YouTube` URLs with `yt-dlp`, normal HTTP URLs
 with `reqwest`, and `file://` URLs with a simple
 [`BufReader`](https://doc.rust-lang.org/std/io/struct.BufReader.html). You can
 use a
