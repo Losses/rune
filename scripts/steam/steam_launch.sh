@@ -8,6 +8,6 @@ if [ -d "$DIR/share" ]; then
   export XDG_DATA_DIRS="$DIR/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 fi
 
-chmod +x "$DIR/rune"
+chmod +x "$DIR/rune" 2>/dev/null || true
 
 exec "$DIR/rune" "$@"
