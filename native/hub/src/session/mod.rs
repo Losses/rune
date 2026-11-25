@@ -25,6 +25,7 @@ use database::{
     error::ExpectedError,
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use fsio::FsIo;
 use futures::future::BoxFuture;
 use playback::{
@@ -73,7 +74,7 @@ use crate::{
     },
     visualizer::{feed_cover_bytes, playing_cover_changed},
 };
-use store::SessionState;
+use store::{SessionState, StoredPlaybackOwner};
 use tokio::task;
 
 /// One renderer and its durable queue, with node-scoped event listeners.
@@ -208,6 +209,20 @@ impl PlayerSession {
                 connected_at: entry.controller.connected_at,
             })
             .collect()
+    }
+
+    /// Names who started the playback the queue continues: `Some` for the controller device
+    /// whose load started it, `None` for a load this device itself made. Only a started load
+    /// moves ownership — resuming what is already there does not — so the playback a revoked
+    /// controller started stays its own across pauses and restarts. The owner persists with
+    /// the queue in the session store, whose debounced writes the status and queue reports of
+    /// the load itself already mark dirty.
+    pub(crate) async fn record_playback_initiator(&self, owner: Option<PeerIdentity>) {
+        self.state.lock().await.playback_owner =
+            owner.map(|owner| StoredPlaybackOwner {
+                fingerprint: owner.fingerprint,
+                public_key: owner.public_key,
+            });
     }
 
     /// Closes the controller's connection and returns once it is no longer listed. When the
@@ -849,10 +864,78 @@ impl PlayerSession {
                 }
             }
         });
-        self.tasks
-            .lock()
-            .await
-            .extend([event_task, persistence_task, now_playing_task]);
+        // Revoking a controller's control access stops the playback it started, wherever its
+        // connection is by then. The owner persists with the queue, so the playback stays the
+        // controller's own across pauses, reconnects and restarts; a playback the device
+        // itself or another controller loaded survives the revocation. The owner is released
+        // once the revocation has acted — playback already paused needs no acting on — so
+        // what the device resumes afterwards is its own again. The first pass runs before
+        // waiting for a change because the revocation may have finished while the session was
+        // down or still starting.
+        let state = self.state.clone();
+        let player = self.player.clone();
+        let revoke_weak = self.node.clone();
+        let revoke_cancel = self.cancel.clone();
+        let revoke_task = tokio::spawn(async move {
+            let Some(node) = revoke_weak.upgrade() else {
+                return;
+            };
+            let policy = node.access_policy.clone();
+            drop(node);
+            let mut changes = policy.changes();
+            loop {
+                let revoked = {
+                    let owner = state.lock().await.playback_owner.clone();
+                    owner.filter(|owner| {
+                        policy
+                            .check(
+                                &PeerIdentity {
+                                    fingerprint: owner.fingerprint.clone(),
+                                    public_key: owner.public_key.clone(),
+                                },
+                                &crate::access_policy::Action::Control,
+                            )
+                            .is_err()
+                    })
+                };
+                if let Some(owner) = revoked {
+                    let fingerprint = owner.fingerprint.clone();
+                    let mut player = player.lock().await;
+                    if player.get_status().state == PlaybackState::Playing {
+                        let completion =
+                            player.command_with_completion(playback::PlayerCommand::Pause);
+                        drop(player);
+                        if let Err(error) = completion.await {
+                            log::warn!(
+                                "Could not pause playback of the revoked controller {fingerprint}: {error:?}"
+                            );
+                        } else {
+                            log::info!(
+                                "Paused playback: controller {fingerprint} lost control access"
+                            );
+                        }
+                    } else {
+                        drop(player);
+                    }
+                    let mut state = state.lock().await;
+                    if state.playback_owner.as_ref() == Some(&owner) {
+                        state.playback_owner = None;
+                    }
+                    drop(state);
+                }
+                tokio::select! {
+                    biased;
+                    _ = revoke_cancel.cancelled() => return,
+                    result = changes.changed() => if result.is_err() { return },
+                }
+            }
+        });
+        self.tasks.lock().await.extend([
+            event_task,
+            persistence_task,
+            now_playing_task,
+            revoke_task,
+        ]);
     }
 }
 
