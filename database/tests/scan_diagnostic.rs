@@ -28,6 +28,9 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 use sync_orm::causal_progress;
 use uuid::Uuid;
 
+#[path = "scan_diagnostic/upgrade.rs"]
+mod upgrade;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires RUNE_SCAN_ROOT; reads real audio, writes only a temporary database"]
 async fn scan_real_library() -> Result<()> {
@@ -257,6 +260,7 @@ async fn scanned_artist_lists_preserve_legacy_splitting() -> Result<()> {
             .map(|(file, artist)| (file.as_str(), artist.as_str()))
             .collect::<Vec<_>>();
         assert_eq!(links, expected_links, "after reindex={reindex}");
+        upgrade::assert_recordings(&db, artist_tags.len() as u64).await?;
     }
 
     // The artist catalog and its browse projection expose the same names.

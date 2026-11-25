@@ -358,3 +358,12 @@ catalog_entity!(native_audio, "music_metadata_native_audio", {
     #[sea_orm(primary_key, auto_increment = false)]
     file_id: i32,
 });
+
+catalog_entity!(legacy_names, "music_metadata_legacy_names", {
+    #[sea_orm(primary_key, auto_increment = false)]
+    kind: String,
+    #[sea_orm(primary_key, auto_increment = false)]
+    name: String,
+    #[sea_orm(primary_key, auto_increment = false)]
+    source_uuid: String,
+});

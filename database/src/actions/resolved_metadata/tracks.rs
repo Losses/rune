@@ -211,6 +211,7 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
     // Reserve existing IDs before linking any assets. Explicit layouts use a separate ID space.
     let mut used = BTreeSet::new();
     let mut assignments = Vec::new();
+    let mut replaced_recordings = BTreeSet::new();
     for ((_, key), group) in groups {
         let mut votes = BTreeMap::<_, (usize, usize)>::new();
         for row in &group {
@@ -245,17 +246,26 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
             .find(|row| row.mbid.is_some())
             .unwrap_or(&group[0]);
         let fallback = track_fallback(*id);
-        let recording = group
-            .iter()
-            .find(|row| row.anonymous)
-            .map_or(fallback, |row| {
-                // The frozen import uses the track UUID so it can stream variants in any order.
-                if row.recording == fallback {
-                    fallback
-                } else {
-                    super::recording_identity::audio_fallback(row.audio)
-                }
-            });
+        let recording = if let Some(row) = group.iter().find(|row| row.anonymous) {
+            // A migration or a directory move can change the track UUID while keeping its performance.
+            let shared = db
+                .query_one(
+                    Query::select()
+                        .expr(Expr::val(1))
+                        .from(orm_audio::Entity)
+                        .and_where(A::RecordingId.eq(row.recording.to_string()))
+                        .and_where(A::FileId.is_not_in(group.iter().map(|row| row.file)))
+                        .limit(1),
+                )
+                .await?;
+            if shared.is_some() {
+                Uuid::new_v5(&row.recording, id.as_bytes())
+            } else {
+                row.recording
+            }
+        } else {
+            fallback
+        };
         put_track(db, *id, disc, recording, display.number, &display.title).await?;
 
         // Whole-file variants without identifiers share their release track's fallback.
@@ -263,6 +273,7 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
             .iter()
             .filter(|row| row.anonymous && row.recording != recording);
         for row in unassigned {
+            replaced_recordings.insert(row.recording);
             db.execute(
                 Query::update()
                     .table(orm_audio::Entity)
@@ -304,6 +315,7 @@ async fn reconcile_disc(db: &impl ConnectionTrait, disc: Uuid) -> Result<()> {
     )
     .await?;
     super::lifecycle::finish_disc(db, &key).await?;
+    super::recording_identity::prune_unreferenced(db, replaced_recordings).await?;
     db.execute(
         Query::delete()
             .from_table(orm_dirty_tracks::Entity)

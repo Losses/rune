@@ -38,6 +38,7 @@ struct TagRow {
 
 pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let db = manager.get_connection();
+    import_names(db).await?;
     let mut after = 0;
     loop {
         let files =
@@ -65,6 +66,62 @@ pub(super) async fn import(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         .to_owned();
     db.execute_raw(db.get_database_backend().build(&invalidate))
         .await?;
+    Ok(())
+}
+
+async fn import_names(db: &impl ConnectionTrait) -> Result<(), DbErr> {
+    for (kind, table, name, identity, id) in [
+        (
+            "album",
+            "music_metadata_albums",
+            "portable_title",
+            "id",
+            "legacy_id",
+        ),
+        (
+            "artist",
+            "music_metadata_artists",
+            "name",
+            "source_uuid",
+            "id",
+        ),
+        ("genre", "genres", "name", "source_uuid", "id"),
+    ] {
+        let mut after = 0;
+        loop {
+            // Page the imported parents and normalize only the local matching key.
+            let rows = db
+                .query_all(
+                    Query::select()
+                        .column(alias(id))
+                        .expr_as(Expr::col(alias(name)), "name")
+                        .expr_as(Expr::col(alias(identity)), "source_uuid")
+                        .from(alias(table))
+                        .and_where(Expr::col(alias(id)).gt(after))
+                        .order_by(alias(id), Order::Asc)
+                        .limit(BATCH),
+                )
+                .await?;
+            if rows.is_empty() {
+                break;
+            }
+            let mut names = insert(
+                "music_metadata_legacy_names",
+                &["kind", "name", "source_uuid"],
+            );
+            for row in rows {
+                after = row.try_get::<i32>("", id)?;
+                let name: String = row.try_get("", "name")?;
+                let source: String = row.try_get("", "source_uuid")?;
+                names.values_panic([
+                    Expr::val(kind),
+                    Expr::val(name.trim_end_matches('\0')),
+                    Expr::val(source),
+                ]);
+            }
+            db.execute(&names).await?;
+        }
+    }
     Ok(())
 }
 

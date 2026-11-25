@@ -5,9 +5,9 @@ use std::{collections, collections::HashMap};
 use anyhow::{Error, Result};
 use metadata::{artist, genre, resolve::LocalMetadata};
 use sea_orm::{
-    DatabaseTransaction, Set,
+    DatabaseTransaction, ExprTrait, Set,
     prelude::*,
-    sea_query::{Expr, OnConflict},
+    sea_query::{Expr, OnConflict, Order, Query},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -19,11 +19,93 @@ use crate::actions::{
 };
 use crate::entities::{
     audio_artists, genres, media_file_genres, media_files,
-    music_metadata::{album_evidence, credits},
+    music_metadata::{album_evidence, credits, legacy_names},
     portable_albums, portable_artists, track_album_sources,
 };
 
 use super::CreditScope;
+
+async fn parent_for_tags(
+    tx: &DatabaseTransaction,
+    kind: migration::catalog_identity::ParentKind,
+    name: &str,
+    track: &str,
+) -> Result<(Uuid, String)> {
+    use migration::catalog_identity::{ParentKind, parent};
+    use sea_orm::sea_query::IntoTableRef;
+
+    // Names in synced payloads define their UUIDs. Retain their original bytes on the wire.
+    let (tag, table, identity, label, handle, membership, owner, target) = match kind {
+        ParentKind::Album => (
+            "album",
+            portable_albums::Entity.into_table_ref(),
+            portable_albums::Column::SourceUuid.as_column_ref(),
+            portable_albums::Column::Name.as_column_ref(),
+            portable_albums::Column::Id.as_column_ref(),
+            track_album_sources::Entity.into_table_ref(),
+            track_album_sources::Column::TrackUuid.as_column_ref(),
+            track_album_sources::Column::AlbumUuid.as_column_ref(),
+        ),
+        ParentKind::Artist => (
+            "artist",
+            portable_artists::Entity.into_table_ref(),
+            portable_artists::Column::SourceUuid.as_column_ref(),
+            portable_artists::Column::Name.as_column_ref(),
+            portable_artists::Column::Id.as_column_ref(),
+            audio_artists::Entity.into_table_ref(),
+            audio_artists::Column::TrackUuid.as_column_ref(),
+            audio_artists::Column::ArtistUuid.as_column_ref(),
+        ),
+        ParentKind::Genre => (
+            "genre",
+            genres::Entity.into_table_ref(),
+            genres::Column::SourceUuid.as_column_ref(),
+            genres::Column::Name.as_column_ref(),
+            genres::Column::Id.as_column_ref(),
+            media_file_genres::Entity.into_table_ref(),
+            media_file_genres::Column::TrackUuid.as_column_ref(),
+            media_file_genres::Column::GenreUuid.as_column_ref(),
+        ),
+    };
+    let canonical = parent(kind, name);
+    let imported = Query::select()
+        .column(legacy_names::Column::SourceUuid)
+        .from(legacy_names::Entity)
+        .and_where(legacy_names::Column::Kind.eq(tag))
+        .and_where(legacy_names::Column::Name.eq(name))
+        .to_owned();
+    let assigned = Query::select()
+        .expr(Expr::val(1))
+        .from(membership)
+        .and_where(Expr::col(owner).eq(track))
+        .and_where(Expr::col(target).eq(Expr::col(identity.clone())))
+        .to_owned();
+
+    // Preserve this file's membership when normalized names collide across old rows.
+    let found = tx
+        .query_one(
+            Query::select()
+                .expr_as(Expr::col(identity.clone()), "source_uuid")
+                .expr_as(Expr::col(label), "name")
+                .from(table)
+                .and_where(
+                    Expr::col(identity.clone())
+                        .eq(canonical.to_string())
+                        .or(Expr::col(identity).in_subquery(imported)),
+                )
+                .order_by_expr(Expr::exists(assigned), Order::Desc)
+                .order_by(handle, Order::Asc)
+                .limit(1),
+        )
+        .await?;
+    match found {
+        Some(row) => Ok((
+            row.try_get::<String>("", "source_uuid")?.parse()?,
+            row.try_get("", "name")?,
+        )),
+        None => Ok((canonical, name.to_owned())),
+    }
+}
 
 pub(in crate::actions) async fn publish_track(
     txn: &DatabaseTransaction,
@@ -143,7 +225,7 @@ async fn process_artists(
     let file_id: Uuid = summary.file_uuid.parse()?;
     let mut desired = HashMap::new();
     for name in names {
-        let id = catalog_identity::parent(ParentKind::Artist, &name);
+        let (id, name) = parent_for_tags(tx, ParentKind::Artist, &name, &summary.file_uuid).await?;
         portable_artists::Entity::insert(portable_artists::ActiveModel {
             name: Set(name.clone()),
             group: Set(generate_group_name(&name)),
@@ -236,7 +318,7 @@ async fn process_artists(
 }
 
 async fn process_album(tx: &DatabaseTransaction, summary: &MetadataSummary) -> Result<()> {
-    use migration::catalog_identity::{self, ParentKind};
+    use migration::catalog_identity::ParentKind;
     use sea_orm::QuerySelect;
     // Existing devices key their album assignments by the original tag spelling.
     let title = album_evidence::Entity::find_by_id(summary.id)
@@ -247,7 +329,8 @@ async fn process_album(tx: &DatabaseTransaction, summary: &MetadataSummary) -> R
         .await?
         .flatten()
         .unwrap_or_default();
-    let album_id = catalog_identity::parent(ParentKind::Album, &title);
+    let (album_id, title) =
+        parent_for_tags(tx, ParentKind::Album, &title, &summary.file_uuid).await?;
     portable_albums::Entity::insert(portable_albums::ActiveModel {
         group: Set(generate_group_name(&title)),
         name: Set(title),
@@ -305,7 +388,7 @@ async fn process_genres(
     let file_id: Uuid = summary.file_uuid.parse()?;
     let mut desired = HashMap::new();
     for name in names {
-        let id = catalog_identity::parent(ParentKind::Genre, &name);
+        let (id, name) = parent_for_tags(tx, ParentKind::Genre, &name, &summary.file_uuid).await?;
         genres::Entity::insert(genres::ActiveModel {
             name: Set(name.clone()),
             group: Set(generate_group_name(&name)),

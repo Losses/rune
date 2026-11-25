@@ -328,8 +328,26 @@ fn real(name: &str) -> ColumnDef {
 }
 
 // SeaQuery has no SQLite WITHOUT ROWID option. Its table suffix preserves the existing layout.
-fn tables() -> [TableCreateStatement; 26] {
+fn tables() -> [TableCreateStatement; 27] {
     [
+        // TagLib removes RIFF terminators. Preserve old sync identities under their readable names.
+        Table::create()
+            .table(alias("music_metadata_legacy_names"))
+            .col(
+                text("kind")
+                    .not_null()
+                    .check(col("kind").is_in(["album", "artist", "genre"])),
+            )
+            .col(text("name").not_null())
+            .col(text("source_uuid").not_null())
+            .primary_key(
+                Index::create()
+                    .col(alias("kind"))
+                    .col(alias("name"))
+                    .col(alias("source_uuid")),
+            )
+            .extra("WITHOUT ROWID")
+            .to_owned(),
         Table::create()
             .table(alias("music_metadata_albums"))
             .col(integer("legacy_id").primary_key().auto_increment())

@@ -5,8 +5,8 @@ use crate::entities::music_metadata::recording_dirty as orm_recording_dirty;
 use crate::entities::music_metadata::recordings as orm_recordings;
 use sea_orm::ExprTrait;
 use sea_orm::sea_query::{
-    Alias, Asterisk, CommonTableExpression, Expr, Func, OnConflict, Query, SelectStatement,
-    UnionType, WithClause,
+    Alias, Asterisk, CommonTableExpression, Expr, Func, IntoTableRef, OnConflict, Query,
+    SelectStatement, UnionType, WithClause,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -57,6 +57,58 @@ pub(super) async fn ensure_exists(db: &impl ConnectionTrait, id: Uuid) -> Result
             ),
     )
     .await?;
+    Ok(())
+}
+
+pub(super) async fn prune_unreferenced(
+    db: &impl ConnectionTrait,
+    ids: BTreeSet<Uuid>,
+) -> Result<()> {
+    use crate::entities::music_metadata::{recording_credits, release_tracks};
+    use orm_recordings::Column as R;
+    use recording_sources::Column as S;
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    // Retire replaced fallback rows only after every asset has been reassigned.
+    let mut remove = Query::delete();
+    remove
+        .from_table(orm_recordings::Entity)
+        .and_where(R::Id.is_in(ids.into_iter().map(|id| id.to_string())))
+        .and_where(R::MusicbrainzId.is_null())
+        .and_where(R::Isrc.is_null())
+        .and_where(R::LegacyIsrc.is_null());
+    for (table, field) in [
+        (
+            orm_audio::Entity.into_table_ref(),
+            orm_audio::Column::RecordingId.as_column_ref(),
+        ),
+        (
+            release_tracks::Entity.into_table_ref(),
+            release_tracks::Column::RecordingId.as_column_ref(),
+        ),
+        (
+            recording_credits::Entity.into_table_ref(),
+            recording_credits::Column::RecordingId.as_column_ref(),
+        ),
+        (
+            recording_sources::Entity.into_table_ref(),
+            S::RecordingId.as_column_ref(),
+        ),
+        (
+            recording_sources::Entity.into_table_ref(),
+            S::FallbackId.as_column_ref(),
+        ),
+    ] {
+        let reference = Query::select()
+            .expr(Expr::val(1))
+            .from(table)
+            .and_where(Expr::col(field).eq(column(R::Id)))
+            .to_owned();
+        remove.and_where(Expr::not_exists(reference));
+    }
+    db.execute(&remove).await?;
     Ok(())
 }
 
