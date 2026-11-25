@@ -8,11 +8,20 @@ import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
 import '../../l10n/app_localizations_en.dart';
 import '../../main.dart';
+import '../../providers/crash.dart';
 import '../../providers/library_open_state.dart';
 import '../../providers/library_registry.dart';
 import '../../providers/license.dart';
+import '../../providers/linux_custom_window_controls.dart';
+import '../../providers/responsive_providers.dart';
+import '../../providers/router_path.dart';
 import '../../providers/status.dart';
+import '../../providers/visualizer_lab.dart';
+import '../../providers/visualizer_scenes.dart';
+import '../../screens/bsod/bsod.dart';
 import '../../utils/api/request_failure.dart';
+import '../../widgets/ax_reveal/widgets/reveal_effect_context.dart';
+import '../../widgets/router/rune_router_frame_implementation.dart';
 
 void main() {
   for (final (kind, message) in [
@@ -89,6 +98,122 @@ void main() {
     await _showNotice(tester);
     expect(find.byType(InfoBar), findsNothing);
   });
+
+  testWidgets('an internal failure no caller waits for shows its notice', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    _receive(
+      'RequestFailedResponse',
+      const RequestFailedResponse(
+        request: 'FetchPlaylistOccurrencesRequest',
+        kind: RequestErrorKind.internal,
+        detail: 'no such table: media_file_playlists',
+      ).bincodeSerialize(),
+    );
+    await _showNotice(tester);
+    final message = AppLocalizationsEn().unknownError;
+    expect(find.text(message), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+    'router frame keeps the current page after a typed internal failure and still shows Bsod on a fatal crash',
+    (tester) async {
+      disableBrandingAnimation = true;
+      cafeMode = false;
+      $router.update('/playlists/detail', null);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(800, 320);
+      addTearDown(tester.view.reset);
+
+      final sizes = ScreenSizeProvider.withWriter(null, (_) async {});
+      final responsive = ResponsiveProvider(sizes, () async => null);
+      final crash = CrashProvider();
+      final library = _OpenLibrary();
+      final status = _Status();
+      final scenes = _Scenes();
+      final lab = _Lab();
+      final windowControls = _WindowControls();
+      addTearDown(sizes.dispose);
+      addTearDown(responsive.dispose);
+      addTearDown(crash.dispose);
+      addTearDown(library.dispose);
+      addTearDown(status.dispose);
+      addTearDown(scenes.dispose);
+      addTearDown(lab.dispose);
+      addTearDown(windowControls.dispose);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: sizes),
+            ChangeNotifierProvider.value(value: responsive),
+            ChangeNotifierProvider.value(value: crash),
+            ChangeNotifierProvider.value(value: $router),
+            ChangeNotifierProvider<LibraryOpenStateProvider>.value(
+              value: library,
+            ),
+            ChangeNotifierProvider<PlaybackStatusProvider>.value(value: status),
+            ChangeNotifierProvider<VisualizerScenesProvider>.value(
+              value: scenes,
+            ),
+            ChangeNotifierProvider<VisualizerLabProvider>.value(value: lab),
+            ChangeNotifierProvider<LinuxCustomWindowControlsProvider>.value(
+              value: windowControls,
+            ),
+          ],
+          child: const FluentApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: RevealEffectContext(
+              child: RuneRouterFrameImplementation(
+                child: Center(child: Text('Playlist page')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Playlist page'), findsOneWidget);
+      expect(find.byType(Bsod), findsNothing);
+
+      // A recoverable database error emits only RequestFailedResponse.
+      _receive(
+        'RequestFailedResponse',
+        RequestFailedResponse(
+          request: 'FetchPlaylistOccurrencesRequest',
+          callId: Uint64.fromBigInt(BigInt.from(2)),
+          kind: RequestErrorKind.internal,
+          detail: 'no such table: media_file_playlists',
+        ).bincodeSerialize(),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(crash.report, isNull);
+      expect($router.path, '/playlists/detail');
+      expect(find.text('Playlist page'), findsOneWidget);
+      expect(find.byType(Bsod), findsNothing);
+
+      // A fatal crash still replaces the frame with Bsod.
+      _receive(
+        'CrashResponse',
+        const CrashResponse(detail: 'fatal player failure').bincodeSerialize(),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(crash.report, 'fatal player failure');
+      expect(find.byType(Bsod), findsOneWidget);
+      expect(find.text('fatal player failure'), findsOneWidget);
+      expect(find.text('Playlist page'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 2));
+    },
+  );
 
   testWidgets('a notice outlasts the page it was shown over', (tester) async {
     await _pumpApp(tester);
@@ -211,6 +336,50 @@ Future<void> _showNotice(WidgetTester tester) async {
 
 /// Off the desktop, [RuneLifecycle] only listens to the license.
 class _License extends ChangeNotifier implements LicenseProvider {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _OpenLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
+  @override
+  bool get hasOpenLibrary => true;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Status extends ChangeNotifier implements PlaybackStatusProvider {
+  @override
+  final playbackStatus = PlaybackStatusState()..state = PlaybackState.paused;
+
+  @override
+  bool get notReady => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Scenes extends ChangeNotifier implements VisualizerScenesProvider {
+  @override
+  Stream<VisualizerImport> get imports => const Stream.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Lab extends ChangeNotifier implements VisualizerLabProvider {
+  @override
+  bool get overlayOpen => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _WindowControls extends ChangeNotifier
+    implements LinuxCustomWindowControlsProvider {
+  @override
+  bool get enabled => false;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

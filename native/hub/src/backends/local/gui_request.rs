@@ -5,7 +5,7 @@ use rinf::{DartSignal, DartSignalPack, SignalReceiver};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio_util::sync::CancellationToken;
 
-use crate::messages::{CrashResponse, RequestErrorKind, RequestFailedResponse};
+use crate::messages::{RequestErrorKind, RequestFailedResponse};
 use crate::request_error::{classify, request_failure_cause};
 use crate::rpc::{TargetRequest, dispatch_gui_request};
 use crate::utils::{GlobalParams, ParamsExtractor, RinfRustSignal};
@@ -73,7 +73,6 @@ pub(crate) async fn listen_gui_with_io<R>(
                             error!("Request {} failed: {:?}", R::wire_name(), e);
                             error!("Full error chain for {}: {:#}", R::wire_name(), e);
                             error!("Backtrace for {}: {:?}", R::wire_name(), e.backtrace());
-                            emit(&CrashResponse { detail: format!("{e:#?}") });
                         } else {
                             warn!("Request {} failed: {e:#}", R::wire_name());
                         }
