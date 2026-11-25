@@ -1870,6 +1870,7 @@ async fn a_closed_subsonic_library_signed_in_to_another_account_drops_its_kept_l
         CollectionType, FetchCollectionGroupSummaryRequest, ReplaceSubsonicCredentialRequest,
     };
     use crate::service::lists::lists_folder;
+    use crate::subsonic_binding::SubsonicBinding;
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -1907,6 +1908,24 @@ async fn a_closed_subsonic_library_signed_in_to_another_account_drops_its_kept_l
         !kept.exists(),
         "another account kept the lists of the old one"
     );
+    // Nothing of the old account is left in the folder of the lists: at most the probe the new
+    // sign-in was verified with.
+    let folder = lists_folder(Path::new(&*node.config_path), library_id);
+    let left: Vec<String> = fs::read_dir(&folder)
+        .map(|entries| {
+            entries
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        left.iter()
+            .all(|name| name == "probe.json" || name.starts_with(".probe.json.")),
+        "the folder of the lists holds {left:?}"
+    );
+    let config = Path::new(&*node.config_path);
+    assert!(SubsonicBinding::kept_probe(config, library_id, "alice").is_none());
 
     server.abort();
     node.shutdown().await?;
