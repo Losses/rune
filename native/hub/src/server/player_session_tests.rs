@@ -10239,12 +10239,10 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     ));
     assert_eq!(classify(&error), RequestErrorKind::Unavailable);
 
-    // Verify that dispatch_gui_request still answers (doesn't hang) after the unsupported error
-    // It returns an error because PauseRequest is not supported on the Local player implementation either
-    let result = dispatch_gui_request(&fixture.global_params, &PauseRequest { call_id: None })
+    // Verify that dispatch_gui_request still answers for a successful request after the unsupported error
+    let result = dispatch_gui_request(&fixture.global_params, &ListLocalLibrariesRequest { call_id: None })
         .await;
-    // The request may fail on Local or succeed depending on the context, but it should not hang
-    let _ = result;
+    assert!(result.is_ok());
 
     server.abort();
     super::step(
@@ -16017,7 +16015,7 @@ async fn node_owned_calls_stay_local_with_remote_library_and_attached_renderer()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Result<()> {
-    use crate::messages::{HandoffBlockId, HandoffLoadRequest, ListLocalLibrariesRequest, LoadPlay, PauseRequest, PlaylistOperateMode};
+    use crate::messages::{ListLocalLibrariesRequest, PauseRequest, ScanAudioLibraryRequest};
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -16097,73 +16095,35 @@ async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Resu
             reason: UnsupportedReason::AccountRoleMissing,
         })
     ));
-    let result = dispatch_gui_request(params, &PauseRequest { call_id: None })
+    // Verify dispatch_gui_request still answers for a successful request after the failure
+    let result = dispatch_gui_request(params, &ListLocalLibrariesRequest { call_id: None })
         .await;
-    // The request may fail or succeed depending on the context, but it should not hang
-    let _ = result;
+    assert!(result.is_ok());
 
-    // Library scope: HandoffLoadRequest is a player request, unsupported by Subsonic without jukebox role
-    // This demonstrates that library-scoped player requests are unsupported like session-scoped ones
+    // Library scope: ScanAudioLibraryRequest is a library request unsupported by Subsonic
+    // Subsonic does not translate library requests it does not handle, leaving them NotImplemented
     assert_eq!(
-        capabilities.handoff_load_request,
-        RequestCapability::Disabled {
-            reason: CapabilityReason::AccountRoleMissing,
-        }
+        capabilities.scan_audio_library_request,
+        RequestCapability::Hidden
     );
     let library_error = super::step(
         "library scope unsupported request",
-        subsonic_implementation.run(
-            params,
-            &HandoffLoadRequest {
-                block: HandoffBlockId {
-                    uuid: Uuid::nil().to_string(),
-                },
-                load: LoadResolvedItemsRequest {
-                    items: vec![],
-                    start_index: None,
-                    mode: PlaylistOperateMode::Replace,
-                    expected_revision: None,
-                    playback_mode: None,
-                    position_seconds: None,
-                    play: LoadPlay::Auto,
-                    call_id: None,
-                },
-                call_id: None,
-            },
-        ),
+        subsonic_implementation.run(params, &ScanAudioLibraryRequest { force: false, call_id: None }),
     )
     .await
     .err()
-    .context("HandoffLoadRequest should fail on Subsonic without jukebox")?;
+    .context("ScanAudioLibraryRequest should fail on Subsonic")?;
     assert!(matches!(
         library_error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
-            request: "HandoffLoadRequest",
-            reason: UnsupportedReason::AccountRoleMissing,
+            request: "ScanAudioLibraryRequest",
+            reason: UnsupportedReason::NotImplemented,
         })
     ));
-    let result = dispatch_gui_request(
-        params,
-        &HandoffLoadRequest {
-            block: HandoffBlockId {
-                uuid: Uuid::nil().to_string(),
-            },
-            load: LoadResolvedItemsRequest {
-                items: vec![],
-                start_index: None,
-                mode: PlaylistOperateMode::Replace,
-                expected_revision: None,
-                playback_mode: None,
-                position_seconds: None,
-                play: LoadPlay::Auto,
-                call_id: None,
-            },
-            call_id: None,
-        },
-    )
-    .await;
-    // The request may fail or succeed depending on the context, but it should not hang
-    let _ = result;
+    // Verify dispatch_gui_request still answers for a successful request after the failure
+    let result = dispatch_gui_request(params, &ListLocalLibrariesRequest { call_id: None })
+        .await;
+    assert!(result.is_ok());
 
     server.abort();
     super::step(
