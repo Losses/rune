@@ -167,6 +167,11 @@ void main() {
         expect(find.text(_strings.onlineLyricsNotice), findsOneWidget);
         expect(find.text(_strings.lookUpLyricsOnLrclib), findsOneWidget);
         expect(_switchChecked(tester), enabled);
+        // The label is on the left and the switch at the right edge.
+        expect(
+          tester.widget<ToggleSwitch>(find.byType(ToggleSwitch)).leadingContent,
+          isTrue,
+        );
         // Nothing is sent by looking.
         expect(hub.sent, isEmpty);
 

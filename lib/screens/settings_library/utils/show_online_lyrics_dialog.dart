@@ -77,7 +77,7 @@ class _OnlineLyricsDialogState extends State<_OnlineLyricsDialog> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return ContentDialog(
-      title: Text(s.lyrics),
+      title: Column(children: [const SizedBox(height: 8), Text(s.lyrics)]),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -86,8 +86,10 @@ class _OnlineLyricsDialogState extends State<_OnlineLyricsDialog> {
           const SizedBox(height: 12),
           ToggleSwitch(
             checked: _enabled,
-            // The label wraps in a narrow dialog instead of running past its
-            // edge.
+            // The switch is at the right edge with its label on the left, as
+            // the mix dialog has them. The label wraps in a narrow dialog
+            // instead of running past its edge.
+            leadingContent: true,
             content: Expanded(child: Text(s.lookUpLyricsOnLrclib)),
             onChanged: _sending ? null : _set,
           ),
