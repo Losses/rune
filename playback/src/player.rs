@@ -166,13 +166,23 @@ impl From<PlayingItem> for QueueEntry {
     }
 }
 
+/// What a handoff interrupted on its target, captured so that taking the block back can
+/// restore it. `playback_mode` is the mode the target had before the handoff load replaced it;
+/// it is absent only in a record that was written before the mode was captured or that names
+/// no record at all, and then nothing is restored. `playing` is whether the interrupted track
+/// was playing or loading to play, so a rollback resumes it while an ordinary handback pauses
+/// the target where its own track was interrupted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterruptedItem {
-    Nothing,
+    Nothing {
+        playback_mode: Option<PlaybackMode>,
+    },
     Item {
         index_hint: usize,
         item: PlayingItem,
         position: Duration,
+        playback_mode: Option<PlaybackMode>,
+        playing: bool,
     },
 }
 
@@ -517,10 +527,14 @@ pub trait Playable: Send {
         play: bool,
         playback_mode: Option<PlaybackMode>,
     ) -> oneshot::Receiver<HandoffLoadResult>;
+    /// Takes the block back. `resume` says the take-back rolls a failed handoff back: the
+    /// interrupted track, the playback mode it replaced and the playing state are restored.
+    /// An ordinary handback passes false and pauses the target where its track was interrupted.
     fn take_back_block(
         &self,
         block: HandoffBlockId,
         interrupted: InterruptedItem,
+        resume: bool,
     ) -> oneshot::Receiver<Option<TakeBackBlockResult>>;
     fn clear_handoff_blocks(&self) -> oneshot::Receiver<ClearHandoffBlocksResult>;
     /// Pauses, and answers what the pause stopped.
@@ -1083,12 +1097,14 @@ impl Playable for Player {
         &self,
         block: HandoffBlockId,
         interrupted: InterruptedItem,
+        resume: bool,
     ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
         let (response, receiver) = oneshot::channel();
         self.command(PlayerCommand::TakeBackBlock {
             block,
             interrupted,
             revision: None,
+            resume,
             response,
         });
         receiver
@@ -1306,7 +1322,9 @@ impl Playable for MockPlayer {
     ) -> oneshot::Receiver<HandoffLoadResult> {
         let (sender, receiver) = oneshot::channel();
         let _ = sender.send(HandoffLoadResult {
-            interrupted: InterruptedItem::Nothing,
+            interrupted: InterruptedItem::Nothing {
+                playback_mode: None,
+            },
             items: Vec::new(),
         });
         receiver
@@ -1315,6 +1333,7 @@ impl Playable for MockPlayer {
         &self,
         _block: HandoffBlockId,
         _interrupted: InterruptedItem,
+        _resume: bool,
     ) -> oneshot::Receiver<Option<TakeBackBlockResult>> {
         let (sender, receiver) = oneshot::channel();
         let _ = sender.send(Some(TakeBackBlockResult {

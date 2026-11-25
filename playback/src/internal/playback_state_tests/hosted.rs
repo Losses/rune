@@ -953,7 +953,16 @@ async fn a_restored_hosted_track_waits_as_a_local_one_does_until_play() -> Resul
         internal.restore_position,
         Some(Duration::from_millis(1_500))
     );
-    assert_eq!(internal.interrupted_item(), InterruptedItem::Nothing);
+    assert_eq!(
+        internal.interrupted_item(),
+        InterruptedItem::Item {
+            index_hint: 0,
+            item: hosted.clone(),
+            position: Duration::from_millis(1_500),
+            playback_mode: Some(PlaybackMode::Sequential),
+            playing: false,
+        }
+    );
 
     // A seek only moves the place it plays from.
     f.send(PlayerCommand::Seek(3.0))?;
