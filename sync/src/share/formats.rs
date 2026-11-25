@@ -22,6 +22,14 @@ pub struct Checkpoint {
     pub anchor: Digest,
 }
 
+impl Checkpoint {
+    /// Whether a base that covers a stream up to this checkpoint brings a reader to the stream's
+    /// `floor`: it covers the floor itself or a later checkpoint.
+    pub fn reaches(&self, floor: &Checkpoint) -> bool {
+        self.seq > floor.seq || self == floor
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FloorBase {

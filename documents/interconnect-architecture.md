@@ -239,7 +239,7 @@ Push publishes this device's stream.
 ### Pull
 
 - List `devices/` every 10 minutes, or when a head names an unknown prefix. Ignore heads of another library. Poll heads with a conditional GET: every 60 s in the foreground, every 15 min in the desktop background.
-- For each stream, the sync coordinator reads the segments after this device's checkpoint. A stream below its floor, or met for the first time, reconciles against a base: first contact starts with the base whose coverage is largest, and a stream whose floor base is gone reconciles against the best live base in the current heads. If an object of a base is missing or fails its digest, the pull moves on to the next live base, and later pulls try that base again. Only chunks whose summaries differ are downloaded.
+- For each stream, the sync coordinator reads the segments after this device's checkpoint. A stream below its floor, or met for the first time, reconciles against a base: first contact starts with the base whose coverage is largest, and a stream whose floor base is gone reconciles against the best live base in the current heads. If an object of a base is missing or fails its digest, the pull moves on to the next live base, and later pulls try that base again. A base that the stream's floor passes while the pull reconciles against it, because the stream has cut a newer base, is passed over the same way. Only chunks whose summaries differ are downloaded.
 - A stream with its whole chain present (floor at 0) is adopted without reconciliation. After reconciling against a base, the checkpoints it covers are adopted (raise only).
 
 ### Garbage collection and retirement

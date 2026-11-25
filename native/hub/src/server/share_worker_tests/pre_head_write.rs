@@ -121,18 +121,49 @@ impl ObjectStore for ObservedStore {
     }
 }
 
-struct FirstHeadGate {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GatedOperation {
+    Read,
+    Write,
+}
+
+/// Holds the first `holds` reads or writes of keys under `key_prefix`, each until the test
+/// resumes it.
+struct StoreGate {
     inner: Arc<dyn ObjectStore>,
-    prefix: String,
-    blocked: AtomicBool,
+    operation: GatedOperation,
+    key_prefix: String,
+    holds: AtomicUsize,
     reached: Notify,
     resume: Notify,
 }
 
-impl FirstHeadGate {
-    async fn stop_at_first_head(&self, key: &str) {
-        if key.starts_with(&format!("devices/{}/head.", self.prefix))
-            && !self.blocked.swap(true, Ordering::SeqCst)
+impl StoreGate {
+    fn new(
+        inner: Arc<dyn ObjectStore>,
+        operation: GatedOperation,
+        key_prefix: String,
+        holds: usize,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            operation,
+            key_prefix,
+            holds: AtomicUsize::new(holds),
+            reached: Notify::new(),
+            resume: Notify::new(),
+        })
+    }
+
+    async fn stop(&self, operation: GatedOperation, key: &str) {
+        if operation == self.operation
+            && key.starts_with(&self.key_prefix)
+            && self
+                .holds
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |holds| {
+                    holds.checked_sub(1)
+                })
+                .is_ok()
         {
             self.reached.notify_one();
             self.resume.notified().await;
@@ -148,9 +179,12 @@ impl FirstHeadGate {
     }
 }
 
-impl ObjectStore for FirstHeadGate {
+impl ObjectStore for StoreGate {
     fn get<'a>(&'a self, key: &'a str) -> SyncBoxFuture<'a, ObjectValue, StoreError> {
-        self.inner.get(key)
+        Box::pin(async move {
+            self.stop(GatedOperation::Read, key).await;
+            self.inner.get(key).await
+        })
     }
 
     fn get_if_none_match<'a>(
@@ -158,7 +192,10 @@ impl ObjectStore for FirstHeadGate {
         key: &'a str,
         tag: &'a ObjectTag,
     ) -> SyncBoxFuture<'a, ConditionalGet, StoreError> {
-        self.inner.get_if_none_match(key, tag)
+        Box::pin(async move {
+            self.stop(GatedOperation::Read, key).await;
+            self.inner.get_if_none_match(key, tag).await
+        })
     }
 
     fn put<'a>(
@@ -167,7 +204,7 @@ impl ObjectStore for FirstHeadGate {
         bytes: &'a [u8],
     ) -> SyncBoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
-            self.stop_at_first_head(key).await;
+            self.stop(GatedOperation::Write, key).await;
             self.inner.put(key, bytes).await
         })
     }
@@ -178,7 +215,7 @@ impl ObjectStore for FirstHeadGate {
         bytes: &'a [u8],
     ) -> SyncBoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
-            self.stop_at_first_head(key).await;
+            self.stop(GatedOperation::Write, key).await;
             self.inner.create(key, bytes).await
         })
     }
@@ -190,7 +227,7 @@ impl ObjectStore for FirstHeadGate {
         bytes: &'a [u8],
     ) -> SyncBoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
-            self.stop_at_first_head(key).await;
+            self.stop(GatedOperation::Write, key).await;
             self.inner.put_if_match(key, tag, bytes).await
         })
     }
@@ -204,7 +241,7 @@ impl ObjectStore for FirstHeadGate {
     }
 }
 
-async fn wait_for_successful_share_pass(hub: &WorkerHub, target: usize) -> Result<()> {
+async fn wait_for_successful_share_pass(hub: &WorkerHub, target: usize, what: &str) -> Result<()> {
     timeout(TEST_DEADLINE, async {
         loop {
             let changed = hub.broadcaster.successful_share_pass.notified();
@@ -220,7 +257,7 @@ async fn wait_for_successful_share_pass(hub: &WorkerHub, target: usize) -> Resul
         }
     })
     .await
-    .map_err(|_| anyhow::anyhow!("existing hub's first successful share pass timed out"))
+    .map_err(|_| anyhow::anyhow!("{what} timed out"))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -292,34 +329,50 @@ async fn local_write_before_first_head_publication_reaches_every_hub_on(
         name: "hub#1",
         trace: trace.clone(),
     });
-    let gate = Arc::new(FirstHeadGate {
-        inner: observed_joining,
-        prefix,
-        blocked: AtomicBool::new(false),
-        reached: Notify::new(),
-        resume: Notify::new(),
-    });
-    let gated_session = ShareStoreSession {
-        store: gate.clone(),
-        capabilities: session.capabilities,
-    };
+    // The joining hub's first head, and the next one, which publishes the write.
+    let head_gate = StoreGate::new(
+        observed_joining,
+        GatedOperation::Write,
+        format!("devices/{prefix}/head."),
+        2,
+    );
+    // The existing hub's first read of an object of the joining hub's base, when it meets the
+    // joining hub's stream.
+    let base_gate = StoreGate::new(
+        observed_existing,
+        GatedOperation::Read,
+        format!("devices/{prefix}/obj/"),
+        1,
+    );
     let (existing_hub, joining_hub) = tokio::join!(
         worker_hub_on_share(
             namespace,
             ShareStoreSession {
-                store: observed_existing,
+                store: base_gate.clone(),
                 capabilities: session.capabilities,
             },
             existing_library,
         ),
-        worker_hub_on_share_prepared(namespace, gated_session, library),
+        worker_hub_on_share_prepared(
+            namespace,
+            ShareStoreSession {
+                store: head_gate.clone(),
+                capabilities: session.capabilities,
+            },
+            library
+        ),
     );
     let existing_hub = existing_hub?;
     let mut joining_hub = joining_hub?;
-    wait_for_successful_share_pass(&existing_hub, 1).await?;
+    wait_for_successful_share_pass(
+        &existing_hub,
+        1,
+        "existing hub's first successful share pass",
+    )
+    .await?;
     joining_hub.start_worker();
 
-    if timeout(TEST_DEADLINE, gate.wait_until_blocked())
+    if timeout(TEST_DEADLINE, head_gate.wait_until_blocked())
         .await
         .is_err()
     {
@@ -340,7 +393,7 @@ async fn local_write_before_first_head_publication_reaches_every_hub_on(
     }
     let joining_objects = session
         .store
-        .list_prefix(&format!("devices/{}/", gate.prefix))
+        .list_prefix(&format!("devices/{prefix}/"))
         .await
         .map_err(|error| anyhow::anyhow!("list joining hub objects: {error:?}"))?;
     anyhow::ensure!(
@@ -371,15 +424,55 @@ async fn local_write_before_first_head_publication_reaches_every_hub_on(
         .sync_store
         .write_local(write_key.clone(), support::playlist(""))
         .await?;
+    head_gate.resume();
+
+    // The joining hub's next publication carries the write in a new base: its segment would be
+    // more than a quarter of the small first base, and maintenance may already have compacted its
+    // journal entry. That head write waits until the existing hub, meeting the joining hub's stream
+    // for the first time, has begun to reconcile against the first base, which lacks the write.
+    if timeout(TEST_DEADLINE, async {
+        tokio::join!(
+            head_gate.wait_until_blocked(),
+            base_gate.wait_until_blocked()
+        )
+    })
+    .await
+    .is_err()
+    {
+        anyhow::bail!(
+            "{backend:?} the joining hub's next publication and the existing hub's first read of its base were not both reached"
+        );
+    }
+    let joining_replica = joining_hub.library.peer.identity().await?.replica;
+    let (_, first_head) = latest_head_for_replica(session.store.as_ref(), joining_replica).await?;
+    let joining_passes = joining_hub
+        .broadcaster
+        .successful_share_passes
+        .load(Ordering::SeqCst);
+    head_gate.resume();
+    wait_for_successful_share_pass(
+        &joining_hub,
+        joining_passes + 1,
+        "joining hub's publication of the write",
+    )
+    .await?;
+    let (_, publishing_head) =
+        latest_head_for_replica(session.store.as_ref(), joining_replica).await?;
+    anyhow::ensure!(
+        publishing_head.floor.seq > first_head.floor.seq,
+        "{backend:?} the joining hub's publication of the write did not replace its first base"
+    );
+    // The existing hub finishes reconciling against the base that the joining hub's floor has
+    // passed.
     let last_passes: Vec<_> = hubs_successful_passes(&[&existing_hub, &joining_hub]);
-    gate.resume();
+    base_gate.resume();
     let hubs = [existing_hub, joining_hub];
     if let Err(error) =
         wait_for_keys_after_worker_events(&hubs, slice::from_ref(&write_key), last_passes).await
     {
         let observations = format!(
             "store snapshot: {}\n  hub#0 store operations:\n    {}\n  hub#1 store operations:\n    {}\n  hub state: {}",
-            describe_share_objects(session.store.as_ref(), &gate.prefix, &write_key).await?,
+            describe_share_objects(session.store.as_ref(), &prefix, &write_key).await?,
             existing_trace.snapshot(),
             trace.snapshot(),
             describe_hub_states(&hubs).await?,

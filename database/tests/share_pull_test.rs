@@ -3692,6 +3692,143 @@ async fn bases_failing_after_reconciliation_began_leave_room_for_a_valid_base() 
     Ok(())
 }
 
+/// Holds the first read of an object under `prefix` until the test lets it go on, as a slow
+/// download would.
+struct ReadGate {
+    inner: Arc<MemoryObjectStore>,
+    prefix: String,
+    held: AtomicBool,
+    reached: Notify,
+    resume: Notify,
+}
+
+impl ReadGate {
+    async fn hold_at(&self, key: &str) {
+        if key.starts_with(&self.prefix) && !self.held.swap(true, Ordering::SeqCst) {
+            self.reached.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
+impl ObjectStore for ReadGate {
+    fn get<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, ObjectValue, StoreError> {
+        Box::pin(async move {
+            self.hold_at(key).await;
+            self.inner.get(key).await
+        })
+    }
+
+    fn get_if_none_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+    ) -> p::BoxFuture<'a, ConditionalGet, StoreError> {
+        self.inner.get_if_none_match(key, tag)
+    }
+
+    fn put<'a>(&'a self, key: &'a str, bytes: &'a [u8]) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put(key, bytes)
+    }
+
+    fn create<'a>(
+        &'a self,
+        key: &'a str,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.create(key, bytes)
+    }
+
+    fn put_if_match<'a>(
+        &'a self,
+        key: &'a str,
+        tag: &'a ObjectTag,
+        bytes: &'a [u8],
+    ) -> p::BoxFuture<'a, ObjectTag, StoreError> {
+        self.inner.put_if_match(key, tag, bytes)
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> p::BoxFuture<'a, (), StoreError> {
+        self.inner.delete(key)
+    }
+
+    fn list_prefix<'a>(&'a self, prefix: &'a str) -> p::BoxFuture<'a, Vec<String>, StoreError> {
+        self.inner.list_prefix(prefix)
+    }
+}
+
+#[tokio::test]
+async fn pull_moves_on_to_the_base_a_stream_cuts_while_it_reconciles_against_an_older_one()
+-> Result<()> {
+    let namespace = Uuid::new_v4();
+    let store = Arc::new(MemoryObjectStore::default());
+    let source = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let publish = || {
+        source
+            .sync_store
+            .push_share(store.clone(), namespace, cache_path(), Default::default())
+    };
+    let first = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(80),
+    };
+    source
+        .sync_store
+        .write_local(first.clone(), support::playlist("in the first base"))
+        .await?;
+    let first_head = publish()
+        .await?
+        .context("the first publication wrote no head")?;
+    let second = ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::from_u128(81),
+    };
+    source
+        .sync_store
+        .write_local(second.clone(), support::playlist("in the next base"))
+        .await?;
+
+    // The receiver meets the stream for the first time and reconciles against its only base. It
+    // holds at its first read of an object of that base while the source publishes the second
+    // playlist. Its segment would be more than a quarter of the small first base, so the source
+    // cuts a new base, and the stream's floor passes the base the receiver reconciles against.
+    let gate = Arc::new(ReadGate {
+        inner: store.clone(),
+        prefix: format!(
+            "devices/{}.{}/obj/",
+            first_head.stream, first_head.generation
+        ),
+        held: AtomicBool::new(false),
+        reached: Notify::new(),
+        resume: Notify::new(),
+    });
+    let target = SqlLibrary::new(namespace, Uuid::new_v4()).await?;
+    let (pulled, next_head) = tokio::join!(
+        target
+            .sync_store
+            .pull_share(gate.clone(), namespace, cache_path(), Default::default()),
+        async {
+            gate.reached.notified().await;
+            let head = publish().await;
+            gate.resume.notify_one();
+            head
+        },
+    );
+    let next_head = next_head?.context("the second publication wrote no head")?;
+    ensure!(
+        next_head.floor.seq > first_head.floor.seq,
+        "the second publication did not cut a new base"
+    );
+    pulled.context("pull that met the stream's older base")?;
+    for key in [&first, &second] {
+        assert_eq!(
+            target.sync_store.get(key).await?,
+            source.sync_store.get(key).await?
+        );
+    }
+    Ok(())
+}
+
 async fn share_prefix_keys(store: &MemoryObjectStore, prefix: &str) -> Result<Vec<String>> {
     store
         .list_prefix(&format!("devices/{prefix}/"))

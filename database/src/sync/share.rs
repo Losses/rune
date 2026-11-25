@@ -1645,9 +1645,10 @@ pub async fn pull<M: SyncModel>(
             }
             continue;
         }
-        // A base that cannot be read is skipped for this stream in this pull only: an object can
-        // be missing just while the share recovers, so the next pull tries the base again. Each
-        // attempt rereads the checkpoint, which a failed attempt may have advanced.
+        // A base that cannot be read, or that the stream's floor passes during the pull, is
+        // skipped for this stream in this pull only: an object can be missing just while the
+        // share recovers, so the next pull tries the base again. Each attempt rereads the
+        // checkpoint, which a failed attempt may have advanced.
         let mut unavailable_bases = BTreeSet::new();
         let (done, selected_base) = 'selection: loop {
             let applied = local
@@ -2596,7 +2597,7 @@ async fn choose_live_base<M: SyncModel>(
         candidate
             .covers
             .get(&target_prefix)
-            .is_some_and(|cover| cover.seq > head.floor.seq || cover == &head.floor)
+            .is_some_and(|cover| cover.reaches(&head.floor))
             && !unavailable_bases
                 .contains(&(candidate.owner_prefix.clone(), candidate.base_id.clone()))
     }) {
