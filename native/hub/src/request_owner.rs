@@ -66,11 +66,6 @@ pub(crate) enum Implementation {
         reconnecting: Option<String>,
     },
     Service(Arc<dyn ServiceBinding>),
-    #[cfg(test)]
-    TestOverride {
-        implementation: Box<Implementation>,
-        slots: RequestSlots,
-    },
 }
 
 impl Implementation {
@@ -79,7 +74,7 @@ impl Implementation {
         item: &PlayingItem,
         node: &NodeContext,
     ) -> Result<(Option<String>, Vec<String>)> {
-        match self.execution_implementation() {
+        match self {
             Self::Service(binding) => {
                 let PlayingItem::LibraryTrack { track, .. } = item else {
                     anyhow::bail!("Service visualizer item is not a library track");
@@ -126,7 +121,7 @@ impl Implementation {
         with_cover: bool,
         library: &LibraryHandle,
     ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-        match self.execution_implementation() {
+        match self {
             Self::Service(binding) => {
                 let PlayingItem::LibraryTrack { track, .. } = item else {
                     anyhow::bail!("Service library item is not a library track");
@@ -156,17 +151,13 @@ impl Implementation {
     }
 
     pub(crate) async fn track_started(&self, item: &PlayingItem, start_time: u64) {
-        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) =
-            (self.execution_implementation(), item)
-        {
+        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) = (self, item) {
             binding.track_started(track, start_time).await;
         }
     }
 
     pub(crate) async fn track_played_through(&self, item: &PlayingItem) {
-        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) =
-            (self.execution_implementation(), item)
-        {
+        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) = (self, item) {
             binding.track_played_through(track).await;
         }
     }
@@ -177,7 +168,7 @@ impl Implementation {
         library: &LibraryHandle,
     ) -> Result<()> {
         // A service counts the plays of its own tracks, which have no local statistics.
-        let Self::Service(_) = self.execution_implementation() else {
+        let Self::Service(_) = self else {
             if let PlayingItem::LibraryTrack { track, .. } = item {
                 let file_uuid =
                     Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
@@ -206,8 +197,6 @@ impl Implementation {
             }
             Self::RunePeer { .. } => RequestSlots::rune(),
             Self::Service(binding) => binding.slots(),
-            #[cfg(test)]
-            Self::TestOverride { slots, .. } => *slots,
         }
     }
 
@@ -223,8 +212,6 @@ impl Implementation {
             // the library this device holds of it, so a peer's slots apply only to an item a
             // peer answers for.
             Self::Local | Self::LocalBeside(_) | Self::RunePeer { .. } => self.slots(),
-            #[cfg(test)]
-            Self::TestOverride { implementation, .. } => implementation.item_slots(),
         }
     }
 
@@ -243,7 +230,7 @@ impl Implementation {
             + Serialize,
         <R as TypedRequest>::Response: DeserializeOwned,
     {
-        match self.execution_implementation() {
+        match self {
             Self::RunePeer {
                 reconnecting: Some(alias),
                 ..
@@ -271,7 +258,7 @@ impl Implementation {
             Slot::Forward => {
                 let Self::RunePeer {
                     link: Some(link), ..
-                } = self.execution_implementation()
+                } = self
                 else {
                     anyhow::bail!("Forward slot has no renderer link");
                 };
@@ -283,7 +270,7 @@ impl Implementation {
                 Ok(Some(response))
             }
             Slot::Translate => {
-                let Self::Service(binding) = self.execution_implementation() else {
+                let Self::Service(binding) = self else {
                     anyhow::bail!("Translate slot has no service binding");
                 };
                 request.translate(binding.as_ref()).await
@@ -298,25 +285,7 @@ impl Implementation {
 
     /// Whether requests run on this device's own player and libraries.
     pub(crate) fn is_local(&self) -> bool {
-        matches!(self.execution_implementation(), Self::Local)
-    }
-
-    fn execution_implementation(&self) -> &Self {
-        match self {
-            #[cfg(test)]
-            Self::TestOverride { implementation, .. } => implementation.execution_implementation(),
-            implementation => implementation,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_slots(self, edit: impl FnOnce(&mut RequestSlots)) -> Self {
-        let mut slots = self.slots();
-        edit(&mut slots);
-        Self::TestOverride {
-            implementation: Box::new(self),
-            slots,
-        }
+        matches!(self, Self::Local)
     }
 }
 

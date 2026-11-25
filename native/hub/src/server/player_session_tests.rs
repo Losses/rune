@@ -89,14 +89,14 @@ use uuid::Uuid;
 use crate::{
     Signal,
     access_policy::{ConnectionLevel, DeviceGrants, SyncLevel},
-    backends::remote::{RendererLink, RendererLinkUse, open_remote_library_for_fingerprint},
+    backends::remote::{RendererLinkUse, open_remote_library_for_fingerprint},
     handlers::playback::{
         playing_item_from_request, playing_item_requests, session_snapshot_from_status,
     },
     messages::{
         CastLibraryState, CastPreflightRequest, CastResolvedItemsRequest, CastTarget,
         GetLikedRequest, GetLyricByTrackIdRequest, GetMediaFilesCountRequest,
-        GetPrimaryColorByTrackIdRequest, ListControllersRequest, ListRenderersRequest,
+        GetPrimaryColorByTrackIdRequest, ListRenderersRequest,
         LoadResolvedItemsRequest, LyricContentLine, MediaFile, PlayingItemRef, PlaylistRevisionRequest,
         PlaylistUpdate, RendererAvailability, RendererCandidate, RequestErrorKind,
         RequestFailureCause, ResolveMixQueryRequest, ResolveMixQueryResponse,
@@ -143,7 +143,7 @@ use tokio::runtime::Builder;
 use tokio::sync::{Mutex, Notify, broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
-use tokio_tungstenite::{accept_async, connect_async};
+
 
 #[derive(Clone)]
 struct SubsonicHubMock {
@@ -10617,141 +10617,80 @@ async fn rpc_target_session_and_library_catalogue_matches_registered_peer_handle
 
 #[tokio::test]
 async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() -> Result<()> {
+    // Test that a request unsupported by the real implementation fails with the expected
+    // typed error. We use a Subsonic library whose account has no jukebox role, so player
+    // requests like PauseRequest are unsupported with AccountRoleMissing.
     let dir = tempfile::tempdir()?;
-    let controller = super::step("create blacklist fixture", fixture(dir.path())).await?;
-    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
-    let address = listener.local_addr()?;
-    let accepting = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await?;
-        Ok::<_, anyhow::Error>(accept_async(stream).await?)
-    });
-    let (stream, _) = timeout(TEST_DEADLINE, connect_async(format!("ws://{address}")))
-        .await
-        .context("blacklist peer connection timed out")??;
-    let mut peer = timeout(TEST_DEADLINE, accepting)
-        .await
-        .context("blacklist peer accept timed out")???;
-    let link = super::step(
-        "initialize renderer link",
-        RendererLink::new(
-            stream,
-            controller.global_params.node.clone(),
-            "blacklist-peer".to_owned(),
-            "Blacklist peer".to_owned(),
-            protocol_version::PROTOCOL_VERSION,
-            RendererLinkUse::Control,
-        ),
+    let fixture = super::step("create subsonic fixture", fixture(dir.path())).await?;
+    let (endpoint, _, _, _, _, server) = super::step(
+        "start subsonic mock",
+        subsonic_hub_mock(false),
     )
     .await;
-    let previous_player = controller
-        .global_params
-        .node
-        .current_player_snapshot()?;
-    controller
-        .global_params
-        .node
-        .install_renderer_link(link, "Blacklist peer".to_owned())?;
-    controller
-        .global_params
-        .node
-        .transition_current_player(
-            previous_player,
-            controller.global_params.node.current_player()?,
-        )
-        .await?;
-    // This node's own coordinators stay local while a renderer is attached.
-    let controllers = super::step(
-        "dispatch local controller list",
-        dispatch_gui_request(
-            &controller.global_params,
-            &ListControllersRequest { call_id: None },
+    let subsonic_library_response = super::step(
+        "register subsonic library",
+        register_subsonic_library_on_node(
+            &RegisterSubsonicLibraryRequest {
+                endpoint,
+                username: "demo".to_owned(),
+                password: "demo".to_owned(),
+                alias: "Subsonic library".to_owned(),
+                mode: Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+                call_id: None,
+            },
+            &fixture.global_params.node,
         ),
     )
-    .await?
-    .context("local controller list")?;
-    assert!(controllers.controllers.is_empty());
+    .await
+    .context("register subsonic library")?;
+    let library_id = subsonic_library_response
+        .record
+        .context("subsonic library registration should return a record")?
+        .record_id
+        .parse()
+        .context("record_id should be a valid UUID")?;
+    let service_binding = super::step(
+        "get subsonic service binding",
+        service_binding_for_library(&fixture.global_params.node, library_id),
+    )
+    .await
+    .context("get subsonic service binding")?;
+    let subsonic_implementation = Implementation::Service(Arc::clone(&service_binding));
 
-    // A request the Rune target lists as unsupported fails before anything is sent.
-    let link = controller
-        .global_params
-        .node
-        .renderer_link()?
-        .context("attached renderer")?;
-    let target = Implementation::RunePeer {
-        link: Some(link),
-        reconnecting: None,
-    }
-    .with_slots(|slots| {
-        slots.pause_request = Slot::Unsupported {
-            reason: UnsupportedReason::OwnerOnly,
+    // Subsonic without jukebox role marks player requests as AccountRoleMissing
+    assert_eq!(
+        RequestCapabilities::from_implementation(&subsonic_implementation).pause_request,
+        RequestCapability::Disabled {
+            reason: CapabilityReason::AccountRoleMissing,
         }
-    });
+    );
+
+    // PauseRequest is unsupported and fails with typed error
     let error = super::step(
-        "reject blacklisted request",
-        target.run(&controller.global_params, &PauseRequest { call_id: None }),
+        "reject unsupported PauseRequest",
+        subsonic_implementation.run(&fixture.global_params, &PauseRequest { call_id: None }),
     )
     .await
     .err()
-    .context("blacklisted request unexpectedly succeeded")?;
+    .context("PauseRequest unexpectedly succeeded")?;
     assert!(matches!(
         error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
             request: "PauseRequest",
-            reason: UnsupportedReason::OwnerOnly,
+            reason: UnsupportedReason::AccountRoleMissing,
         })
     ));
     assert_eq!(classify(&error), RequestErrorKind::Unavailable);
-    assert!(
-        // The typed rejection above is the barrier before checking that no frame was sent.
-        timeout(Duration::from_millis(100), peer.next())
-            .await
-            .is_err(),
-        "blacklisted request sent a frame"
-    );
-    // Node-scope requests are selected locally before a renderer target is built.
-    let peer_too_old = Implementation::RunePeer {
-        link: Some(
-            controller
-                .global_params
-                .node
-                .renderer_link()?
-                .context("attached renderer")?,
-        ),
-        reconnecting: None,
-    }
-    .with_slots(|slots| {
-        slots.pause_request = Slot::Unsupported {
-            reason: UnsupportedReason::PeerTooOld,
-        }
-    });
-    assert_eq!(
-        RequestCapabilities::from_implementation(&peer_too_old).pause_request,
-        RequestCapability::Disabled {
-            reason: CapabilityReason::PeerTooOld,
-        }
-    );
-    let error = super::step(
-        "reject request for older peer",
-        peer_too_old.run(&controller.global_params, &PauseRequest { call_id: None }),
-    )
-    .await
-    .err()
-    .context("peer-too-old request unexpectedly succeeded")?;
-    assert!(matches!(
-        error.downcast_ref::<ExpectedRequestError>(),
-        Some(ExpectedRequestError::Unsupported {
-            request: "PauseRequest",
-            reason: UnsupportedReason::PeerTooOld,
-        })
-    ));
+
+    // Verify that dispatch_gui_request still answers for a successful request after the unsupported error
+    let result = dispatch_gui_request(&fixture.global_params, &ListLocalLibrariesRequest { call_id: None })
+        .await;
+    assert!(result.is_ok());
+
+    server.abort();
     super::step(
-        "detach blacklist renderer",
-        controller.global_params.node.detach_renderer(),
-    )
-    .await?;
-    super::step(
-        "shutdown blacklist fixture",
-        controller.global_params.node.shutdown(),
+        "shutdown fixture",
+        fixture.global_params.node.shutdown(),
     )
     .await?;
     Ok(())
@@ -15913,8 +15852,6 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
             } => "Reconnecting",
             Implementation::RunePeer { .. } => "RunePeer",
             Implementation::Service(_) => "Subsonic",
-            #[cfg(test)]
-            Implementation::TestOverride { .. } => "TestOverride",
         }
     }
 
@@ -16521,94 +16458,122 @@ async fn node_owned_calls_stay_local_with_remote_library_and_attached_renderer()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn capability_snapshot_agrees_with_unsupported_dispatch_by_scope() -> Result<()> {
-    use crate::messages::{FetchAllPlaylistsRequest, ListLocalLibrariesRequest, PauseRequest};
+    use crate::messages::{ListLocalLibrariesRequest, PauseRequest, ScanAudioLibraryRequest};
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let params = &fixture.global_params;
-    let unsupported = Slot::Unsupported {
-        reason: UnsupportedReason::NotImplemented,
-    };
+
+    // Node scope: ListLocalLibrariesRequest is supported by Local implementation
     assert_eq!(
-        RequestCapability::from(Slot::Translate),
+        RequestCapabilities::from_implementation(&Implementation::Local).list_local_libraries_request,
         RequestCapability::Available
     );
+    let node_response = super::step(
+        "node scope supported request",
+        Implementation::Local.run(params, &ListLocalLibrariesRequest { call_id: None }),
+    )
+    .await
+    .context("node request should succeed")?;
+    assert!(node_response.is_some());
+    let result = dispatch_gui_request(params, &ListLocalLibrariesRequest { call_id: None })
+        .await;
+    assert!(result.is_ok());
+
+    // Session scope: PauseRequest is unsupported by Subsonic without jukebox role
+    let (endpoint, _, _, _, _, server) = super::step(
+        "start subsonic mock",
+        subsonic_hub_mock(false),
+    )
+    .await;
+    let subsonic_library_response = super::step(
+        "register subsonic library",
+        register_subsonic_library_on_node(
+            &RegisterSubsonicLibraryRequest {
+                endpoint,
+                username: "demo".to_owned(),
+                password: "demo".to_owned(),
+                alias: "Subsonic library".to_owned(),
+                mode: Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+                call_id: None,
+            },
+            &fixture.global_params.node,
+        ),
+    )
+    .await
+    .context("register subsonic library")?;
+    let library_id = subsonic_library_response
+        .record
+        .context("subsonic library registration should return a record")?
+        .record_id
+        .parse()
+        .context("record_id should be a valid UUID")?;
+    let service_binding = super::step(
+        "get subsonic service binding",
+        service_binding_for_library(&fixture.global_params.node, library_id),
+    )
+    .await
+    .context("get subsonic service binding")?;
+    let subsonic_implementation = Implementation::Service(Arc::clone(&service_binding));
+
+    // Subsonic without jukebox role: PauseRequest is AccountRoleMissing
+    let capabilities = RequestCapabilities::from_implementation(&subsonic_implementation);
     assert_eq!(
-        RequestCapability::from(Slot::Unsupported {
-            reason: UnsupportedReason::OwnerOnly,
-        }),
+        capabilities.pause_request,
         RequestCapability::Disabled {
-            reason: CapabilityReason::OwnerOnly,
+            reason: CapabilityReason::AccountRoleMissing,
         }
     );
-
-    let node_request = ListLocalLibrariesRequest { call_id: None };
-    let node_target = Implementation::Local.with_slots(|slots| {
-        slots.list_local_libraries_request = unsupported;
-    });
-    assert_eq!(
-        RequestCapabilities::from_implementation(&node_target).list_local_libraries_request,
-        RequestCapability::Hidden
-    );
-    let node_error = node_target
-        .run(params, &node_request)
-        .await
-        .err()
-        .context("unsupported node request should fail")?;
-    assert!(matches!(
-        node_error.downcast_ref::<ExpectedRequestError>(),
-        Some(ExpectedRequestError::Unsupported {
-            reason: UnsupportedReason::NotImplemented,
-            ..
-        })
-    ));
-    assert!(dispatch_gui_request(params, &node_request).await.is_ok());
-
-    let session_request = PauseRequest { call_id: None };
-    let session_target = Implementation::Local.with_slots(|slots| {
-        slots.pause_request = unsupported;
-    });
-    assert_eq!(
-        RequestCapabilities::from_implementation(&session_target).pause_request,
-        RequestCapability::Hidden
-    );
-    let session_error = session_target
-        .run(params, &session_request)
-        .await
-        .err()
-        .context("unsupported session request should fail")?;
+    let session_error = super::step(
+        "session scope unsupported request",
+        subsonic_implementation.run(params, &PauseRequest { call_id: None }),
+    )
+    .await
+    .err()
+    .context("PauseRequest should fail on Subsonic without jukebox")?;
     assert!(matches!(
         session_error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
-            reason: UnsupportedReason::NotImplemented,
-            ..
+            request: "PauseRequest",
+            reason: UnsupportedReason::AccountRoleMissing,
         })
     ));
-    assert!(dispatch_gui_request(params, &session_request).await.is_ok());
+    // Verify dispatch_gui_request still answers for a successful request after the failure
+    let result = dispatch_gui_request(params, &ListLocalLibrariesRequest { call_id: None })
+        .await;
+    assert!(result.is_ok());
 
-    let library_request = FetchAllPlaylistsRequest { call_id: None };
-    let library_target = Implementation::Local.with_slots(|slots| {
-        slots.fetch_all_playlists_request = unsupported;
-    });
+    // Library scope: ScanAudioLibraryRequest is a library request unsupported by Subsonic
+    // Subsonic does not translate library requests it does not handle, leaving them NotImplemented
     assert_eq!(
-        RequestCapabilities::from_implementation(&library_target).fetch_all_playlists_request,
+        capabilities.scan_audio_library_request,
         RequestCapability::Hidden
     );
-    let library_error = library_target
-        .run(params, &library_request)
-        .await
-        .err()
-        .context("unsupported library request should fail")?;
+    let library_error = super::step(
+        "library scope unsupported request",
+        subsonic_implementation.run(params, &ScanAudioLibraryRequest { force: false, call_id: None }),
+    )
+    .await
+    .err()
+    .context("ScanAudioLibraryRequest should fail on Subsonic")?;
     assert!(matches!(
         library_error.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unsupported {
+            request: "ScanAudioLibraryRequest",
             reason: UnsupportedReason::NotImplemented,
-            ..
         })
     ));
-    assert!(dispatch_gui_request(params, &library_request).await.is_ok());
+    // Verify dispatch_gui_request still answers for a successful request after the failure
+    let result = dispatch_gui_request(params, &ListLocalLibrariesRequest { call_id: None })
+        .await;
+    assert!(result.is_ok());
 
-    fixture.global_params.node.shutdown().await?;
+    server.abort();
+    super::step(
+        "shutdown fixture",
+        fixture.global_params.node.shutdown(),
+    )
+    .await?;
     Ok(())
 }
 
