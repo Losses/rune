@@ -28,8 +28,9 @@ use ::playback::player::{
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
-use crate::node::{HandoffPlaybackEvent, HandoffPlaybackReport};
+use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
+use crate::rpc::TargetRequest;
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::service::ServiceBinding;
 use crate::{
@@ -2013,15 +2014,42 @@ async fn pause_handoff_source(
     generation: u64,
 ) -> Result<PausedHandoffSource> {
     if let Some(source) = attached {
+        // A renderer whose protocol predates the reporting pause cannot answer what its
+        // pause stopped, so the snapshot before the pause is its only answer.
+        let reports = source.peer_version().minor >= PauseReportingRequest::INTRODUCED_MINOR;
+        let before = if reports {
+            None
+        } else {
+            Some(
+                source
+                    .call(&SessionSnapshotRequest { call_id: None })
+                    .await?,
+            )
+        };
         // The pause answers what it stopped: a play that reached the player after the last
         // snapshot, such as a track reopening to play, counts as playing here.
-        let paused = node
+        let paused = match node
             .pause_handoff_source(source.fingerprint(), &source, generation)
-            .await?;
+            .await
+        {
+            Ok(paused) => paused,
+            Err(error) => {
+                // A reported pause that fails leaves the source in an unknown state, and
+                // resuming it could start playback the user had paused, so only the snapshot
+                // answer of an unreported pause justifies a resume.
+                if !reports && before.as_ref().is_some_and(|before| before.playing) {
+                    source.call(&PlayRequest { call_id: None }).await?;
+                }
+                return Err(error);
+            }
+        };
         let Some(paused) = paused else {
             return Err(ExpectedRequestError::HandoffSuperseded.into());
         };
-        let was_playing = paused == PauseReport::Playing;
+        let was_playing = match paused {
+            HandoffPause::Reported(report) => report == PauseReport::Playing,
+            HandoffPause::Unreported => before.as_ref().is_some_and(|before| before.playing),
+        };
         let snapshot = source.call(&SessionSnapshotRequest { call_id: None }).await;
         let snapshot = match snapshot {
             Ok(snapshot) => snapshot,

@@ -24,6 +24,7 @@ use crate::messages::{
 };
 use crate::node::{NodeContext, ReconnectConfig};
 use crate::request_owner::{CurrentPlayer, OpenLibrary};
+use crate::rpc::TargetRequest;
 use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{
     files_to_playback_request, library_item_metadata, open_library_by_record_on_node,
@@ -7806,7 +7807,17 @@ fn set_library_grant(
 
 /// Pair `peer` with `host`, grant it the host library, add the replica and sync its metadata.
 async fn replicate_host_library(host: &Fixture, peer: &Fixture) -> Result<(SocketAddr, Fixture)> {
-    let host_addr = paired_full(host, peer).await?;
+    replicate_host_library_at_version(host, peer, protocol_version::PROTOCOL_VERSION).await
+}
+
+/// Pairs the host with its device info naming `protocol_version`, as a renderer of an older
+/// protocol would.
+async fn replicate_host_library_at_version(
+    host: &Fixture,
+    peer: &Fixture,
+    protocol_version: protocol_version::ProtocolVersion,
+) -> Result<(SocketAddr, Fixture)> {
+    let host_addr = super::paired_full_with_protocol_version(host, peer, protocol_version).await?;
     replicate_host_library_at(host, peer, host_addr).await
 }
 
@@ -8082,6 +8093,22 @@ async fn attached_paused_handoff_source() -> Result<(
     i32,
     SocketAddr,
 )> {
+    attached_paused_handoff_source_at_version(protocol_version::PROTOCOL_VERSION).await
+}
+
+/// `protocol_version` is the one the source renderer's device info names, so a test can hand
+/// off a renderer that speaks an older protocol.
+async fn attached_paused_handoff_source_at_version(
+    protocol_version: protocol_version::ProtocolVersion,
+) -> Result<(
+    Vec<TempDir>,
+    Fixture,
+    Fixture,
+    String,
+    watch::Sender<bool>,
+    i32,
+    SocketAddr,
+)> {
     let controller_dir = tempfile::tempdir()?;
     let source_dir = tempfile::tempdir()?;
     let controller = fixture(controller_dir.path()).await?;
@@ -8121,7 +8148,9 @@ async fn attached_paused_handoff_source() -> Result<(
         .lock()
         .await
         .set_source_resolver(resolver);
-    let source_address = replicate_host_library(&source, &controller).await?.0;
+    let source_address = replicate_host_library_at_version(&source, &controller, protocol_version)
+        .await?
+        .0;
     let source_info = super::info(&source).await?;
     controller
         .global_params
@@ -8252,9 +8281,12 @@ async fn failed_handoff_resumes_a_reloading_renderer_source() -> Result<()> {
             .await?;
     start_gated_reload_to_play(&source, &gate).await;
 
-    // The pause of the handoff is answered before its target is touched, so once it has had a
-    // moment to reach the source, the stalled load may finish: whether it completes before or
-    // after the resume, the source must end up playing either way.
+    // The pause of the handoff is answered before its target is touched. Player commands run
+    // in order, so once a status asked of the player here reports Paused, the pause of the
+    // handoff has landed too, and the stalled load may finish: whether it completes before or
+    // after the resume, the source must end up playing either way. The probe asks after the
+    // pending commands instead of pausing, because a pause would count a track reopening to
+    // play as no longer playing and could poison the report of the handoff itself.
     let handoff = tokio::spawn({
         let spawned = Fixture {
             manager: controller.manager.clone(),
@@ -8263,7 +8295,23 @@ async fn failed_handoff_resumes_a_reloading_renderer_source() -> Result<()> {
         let target_fingerprint = target_fingerprint.clone();
         async move { hand_off(&spawned, Some(target_fingerprint)).await }
     });
-    sleep(Duration::from_secs(1)).await;
+    timeout(TEST_DEADLINE, async {
+        loop {
+            let probe = source
+                .global_params
+                .player
+                .lock()
+                .await
+                .status_after_pending()
+                .await;
+            if probe.state == PlayerPlaybackState::Paused {
+                break;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("the handoff did not pause the source")?;
     let _ = gate.send(true);
     let error = timeout(TEST_DEADLINE, handoff)
         .await
@@ -8313,6 +8361,34 @@ async fn handoff_of_a_paused_renderer_starts_the_destination_paused() -> Result<
     assert_eq!(
         source.global_params.player.lock().await.get_status().state,
         PlayerPlaybackState::Paused
+    );
+    controller.global_params.node.shutdown().await?;
+    source.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_of_an_old_protocol_renderer_uses_the_pause_it_knows() -> Result<()> {
+    let protocol_version = protocol_version::ProtocolVersion {
+        minor: PauseReportingRequest::INTRODUCED_MINOR - 1,
+        ..protocol_version::PROTOCOL_VERSION
+    };
+    let (_dirs, controller, source, _, _gate, _, _) =
+        attached_paused_handoff_source_at_version(protocol_version).await?;
+
+    // A renderer whose protocol predates the reporting pause cannot answer it, so the handoff
+    // must not send it: here the handoff pauses with the plain pause the renderer knows and
+    // still completes.
+    hand_off(&controller, None).await?;
+
+    let loaded = wait_player(&controller, |status| {
+        status.index == Some(0) && status.item.is_some()
+    })
+    .await?;
+    assert_eq!(
+        loaded.state,
+        PlayerPlaybackState::Paused,
+        "a source that was not playing must not leave the destination playing: {loaded:?}"
     );
     controller.global_params.node.shutdown().await?;
     source.global_params.node.shutdown().await?;
