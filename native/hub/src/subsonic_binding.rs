@@ -47,7 +47,7 @@ use crate::subsonic_translate::{
     jukebox_error_for_refresh, read_albums_by_name, read_newest_albums, read_song_list,
 };
 use anyhow::Error;
-use reqwest::header;
+use reqwest::{StatusCode, header};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::iter;
@@ -690,13 +690,18 @@ impl SubsonicBinding {
                 }
                 changed
             }
-            Err(SubsonicError::Server {
-                kind:
-                    SubsonicServerError::WrongCredentials
-                    | SubsonicServerError::NotAuthorized
-                    | SubsonicServerError::InvalidApiKey,
-                ..
-            }) => {
+            // A server in front of Subsonic may refuse the sign-in by its HTTP status, as the
+            // stream treats it.
+            Err(
+                SubsonicError::Server {
+                    kind:
+                        SubsonicServerError::WrongCredentials
+                        | SubsonicServerError::NotAuthorized
+                        | SubsonicServerError::InvalidApiKey,
+                    ..
+                }
+                | SubsonicError::HttpStatus(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+            ) => {
                 self.ask_for_sign_in("Subsonic server check");
                 false
             }
@@ -2523,5 +2528,20 @@ mod visualizer_feed_tests {
         assert!(!binding.take_check(Err(rejected())));
         assert!(!asked_for_sign_in(&signals));
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_server_check_refused_with_http_401_or_403_asks_for_a_sign_in() {
+        use reqwest::StatusCode as HttpStatus;
+
+        for status in [HttpStatus::UNAUTHORIZED, HttpStatus::FORBIDDEN] {
+            let (url, _state, server) = server(true, false).await;
+            let root = TempDir::new().unwrap();
+            let signals = Arc::new(Signals::default());
+            let binding = open_binding(url, &root, signals.clone()).await;
+            binding.take_check(Err(subsonic::SubsonicError::HttpStatus(status)));
+            assert!(asked_for_sign_in(&signals), "{status} asked for no sign-in");
+            server.abort();
+        }
     }
 }
