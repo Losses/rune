@@ -1832,5 +1832,7 @@
   "appleMusicPrivacyNotice": "請先啟「音樂」App 一次，允其隱私之告，而後復試。",
   "recentlyPlayed": "近奏",
   "forYou": "為君薦",
-  "mixesLibraryHomeSubtitle": "覓為君所制之彙，與君所藏之彙"
+  "mixesLibraryHomeSubtitle": "覓為君所制之彙，與君所藏之彙",
+  "onlineLyricsNotice": "此庫之曲詞，取諸 LRCLIB（lrclib.net），乃無償公開之詞庫也。啟之，則 Rune 以每曲之名、作者、輯、長短告 LRCLIB 以尋其詞，他物不告。",
+  "lookUpLyricsOnLrclib": "於 LRCLIB 尋詞"
 }

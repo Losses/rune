@@ -1832,5 +1832,7 @@
   "appleMusicPrivacyNotice": "ミュージック App を一度開いてプライバシーに関する通知に同意してから、もう一度お試しください。",
   "recentlyPlayed": "最近再生した項目",
   "forYou": "あなたへ",
-  "mixesLibraryHomeSubtitle": "あなたのために作られた調和構成と、保存した調和構成を見つけましょう"
+  "mixesLibraryHomeSubtitle": "あなたのために作られた調和構成と、保存した調和構成を見つけましょう",
+  "onlineLyricsNotice": "このライブラリの曲の歌詞は、無料のオープンな歌詞データベースである LRCLIB（lrclib.net）から取得します。オンにすると、Rune は歌詞を検索するために各曲のタイトル、アーティスト、アルバム、長さを LRCLIB に送信します。それ以外の情報は送信しません。",
+  "lookUpLyricsOnLrclib": "LRCLIB で歌詞を検索する"
 }

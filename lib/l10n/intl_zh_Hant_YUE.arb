@@ -1832,5 +1832,7 @@
   "appleMusicPrivacyNotice": "請先打開一次「音樂」App 並同意佢嘅私隱聲明，然後再試一次。",
   "recentlyPlayed": "最近播放",
   "forYou": "為你推介",
-  "mixesLibraryHomeSubtitle": "搵吓為你而設嘅混音同你儲起嘅混音"
+  "mixesLibraryHomeSubtitle": "搵吓為你而設嘅混音同你儲起嘅混音",
+  "onlineLyricsNotice": "呢個音樂庫啲歌嘅歌詞嚟自 LRCLIB（lrclib.net），係一個免費、開放嘅歌詞資料庫。開咗之後，Rune 會將每首歌嘅標題、歌手、專輯同長度傳俾 LRCLIB 嚟搵歌詞，唔會傳送其他任何資料。",
+  "lookUpLyricsOnLrclib": "喺 LRCLIB 搵歌詞"
 }

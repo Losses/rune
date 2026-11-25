@@ -1834,5 +1834,7 @@
   "appleMusicPrivacyNotice": "ミュージックアプリを イチドオープンして プライバシーノーティスに ドウイしてから、リトライしてください。",
   "recentlyPlayed": "リセントリープレイド",
   "forYou": "フォーユー",
-  "mixesLibraryHomeSubtitle": "メイドフォーユーノミクストキープシタミクスヲファインド"
+  "mixesLibraryHomeSubtitle": "メイドフォーユーノミクストキープシタミクスヲファインド",
+  "onlineLyricsNotice": "コノライブラリーノ ソングノ リリクスハ、フリーデ オープンナ リリクスデータベースノ LRCLIB（lrclib.net）カラ ゲットします。オンニスルト、Rune ハ リリクスヲ サーチスルタメニ カクソングノ タイトル、アーティスト、アルバム、レングスヲ LRCLIB ニ センドします。ホカニハ ナニモ センドしません。",
+  "lookUpLyricsOnLrclib": "LRCLIB デリリクスヲサーチスル"
 }

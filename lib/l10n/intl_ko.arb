@@ -1834,5 +1834,7 @@
   "appleMusicPrivacyNotice": "음악 앱을 한 번 열어 개인정보 보호 고지에 동의한 다음 다시 시도하세요.",
   "recentlyPlayed": "최근 재생",
   "forYou": "회원님을 위한 추천",
-  "mixesLibraryHomeSubtitle": "나를 위한 믹스와 보관한 믹스를 찾아보세요"
+  "mixesLibraryHomeSubtitle": "나를 위한 믹스와 보관한 믹스를 찾아보세요",
+  "onlineLyricsNotice": "이 라이브러리 노래의 가사는 무료 공개 가사 데이터베이스인 LRCLIB(lrclib.net)에서 가져옵니다. 이 옵션을 켜면 Rune은 가사를 찾기 위해 각 노래의 제목, 아티스트, 앨범, 길이를 LRCLIB에 보냅니다. 그 밖의 정보는 보내지 않습니다.",
+  "lookUpLyricsOnLrclib": "LRCLIB에서 가사 찾기"
 }

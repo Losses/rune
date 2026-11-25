@@ -1834,5 +1834,7 @@
   "appleMusicPrivacyNotice": "音楽 App 一度開、私事保護通知同意後、再試行。",
   "recentlyPlayed": "最近再生",
   "forYou": "貴方向",
-  "mixesLibraryHomeSubtitle": "發現為您推薦的調和構成和您保存的調和構成"
+  "mixesLibraryHomeSubtitle": "發現為您推薦的調和構成和您保存的調和構成",
+  "onlineLyricsNotice": "此資料集楽曲歌詞、無料公開歌詞資料庫 LRCLIB（lrclib.net）由来。起動時、Rune 歌詞検索為、各曲題名、芸術家、専輯、長度 LRCLIB 送信。其他一切不送信。",
+  "lookUpLyricsOnLrclib": "LRCLIB 歌詞検索"
 }

@@ -26,6 +26,7 @@ import '../../utils/api/request_failure.dart';
 import '../../utils/library_ui/library_ui_state.dart';
 import '../../utils/dialogs/information/error.dart';
 
+import 'utils/show_online_lyrics_dialog.dart';
 import 'utils/show_reset_library_dialog.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
@@ -360,6 +361,23 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   }),
                                   child: Text(S.of(context).switchTo),
                                 ),
+                                // A library whose lyrics come from online
+                                // says whether the user allowed it to look
+                                // them up, which the user changes here.
+                                if (record.onlineLyrics
+                                    case final onlineLyrics?)
+                                  Button(
+                                    onPressed: () => showOnlineLyricsDialog(
+                                      context,
+                                      enabled: onlineLyrics,
+                                      onChanged: (enabled) =>
+                                          registry.setOnlineLyrics(
+                                            record.recordId,
+                                            enabled,
+                                          ),
+                                    ),
+                                    child: Text(S.of(context).lyrics),
+                                  ),
                                 Button(
                                   onPressed:
                                       (initializing &&

@@ -60,6 +60,22 @@ Future<void> signInServiceLibrary(String recordId, ServiceSignIn signIn) async {
   );
 }
 
+/// Allows or stops looking the lyrics of the songs of the streaming service
+/// library of [recordId] up online.
+Future<void> setOnlineLyrics(String recordId, bool enabled) async {
+  await awaitResponse(
+    'SetOnlineLyricsRequest',
+    SetOnlineLyricsResponse.rustSignalStream,
+    timeout: _timeout,
+    responseCallId: (response) => response.message.callId?.toInt(),
+    send: (callId) => SetOnlineLyricsRequest(
+      recordId: recordId,
+      enabled: enabled,
+      callId: callId,
+    ).sendSignalToRust(),
+  );
+}
+
 Future<ListPeerLibrariesResponse> listPeerLibraries(String fingerprint) async {
   final response = awaitResponse(
     'ListPeerLibrariesRequest',

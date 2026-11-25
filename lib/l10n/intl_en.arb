@@ -2137,5 +2137,13 @@
   "mixesLibraryHomeSubtitle": "Find mixes made for you and the ones you keep.",
   "@mixesLibraryHomeSubtitle": {
     "description": "Subtitle for the mixes section in the library home."
+  },
+  "onlineLyricsNotice": "The lyrics of this library's songs come from LRCLIB (lrclib.net), a free, open lyrics database. When this is on, Rune sends LRCLIB each song's title, artist, album and length to look up its lyrics. Nothing else is sent.",
+  "@onlineLyricsNotice": {
+    "description": "The body of the Lyrics dialog of a streaming library in Settings, which says where its lyrics come from and what looking them up sends."
+  },
+  "lookUpLyricsOnLrclib": "Look Up Lyrics on LRCLIB",
+  "@lookUpLyricsOnLrclib": {
+    "description": "The label of the switch in the Lyrics dialog of a streaming library in Settings that allows or stops looking lyrics up at LRCLIB."
   }
 }

@@ -1834,5 +1834,7 @@
   "appleMusicPrivacyNotice": "Apri una volta l'app Musica e accetta l'informativa sulla privacy, poi riprova.",
   "recentlyPlayed": "Riprodotti di recente",
   "forYou": "Per te",
-  "mixesLibraryHomeSubtitle": "Trova i mix creati per te e quelli che conservi"
+  "mixesLibraryHomeSubtitle": "Trova i mix creati per te e quelli che conservi",
+  "onlineLyricsNotice": "I testi dei brani di questa libreria provengono da LRCLIB (lrclib.net), un database di testi libero e aperto. Quando questa opzione è attiva, Rune invia a LRCLIB il titolo, l'artista, l'album e la durata di ogni brano per trovarne il testo. Non viene inviato nient'altro.",
+  "lookUpLyricsOnLrclib": "Cerca i Testi su LRCLIB"
 }

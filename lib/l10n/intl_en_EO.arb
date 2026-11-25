@@ -1834,5 +1834,7 @@
   "appleMusicPrivacyNotice": "Malfermu la aplikaĵon Muziko unu fojon kaj akceptu ĝian privatecan avizon, poste reprovu.",
   "recentlyPlayed": "Lastatempe ludita",
   "forYou": "Por vi",
-  "mixesLibraryHomeSubtitle": "Trovu miksaĵojn faritajn por vi kaj tiujn, kiujn vi konservas"
+  "mixesLibraryHomeSubtitle": "Trovu miksaĵojn faritajn por vi kaj tiujn, kiujn vi konservas",
+  "onlineLyricsNotice": "La kantotekstoj de la kantoj de ĉi tiu biblioteko venas de LRCLIB (lrclib.net), libera kaj malferma datumbazo de kantotekstoj. Kiam ĉi tio estas ŝaltita, Rune sendas al LRCLIB la titolon, artiston, albumon kaj daŭron de ĉiu kanto por trovi ĝian kantotekston. Nenio alia estas sendata.",
+  "lookUpLyricsOnLrclib": "Serĉi Kantotekstojn ĉe LRCLIB"
 }

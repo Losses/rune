@@ -1843,5 +1843,7 @@
   "appleMusicPrivacyNotice": "請先打開一次「音樂」App 並同意其隱私聲明，然後重試。",
   "recentlyPlayed": "最近播放",
   "forYou": "為您推薦",
-  "mixesLibraryHomeSubtitle": "發現為您推薦的 Mix 和您保存的 Mix"
+  "mixesLibraryHomeSubtitle": "發現為您推薦的 Mix 和您保存的 Mix",
+  "onlineLyricsNotice": "此媒體庫歌曲的歌詞來自 LRCLIB（lrclib.net），這是一個免費、開放的歌詞資料庫。開啟後，Rune 會將每首歌曲的標題、藝術家、專輯和時長發送給 LRCLIB 以查找歌詞，不會發送其他任何資訊。",
+  "lookUpLyricsOnLrclib": "在 LRCLIB 上查找歌詞"
 }

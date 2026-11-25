@@ -1832,5 +1832,7 @@
   "appleMusicPrivacyNotice": "Öffnen Sie die App „Musik“ einmal und stimmen Sie dem Datenschutzhinweis zu, dann versuchen Sie es erneut.",
   "recentlyPlayed": "Zuletzt gespielt",
   "forYou": "Für Sie",
-  "mixesLibraryHomeSubtitle": "Entdecken Sie Mixes, die für Sie gemacht sind, und Ihre eigenen"
+  "mixesLibraryHomeSubtitle": "Entdecken Sie Mixes, die für Sie gemacht sind, und Ihre eigenen",
+  "onlineLyricsNotice": "Die Songtexte der Titel dieser Mediathek stammen von LRCLIB (lrclib.net), einer freien, offenen Songtext-Datenbank. Wenn diese Option aktiviert ist, sendet Rune Titel, Künstler, Album und Länge jedes Songs an LRCLIB, um seinen Songtext zu finden. Sonst wird nichts gesendet.",
+  "lookUpLyricsOnLrclib": "Songtexte auf LRCLIB Suchen"
 }

@@ -78,6 +78,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
     )?
     registerService,
     Future<void> Function(String recordId, ServiceSignIn signIn)? signInService,
+    Future<void> Function(String recordId, bool enabled)? setOnlineLyrics,
     Future<void> Function(String path)? saveBookmark,
     Future<void> Function()? closeRecord,
     Future<RemoveLibraryRecordResponse> Function(String recordId)? removeRecord,
@@ -89,6 +90,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
        _registerRemote = registerRemote,
        _registerService = registerService,
        _signInService = signInService,
+       _setOnlineLyrics = setOnlineLyrics,
        _saveBookmark = saveBookmark,
        _closeRecord = closeRecord,
        _removeRecord = removeRecord {
@@ -135,6 +137,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
   )?
   _registerService;
   final Future<void> Function(String, ServiceSignIn)? _signInService;
+  final Future<void> Function(String, bool)? _setOnlineLyrics;
   final Future<void> Function(String)? _saveBookmark;
   final Future<void> Function()? _closeRecord;
   final Future<RemoveLibraryRecordResponse> Function(String)? _removeRecord;
@@ -285,6 +288,14 @@ class LibraryRegistryProvider extends ChangeNotifier {
       _signInService == null
       ? library_api.signInServiceLibrary(recordId, signIn)
       : _signInService(recordId, signIn);
+
+  /// Allows or stops looking the lyrics of the songs of the streaming service
+  /// library of [recordId] up online. The hub tells the new state with the
+  /// records.
+  Future<void> setOnlineLyrics(String recordId, bool enabled) =>
+      _setOnlineLyrics == null
+      ? library_api.setOnlineLyrics(recordId, enabled)
+      : _setOnlineLyrics(recordId, enabled);
 
   Future<RegisterLibraryResponse> _register(
     String request,
