@@ -143,6 +143,7 @@ mod tests {
             query_str: "search".to_owned(),
             fields: Vec::new(),
             n: 10,
+            refresh: false,
         };
         assert_eq!(request.call_id(), Some(42));
     }

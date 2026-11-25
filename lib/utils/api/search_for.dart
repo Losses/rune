@@ -9,10 +9,12 @@ import 'request_failure.dart';
 Future<SearchForResponse> searchFor(
   String query, {
   List<SearchField> fields = const [],
+  bool refresh = false,
 }) {
   return _searchFor(
     query,
     fields,
+    refresh,
     responses: SearchForResponse.rustSignalStream,
     sendRequest: (request) => request.sendSignalToRust(),
   );
@@ -22,6 +24,7 @@ Future<SearchForResponse> searchFor(
 Future<SearchForResponse> searchForWithStreams(
   String query, {
   required List<SearchField> fields,
+  bool refresh = false,
   required Stream<RustSignalPack<SearchForResponse>> responses,
   required Stream<RequestFailedResponse> failures,
   required void Function(SearchForRequest) sendRequest,
@@ -29,6 +32,7 @@ Future<SearchForResponse> searchForWithStreams(
 }) => _searchFor(
   query,
   fields,
+  refresh,
   responses: responses,
   failures: failures,
   sendRequest: sendRequest,
@@ -37,7 +41,8 @@ Future<SearchForResponse> searchForWithStreams(
 
 Future<SearchForResponse> _searchFor(
   String query,
-  List<SearchField> fields, {
+  List<SearchField> fields,
+  bool refresh, {
   required Stream<RustSignalPack<SearchForResponse>> responses,
   Stream<RequestFailedResponse>? failures,
   required void Function(SearchForRequest) sendRequest,
@@ -51,7 +56,13 @@ Future<SearchForResponse> _searchFor(
     failures: failures,
     responseCallId: (response) => response.message.callId?.toInt(),
     send: (callId) => sendRequest(
-      SearchForRequest(callId: callId, queryStr: query, n: 30, fields: fields),
+      SearchForRequest(
+        callId: callId,
+        queryStr: query,
+        n: 30,
+        fields: fields,
+        refresh: refresh,
+      ),
     ),
   );
   return response.message;

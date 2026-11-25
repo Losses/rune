@@ -710,6 +710,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             query_str: "Song".into(),
             fields: Vec::new(),
             n: 10,
+            refresh: false,
         },
     )
     .await?
@@ -1497,6 +1498,7 @@ async fn clicked_subsonic_tracks_play_on_this_device() -> Result<()> {
             query_str: "Album".into(),
             fields: Vec::new(),
             n: 10,
+            refresh: false,
         },
     )
     .await?

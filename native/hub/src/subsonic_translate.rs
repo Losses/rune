@@ -3501,6 +3501,7 @@ mod tests {
                 query_str: "song".into(),
                 fields: vec![SearchField::Track],
                 n: 10,
+                refresh: false,
             },
         )
         .await
@@ -3583,6 +3584,7 @@ mod tests {
                 query_str: "song".into(),
                 fields: vec![SearchField::Track],
                 n: 10,
+                refresh: false,
             },
         )
         .await
@@ -4316,6 +4318,7 @@ mod tests {
             query_str: query_str.into(),
             fields,
             n,
+            refresh: false,
         };
 
         let everything = search_for_request(&binding, &search("ROA*", Vec::new(), 10))

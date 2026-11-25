@@ -51,6 +51,10 @@ pub struct SearchForRequest {
     pub query_str: String,
     pub fields: Vec<SearchField>,
     pub n: i32,
+    /// When set, the library searches its service again rather than answering from what a
+    /// recent search for the same text found. A library that keeps no searches ignores it.
+    #[serde(default)]
+    pub refresh: bool,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

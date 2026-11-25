@@ -3,6 +3,7 @@
 //! Apple's models to the hub's messages.
 
 pub(crate) mod mix_collections;
+pub(crate) mod search;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -42,9 +43,9 @@ use crate::messages::{
     RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse, RemoveMixRequest,
     RemovePlaylistRequest, RemovePlaylistResponse, ReorderPlaylistItemPositionRequest,
     ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
-    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest,
-    SearchMediaFileSummaryResponse, SetLikedRequest, SetLikedResponse, UpdateMixRequest,
-    UpdatePlaylistRequest, UpdatePlaylistResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchForRequest,
+    SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse, SetLikedRequest,
+    SetLikedResponse, UpdateMixRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot, UnsupportedReason};
@@ -60,6 +61,7 @@ use mix_collections::{
     add_item_to_mix_request, create_mix_request, fetch_all_mixes_request,
     fetch_mix_queries_request, get_mix_by_id_request, remove_mix_request, update_mix_request,
 };
+use search::search_for_request;
 
 /// How many songs are looked up at once when a request names songs the binding lacks.
 const LOOKUP_PARALLELISM: usize = 4;
@@ -735,6 +737,8 @@ pub(crate) async fn fetch_parsed_media_file_request(
 ) -> Result<Option<FetchParsedMediaFileResponse>> {
     let track = binding.resolve_track(request.id)?;
     let song = binding.song(&track).await?;
+    // A catalog song a search found names no album yet, which the album's page needs.
+    let song = binding.with_catalog_album(&track, song).await;
     let song_ref = song.as_ref();
     // A catalog song names catalog albums and artists, which carry their own prefix so they
     // never pass for a library one. A song Rune holds in the library is on an album of the
@@ -2102,6 +2106,7 @@ apple_music_requests! {
         SetLikedRequest => set_liked_request as translate_set_liked_request,
         GetLikedRequest => get_liked_request as translate_get_liked_request,
         GetLyricByTrackIdRequest => get_lyric_by_track_id_request as translate_get_lyric_by_track_id_request,
+        SearchForRequest => search_for_request as translate_search_for_request,
     }
     // This device answers these by the library of the item each names, whichever library is
     // open: the items of another library are that library's to answer.

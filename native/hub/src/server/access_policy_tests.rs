@@ -1961,6 +1961,7 @@ mod access_policy_tests {
                     query_str: "a".into(),
                     fields: Vec::new(),
                     n: 10,
+                    refresh: false,
                 })?,
                 library_id,
             )
@@ -1986,6 +1987,7 @@ mod access_policy_tests {
                         query_str: "a".into(),
                         fields: Vec::new(),
                         n: 10,
+                        refresh: false,
                     })?,
                 ),
             ] {

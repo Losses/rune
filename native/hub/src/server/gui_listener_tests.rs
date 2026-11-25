@@ -248,6 +248,7 @@ async fn gui_listener_failure_preserves_call_id_kind_and_cause() -> Result<()> {
         query_str: "missing".into(),
         fields: Vec::new(),
         n: 30,
+        refresh: false,
     });
     let failure: RequestFailedResponse = search.receive("RequestFailedResponse").await;
     assert_eq!(failure.call_id, Some(73));

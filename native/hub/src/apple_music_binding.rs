@@ -13,11 +13,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use apple_music::models::{
-    Album, Artwork, LibraryAlbum, LibraryArtist, LibraryEntry, LibraryPlaylist, LibrarySong,
-    Playlist, Recommendation, Relationship, Resource, Song, SongWithArtists,
+    Album, Artwork, CatalogSearchType, LibraryAlbum, LibraryArtist, LibraryEntry, LibraryPlaylist,
+    LibrarySearchType, LibrarySong, Playlist, Recommendation, Relationship, Resource, Song,
+    SongWithArtists,
 };
 use apple_music::{
-    AppleMusicClient, CATALOG_SONGS_BATCH, Error as AppleApiError, StaticTokens, TokenSource,
+    AppleMusicClient, CATALOG_SEARCH_LIMIT, CATALOG_SONGS_BATCH, Error as AppleApiError,
+    LIBRARY_SEARCH_LIMIT, StaticTokens, TokenSource,
 };
 use async_trait::async_trait;
 use database::error::ExpectedError;
@@ -40,6 +42,7 @@ use crate::{
     apple_music_artists::{NamedArtist, NamedArtists, SongArtists, is_named_artist},
     apple_music_held::{self, HeldStore},
     apple_music_import,
+    apple_music_translate::search::{CatalogFound, KeptSearches, LibraryFound},
     macros::RequestSlots,
     messages::{AudioAvailability, LibraryContentChanged},
     request_error::ExpectedRequestError,
@@ -843,6 +846,8 @@ pub(crate) struct AppleCatalog {
     named_artists: Option<BuiltNamedArtists>,
     /// The lists asked for while the binding held no sign-in, which a sign-in reads again.
     owed: HashSet<&'static str>,
+    /// What the catalog searches made lately under this sign-in found.
+    searches: KeptSearches,
     /// Counts the sign-outs that dropped what was read. A read that began under an earlier
     /// count is not kept.
     generation: u64,
@@ -862,6 +867,7 @@ impl Default for AppleCatalog {
             mix_groups: None,
             named_artists: None,
             owed: HashSet::new(),
+            searches: KeptSearches::default(),
             generation: 0,
         }
     }
@@ -1244,6 +1250,7 @@ impl AppleMusicBinding {
         catalog.mix_groups = None;
         catalog.named_artists = None;
         catalog.owed.clear();
+        catalog.searches = KeptSearches::default();
         catalog.generation += 1;
     }
 
@@ -1645,6 +1652,150 @@ impl AppleMusicBinding {
         ids: &[String],
     ) -> Result<Vec<Song>, AppleError> {
         self.call(self.client.catalog_songs_with_albums(ids)).await
+    }
+
+    /// What Apple's search of the library finds for `term`: songs, albums and artists, as many
+    /// of each as Apple lists at once. Apple's 404 is an answer that it found nothing.
+    pub(crate) async fn search_library(&self, term: &str) -> Result<LibraryFound, AppleError> {
+        let types = [
+            LibrarySearchType::Songs,
+            LibrarySearchType::Albums,
+            LibrarySearchType::Artists,
+        ];
+        match self
+            .call(
+                self.client
+                    .search_library(term, &types, LIBRARY_SEARCH_LIMIT, 0),
+            )
+            .await
+        {
+            Ok(found) => Ok(LibraryFound {
+                songs: found.songs.data.into_iter().map(kept_song).collect(),
+                albums: found.albums.data,
+                artists: found.artists.data,
+            }),
+            Err(AppleError::NotFound) => Ok(LibraryFound::default()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// What Apple's search of the catalog finds for `term`: songs, albums and artists, as many
+    /// of each as Apple lists at once. Apple's 404 is an answer that it found nothing.
+    pub(crate) async fn search_catalog(&self, term: &str) -> Result<CatalogFound, AppleError> {
+        let types = [
+            CatalogSearchType::Songs,
+            CatalogSearchType::Albums,
+            CatalogSearchType::Artists,
+        ];
+        match self
+            .call(
+                self.client
+                    .search_catalog(term, &types, CATALOG_SEARCH_LIMIT, 0),
+            )
+            .await
+        {
+            Ok(found) => Ok(CatalogFound {
+                songs: found.songs.data,
+                albums: found.albums.data,
+                artists: found.artists.data,
+            }),
+            Err(AppleError::NotFound) => Ok(CatalogFound::default()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// What a catalog search for the term of `key` found lately under this sign-in.
+    pub(crate) fn kept_search(&self, key: &str) -> Option<Arc<CatalogFound>> {
+        self.catalog().searches.fresh(key, self.now())
+    }
+
+    /// Keeps what a catalog search for the term of `key`, begun under `generation`, found.
+    pub(crate) fn keep_search(&self, generation: u64, key: String, found: Arc<CatalogFound>) {
+        let now = self.now();
+        let mut catalog = self.catalog();
+        if catalog.generation == generation {
+            catalog.searches.keep(key, now, found);
+        }
+    }
+
+    /// Remembers the songs a search that began under `generation` found, by their tracks, so they
+    /// are named without asking Apple again. A song the binding holds already stays as it is: a
+    /// search names no album or artist of a song, which an earlier read may have.
+    pub(crate) fn remember_found(&self, generation: u64, found: &[(String, Option<AppleSong>)]) {
+        let mut catalog = self.catalog();
+        if catalog.generation != generation {
+            return;
+        }
+        let holds = |catalog: &AppleCatalog, track: &str| {
+            catalog
+                .songs
+                .as_ref()
+                .is_some_and(|list| list.get(track).is_some())
+                || catalog.fetched.contains_key(track)
+        };
+        let new: Vec<(&String, &AppleSong)> = found
+            .iter()
+            .filter_map(|(track, song)| Some((track, song.as_ref()?)))
+            .filter(|(track, _)| !holds(&catalog, track))
+            .collect();
+        // The cache only spares Apple a repeat; when it is full it starts over.
+        if catalog.fetched.len() + new.len() > MAX_FETCHED_TRACKS {
+            catalog.fetched.clear();
+        }
+        for (track, song) in new {
+            catalog.fetched.insert(track.clone(), song.clone());
+            catalog.missing.remove(track);
+        }
+    }
+
+    /// `song`, the song of `track`, with the catalog album Apple names for it when it is a
+    /// catalog song that names none yet, as one a catalog search found does not. The album is
+    /// read once and kept with the song. A song Apple names no album for, or a read that fails,
+    /// stays as it is.
+    pub(crate) async fn with_catalog_album(&self, track: &str, song: AppleSong) -> AppleSong {
+        let AppleSong::Catalog(mut catalog_song) = song else {
+            return song;
+        };
+        if catalog_song.album_id().is_some() {
+            return AppleSong::Catalog(catalog_song);
+        }
+        let generation = self.generation();
+        let read = self
+            .read_catalog_songs_with_albums(std::slice::from_ref(&catalog_song.id))
+            .await;
+        let albums = match read {
+            Ok(read) => read
+                .into_iter()
+                .find(|read| read.id == catalog_song.id)
+                .and_then(|read| read.relationships?.get("albums").cloned()),
+            Err(error) => {
+                log::warn!("The album of an Apple Music catalog song could not be read: {error}");
+                None
+            }
+        };
+        let Some(albums) = albums else {
+            return AppleSong::Catalog(catalog_song);
+        };
+        // Only the album: the song's credit keeps naming the artist it names.
+        match catalog_song
+            .relationships
+            .as_mut()
+            .and_then(Value::as_object_mut)
+        {
+            Some(relationships) => {
+                relationships.insert("albums".to_owned(), albums);
+            }
+            None => catalog_song.relationships = Some(serde_json::json!({ "albums": albums })),
+        }
+        let song = AppleSong::Catalog(catalog_song);
+        let mut catalog = self.catalog();
+        if catalog.generation == generation {
+            if catalog.fetched.len() >= MAX_FETCHED_TRACKS {
+                catalog.fetched.clear();
+            }
+            catalog.fetched.insert(track.to_owned(), song.clone());
+        }
+        song
     }
 
     /// The catalog album `catalog_id`, read from Apple.

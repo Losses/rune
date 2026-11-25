@@ -97,6 +97,7 @@ mod tests {
             query_str: "missing".to_owned(),
             fields: Vec::new(),
             n: 30,
+            refresh: false,
         };
         let failure = RequestFailedResponse::for_request(
             &request,

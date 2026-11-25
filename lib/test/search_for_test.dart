@@ -63,6 +63,37 @@ void main() {
     await failures.close();
   });
 
+  test('a refresh is sent only when asked for', () async {
+    final responses =
+        StreamController<RustSignalPack<SearchForResponse>>.broadcast();
+    final failures = StreamController<RequestFailedResponse>.broadcast();
+    final requests = <SearchForRequest>[];
+    final plain = searchForWithStreams(
+      'ab',
+      fields: const [],
+      responses: responses.stream,
+      failures: failures.stream,
+      sendRequest: requests.add,
+    );
+    final refreshed = searchForWithStreams(
+      'ab',
+      fields: const [],
+      refresh: true,
+      responses: responses.stream,
+      failures: failures.stream,
+      sendRequest: requests.add,
+    );
+
+    expect(requests.map((request) => request.refresh), [false, true]);
+    for (final request in requests) {
+      responses.add(_response(request.callId!.toInt(), tracks: const []));
+    }
+    await plain;
+    await refreshed;
+    await responses.close();
+    await failures.close();
+  });
+
   test('a failure only completes its matching search', () async {
     final responses =
         StreamController<RustSignalPack<SearchForResponse>>.broadcast();

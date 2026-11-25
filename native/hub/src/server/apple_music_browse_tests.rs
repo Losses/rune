@@ -305,6 +305,8 @@ impl AppleFake {
             "900" => ("Dawn Chorus", "Dawn Remixes", "Dawn Singer", Some(3)),
             "1601" => ("Remix One", "Dawn Remixes", "Dawn Singer", Some(1)),
             "1602" => ("Remix Two", "Dawn Remixes", "Dawn Singer", Some(2)),
+            // Found by a search only.
+            "1603" => ("Dawn Bonus", "Dawn Remixes", "Dawn Singer", Some(4)),
             _ => return None,
         };
         // Its catalog artists, as Apple names them with `include=artists`.
@@ -313,7 +315,7 @@ impl AppleFake {
             "ci.ja" | "ci.en" => &[("156", "Hiroyuki Sawano")],
             "ci.rev" => &[("156", "Hiroyuki Sawano"), ("400", "Ann")],
             "ci.s1" | "8001" => &[("300", "Artist One")],
-            "900" | "1601" | "1602" => &[("301", "Dawn Singer")],
+            "900" | "1601" | "1602" | "1603" => &[("301", "Dawn Singer")],
             _ => &[],
         };
         let artists: Vec<Value> = artists
@@ -322,7 +324,7 @@ impl AppleFake {
             .collect();
         // Its catalog album, which Apple names for some.
         let album_id = match id {
-            "1601" | "1602" => Some("1600"),
+            "1601" | "1602" | "1603" => Some("1600"),
             "8001" => Some("4007"),
             _ => None,
         };
@@ -731,6 +733,33 @@ impl AppleFake {
                     .map(|id| json!({"id": id, "type": "ratings", "attributes": {"value": 1}}))
                     .collect();
                 json!({"data": rated})
+            }
+            // Every search finds the same: in the library, the first song, album and artist; in
+            // the catalog, the copies of those and what the library lacks. A search names no
+            // album or artist of a song it found.
+            "/v1/me/library/search" => {
+                let mut songs = json!({"data": [s1.clone()]});
+                Self::without(&mut songs, "albums");
+                Self::without(&mut songs, "artists");
+                json!({"results": {
+                    "library-songs": songs,
+                    "library-albums": {"data": [albums[0]]},
+                    "library-artists": {"data": [Self::artist("r.art1", "Artist One")]},
+                }})
+            }
+            "/v1/catalog/it/search" => {
+                let mut songs = self.catalog_songs(&["ci.s1", "900", "1603"]);
+                Self::without(&mut songs, "albums");
+                Self::without(&mut songs, "artists");
+                let album = |id| self.catalog_album(id).map(|(album, _)| album);
+                let artist = |id: &str, name: &str| {
+                    json!({"id": id, "type": "artists", "attributes": {"name": name}})
+                };
+                json!({"results": {
+                    "songs": songs,
+                    "albums": {"data": [album("1500"), album("1600")]},
+                    "artists": {"data": [artist("300", "Artist One"), artist("301", "Dawn Singer")]},
+                }})
             }
             "/v1/me/recommendations" if self.recommends => self.recommendations(),
             "/v1/me/recommendations" => json!({"data": []}),
@@ -1231,6 +1260,8 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
         UpdateMixRequest::slot(&slots),
         RemoveMixRequest::slot(&slots),
         AddItemToMixRequest::slot(&slots),
+        // The library and Apple's catalog, searched together.
+        crate::messages::SearchForRequest::slot(&slots),
     ] {
         assert_eq!(slot, Slot::Translate);
     }
@@ -1262,12 +1293,11 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
     assert_eq!(GetLyricByTrackIdRequest::slot(&allowed), Slot::Translate);
     let not_allowed = crate::service::item_slots(ServiceKind::AppleMusic, false);
     assert_eq!(GetLyricByTrackIdRequest::slot(&not_allowed), hidden);
-    // What the library does not hold, its search and playlists made of files, it does not
+    // What the library does not hold, its scans and playlists made of files, it does not
     // answer.
     for slot in [
         crate::messages::ScanAudioLibraryRequest::slot(&slots),
         crate::messages::CreateM3u8PlaylistRequest::slot(&slots),
-        crate::messages::SearchForRequest::slot(&slots),
     ] {
         assert_eq!(slot, hidden);
     }
@@ -1294,6 +1324,7 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.fetch_all_mixes_request,
         capabilities.create_mix_request,
         capabilities.add_item_to_mix_request,
+        capabilities.search_for_request,
     ] {
         assert_eq!(capability, RequestCapability::Available);
     }
@@ -1301,7 +1332,6 @@ async fn apple_music_capabilities_show_browsing_and_hide_the_rest() -> Result<()
         capabilities.scan_audio_library_request,
         capabilities.get_analyze_count_request,
         capabilities.fetch_directory_tree_request,
-        capabilities.search_for_request,
         capabilities.create_m3u8_playlist_request,
     ] {
         assert_eq!(capability, RequestCapability::Hidden);
@@ -9403,6 +9433,11 @@ async fn a_library_artist_a_mix_names_brings_only_the_librarys_songs() -> Result
 }
 
 // Search and lyrics -------------------------------------------------------------------------
+
+mod search {
+    use super::*;
+    include!("apple_music_search_tests.rs");
+}
 
 mod lyrics {
     use super::*;
