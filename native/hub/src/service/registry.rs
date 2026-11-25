@@ -154,6 +154,9 @@ pub(crate) struct ServiceRegistry {
     /// What each platform host reported of this device's network, by host. A binding made later
     /// takes it over.
     reach: Mutex<HashMap<&'static str, Reach>>,
+    /// How many times the library of each record was signed out, so that a sign-in that began
+    /// before a sign-out does not undo it (see `sign_in_since`).
+    sign_outs: Mutex<HashMap<LibraryRecordId, u64>>,
 }
 
 impl ServiceRegistry {
@@ -172,6 +175,7 @@ impl ServiceRegistry {
             setup,
             apple_music: Mutex::default(),
             reach: Mutex::default(),
+            sign_outs: Mutex::default(),
         }
     }
 
@@ -286,9 +290,42 @@ impl ServiceRegistry {
         binding
     }
 
+    fn sign_outs_locked(&self) -> MutexGuard<'_, HashMap<LibraryRecordId, u64>> {
+        self.sign_outs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Where the sign-outs of the library of `record_id` stand: taken before a sign-in is
+    /// checked with its service, and handed to `sign_in_since`.
+    pub(crate) fn sign_outs(&self, record_id: LibraryRecordId) -> u64 {
+        self.sign_outs_locked()
+            .get(&record_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Signs the library of `record_id` in as `sign_in` does, unless it was signed out since
+    /// `sign_outs` were taken: that sign-out came later, so it stands, and the answer is None.
+    pub(crate) fn sign_in_since(
+        &self,
+        record_id: LibraryRecordId,
+        sign_in: VerifiedSignIn,
+        sign_outs: u64,
+    ) -> Option<Arc<dyn ServiceBinding>> {
+        let counted = self.sign_outs_locked();
+        if counted.get(&record_id).copied().unwrap_or_default() != sign_outs {
+            return None;
+        }
+        Some(self.sign_in(record_id, sign_in))
+    }
+
     /// Forgets the sign-in of the library of `record_id` and everything it read, on disk too.
-    /// The binding stays, as one held before a sign-in does.
+    /// The binding stays, as one held before a sign-in does. A sign-in under way stops short of
+    /// signing in (see `sign_in_since`).
     pub(crate) fn sign_out(&self, record_id: LibraryRecordId) {
+        let mut counted = self.sign_outs_locked();
+        *counted.entry(record_id).or_default() += 1;
         let binding = self.apple_music().get(&record_id).cloned();
         if let Some(binding) = binding {
             binding.sign_out();

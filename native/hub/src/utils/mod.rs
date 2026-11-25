@@ -2006,7 +2006,7 @@ pub(crate) async fn register_service_library_on_node(
             format!("Could not write library storage: {error:#}"),
         )
     })?;
-    let signed_in = sign_in_service_record(node, record.record_id, sign_in).await;
+    let signed_in = sign_in_service_record(node, record.record_id, sign_in, None).await;
     // A record written here changes the list even when its sign-in then fails. A sign-in that
     // worked has told the list itself.
     if created
@@ -2062,8 +2062,10 @@ pub(crate) async fn sign_in_service_library_on_node(
     node: &Arc<NodeContext>,
 ) -> Result<()> {
     let (record_id, service) = service_signing_in_here(node, &request.record_id)?;
+    // A sign-out that comes while the service checks the sign-in stands.
+    let sign_outs = node.services.sign_outs(record_id);
     let sign_in = verified_service_sign_in(node, service, &request.sign_in).await?;
-    sign_in_service_record(node, record_id, sign_in).await
+    sign_in_service_record(node, record_id, sign_in, Some(sign_outs)).await
 }
 
 /// Forgets the sign-in of the registered service library of the request's record. A library
@@ -2087,15 +2089,28 @@ async fn publish_records_changed(node: &NodeContext) {
     }
 }
 
-/// Signs the service library of `record_id` in with a sign-in its service accepted. A removal
+/// Signs the service library of `record_id` in with a sign-in its service accepted, unless it
+/// was signed out since `sign_outs` were taken (see `ServiceRegistry::sign_in_since`). A removal
 /// writes the registry before it retires the binding, so the record is looked up again
 /// afterwards: a binding made for a record removed meanwhile must not stay signed in.
 async fn sign_in_service_record(
     node: &NodeContext,
     record_id: LibraryRecordId,
     sign_in: VerifiedSignIn,
+    sign_outs: Option<u64>,
 ) -> Result<()> {
-    let binding = node.services.sign_in(record_id, sign_in);
+    let binding = match sign_outs {
+        Some(sign_outs) => node
+            .services
+            .sign_in_since(record_id, sign_in, sign_outs)
+            .ok_or_else(|| {
+                registration_failure(
+                    RegisterLibraryFailureKind::InvalidRecord,
+                    "The library was signed out during the sign-in",
+                )
+            })?,
+        None => node.services.sign_in(record_id, sign_in),
+    };
     node.item_capabilities_changed();
     // A registry that cannot be read proves nothing, so the binding stays as it is.
     let registry = LibraryRegistry::load(Path::new(&*node.config_path)).map_err(|error| {
