@@ -344,7 +344,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use futures::FutureExt;
 
     use super::*;
 
@@ -507,14 +507,22 @@ mod tests {
     async fn a_change_whose_caller_stops_waiting_is_still_written_and_kept() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let (path, notes) = store(dir.path());
+        // The store is held as a change holds it, so the change cannot finish before its caller
+        // stops waiting.
+        let held = notes.inner.state.lock().await;
         // Polled once, then dropped.
-        let dropped = tokio::time::timeout(Duration::ZERO, add(&notes, note("a", "A"))).await;
-        assert!(dropped.is_err());
+        assert!(add(&notes, note("a", "A")).now_or_never().is_none());
+        assert!(!path.exists());
+        drop(held);
         crate::test_wait::wait_until("the change to be written", || async {
             Ok((notes.list().await?.len() == 1).then_some(()))
         })
         .await?;
-        assert_eq!(DeviceStore::<Note>::new(path).list().await?.len(), 1);
+        assert_eq!(*notes.list().await?, [note("a", "A")]);
+        assert_eq!(
+            *DeviceStore::<Note>::new(path).list().await?,
+            [note("a", "A")]
+        );
         Ok(())
     }
 
