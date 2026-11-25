@@ -14,7 +14,7 @@ use super::fixture;
 use crate::backends::local::gui_request::{GuiRequest, listen_gui_with_io};
 use crate::macros::{BodyLibraries, RequestAccess, RequestScope, RequestSlots};
 use crate::messages::{
-    CrashResponse, RequestErrorKind, RequestFailedResponse, RequestFailureCause, SearchForRequest,
+    RequestErrorKind, RequestFailedResponse, RequestFailureCause, SearchForRequest,
     VolumeRequest, VolumeResponse,
 };
 use crate::request_error::ExpectedRequestError;
@@ -277,7 +277,7 @@ async fn gui_listener_failure_preserves_call_id_kind_and_cause() -> Result<()> {
 }
 
 #[tokio::test]
-async fn gui_listener_internal_failure_emits_crash_and_continues() -> Result<()> {
+async fn gui_listener_internal_failure_does_not_emit_crash() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = fixture(dir.path()).await?;
     let mut listener = start::<DelayedRequest>(&fixture.global_params);
@@ -286,10 +286,12 @@ async fn gui_listener_internal_failure_emits_crash_and_continues() -> Result<()>
     let failure: RequestFailedResponse = listener.receive("RequestFailedResponse").await;
     assert_eq!(failure.kind, RequestErrorKind::Internal);
     assert_eq!(failure.call_id, Some(91));
-    let crash: CrashResponse = listener.receive("CrashResponse").await;
-    assert!(crash.detail.contains("listener internal failure"));
     let response: VolumeResponse = listener.receive("VolumeResponse").await;
     assert_eq!(response.volume, 0.42);
+    assert!(
+        listener.output.try_recv().is_err(),
+        "internal request failure should not emit CrashResponse"
+    );
     listener.stop().await;
     Ok(())
 }
@@ -400,5 +402,134 @@ async fn playlist_requests_reject_invalid_input_with_call_id() -> Result<()> {
     assert_eq!(failure.call_id, Some(7));
     assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
     remove.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn playlist_database_error_does_not_crash_and_recovers_after_repair() -> Result<()> {
+    use std::fs;
+    use std::path::Path;
+
+    use database::actions::metadata::scan_audio_file;
+    use database::actions::playlists::{add_item_to_playlist, create_playlist};
+    use database::entities::media_files;
+    use sea_orm::sea_query::{Alias, Table};
+    use sea_orm::{ConnectionTrait, EntityTrait};
+
+    use crate::messages::{FetchPlaylistOccurrencesRequest, FetchPlaylistOccurrencesResponse};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = fixture(dir.path()).await?;
+    let library = fixture.global_params.test_library();
+    let media_root = Path::new(&library.media_root);
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+    let target = media_root.join("recovery.ogg");
+    fs::copy(&source, &target)?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        media_root,
+        &target,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .one(&*library.main_db)
+        .await?
+        .context("scanned media file")?;
+    let playlist = create_playlist(
+        &library.main_db,
+        &library.library_sync.record_store(),
+        "Recovery playlist".into(),
+        "Playlists".into(),
+    )
+    .await?;
+    let mut expected = Vec::with_capacity(61);
+    for position in 0..61 {
+        let entry = add_item_to_playlist(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            playlist.id,
+            file.id,
+            Some(position),
+        )
+        .await?;
+        expected.push((entry.position, entry.source_uuid));
+    }
+
+    let mut fetch = start::<FetchPlaylistOccurrencesRequest>(&fixture.global_params);
+    let page_request = |call_id, after| FetchPlaylistOccurrencesRequest {
+        call_id: Some(call_id),
+        request_id: format!("recovery-{call_id}"),
+        playlist_id: playlist.id,
+        after,
+        page_size: 20,
+        bake_cover_arts: false,
+    };
+
+    // First page succeeds before the database fault.
+    fetch.send(page_request(1, None));
+    let first: FetchPlaylistOccurrencesResponse =
+        fetch.receive("FetchPlaylistOccurrencesResponse").await;
+    assert_eq!(first.call_id, Some(1));
+    assert_eq!(first.entries.len(), 20);
+    assert!(first.next.is_some());
+
+    // Induce a real SQLite table error during the cursor-page request.
+    library
+        .main_db
+        .execute(
+            &Table::rename()
+                .table(
+                    Alias::new("media_file_playlists"),
+                    Alias::new("media_file_playlists_fault"),
+                )
+                .to_owned(),
+        )
+        .await?;
+    fetch.send(page_request(2, first.next.clone()));
+    let failure: RequestFailedResponse = fetch.receive("RequestFailedResponse").await;
+    assert_eq!(failure.call_id, Some(2));
+    assert_eq!(failure.kind, RequestErrorKind::Internal);
+
+    // Repair the database and retry in the same process; no CrashResponse should arrive.
+    library
+        .main_db
+        .execute(
+            &Table::rename()
+                .table(
+                    Alias::new("media_file_playlists_fault"),
+                    Alias::new("media_file_playlists"),
+                )
+                .to_owned(),
+        )
+        .await?;
+
+    let mut recovered = Vec::new();
+    let mut cursor = None;
+    let mut call_id = 3;
+    loop {
+        fetch.send(page_request(call_id, cursor));
+        let page: FetchPlaylistOccurrencesResponse =
+            fetch.receive("FetchPlaylistOccurrencesResponse").await;
+        assert_eq!(page.call_id, Some(call_id));
+        recovered.extend(
+            page.entries
+                .into_iter()
+                .map(|entry| (entry.position, entry.occurrence_id)),
+        );
+        call_id += 1;
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(recovered, expected);
+    assert!(
+        fetch.output.try_recv().is_err(),
+        "database error recovery emitted an unexpected extra signal"
+    );
+    fetch.stop().await;
     Ok(())
 }

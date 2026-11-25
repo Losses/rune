@@ -115,15 +115,13 @@ void main(List<String> arguments) async {
   PlatformDispatcher.instance.onError = (error, stack) {
     if (error is! RequestFailure) return false;
     if (error.needsServiceSignIn) return true;
-    if (error.kind != RequestErrorKind.internal) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final context = _noticeContext();
-        if (context != null && context.mounted) {
-          showRequestFailureInfoBar(context, error);
-        }
-      });
-      WidgetsBinding.instance.ensureVisualUpdate();
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _noticeContext();
+      if (context != null && context.mounted) {
+        showRequestFailureInfoBar(context, error);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
     return true;
   };
   if (Platform.isLinux) {
@@ -677,8 +675,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
           ).whenComplete(() => _subsonicReloginOpen = false);
           return;
         }
-        if (failure.callId != null ||
-            failure.kind == RequestErrorKind.internal) {
+        if (failure.callId != null) {
           return;
         }
         final noticeContext = _noticeContext();
