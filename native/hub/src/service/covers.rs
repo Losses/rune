@@ -62,6 +62,8 @@ pub(crate) struct ServiceCoverCache {
     pub(crate) broadcaster: Arc<dyn Broadcaster>,
     /// Whether a change announcement is waiting out its window.
     change_pending: Arc<AtomicBool>,
+    /// The request that waits for the cover of what plays now, with that cover's id.
+    playing: Mutex<Option<(String, task::AbortHandle)>>,
 }
 
 /// A download in flight or waiting for its turn, which requests for the same cover join.
@@ -242,11 +244,25 @@ impl DownloadQueue {
         Turn::Waiting(turn)
     }
 
-    /// A request for a cover that waits in line again. A cover nobody awaits becomes the newest,
-    /// and so does one that this request is the first to await, which joins the end of the line
-    /// of awaited covers. One that was awaited already keeps its place in that line.
-    fn bump(&self, cover_id: &str, first_awaited: bool) {
+    /// A request for a cover whose download was asked for before, which waits in line again,
+    /// counted among the download's waiters when it waits for the cover. A cover nobody awaits
+    /// becomes the newest, and so does one that this request is the first to await, which joins
+    /// the end of the line of awaited covers. One that was awaited already keeps its place in that
+    /// line. The count and the place change under one lock, so no turn sees the one without the
+    /// other.
+    fn rejoin(
+        self: &Arc<Self>,
+        cover_id: &str,
+        waiters: &Arc<AtomicUsize>,
+        awaited: bool,
+    ) -> Option<Waiter> {
         let mut state = self.lock();
+        let (waiter, first_awaited) = if awaited {
+            let (waiter, first) = Waiter::join(waiters, self);
+            (Some(waiter), first)
+        } else {
+            (None, false)
+        };
         let order = state.next_order;
         if let Some(waiting) = state
             .waiting
@@ -257,6 +273,7 @@ impl DownloadQueue {
             waiting.order = order;
             state.next_order += 1;
         }
+        waiter
     }
 
     /// Takes the download of `cover_id` out of the line, as it was cancelled. It is found by
@@ -350,6 +367,7 @@ impl ServiceCoverCache {
             cancellation: CancellationToken::new(),
             broadcaster,
             change_pending: Arc::new(AtomicBool::new(false)),
+            playing: Mutex::new(None),
         }
     }
 
@@ -408,16 +426,34 @@ impl ServiceCoverCache {
     /// Starts downloading the cover of what plays now, which its status shows once the cover is
     /// cached and which nothing asks for again. It waits for the cover until the cover is cached,
     /// so like a cover a request waits for, it goes ahead of the scheduled covers and is never
-    /// dropped from the queue, and the status does get it.
+    /// dropped from the queue, and the status does get it. `cover_id` is None when what plays
+    /// now has no cover to wait for. The cover of what played before is no longer waited for, so
+    /// covers of tracks skipped over go back among the scheduled ones, while any request that
+    /// waits for one of them still gets it.
     pub(crate) fn schedule_playing<S: CoverSource>(
         self: &Arc<Self>,
         source: Arc<S>,
-        cover_id: String,
+        cover_id: Option<String>,
     ) {
+        let mut playing = self.playing.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((waited, request)) = &*playing
+            && cover_id.as_ref() == Some(waited)
+            && !request.is_finished()
+        {
+            return;
+        }
+        if let Some((_, request)) = playing.take() {
+            request.abort();
+        }
+        let Some(cover_id) = cover_id else {
+            return;
+        };
         let cache = Arc::clone(self);
-        tokio::spawn(async move {
-            let _ = cache.ensure(source, &cover_id, true).await;
+        let id = cover_id.clone();
+        let request = tokio::spawn(async move {
+            let _ = cache.ensure(source, &id, true).await;
         });
+        *playing = Some((cover_id, request.abort_handle()));
     }
 
     /// The path of a cover once it is cached, downloaded now when it is not. The download goes
@@ -470,22 +506,16 @@ impl ServiceCoverCache {
             if let Some(path) = self.cached_path(cover_id).await? {
                 return Ok(Some(path));
             }
-            // `joined` is Some when this request joined a download asked for before, saying
-            // whether it is the first request to await it. A request that waits stays counted
-            // among the download's waiters while `_waiter` lives.
-            let (mut receiver, joined, _waiter) = {
+            // A request that waits stays counted among the download's waiters while `_waiter`
+            // lives.
+            let (mut receiver, _waiter) = {
                 let mut pending = self
                     .pending
                     .lock()
                     .map_err(|_| anyhow::anyhow!("Service cover cache lock poisoned"))?;
                 if let Some(joined) = pending.get(cover_id) {
-                    let (waiter, first_awaited) = if awaited {
-                        let (waiter, first) = Waiter::join(&joined.waiters, &self.downloads);
-                        (Some(waiter), first)
-                    } else {
-                        (None, false)
-                    };
-                    (joined.receiver.clone(), Some(first_awaited), waiter)
+                    let waiter = self.downloads.rejoin(cover_id, &joined.waiters, awaited);
+                    (joined.receiver.clone(), waiter)
                 } else {
                     let (sender, receiver) = watch::channel(None);
                     let waiters = Arc::new(AtomicUsize::new(0));
@@ -515,12 +545,9 @@ impl ServiceCoverCache {
                             Err(error) => Fetched::Done(Err(Arc::new(error))),
                         }));
                     });
-                    (receiver, None, waiter)
+                    (receiver, waiter)
                 }
             };
-            if let Some(first_awaited) = joined {
-                self.downloads.bump(cover_id, first_awaited);
-            }
             let fetched = loop {
                 if let Some(fetched) = receiver.borrow().clone() {
                     break fetched;
@@ -710,6 +737,7 @@ fn evict_cover_cache(root: &Path, newest: &Path, limits: CoverCacheLimits) -> io
 mod tests {
     use std::{
         fs::{self, OpenOptions},
+        thread,
         time::{Duration, SystemTime},
     };
 
@@ -871,7 +899,7 @@ mod tests {
         };
         // The playing cover waits first, and requests for other covers keep coming after it, as
         // from a busy cover wall: none of them may keep it waiting.
-        cache.schedule_playing(Arc::clone(&source), "playing".to_owned());
+        cache.schedule_playing(Arc::clone(&source), Some("playing".to_owned()));
         until("playing", || in_line(&cache, "playing") == Some(true)).await;
         schedule_in_line(&cache, &source, "scheduled").await;
         let asked = ask("asked");
@@ -921,6 +949,36 @@ mod tests {
         assert_eq!(source.started()[5], "scheduled-old");
         source.finish(100);
         assert!(playing.await.unwrap().unwrap().is_some());
+        assert!(late.await.unwrap().unwrap().is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cover_a_request_starts_waiting_for_is_never_seen_awaited_at_its_old_place() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        schedule_in_line(&cache, &source, "scheduled").await;
+        let ask = |cover_id: &'static str| {
+            let (cache, source) = (cache.clone(), source.clone());
+            tokio::spawn(async move { cache.ensure_cached(source, cover_id).await })
+        };
+        let asked = ask("asked");
+        until("asked", || in_line(&cache, "asked") == Some(true)).await;
+        // A request starts waiting for the scheduled cover just as a turn ends. Awaited at the
+        // place it was scheduled at, it would go ahead of the cover asked for before it.
+        let late = {
+            let mut state = cache.downloads.lock();
+            let late = ask("scheduled");
+            // The request gets as far as it can while the turn holds the queue.
+            thread::sleep(Duration::from_millis(200));
+            let next = state.take_next().unwrap();
+            assert_eq!(next.cover_id, "asked");
+            state.waiting.push(next);
+            late
+        };
+        source.finish(100);
+        assert!(asked.await.unwrap().unwrap().is_some());
         assert!(late.await.unwrap().unwrap().is_some());
     }
 
@@ -1026,7 +1084,7 @@ mod tests {
         let cache = cache_in(&root);
         let source = Gated::new();
         fill_turns(&cache, &source).await;
-        cache.schedule_playing(Arc::clone(&source), "playing".to_owned());
+        cache.schedule_playing(Arc::clone(&source), Some("playing".to_owned()));
         until("playing", || in_line(&cache, "playing").is_some()).await;
         let taken = places_taken(&cache);
         // More scheduled covers than the bound allows arrive after it. Nothing asks for the
@@ -1045,6 +1103,36 @@ mod tests {
         until("the fifth download", || source.started().len() == 5).await;
         assert_eq!(source.started()[4], "playing");
         source.finish(10_000);
+    }
+
+    #[tokio::test]
+    async fn the_cover_of_what_played_before_waits_as_a_scheduled_one() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        let source = Gated::new();
+        fill_turns(&cache, &source).await;
+        let plays = |cover_id: Option<&str>| {
+            cache.schedule_playing(Arc::clone(&source), cover_id.map(str::to_owned));
+        };
+        plays(Some("first"));
+        until("first", || in_line(&cache, "first") == Some(true)).await;
+        // The next track starts before the first one's cover came. Only the next cover is waited
+        // for now, so a skipped cover cannot keep it waiting.
+        plays(Some("next"));
+        until("first scheduled", || {
+            in_line(&cache, "first") == Some(false)
+        })
+        .await;
+        until("next", || in_line(&cache, "next") == Some(true)).await;
+        // The same track again keeps its cover's place.
+        let taken = places_taken(&cache);
+        plays(Some("next"));
+        assert_eq!(in_line(&cache, "next"), Some(true));
+        assert_eq!(places_taken(&cache), taken);
+        // A track whose cover is cached leaves no cover to wait for.
+        plays(None);
+        until("next scheduled", || in_line(&cache, "next") == Some(false)).await;
+        source.finish(100);
     }
 
     #[tokio::test(start_paused = true)]
