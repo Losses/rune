@@ -1,8 +1,9 @@
 //! Rune's own playlists in a streaming service's library, kept on this device in the library's
 //! records folder (see `device_records`). They hold tracks of the service by its own keys, and
-//! nothing is written to the service.
+//! nothing is written to the service. The service's own playlists come in once, as Rune's (see
+//! `RunePlaylists::import`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -14,6 +15,14 @@ use crate::service::device_records::{DeviceStore, StoredRecord};
 
 /// The file of a library's records folder that holds its playlists.
 pub(crate) const PLAYLISTS_FILE: &str = "playlists.json";
+
+/// The extension of the marker beside the playlists that says the service's playlists were
+/// imported once, after which they never are again: `playlists.imported`.
+const IMPORTED_EXTENSION: &str = "imported";
+
+/// The file beside the playlists that keeps some ids of the service account the library belongs
+/// to, which tell whose the records are once the library's record is removed.
+const ACCOUNT_FILE: &str = "account.json";
 
 /// One track of a playlist.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +78,10 @@ impl StoredRecord for StoredPlaylist {
 /// The playlists of one service library, in a store of their own.
 pub(crate) struct RunePlaylists {
     store: DeviceStore<StoredPlaylist>,
+    /// See `IMPORTED_EXTENSION`.
+    imported_marker: PathBuf,
+    /// See `ACCOUNT_FILE`.
+    account: PathBuf,
 }
 
 fn playlist_not_found() -> anyhow::Error {
@@ -85,9 +98,25 @@ fn occurrence_not_found() -> anyhow::Error {
 impl RunePlaylists {
     /// The playlists kept in the file at `path`.
     pub(crate) fn new(path: PathBuf) -> Self {
+        Self::with_store(path, DeviceStore::new)
+    }
+
+    /// Playlists whose file is not read until `release` (see `DeviceStore::held`).
+    pub(crate) fn held(path: PathBuf) -> Self {
+        Self::with_store(path, DeviceStore::held)
+    }
+
+    fn with_store(path: PathBuf, store: fn(PathBuf) -> DeviceStore<StoredPlaylist>) -> Self {
         Self {
-            store: DeviceStore::new(path),
+            imported_marker: path.with_extension(IMPORTED_EXTENSION),
+            account: path.with_file_name(ACCOUNT_FILE),
+            store: store(path),
         }
+    }
+
+    /// Reads the file from now on (see `DeviceStore::release`).
+    pub(crate) async fn release(&self) {
+        self.store.release().await;
     }
 
     /// Every playlist, in the order they were made. A file that cannot be read fails with
@@ -222,11 +251,82 @@ impl RunePlaylists {
             .await
     }
 
+    /// Keeps a playlist imported from the service's playlist `from`, with `tracks` and what was
+    /// known of each in order, unless one imported from it is kept already. The playlist is
+    /// written whole, so an import cut short keeps all of it or none. Answers whether it was
+    /// made.
+    pub(crate) async fn import(
+        &self,
+        name: &str,
+        group: &str,
+        from: &str,
+        tracks: Vec<(String, TrackAbout)>,
+    ) -> Result<bool> {
+        let playlist = StoredPlaylist {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_owned(),
+            group: group.to_owned(),
+            entries: tracks
+                .into_iter()
+                .map(|(track, about)| StoredEntry {
+                    occurrence: Uuid::new_v4().to_string(),
+                    track,
+                    about,
+                })
+                .collect(),
+            imported_from: Some(from.to_owned()),
+        };
+        self.store
+            .change(move |playlists| {
+                if playlists
+                    .iter()
+                    .any(|kept| kept.imported_from == playlist.imported_from)
+                {
+                    return Ok(false);
+                }
+                playlists.push(playlist);
+                Ok(true)
+            })
+            .await
+    }
+
+    /// Whether the service's own playlists were imported once, after which they never are
+    /// again.
+    pub(crate) async fn imported(&self) -> bool {
+        tokio::fs::try_exists(&self.imported_marker)
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Notes that the service's own playlists were imported, unless the store was closed or is
+    /// held.
+    pub(crate) async fn mark_imported(&self) -> Result<()> {
+        self.store
+            .write_beside(self.imported_marker.clone(), Vec::new())
+            .await
+    }
+
+    /// What `ACCOUNT_FILE` holds, if it can be read.
+    pub(crate) async fn account(&self) -> Option<Vec<u8>> {
+        tokio::fs::read(&self.account).await.ok()
+    }
+
+    /// Writes `ACCOUNT_FILE`, unless the store was closed or is held.
+    pub(crate) async fn write_account(&self, bytes: Vec<u8>) -> Result<()> {
+        self.store.write_beside(self.account.clone(), bytes).await
+    }
+
     /// Waits for a change being written, then refuses every later one: the library record is
     /// being removed.
     pub(crate) async fn close(&self) {
         self.store.close().await;
     }
+}
+
+/// The file in the records folder `folder` that keeps some ids of the service account the
+/// library belongs to (see `ACCOUNT_FILE`).
+pub(crate) fn account_file(folder: &Path) -> PathBuf {
+    folder.join(ACCOUNT_FILE)
 }
 
 fn find<'a>(playlists: &'a mut [StoredPlaylist], id: &str) -> Result<&'a mut StoredPlaylist> {
@@ -379,6 +479,48 @@ mod tests {
         assert!(not_found(
             playlists.update("missing", "A", "G").await.unwrap_err()
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_import_keeps_each_playlist_once_beside_its_marker_and_the_account() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let (path, playlists) = store(dir.path());
+        let mine = playlists.create("Mine", "Mood").await?;
+        let songs = vec![
+            ("i.a".to_owned(), TrackAbout::default()),
+            ("i.b".to_owned(), TrackAbout::default()),
+        ];
+        assert!(
+            playlists
+                .import("Road", "Imported", "p.1", songs.clone())
+                .await?
+        );
+        // An import cut short and made again keeps the playlist once.
+        assert!(!playlists.import("Road", "Imported", "p.1", songs).await?);
+        let kept = playlists.list().await?;
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0], mine);
+        assert_eq!(
+            (kept[1].imported_from.as_deref(), tracks(&kept[1])),
+            (Some("p.1"), vec!["i.a", "i.b"])
+        );
+        assert!(!playlists.imported().await);
+        playlists.mark_imported().await?;
+        playlists.write_account(b"ids".to_vec()).await?;
+        let folder = path.parent().unwrap();
+        assert!(folder.join("playlists.imported").exists());
+        assert_eq!(account_file(folder), folder.join("account.json"));
+        let again = RunePlaylists::new(path.clone());
+        assert!(again.imported().await);
+        assert_eq!(again.account().await.as_deref(), Some(&b"ids"[..]));
+        // Held, the playlists list none and nothing is written beside them until they are
+        // released.
+        let held = RunePlaylists::held(path);
+        assert!(held.list().await?.is_empty());
+        assert!(held.write_account(b"other".to_vec()).await.is_err());
+        held.release().await;
+        assert_eq!(held.list().await?.len(), 2);
         Ok(())
     }
 

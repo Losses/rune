@@ -1,15 +1,20 @@
-//! The folder a streaming service's library keeps on this device, for its covers and for what it
-//! read from its service.
+//! The folder a streaming service's library keeps on this device, for its covers, for what it
+//! read from its service and for what the user made in Rune (see `device_records`). The records
+//! outlive the library's record: a library added again may take over those a removed library
+//! left.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use tokio::fs as tokio_fs;
 use uuid::Uuid;
 
 use crate::service::covers::cover_cache_root;
+use crate::service::device_records::device_records_folder;
 
 /// The folder, in the configuration folder, that holds the folder of each service library.
 const SERVICE_LIBRARIES: &str = "service-libraries";
@@ -58,37 +63,146 @@ pub(crate) fn prepare_service_library_folder(config_dir: &Path, library_id: Uuid
     folder
 }
 
-/// Deletes the folder of the service library `library_id`, with everything it kept, and the
-/// covers it kept before it had a folder, when they were never moved.
+/// Deletes what the service library `library_id` kept on this device as its record is removed:
+/// its folder with everything it read from its service, and the covers it kept before it had a
+/// folder, when they were never moved. Its records folder stays when `keep_records` says so, as
+/// what the user made in Rune outlives the record; then only the records folder is left in the
+/// library's folder. A reset of the app deletes it too.
 pub(crate) async fn delete_service_library_folder(
     config_dir: &Path,
     library_id: Uuid,
+    keep_records: bool,
 ) -> io::Result<()> {
-    for folder in [
-        service_library_folder(config_dir, library_id),
-        old_covers_folder(config_dir, library_id),
-    ] {
-        match tokio_fs::remove_dir_all(folder).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+    let folder = service_library_folder(config_dir, library_id);
+    let records = device_records_folder(config_dir, library_id);
+    if keep_records && tokio_fs::try_exists(&records).await? {
+        let mut entries = tokio_fs::read_dir(&folder).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path == records {
+                continue;
+            }
+            if entry.file_type().await?.is_dir() {
+                remove_if_there(tokio_fs::remove_dir_all(path).await)?;
+            } else {
+                remove_if_there(tokio_fs::remove_file(path).await)?;
+            }
         }
+    } else {
+        remove_if_there(tokio_fs::remove_dir_all(folder).await)?;
+    }
+    remove_if_there(tokio_fs::remove_dir_all(old_covers_folder(config_dir, library_id)).await)
+}
+
+/// A removal that found nothing to remove is no failure.
+fn remove_if_there(removed: io::Result<()>) -> io::Result<()> {
+    match removed {
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        removed => removed,
+    }
+}
+
+/// Whether the service library `library_id` has a records folder of its own.
+pub(crate) fn has_device_records(config_dir: &Path, library_id: Uuid) -> bool {
+    device_records_folder(config_dir, library_id).is_dir()
+}
+
+/// The service libraries other than `library_id` and those `known` names that left a records
+/// folder, as removed libraries do, the one written to last first. A folder that cannot be read
+/// is none.
+pub(crate) fn left_device_records(
+    config_dir: &Path,
+    library_id: Uuid,
+    known: &HashSet<Uuid>,
+) -> Vec<Uuid> {
+    let Ok(listing) = fs::read_dir(config_dir.join(SERVICE_LIBRARIES)) else {
+        return Vec::new();
+    };
+    let mut left: Vec<(SystemTime, Uuid)> = listing
+        .flatten()
+        .filter_map(|entry| Uuid::parse_str(&entry.file_name().to_string_lossy()).ok())
+        .filter(|removed| *removed != library_id && !known.contains(removed))
+        .filter_map(|removed| {
+            let written = last_written(&device_records_folder(config_dir, removed))?;
+            Some((written, removed))
+        })
+        .collect();
+    left.sort_unstable_by(|left, right| right.cmp(left));
+    left.into_iter().map(|(_, removed)| removed).collect()
+}
+
+/// When the records in `folder` were written last; None when it is no folder.
+fn last_written(folder: &Path) -> Option<SystemTime> {
+    let own = fs::metadata(folder)
+        .ok()
+        .filter(|metadata| metadata.is_dir())?
+        .modified()
+        .ok()?;
+    let files = fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok()?.modified().ok());
+    files.chain([own]).max()
+}
+
+/// Takes over for the service library `library_id` the records folder that the removed library
+/// `removed` left, in one rename of the folder: the records are the removed library's or this
+/// one's, never both or neither, so a take-over cut short leaves nothing to finish, as moving the
+/// files one by one would, which needed a note of the take-over to go on with. A library that
+/// has records of its own keeps them, and the removed library's stay as they are. The removed
+/// library's folder, empty then, goes.
+pub(crate) fn take_over_device_records(
+    config_dir: &Path,
+    library_id: Uuid,
+    removed: Uuid,
+) -> io::Result<()> {
+    let records = device_records_folder(config_dir, library_id);
+    if records.exists() {
+        log::warn!(
+            "Kept the records the removed service library {removed} left: the library {library_id} has its own"
+        );
+        return Ok(());
+    }
+    fs::create_dir_all(service_library_folder(config_dir, library_id))?;
+    fs::rename(device_records_folder(config_dir, removed), &records)?;
+    #[cfg(unix)]
+    if let Some(parent) = records.parent()
+        && let Err(error) = fs::File::open(parent).and_then(|parent| parent.sync_all())
+    {
+        log::warn!("Could not sync the folder of service library {library_id}: {error}");
+    }
+    if let Err(error) = fs::remove_dir(service_library_folder(config_dir, removed)) {
+        log::warn!("Could not remove the folder of the removed service library {removed}: {error}");
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::fs;
 
     use tempfile::TempDir;
     use uuid::Uuid;
 
     use super::{
-        delete_service_library_folder, old_covers_folder, prepare_service_library_folder,
-        service_library_folder,
+        delete_service_library_folder, has_device_records, left_device_records, old_covers_folder,
+        prepare_service_library_folder, service_library_folder, take_over_device_records,
     };
     use crate::service::covers::cover_cache_root;
+    use crate::service::device_records::device_records_folder;
+
+    /// Writes a record file of the library `library_id` holding `content`.
+    fn write_records(root: &std::path::Path, library_id: Uuid, content: &str) {
+        let records = device_records_folder(root, library_id);
+        fs::create_dir_all(&records).unwrap();
+        fs::write(records.join("playlists.json"), content).unwrap();
+    }
+
+    fn read_records(root: &std::path::Path, library_id: Uuid) -> Option<String> {
+        fs::read_to_string(device_records_folder(root, library_id).join("playlists.json")).ok()
+    }
 
     #[test]
     fn the_covers_kept_before_move_into_the_library_folder_once() {
@@ -155,14 +269,86 @@ mod tests {
         fs::create_dir_all(&old).unwrap();
         fs::write(old.join("cover.img"), b"cover").unwrap();
 
-        delete_service_library_folder(root.path(), library_id)
+        delete_service_library_folder(root.path(), library_id, true)
             .await
             .unwrap();
+        // A library without records leaves nothing, whether they were to be kept or not.
         assert!(!folder.exists());
         assert!(!old.exists());
         // Nothing left to delete is no failure.
-        delete_service_library_folder(root.path(), library_id)
+        delete_service_library_folder(root.path(), library_id, false)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_removed_library_keeps_its_records_unless_they_go_with_it() {
+        let root = TempDir::new().unwrap();
+        let (kept, reset) = (Uuid::new_v4(), Uuid::new_v4());
+        for library_id in [kept, reset] {
+            let folder = prepare_service_library_folder(root.path(), library_id);
+            fs::create_dir_all(folder.join("lists")).unwrap();
+            fs::write(folder.join("lists").join("songs.json"), b"{}").unwrap();
+            fs::write(folder.join("loose"), b"").unwrap();
+            write_records(root.path(), library_id, "mine");
+        }
+        delete_service_library_folder(root.path(), kept, true)
+            .await
+            .unwrap();
+        let folder = service_library_folder(root.path(), kept);
+        let left: Vec<_> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, ["rune"]);
+        assert_eq!(read_records(root.path(), kept).as_deref(), Some("mine"));
+        assert!(has_device_records(root.path(), kept));
+        // A reset deletes them with the rest.
+        delete_service_library_folder(root.path(), reset, false)
+            .await
+            .unwrap();
+        assert!(!service_library_folder(root.path(), reset).exists());
+        assert!(!has_device_records(root.path(), reset));
+    }
+
+    #[test]
+    fn the_records_removed_libraries_left_are_found_newest_first_and_taken_over_whole() {
+        let root = TempDir::new().unwrap();
+        let (older, newer, known, own, new) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        // The older records were written a minute ago.
+        write_records(root.path(), older, "older");
+        let written = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        let records = device_records_folder(root.path(), older);
+        for path in [records.join("playlists.json"), records] {
+            fs::File::open(&path)
+                .unwrap()
+                .set_modified(written)
+                .unwrap();
+        }
+        write_records(root.path(), newer, "newer");
+        write_records(root.path(), known, "known");
+        write_records(root.path(), own, "own");
+        // A folder without records, as of a library that never made any, left none.
+        prepare_service_library_folder(root.path(), Uuid::new_v4());
+        let registered = HashSet::from([known, new, own]);
+        assert_eq!(
+            left_device_records(root.path(), new, &registered),
+            [newer, older]
+        );
+
+        take_over_device_records(root.path(), new, older).unwrap();
+        assert_eq!(read_records(root.path(), new).as_deref(), Some("older"));
+        assert!(!service_library_folder(root.path(), older).exists());
+        assert_eq!(left_device_records(root.path(), new, &registered), [newer]);
+        // Records the library has are never replaced: the removed library's stay.
+        take_over_device_records(root.path(), own, newer).unwrap();
+        assert_eq!(read_records(root.path(), own).as_deref(), Some("own"));
+        assert_eq!(read_records(root.path(), newer).as_deref(), Some("newer"));
     }
 }

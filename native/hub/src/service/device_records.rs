@@ -79,6 +79,8 @@ pub(crate) struct UnreadableStore {
 }
 
 enum State<T> {
+    /// The file is not to be read yet: whose it is, is still being told (see `held`).
+    Held,
     /// The file was not read yet, or could not be read the last time.
     Unread,
     Read(Arc<Vec<T>>),
@@ -144,6 +146,7 @@ impl<T: StoredRecord> Inner<T> {
     async fn loaded(&self, state: &mut State<T>) -> Result<Arc<Vec<T>>> {
         match state {
             State::Read(records) => Ok(Arc::clone(records)),
+            State::Held => Ok(Arc::default()),
             State::Closed => Err(closed(T::WHAT)),
             State::Unread => {
                 let records = Arc::new(self.read_file().await?);
@@ -160,12 +163,30 @@ impl<T: StoredRecord> Inner<T> {
 impl<T: StoredRecord> DeviceStore<T> {
     /// The records kept in the file at `path`, in the records folder of a service library.
     pub(crate) fn new(path: PathBuf) -> Self {
+        Self::with_state(path, State::Unread)
+    }
+
+    /// A store whose file is not read until `release`: the records folder may still be replaced
+    /// by one a removed library left. Meanwhile it lists no records and refuses every change.
+    pub(crate) fn held(path: PathBuf) -> Self {
+        Self::with_state(path, State::Held)
+    }
+
+    fn with_state(path: PathBuf, state: State<T>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 path,
-                state: Mutex::new(State::Unread),
+                state: Mutex::new(state),
                 unreadable_logged: AtomicBool::new(false),
             }),
+        }
+    }
+
+    /// Reads the file from now on, as it is then, unless the store was closed.
+    pub(crate) async fn release(&self) {
+        let mut state = self.inner.state.lock().await;
+        if matches!(*state, State::Held) {
+            *state = State::Unread;
         }
     }
 
@@ -206,6 +227,9 @@ impl<T: StoredRecord> DeviceStore<T> {
         let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
             let mut state = inner.state.lock().await;
+            if matches!(*state, State::Held) {
+                return Err(closed(T::WHAT));
+            }
             let mut records = (*inner.loaded(&mut state).await?).clone();
             let answer = change(&mut records)?;
             let bytes = serde_json::to_vec_pretty(&StoreFileRef { records: &records })?;
@@ -221,11 +245,40 @@ impl<T: StoredRecord> DeviceStore<T> {
         .await?
     }
 
+    /// Writes `bytes` to the file at `path` beside the records' file, as a note that goes with
+    /// them, unless the store was closed or is held.
+    pub(crate) async fn write_beside(&self, path: PathBuf, bytes: Vec<u8>) -> Result<()> {
+        let state = self.inner.state.lock().await;
+        if matches!(*state, State::Closed | State::Held) {
+            return Err(closed(T::WHAT));
+        }
+        let written = path.clone();
+        task::spawn_blocking(move || write_atomically(&written, &bytes))
+            .await?
+            .with_context(|| format!("Could not write {}", path.display()))?;
+        drop(state);
+        Ok(())
+    }
+
     /// Waits for a change being written, then refuses every later one: the library record is
     /// being removed.
     pub(crate) async fn close(&self) {
         *self.inner.state.lock().await = State::Closed;
     }
+}
+
+/// The records of kind `T` the file at `path` holds, read in place as well as it can be; none
+/// when it cannot be read. For what tells whose a records folder is, where nothing waits.
+pub(crate) fn read_records<T: StoredRecord>(path: &Path) -> Vec<T> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<StoreFile>(&bytes)
+        .ok()
+        .filter(|file| file.format == T::FORMAT)
+        .and_then(|mut file| file.fields.remove(T::FIELD))
+        .and_then(|records| serde_json::from_value(records).ok())
+        .unwrap_or_default()
 }
 
 /// The prefix of the temporary files a write of `path` makes beside it.
@@ -500,6 +553,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_held_store_lists_none_and_writes_nothing_until_it_is_released() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let (path, notes) = store(dir.path());
+        add(&notes, note("a", "Kept")).await?;
+        let held = DeviceStore::<Note>::held(path.clone());
+        let beside = path.with_extension("note");
+        assert!(held.list().await?.is_empty());
+        assert!(add(&held, note("b", "Refused")).await.is_err());
+        assert!(held.write_beside(beside.clone(), Vec::new()).await.is_err());
+        assert!(!beside.exists());
+        held.release().await;
+        assert_eq!(*held.list().await?, [note("a", "Kept")]);
+        held.write_beside(beside.clone(), b"noted".to_vec()).await?;
+        assert_eq!(std::fs::read(&beside)?, b"noted");
+        // Read in place, the file holds what the store keeps; one that cannot be read holds
+        // none.
+        assert_eq!(read_records::<Note>(&path), [note("a", "Kept")]);
+        assert!(read_records::<Note>(&beside).is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn a_closed_store_refuses_changes_and_keeps_its_file() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let (path, notes) = store(dir.path());
@@ -510,6 +585,15 @@ mod tests {
             refused.downcast_ref::<ExpectedRequestError>(),
             Some(ExpectedRequestError::Unavailable { .. })
         ));
+        assert!(
+            notes
+                .write_beside(path.with_extension("note"), Vec::new())
+                .await
+                .is_err()
+        );
+        // Released after it was closed, it stays closed.
+        notes.release().await;
+        assert!(notes.list().await.is_err());
         assert_eq!(
             *DeviceStore::<Note>::new(path).list().await?,
             [note("a", "Kept")]

@@ -1047,6 +1047,7 @@ mod node_request_loop_tests {
             message: RemoveLibraryRecordRequest {
                 call_id: None,
                 record_id: "invalid".into(),
+                delete_device_data: false,
             },
             binary: Vec::new(),
         });

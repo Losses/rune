@@ -20,6 +20,7 @@ use crate::apple_music_artists::{NamedArtist, catalog_artist_remote, named_artis
 use crate::apple_music_binding::{
     AppleIdKind, AppleMusicBinding, AppleSong, AppleSongs, CatalogCollection, CollectionInfo,
     MixRef, PlaylistRef, SongRef, catalog_track, cover_url, is_library_song, is_library_song_id,
+    song_of_track,
 };
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
@@ -32,16 +33,17 @@ use crate::messages::{
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
     FetchMediaFilesRequest, FetchMediaFilesResponse, FetchMixQueriesRequest,
     FetchParsedMediaFileRequest, FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
-    FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLyricByTrackIdRequest,
+    FetchPlaylistOccurrencesResponse, GetLikedRequest, GetLikedResponse, GetLyricByTrackIdRequest,
     GetMediaFilesCountRequest, GetMediaFilesCountResponse, GetMixByIdRequest,
     GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetPrimaryColorByTrackIdRequest, MediaFile,
-    MediaFileSummary, MixQueryRequest, MixQueryResponse, Playlist, PlaylistOccurrence,
-    PlaylistOccurrenceCursor, RemoveItemFromPlaylistRequest, RemoveItemFromPlaylistResponse,
-    RemoveMixRequest, RemovePlaylistRequest, RemovePlaylistResponse,
-    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
-    ResolveMixQueryRequest, ResolveMixQueryResponse, SearchCollectionSummaryRequest,
-    SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest, SearchMediaFileSummaryResponse,
-    SetLikedRequest, UpdateMixRequest, UpdatePlaylistRequest, UpdatePlaylistResponse,
+    MediaFileSummary, MixQueryRequest, MixQueryResponse, PlayingItemRef, Playlist,
+    PlaylistOccurrence, PlaylistOccurrenceCursor, RemoveItemFromPlaylistRequest,
+    RemoveItemFromPlaylistResponse, RemoveMixRequest, RemovePlaylistRequest,
+    RemovePlaylistResponse, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest,
+    SearchMediaFileSummaryResponse, SetLikedRequest, SetLikedResponse, UpdateMixRequest,
+    UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 use crate::request_error::ExpectedRequestError;
 use crate::rpc::{RequestTranslationFuture, Slot};
@@ -237,9 +239,12 @@ pub(crate) async fn fetch_collection_group_summary_request(
         groups: groups
             .into_iter()
             .map(|(group_title, count)| CollectionGroupSummary {
+                // The library fills the group of Apple Music's playlists itself, with the
+                // playlists it imported.
+                reserved: kind == AppleIdKind::RunePlaylist
+                    && group_title == APPLE_MUSIC_PLAYLIST_GROUP,
                 group_title,
                 count,
-                reserved: false,
             })
             .collect(),
     }))
@@ -922,15 +927,28 @@ pub(crate) async fn get_playlist_by_id_request(
     }))
 }
 
+/// The group a Rune playlist is put in, which may not be the one that holds the playlists
+/// imported from Apple Music: the library fills that one itself.
+fn rune_group(group: &str) -> Result<&str> {
+    if group
+        .trim()
+        .eq_ignore_ascii_case(APPLE_MUSIC_PLAYLIST_GROUP)
+    {
+        return Err(ExpectedRequestError::invalid_input(format!(
+            "The group {APPLE_MUSIC_PLAYLIST_GROUP} holds the playlists of Apple Music"
+        ))
+        .into());
+    }
+    Ok(group)
+}
+
 /// Makes a Rune playlist, kept on this device.
 pub(crate) async fn create_playlist_request(
     binding: &AppleMusicBinding,
     request: &CreatePlaylistRequest,
 ) -> Result<Option<CreatePlaylistResponse>> {
-    let made = binding
-        .rune_playlists
-        .create(&request.name, &request.group)
-        .await?;
+    let group = rune_group(&request.group)?;
+    let made = binding.rune_playlists.create(&request.name, group).await?;
     binding.content_changed();
     Ok(Some(CreatePlaylistResponse {
         playlist: rune_playlist_of(binding, &made)?,
@@ -947,9 +965,17 @@ pub(crate) async fn update_playlist_request(
         request.playlist_id,
         UpdatePlaylistRequest::wire_name(),
     )?;
+    // An imported playlist is in the group that holds the imported playlists, which it may stay
+    // in as it is renamed, but which no playlist may be moved to.
+    let current = binding.rune_playlists.playlist(&stored).await?;
+    let group = if request.group == current.group {
+        request.group.as_str()
+    } else {
+        rune_group(&request.group)?
+    };
     let playlist = binding
         .rune_playlists
-        .update(&stored, &request.name, &request.group)
+        .update(&stored, &request.name, group)
         .await?;
     binding.content_changed();
     Ok(Some(UpdatePlaylistResponse {
@@ -977,7 +1003,7 @@ pub(crate) async fn remove_playlist_request(
 
 /// What is known of the song of `track`, as a Rune playlist keeps it with its entry: enough to
 /// play it once its library copy is gone, or to name it once Apple no longer has it.
-fn track_about(track: &str, song: SongRef<'_>) -> TrackAbout {
+pub(crate) fn track_about(track: &str, song: SongRef<'_>) -> TrackAbout {
     let catalog_id = match song {
         SongRef::Library(song) if is_library_song_id(track) => song.store_id().map(str::to_owned),
         _ => None,
@@ -1804,9 +1830,38 @@ impl HomeSource for AppleMusicBinding {
         })
     }
 
-    /// The library keeps no likes.
+    /// The songs liked in Rune, the one liked last first, as Rune's likes keep them: Apple is
+    /// not asked for ratings. A song is named by the library's copy of it when the library has
+    /// one, and comes once however many keys it was liked under. Each is named by the songs the
+    /// binding knows, which are the library's and what was read for it lately; one it cannot
+    /// name is left out.
     fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>> {
-        Box::pin(async { Ok(Vec::new()) })
+        Box::pin(async move {
+            // The song list names the songs, and tells which catalog song a library copy is.
+            let _ = self.songs().await?;
+            let mut found = Vec::new();
+            let mut seen = HashSet::new();
+            for track in self.rune_likes.newest(usize::MAX).await? {
+                let track = self.library_copy_of(&track);
+                if !seen.insert(track.clone())
+                    || !self.rune_likes.is_liked(&self.like_keys(&track)).await?
+                {
+                    continue;
+                }
+                let Some(song) = self.known_song(&track) else {
+                    continue;
+                };
+                found.push(HomeTrack {
+                    name: song.as_ref().title().to_owned(),
+                    cover: cover_url(song.as_ref().artwork()),
+                    remote: track,
+                });
+                if found.len() >= home::GROUP_LIMIT {
+                    break;
+                }
+            }
+            Ok(found)
+        })
     }
 
     fn mixes(&self) -> ServiceFuture<'_, Vec<HomeMix>> {
@@ -1869,6 +1924,63 @@ async fn apple_song(binding: &AppleMusicBinding, track: &str) -> Result<Option<A
         }
         Err(error) => Err(error),
     }
+}
+
+/// The track a liked-state request names, which must be one of this library's.
+fn liked_track(binding: &AppleMusicBinding, item: &Option<PlayingItemRef>) -> Result<String> {
+    match item {
+        Some(PlayingItemRef::LibraryTrack { library_id, track })
+            if *library_id == ServiceBinding::library_id(binding).to_string() =>
+        {
+            song_of_track(track).map(|_| track.clone()).ok_or_else(|| {
+                ExpectedRequestError::invalid_input("Not an Apple Music track").into()
+            })
+        }
+        Some(PlayingItemRef::LibraryTrack { .. }) => {
+            Err(ExpectedRequestError::invalid_input("Item belongs to another library").into())
+        }
+        _ => {
+            Err(ExpectedRequestError::invalid_input("Expected an Apple Music library track").into())
+        }
+    }
+}
+
+/// Likes or unlikes a song in Rune's likes on this device. Nothing is sent to Apple: what Rune
+/// changes stays in Rune. A like belongs to the song: when the library copy and the catalog song
+/// are known to be one song, both are liked or unliked, and the lists that show the likes reload.
+pub(crate) async fn set_liked_request(
+    binding: &AppleMusicBinding,
+    request: &SetLikedRequest,
+) -> Result<Option<SetLikedResponse>> {
+    let track = liked_track(binding, &request.item)?;
+    binding
+        .rune_likes
+        .set_liked(&binding.like_keys(&track), request.liked)
+        .await?;
+    binding.content_changed();
+    Ok(request.item.clone().map(|item| SetLikedResponse {
+        item,
+        liked: request.liked,
+        call_id: request.call_id,
+    }))
+}
+
+/// Answers whether a song is liked from Rune's likes on this device, without asking Apple. The
+/// library copy of a song and its catalog song are liked together.
+pub(crate) async fn get_liked_request(
+    binding: &AppleMusicBinding,
+    request: &GetLikedRequest,
+) -> Result<Option<GetLikedResponse>> {
+    let track = liked_track(binding, &request.item)?;
+    let liked = binding
+        .rune_likes
+        .is_liked(&binding.like_keys(&track))
+        .await?;
+    Ok(request.item.clone().map(|item| GetLikedResponse {
+        item,
+        liked,
+        call_id: request.call_id,
+    }))
 }
 
 macro_rules! apple_music_requests {
@@ -1945,6 +2057,8 @@ apple_music_requests! {
         UpdateMixRequest => update_mix_request as translate_update_mix_request,
         RemoveMixRequest => remove_mix_request as translate_remove_mix_request,
         AddItemToMixRequest => add_item_to_mix_request as translate_add_item_to_mix_request,
+        SetLikedRequest => set_liked_request as translate_set_liked_request,
+        GetLikedRequest => get_liked_request as translate_get_liked_request,
     }
     // This device answers these by the library of the item each names, whichever library is
     // open: the items of another library are that library's to answer.
@@ -1955,6 +2069,9 @@ apple_music_requests! {
         GetPrimaryColorByTrackIdRequest,
     }
     items {
+        // Likes are kept in Rune, on this device, so an item is liked whichever library is open.
+        SetLikedRequest => Translate,
+        GetLikedRequest => Translate,
         // The hub takes the color of a streaming item from its cover in the library's cover cache.
         GetPrimaryColorByTrackIdRequest => Native,
     }

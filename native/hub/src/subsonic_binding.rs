@@ -2648,6 +2648,7 @@ mod visualizer_feed_tests {
         let request = RemoveLibraryRecordRequest {
             call_id: None,
             record_id: library_id.to_string(),
+            delete_device_data: false,
         };
         let removed = tokio::spawn({
             let node = Arc::clone(&node);

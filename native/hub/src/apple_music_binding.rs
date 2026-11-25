@@ -6,8 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::mem;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
@@ -36,7 +36,9 @@ use tokio::time as tokio_time;
 use uuid::Uuid;
 
 use crate::{
+    apple_music_account,
     apple_music_artists::{NamedArtist, NamedArtists, SongArtists, is_named_artist},
+    apple_music_import,
     macros::RequestSlots,
     messages::{AudioAvailability, LibraryContentChanged},
     request_error::ExpectedRequestError,
@@ -49,6 +51,7 @@ use crate::{
         lists::{KeptList, ListSpec, ServiceLists, lists_folder},
         reach::Reach,
         registry::{Clock, SignInFailure},
+        rune_likes::{LIKES_FILE, RuneLikes},
         rune_mixes::{MIXES_FILE, RuneMixes},
         rune_playlists::{PLAYLISTS_FILE, RunePlaylists},
     },
@@ -399,6 +402,15 @@ impl AppleSongs {
             (AppleIdKind::CatalogSong, id) => self.twins.get(id).map(String::as_str),
             _ => None,
         }
+    }
+
+    /// The catalog id of the catalog song the library song `track` is the library's copy of,
+    /// as the copies noted name it.
+    pub(crate) fn catalog_twin(&self, track: &str) -> Option<&str> {
+        self.twins
+            .iter()
+            .find(|(_, library_id)| *library_id == track)
+            .map(|(catalog_id, _)| catalog_id.as_str())
     }
 
     /// Whether `track`, or the library song a catalog track stands for, is listed.
@@ -929,6 +941,23 @@ pub(crate) struct AppleMusicBinding {
     pub(crate) rune_playlists: RunePlaylists,
     /// Rune's own mixes, kept on this device beside the mixes Apple recommends.
     pub(crate) rune_mixes: RuneMixes,
+    /// The songs liked in Rune, kept on this device. Nothing is written to Apple.
+    pub(crate) rune_likes: RuneLikes,
+    /// Whether Rune's playlists, mixes and likes wait to be told whose they are (see
+    /// `apple_music_account::attach`).
+    pub(crate) records_held: AtomicBool,
+    /// Where the files kept on this device are.
+    pub(crate) config_dir: PathBuf,
+    /// Whether what comes in from Apple once, its playlists and likes, is being imported into
+    /// Rune (see `import_in_background`).
+    importing: AtomicBool,
+    /// Set when a sign-in came while an import was under way: the import runs once more when it
+    /// ends, for that sign-in.
+    import_again: AtomicBool,
+    /// Counts the changes of the tokens: each sign-in whose tokens differ from those held, and
+    /// each sign-out. `AppleCatalog::generation` counts sign-outs only, as what was read stays
+    /// for new tokens; what runs for one sign-in, as the import, stops when this moves on.
+    token_changes: AtomicU64,
     catalog: Mutex<AppleCatalog>,
     pub(crate) covers: Arc<ServiceCoverCache>,
     cover_source: Arc<AppleCovers>,
@@ -1000,6 +1029,8 @@ impl AppleMusicBinding {
         clock: Arc<dyn Clock>,
     ) -> Arc<Self> {
         prepare_service_library_folder(config_dir, library_id);
+        let held = apple_music_account::prepare(config_dir, library_id);
+        let records = device_records_folder(config_dir, library_id);
         let tokens = Arc::new(SessionTokens::default());
         let client = client(Arc::clone(&tokens) as Arc<dyn TokenSource>);
         Arc::new_cyclic(|this: &Weak<Self>| {
@@ -1034,12 +1065,26 @@ impl AppleMusicBinding {
                 client,
                 tokens,
                 lists,
-                rune_playlists: RunePlaylists::new(
-                    device_records_folder(config_dir, library_id).join(PLAYLISTS_FILE),
-                ),
-                rune_mixes: RuneMixes::new(
-                    device_records_folder(config_dir, library_id).join(MIXES_FILE),
-                ),
+                rune_playlists: if held {
+                    RunePlaylists::held(records.join(PLAYLISTS_FILE))
+                } else {
+                    RunePlaylists::new(records.join(PLAYLISTS_FILE))
+                },
+                rune_mixes: if held {
+                    RuneMixes::held(records.join(MIXES_FILE))
+                } else {
+                    RuneMixes::new(records.join(MIXES_FILE))
+                },
+                rune_likes: if held {
+                    RuneLikes::held(records.join(LIKES_FILE))
+                } else {
+                    RuneLikes::new(records.join(LIKES_FILE))
+                },
+                records_held: AtomicBool::new(held),
+                config_dir: config_dir.to_owned(),
+                importing: AtomicBool::new(false),
+                import_again: AtomicBool::new(false),
+                token_changes: AtomicU64::new(0),
                 catalog: Mutex::default(),
                 covers: Arc::new(ServiceCoverCache::new(
                     cover_cache_root(config_dir, library_id),
@@ -1073,16 +1118,62 @@ impl AppleMusicBinding {
             mem::take(&mut catalog.owed)
         };
         if changed {
+            self.token_changes.fetch_add(1, Ordering::SeqCst);
             // The storefront belongs to the account, which may be another one.
             self.client.forget_storefront();
             self.read_again(owed);
         }
     }
 
+    /// Starts importing Apple's playlists and likes into Rune's, as each sign-in does, which does
+    /// nothing once each was imported on this device (see `apple_music_import`). A sign-in that
+    /// comes while an import is under way does not start a second one: the running import stops
+    /// at the change of the tokens, and runs once more when it ends, for the new sign-in.
+    pub(crate) fn import_in_background(&self) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        // Set before the flag is taken, so a running import that is about to end sees it.
+        self.import_again.store(true, Ordering::SeqCst);
+        if self.importing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let Some(binding) = self.this.upgrade() else {
+            self.import_again.store(false, Ordering::SeqCst);
+            self.importing.store(false, Ordering::SeqCst);
+            return;
+        };
+        tokio::spawn(async move {
+            loop {
+                binding.import_again.store(false, Ordering::SeqCst);
+                apple_music_import::import(&binding).await;
+                // A sign-in that came meanwhile has its import next, with no gap in which none
+                // is under way.
+                if binding.import_again.load(Ordering::SeqCst) {
+                    continue;
+                }
+                binding.importing.store(false, Ordering::SeqCst);
+                // One that came just now: take the flag back unless another task did.
+                if !binding.import_again.load(Ordering::SeqCst)
+                    || binding.importing.swap(true, Ordering::SeqCst)
+                {
+                    break;
+                }
+            }
+        });
+    }
+
+    /// How many times the tokens changed (see `token_changes`), to take before what runs for
+    /// one sign-in and to compare after.
+    pub(crate) fn token_changes(&self) -> u64 {
+        self.token_changes.load(Ordering::SeqCst)
+    }
+
     /// Forgets the tokens and everything read with them, on disk too. The ids stay, so ids the
     /// UI holds keep their meaning for this binding.
     pub(crate) fn sign_out(&self) {
         if self.tokens.replace(None) {
+            self.token_changes.fetch_add(1, Ordering::SeqCst);
             self.client.forget_storefront();
         }
         self.lists.kept.clear(None);
@@ -1111,6 +1202,7 @@ impl AppleMusicBinding {
     pub(crate) async fn close_device_records(&self) {
         self.rune_playlists.close().await;
         self.rune_mixes.close().await;
+        self.rune_likes.close().await;
     }
 
     /// Whether the binding holds a sign-in.
@@ -2130,6 +2222,101 @@ impl AppleMusicBinding {
     /// for missing.
     pub(crate) fn found_again(&self, track: &str) {
         self.catalog().missing.remove(track);
+    }
+
+    /// The keys Rune's likes may keep the song of `track` under: the library copy's track first,
+    /// which is the one a like is kept under, then the catalog song's. A like then stays found by
+    /// the library's own track whenever the song list is not known yet. They are two keys of one
+    /// song when the song list names the library copy of a catalog song, or the library song
+    /// carries its catalog id; a song with one known key has that key only.
+    pub(crate) fn like_keys(&self, track: &str) -> Vec<String> {
+        let own = track.to_owned();
+        match song_of_track(track) {
+            Some((AppleIdKind::LibrarySong, _)) => match self.catalog_twin(track) {
+                Some(twin) => vec![own, twin],
+                None => vec![own],
+            },
+            Some((AppleIdKind::CatalogSong, _)) => {
+                let twin = self
+                    .known_songs()
+                    .and_then(|list| list.library_twin(track).map(str::to_owned));
+                match twin {
+                    Some(twin) => vec![twin, own],
+                    None => vec![own],
+                }
+            }
+            _ => vec![own],
+        }
+    }
+
+    /// The track of the catalog song the library song of `track` is a copy of, as its own
+    /// catalog id or the song list's copies name it.
+    fn catalog_twin(&self, track: &str) -> Option<String> {
+        if let Some(AppleSong::Library(song)) = self.known_song(track)
+            && let Some(catalog_id) = song.store_id()
+        {
+            return Some(catalog_track(catalog_id));
+        }
+        self.known_songs()?.catalog_twin(track).map(catalog_track)
+    }
+
+    /// The track of the library's copy of the song of `track` when the library holds one, else
+    /// `track`. The library home names a liked song by it.
+    pub(crate) fn library_copy_of(&self, track: &str) -> String {
+        self.like_keys(track)
+            .into_iter()
+            .find(|key| is_library_song_id(key))
+            .unwrap_or_else(|| track.to_owned())
+    }
+
+    /// The user's library playlists, read from Apple as they are now.
+    pub(crate) async fn read_library_playlists(&self) -> Result<Vec<LibraryPlaylist>, AppleError> {
+        self.call(self.client.library_playlists().try_collect())
+            .await
+    }
+
+    /// The songs of the library playlist `id`, read from Apple as they are now.
+    pub(crate) async fn read_library_playlist_songs(
+        &self,
+        id: &str,
+    ) -> Result<Vec<LibrarySong>, AppleError> {
+        self.call(self.playlist_songs(id)).await
+    }
+
+    /// The library songs among `ids` the user rated liked on Apple.
+    pub(crate) async fn liked_library_songs(
+        &self,
+        ids: &[String],
+    ) -> Result<HashSet<String>, AppleError> {
+        let ratings = self.call(self.client.library_song_ratings(ids)).await?;
+        Ok(ratings
+            .into_iter()
+            .filter(|rating| {
+                rating
+                    .attributes
+                    .as_ref()
+                    .and_then(|attributes| attributes.value)
+                    == Some(1)
+            })
+            .map(|rating| rating.id)
+            .collect())
+    }
+
+    /// Whether the library holds any of the library songs `ids`: as the song list last had it,
+    /// or else as Apple answers. Fails when Apple cannot tell.
+    pub(crate) async fn holds_any_song(&self, ids: &[String]) -> Result<bool, AppleError> {
+        if ids.is_empty() {
+            return Ok(false);
+        }
+        if let Some(list) = self.known_songs() {
+            return Ok(ids.iter().any(|id| list.get(id).is_some()));
+        }
+        match self.call(self.client.library_songs_by_ids(ids, &[])).await {
+            Ok(found) => Ok(!found.is_empty()),
+            // A library that holds none of them answers 404.
+            Err(AppleError::NotFound) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     /// A song this binding already holds, from the song list as last read or an earlier fetch.

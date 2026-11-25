@@ -101,6 +101,15 @@ struct AppleFake {
     /// Recommends the catalog's albums and playlist (see `recommendations`); otherwise Apple
     /// recommends nothing.
     recommends: bool,
+    /// The library songs the user rated liked on Apple, by their ids.
+    liked: Mutex<HashSet<String>>,
+    /// How many times the ratings were read.
+    rating_reads: AtomicUsize,
+    /// Fails every read of the ratings from the one with this number on, counting from 1; 0
+    /// fails none.
+    fail_rating_reads_from: AtomicUsize,
+    /// Fails the first read of this path.
+    fail_once: Mutex<Option<String>>,
 }
 
 /// The id another account's library has for `id`, when `id` is a library id: "i.s1" is
@@ -383,9 +392,9 @@ impl AppleFake {
         [copy, lost]
     }
 
-    /// One of the user's library playlists: one the user made when `editable`, and one
-    /// subscribed from the catalog otherwise.
-    fn library_playlist(&self, id: &str, name: &str, editable: bool) -> Value {
+    /// One of the user's library playlists, which the user can change when `editable`, and
+    /// which follows a playlist of the catalog when `subscribed`.
+    fn library_playlist(&self, id: &str, name: &str, editable: bool, subscribed: bool) -> Value {
         json!({
             "id": id,
             "type": "library-playlists",
@@ -393,7 +402,7 @@ impl AppleFake {
             "attributes": {
                 "name": name,
                 "canEdit": editable,
-                "hasCatalog": !editable,
+                "hasCatalog": subscribed,
                 "isPublic": false,
                 "playParams": {"id": id, "kind": "playlist", "isLibrary": true},
                 "artwork": self.artwork(name),
@@ -683,15 +692,31 @@ impl AppleFake {
             "/v1/me/library/artists/r.art1/albums" => json!({"data": [albums[0]]}),
             // The song list holds the songs of the user's own playlists too.
             "/v1/me/library/playlists" if self.playlists => json!({"data": [
-                self.library_playlist("p.mine1", "Road Trip", true),
-                self.library_playlist("p.sub1", "Evening Jazz", false),
+                self.library_playlist("p.mine1", "Road Trip", true, false),
+                self.library_playlist("p.mine2", "Sunday", true, false),
+                self.library_playlist("p.fav", "Favourite Songs", false, false),
+                self.library_playlist("p.sub1", "Evening Jazz", false, true),
             ]}),
             "/v1/me/library/playlists" => json!({"data": []}),
             "/v1/me/library/playlists/p.mine1/tracks" if self.playlists => {
                 json!({"data": [s1, s3]})
             }
+            "/v1/me/library/playlists/p.mine2/tracks" if self.playlists => {
+                json!({"data": [s3, s2]})
+            }
+            "/v1/me/library/playlists/p.fav/tracks" if self.playlists => json!({"data": [s2]}),
             "/v1/me/library/playlists/p.sub1/tracks" if self.playlists => {
                 json!({"data": [s2, s1]})
+            }
+            "/v1/me/ratings/library-songs" => {
+                let liked = self.liked.lock().unwrap();
+                let rated: Vec<Value> = url::form_urlencoded::parse(query.as_bytes())
+                    .filter(|(name, _)| name == "ids")
+                    .flat_map(|(_, ids)| ids.split(',').map(str::to_owned).collect::<Vec<_>>())
+                    .filter(|id| liked.contains(id))
+                    .map(|id| json!({"id": id, "type": "ratings", "attributes": {"value": 1}}))
+                    .collect();
+                json!({"data": rated})
             }
             "/v1/me/recommendations" if self.recommends => self.recommendations(),
             "/v1/me/recommendations" => json!({"data": []}),
@@ -792,6 +817,22 @@ async fn apple_fake(
         return (
             StatusCode::UNAUTHORIZED,
             r#"{"errors":[{"status":"401","code":"UNAUTHORIZED"}]}"#,
+        )
+            .into_response();
+    }
+    let failed_once = {
+        let mut failing = fake.fail_once.lock().unwrap();
+        failing.as_deref() == Some(path) && failing.take().is_some()
+    };
+    let failed_rating = path == "/v1/me/ratings/library-songs" && {
+        let read = fake.rating_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        let from = fake.fail_rating_reads_from.load(Ordering::SeqCst);
+        from != 0 && read >= from
+    };
+    if failed_once || failed_rating {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            r#"{"errors":[{"status":"500","code":"50000"}]}"#,
         )
             .into_response();
     }
@@ -939,6 +980,18 @@ struct AppleOptions {
     playlists: bool,
     /// Whether Apple recommends anything (see `AppleFake::recommendations`).
     recommends: bool,
+    /// The library songs the user rated liked on Apple.
+    apple_likes: Vec<&'static str>,
+    /// Holds Apple's first answer of the ratings until the test lets it go.
+    hold_ratings: Option<Arc<tokio::sync::Notify>>,
+    /// Fails the reads of the ratings from the one with this number on (see
+    /// `AppleFake::fail_rating_reads_from`).
+    fail_rating_reads_from: usize,
+    /// Fails the first read of this path.
+    fail_once: Option<&'static str>,
+    /// Whether the open does not wait for the import the sign-in started to finish, as when the
+    /// test holds or fails what it reads.
+    import_unfinished: bool,
 }
 
 async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple> {
@@ -967,7 +1020,12 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         bare_night: AtomicBool::new(options.bare_night),
         more_artists: Mutex::default(),
         extra_songs: options.extra_songs,
-        hold_once: Mutex::default(),
+        hold_once: Mutex::new(
+            options
+                .hold_ratings
+                .clone()
+                .map(|release| ("/v1/me/ratings/library-songs".to_owned(), release)),
+        ),
         credited: options.credited,
         unlisted_songs: options.unlisted_songs,
         solo: options.solo,
@@ -979,6 +1037,16 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         playlists: options.playlists,
         old_songs: AtomicBool::new(false),
         recommends: options.recommends,
+        liked: Mutex::new(
+            options
+                .apple_likes
+                .iter()
+                .map(|id| (*id).to_owned())
+                .collect(),
+        ),
+        rating_reads: AtomicUsize::new(0),
+        fail_rating_reads_from: AtomicUsize::new(options.fail_rating_reads_from),
+        fail_once: Mutex::new(options.fail_once.map(str::to_owned)),
     });
     let app = Router::new().fallback(apple_fake).with_state(fake.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1016,7 +1084,7 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         Ok(binding.known_songs().map(|_| ()))
     })
     .await?;
-    Ok(OpenApple {
+    let apple = OpenApple {
         fixture,
         node,
         binding,
@@ -1025,7 +1093,41 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         server,
         clock,
         ui,
+    };
+    if !options.import_unfinished {
+        import_ended(&apple, apple.record).await?;
+    }
+    Ok(apple)
+}
+
+/// The records folder of the Apple Music library `record`.
+fn records_of(apple: &OpenApple, record: LibraryRecordId) -> std::path::PathBuf {
+    use crate::service::device_records::device_records_folder;
+
+    device_records_folder(Path::new(&*apple.node.config_path), record.0)
+}
+
+/// Waits for the first import of the library `record` to end: its playlists and likes are noted
+/// as imported, the ids of its account are kept once the library holds any, and its binding
+/// reads its records. A binding that takes over what a removed library left moves those files
+/// into its folder before it lets them be read, so the files alone do not tell.
+async fn import_ended(apple: &OpenApple, record: LibraryRecordId) -> Result<()> {
+    let folder = records_of(apple, record);
+    let binding = apple
+        .node
+        .services
+        .apple_music_binding(record)
+        .context("the binding of the library")?;
+    let lists_songs = !apple.fake.empty.load(Ordering::SeqCst) && !apple.fake.unlisted_songs;
+    let holds_any = lists_songs || apple.fake.playlists;
+    wait_until("the import to end", || async {
+        let ended = folder.join("playlists.imported").exists()
+            && folder.join("likes.imported").exists()
+            && (!holds_any || folder.join("account.json").exists())
+            && !binding.records_held.load(Ordering::SeqCst);
+        Ok(ended.then_some(()))
     })
+    .await
 }
 
 impl OpenApple {
@@ -1111,7 +1213,8 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
         assert_eq!(slot, Slot::Translate);
     }
     // What is asked about one item is decided by the library of the item, which for an Apple
-    // Music item is only its color (see `RequestSlots::apple_music_items`).
+    // Music item is its color and whether it is liked in Rune (see
+    // `RequestSlots::apple_music_items`).
     for slot in [
         GetPrimaryColorByTrackIdRequest::slot(&slots),
         GetLyricByTrackIdRequest::slot(&slots),
@@ -1122,16 +1225,15 @@ fn apple_music_slots_translate_browsing_and_leave_the_rest_unsupported() {
     }
     let items = RequestSlots::apple_music_items();
     assert_eq!(GetPrimaryColorByTrackIdRequest::slot(&items), Slot::Native);
+    assert_eq!(SetLikedRequest::slot(&items), Slot::Translate);
+    assert_eq!(
+        crate::messages::GetLikedRequest::slot(&items),
+        Slot::Translate
+    );
     let hidden = Slot::Unsupported {
         reason: UnsupportedReason::NotImplemented,
     };
-    for slot in [
-        GetLyricByTrackIdRequest::slot(&items),
-        SetLikedRequest::slot(&items),
-        crate::messages::GetLikedRequest::slot(&items),
-    ] {
-        assert_eq!(slot, hidden);
-    }
+    assert_eq!(GetLyricByTrackIdRequest::slot(&items), hidden);
     // What the library does not hold, its search and playlists made of files, it does not
     // answer.
     for slot in [
@@ -3012,7 +3114,7 @@ async fn removing_the_record_stops_covers_that_are_still_downloading() -> Result
     let config = std::path::PathBuf::from(&*apple.node.config_path);
     let folder = cover_cache_root(&config, apple.record.0);
     apple.node.services.retire(apple.record).await;
-    delete_service_library_folder(&config, apple.record.0).await?;
+    delete_service_library_folder(&config, apple.record.0, false).await?;
     // Apple's answer comes after the removal; it must not bring the folder back.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     assert!(
@@ -4304,20 +4406,21 @@ async fn the_ui_hears_what_the_playing_item_supports_before_the_status_that_name
         ))
         .await?;
 
-    // Apple Music answers the color of its track, and keeps no likes or lyrics for it.
+    // Apple Music answers the color of its track and whether it is liked in Rune, and keeps no
+    // lyrics for it.
     let told = told_before_its_status(&heard, &song).await?;
-    assert_eq!(
-        told.get_primary_color_by_track_id_request,
-        RequestCapability::Available,
-        "{told:?}"
-    );
     for capability in [
+        told.get_primary_color_by_track_id_request,
         told.set_liked_request,
-        told.get_lyric_by_track_id_request,
         told.get_liked_request,
     ] {
-        assert_eq!(capability, RequestCapability::Hidden, "{told:?}");
+        assert_eq!(capability, RequestCapability::Available, "{told:?}");
     }
+    assert_eq!(
+        told.get_lyric_by_track_id_request,
+        RequestCapability::Hidden,
+        "{told:?}"
+    );
 
     // The host plays its track to the end, and the local track after it has everything.
     let revision = host.sent().first().context("the hand-over")?.revision;
@@ -4555,6 +4658,7 @@ async fn the_ui_hears_an_apple_item_supports_nothing_once_its_library_goes() -> 
     let removal = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: apple.record.0.to_string(),
+        delete_device_data: false,
     };
     <RemoveLibraryRecordRequest as crate::Signal>::handle(
         &removal,
@@ -5072,7 +5176,7 @@ async fn apple_items_stay_on_this_device_while_a_renderer_is_attached() -> Resul
     assert_eq!(sizes[0], sizes[1], "the Apple track went with the mix");
 
     // With the renderer's library open here, what an Apple track's library declares for its
-    // items is decided here, and never sent to the renderer: it keeps no likes or lyrics, which
+    // items is decided here: a like is kept in Rune on this device, it keeps no lyrics, which
     // are refused, and there is no cover file to take a color from.
     let mut answers = Vec::new();
     let sent = bytes_sent(
@@ -5105,12 +5209,19 @@ async fn apple_items_stay_on_this_device_while_a_renderer_is_attached() -> Resul
         to_renderer,
     )
     .await?;
-    for (answer, what) in answers.into_iter().zip(["a like", "the lyrics"]) {
-        let refused = answer.err().with_context(|| {
-            format!("{what} of an Apple track with the renderer's library open")
-        })?;
-        assert!(unsupported(&refused), "{what}: {refused:#}");
-    }
+    let mut answers = answers.into_iter();
+    answers
+        .next()
+        .context("the like asked")?
+        .context("a like of an Apple track with the renderer's library open")?;
+    let kept = std::fs::read_to_string(records_of(&apple, apple.record).join("likes.json"))?;
+    assert!(kept.contains("\"i.s1\""), "{kept}");
+    let refused = answers
+        .next()
+        .context("the lyrics asked")?
+        .err()
+        .context("the lyrics of an Apple track with the renderer's library open")?;
+    assert!(unsupported(&refused), "{refused:#}");
     let mut color = None;
     let sent = sent
         + bytes_sent(
@@ -5993,22 +6104,31 @@ async fn no_playlist_of_apples_is_listed_or_written_to() -> Result<()> {
         },
     )
     .await?;
-    // The song list read Apple's playlists, and no page lists one of them.
-    assert!(apple.fake.count("/v1/me/library/playlists/p.mine1/tracks") > 0);
-    assert!(offered_playlists(&apple).await?.is_empty());
-    assert!(playlist_groups(&apple).await?.is_empty());
-    assert!(home_playlists(&apple).await?.is_empty());
-    let searched = apple
-        .run(&SearchCollectionSummaryRequest {
+    // Apple's own playlists are listed only as the Rune playlists the sign-in imported them
+    // into, in Apple's order, in the group the library fills itself.
+    let imported: Vec<(String, String)> = ["Road Trip", "Sunday", "Favourite Songs", "Evening Jazz"]
+        .iter()
+        .map(|name| ((*name).to_owned(), "Apple Music".to_owned()))
+        .collect();
+    assert_eq!(offered_playlists(&apple).await?, imported);
+    let summary = apple
+        .run(&FetchCollectionGroupSummaryRequest {
             call_id: None,
-            collection_type: Some(CollectionType::Playlist),
-            bake_cover_arts: Some(false),
-            n: 10,
+            collection_type: CollectionType::Playlist,
         })
         .await?;
-    assert!(searched.result.is_empty());
+    assert_eq!(
+        summary
+            .groups
+            .iter()
+            .map(|group| (group.group_title.as_str(), group.count, group.reserved))
+            .collect::<Vec<_>>(),
+        [("Apple Music", 4, true)]
+    );
+    assert!(home_playlists(&apple).await?.iter().all(|entry| !entry.readonly));
 
-    // So no id names one, and a request that names an id nothing was given for is refused.
+    // No id names one of Apple's, and a request that names an id nothing was given for is
+    // refused.
     let unknown = 4242;
     let refused = [
         apple
@@ -6071,10 +6191,9 @@ async fn no_playlist_of_apples_is_listed_or_written_to() -> Result<()> {
             call_id: None,
         })
         .await?;
-    assert_eq!(
-        offered_playlists(&apple).await?,
-        [("Mine".to_owned(), "Mood".to_owned())]
-    );
+    let mut offered = imported;
+    offered.push(("Mine".to_owned(), "Mood".to_owned()));
+    assert_eq!(offered_playlists(&apple).await?, offered);
     assert!(apple.fake.writes.lock().unwrap().is_empty());
     apple.finish().await
 }
@@ -6193,7 +6312,8 @@ async fn a_rune_playlist_takes_songs_anywhere_and_keeps_their_occurrences_as_the
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_rune_playlist_is_renamed_regrouped_and_removed() -> Result<()> {
+async fn a_rune_playlist_is_renamed_regrouped_and_removed_but_not_put_in_apples_group() -> Result<()>
+{
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
@@ -6222,6 +6342,21 @@ async fn a_rune_playlist_is_renamed_regrouped_and_removed() -> Result<()> {
         (opened.name.as_str(), opened.group.as_str()),
         ("Late Drive", "Calm")
     );
+
+    // The group of Apple Music's playlists is filled by the library itself.
+    for group in ["Apple Music", " apple music "] {
+        let made = make_rune_playlist(&apple, "Other", group)
+            .await
+            .err()
+            .context("a Rune playlist in Apple's group")?;
+        assert!(invalid_input(&made), "{made:#}");
+        let moved = apple
+            .run(&update("Late Drive", group))
+            .await
+            .err()
+            .context("a Rune playlist moved to Apple's group")?;
+        assert!(invalid_input(&moved), "{moved:#}");
+    }
 
     let removed = apple
         .run(&RemovePlaylistRequest {
@@ -6383,7 +6518,8 @@ async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn rune_playlists_last_through_sign_ins_and_new_bindings() -> Result<()> {
+async fn rune_playlists_last_through_sign_ins_and_new_bindings_and_outlive_the_record() -> Result<()>
+{
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let file = playlists_file(&apple);
@@ -6436,15 +6572,35 @@ async fn rune_playlists_last_through_sign_ins_and_new_bindings() -> Result<()> {
         Some("Second Wind")
     );
 
-    // Once its record is retired, its binding writes nothing any more.
-    restarted.node.services.retire(restarted.record).await;
+    // Removing the record keeps them on this device, and its binding writes nothing any more.
+    let registry = LibraryRegistry::load(Path::new(&*restarted.node.config_path))?;
+    let own = registry
+        .libraries
+        .iter()
+        .find(|record| matches!(record.protocol, ProtocolAdapter::Native))
+        .context("the fixture's own library")?;
+    super::open_registered_library_record(restarted.node.clone(), own.record_id.0.to_string())
+        .await?;
     let written = std::fs::read(&file)?;
+    let removal = crate::messages::RemoveLibraryRecordRequest {
+        record_id: restarted.record.0.to_string(),
+        call_id: None,
+        delete_device_data: false,
+    };
+    <crate::messages::RemoveLibraryRecordRequest as crate::Signal>::handle(
+        &removal,
+        restarted.node.clone(),
+        None,
+        &removal,
+    )
+    .await?
+    .context("the record's removal")?;
     let refused = binding
         .rune_playlists
         .create("Late", "Mood")
         .await
         .err()
-        .context("a change after the record is retired")?;
+        .context("a change after the record is removed")?;
     assert!(matches!(
         refused.downcast_ref::<ExpectedRequestError>(),
         Some(ExpectedRequestError::Unavailable { .. })
@@ -6711,10 +6867,10 @@ async fn an_entry_whose_song_is_gone_plays_its_catalog_copy_or_keeps_its_name() 
 async fn a_playlist_file_that_cannot_be_read_is_reported_and_left_as_it_is() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
-    // The file is spoiled before the library first reads it.
+    // The file is spoiled, and a binding made afresh, as after a restart, reads it.
     let file = playlists_file(&apple);
-    std::fs::create_dir_all(file.parent().context("the records folder")?)?;
     std::fs::write(&file, b"{ not the playlists")?;
+    let (_ui, binding) = bind_again(&apple).await?;
 
     // No playlist is listed, and the lists that show them still answer.
     assert!(offered_playlists(&apple).await?.is_empty());
@@ -6735,7 +6891,7 @@ async fn a_playlist_file_that_cannot_be_read_is_reported_and_left_as_it_is() -> 
             .err(),
     );
     // An id the UI held from before.
-    let held = apple.binding.intern(AppleIdKind::RunePlaylist, "held")?;
+    let held = binding.intern(AppleIdKind::RunePlaylist, "held")?;
     names_the_file(
         apple
             .run(&GetPlaylistByIdRequest {
@@ -6746,7 +6902,17 @@ async fn a_playlist_file_that_cannot_be_read_is_reported_and_left_as_it_is() -> 
             .err(),
     );
     names_the_file(apple.run(&playlist_page(held)).await.err());
-    names_the_file(add_song(&apple, held, "i.s1", None).await.err());
+    names_the_file(
+        apple
+            .run(&AddItemToPlaylistRequest {
+                playlist_id: held,
+                media_file_id: binding.intern_track("i.s1")?,
+                position: None,
+                call_id: None,
+            })
+            .await
+            .err(),
+    );
     assert_eq!(std::fs::read(&file)?, b"{ not the playlists");
     assert!(apple.fake.writes.lock().unwrap().is_empty());
 
@@ -7910,5 +8076,825 @@ async fn recommendations_read_before_a_sign_out_are_not_kept_after_it() -> Resul
     assert_eq!(asked(), reads + 1);
     mix_summary(&apple).await?;
     assert_eq!(asked(), reads + 2);
+    apple.finish().await
+}
+
+// Likes kept in Rune, the one-time import, and records that outlive the record -----------------
+
+fn like(apple: &OpenApple, track: &str, liked: bool) -> SetLikedRequest {
+    SetLikedRequest {
+        item: Some(song_ref(apple, track)),
+        liked,
+        call_id: None,
+    }
+}
+
+async fn is_liked(apple: &OpenApple, track: &str) -> Result<bool> {
+    Ok(apple
+        .run(&crate::messages::GetLikedRequest {
+            item: Some(song_ref(apple, track)),
+            call_id: None,
+        })
+        .await?
+        .liked)
+}
+
+/// The names of the home's Liked group, in order.
+async fn liked_group(apple: &OpenApple) -> Result<Vec<String>> {
+    let home = apple
+        .run(&ComplexQueryRequest {
+            queries: vec![ComplexQuery {
+                title: "Liked".into(),
+                query: LibraryHomeQuery::Liked,
+            }],
+            call_id: None,
+        })
+        .await?;
+    Ok(home.result[0]
+        .entries
+        .iter()
+        .map(|entry| entry.name.clone())
+        .collect())
+}
+
+fn liking(likes: Vec<&'static str>) -> AppleOptions {
+    AppleOptions {
+        apple_likes: likes,
+        ..AppleOptions::default()
+    }
+}
+
+fn with_playlists() -> AppleOptions {
+    AppleOptions {
+        playlists: true,
+        ..AppleOptions::default()
+    }
+}
+
+/// Lets the import a sign-in started do what it does: once everything was imported, it asks
+/// Apple nothing, which the counts of what Apple was asked then show.
+async fn import_settled() {
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+}
+
+/// Makes a binding of the library afresh, as at the next start: the one held is retired, the
+/// library is opened again and signed in. Answers the UI's params, which the test holds, and
+/// the binding.
+async fn bind_again(
+    apple: &OpenApple,
+) -> Result<(Arc<crate::utils::GlobalParams>, Arc<AppleMusicBinding>)> {
+    apple.node.services.retire(apple.record).await;
+    let ui =
+        super::open_registered_library_record(apple.node.clone(), apple.record.0.to_string())
+            .await?;
+    let binding = apple
+        .node
+        .services
+        .apple_music_binding(apple.record)
+        .context("the new binding")?;
+    sign_in_again(apple, USER_TOKEN).await?;
+    Ok((ui, binding))
+}
+
+/// Signs the open Apple library in again as the platform does, which starts an import.
+async fn sign_in_again(apple: &OpenApple, user_token: &str) -> Result<()> {
+    use crate::messages::{ServiceSignIn, SignInServiceLibraryRequest};
+    use crate::utils::sign_in_service_library_on_node;
+
+    sign_in_service_library_on_node(
+        &SignInServiceLibraryRequest {
+            record_id: apple.record.0.to_string(),
+            sign_in: ServiceSignIn::Platform {
+                user_token: user_token.into(),
+                developer_token: Some(DEVELOPER_TOKEN.into()),
+            },
+            call_id: None,
+        },
+        &apple.node,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn likes_are_kept_in_rune_and_never_sent_to_apple() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let reads = apple.fake.rating_reads.load(Ordering::SeqCst);
+    assert!(!is_liked(&apple, "i.s1").await?);
+
+    let liked = apple.run(&like(&apple, "i.s1", true)).await?;
+    assert!(liked.liked);
+    assert_eq!(liked.item, song_ref(&apple, "i.s1"));
+    apple.run(&like(&apple, "catalog:777", true)).await?;
+    assert!(is_liked(&apple, "i.s1").await?);
+    assert!(is_liked(&apple, "catalog:777").await?);
+    assert!(!is_liked(&apple, "i.s2").await?);
+
+    apple.run(&like(&apple, "i.s1", false)).await?;
+    apple.run(&like(&apple, "catalog:777", false)).await?;
+    assert!(!is_liked(&apple, "i.s1").await?);
+    assert!(!is_liked(&apple, "catalog:777").await?);
+    apple.run(&like(&apple, "i.s1", true)).await?;
+    assert!(is_liked(&apple, "i.s1").await?);
+    // Apple was told nothing and asked nothing about ratings.
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_apple_item_is_liked_while_a_local_library_is_open() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    open_own_library(&apple).await?;
+    assert!(apple.node.service_binding(apple.record.0)?.is_none());
+
+    let liked = apple.run(&like(&apple, "i.s2", true)).await?;
+    assert!(liked.liked);
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    assert!(is_liked(&apple, "i.s2").await?);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_like_belongs_to_the_song_not_to_its_library_or_catalog_copy() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // "i.s1" and "catalog:ci.s1" are one song: the library's copy names its catalog song.
+    assert!(!is_liked(&apple, "i.s1").await?);
+    apple.run(&like(&apple, "catalog:ci.s1", true)).await?;
+    assert!(is_liked(&apple, "i.s1").await?);
+    assert!(is_liked(&apple, "catalog:ci.s1").await?);
+    assert_eq!(liked_group(&apple).await?, ["First Light"]);
+    // Unliking the library copy unlikes the catalog song.
+    apple.run(&like(&apple, "i.s1", false)).await?;
+    assert!(!is_liked(&apple, "i.s1").await?);
+    assert!(!is_liked(&apple, "catalog:ci.s1").await?);
+    assert!(liked_group(&apple).await?.is_empty());
+    // And the other way round.
+    apple.run(&like(&apple, "i.s1", true)).await?;
+    assert!(is_liked(&apple, "catalog:ci.s1").await?);
+    apple.run(&like(&apple, "catalog:ci.s1", false)).await?;
+    assert!(!is_liked(&apple, "i.s1").await?);
+    // A song with one known key is as before.
+    apple.run(&like(&apple, "catalog:777", true)).await?;
+    assert!(is_liked(&apple, "catalog:777").await?);
+    assert!(!is_liked(&apple, "i.s2").await?);
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn likes_stored_under_either_key_count_and_the_home_shows_the_library_copy_once()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // Entries made under each key of a song, as before the other key was known.
+    apple.binding.rune_likes.set_liked(&["i.s1"], true).await?;
+    assert!(is_liked(&apple, "catalog:ci.s1").await?);
+    apple
+        .binding
+        .rune_likes
+        .set_liked(&["catalog:ci.s1"], true)
+        .await?;
+    apple.binding.rune_likes.set_liked(&["i.s2"], true).await?;
+    assert_eq!(liked_group(&apple).await?, ["Second Wind", "First Light"]);
+    // An unlike counts for both, whichever entry is older.
+    apple.run(&like(&apple, "i.s1", false)).await?;
+    assert!(!is_liked(&apple, "catalog:ci.s1").await?);
+    assert_eq!(liked_group(&apple).await?, ["Second Wind"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_import_does_not_like_again_a_song_unliked_under_its_other_key() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), liking(vec!["i.s1", "i.s2", "i.s3"])).await?;
+    let folder = records_of(&apple, apple.record);
+    // The import liked the songs by one key each, and either key finds them.
+    assert!(is_liked(&apple, "catalog:ci.s3").await?);
+    assert_eq!(
+        liked_group(&apple).await?,
+        ["Third Road", "Second Wind", "First Light"]
+    );
+    // A library that was not imported yet, with an unlike noted under each song's other key.
+    apple.node.services.retire(apple.record).await;
+    std::fs::remove_file(folder.join("likes.imported"))?;
+    std::fs::write(
+        folder.join("likes.json"),
+        serde_json::to_vec(&json!({
+            "format": 1,
+            "songs": [
+                {"id": "catalog:ci.s1", "liked": false},
+                {"id": "i.s2", "liked": false},
+            ],
+        }))?,
+    )?;
+    let (_ui, _binding) = bind_again(&apple).await?;
+    wait_until("the likes to be imported", || async {
+        Ok(folder.join("likes.imported").exists().then_some(()))
+    })
+    .await?;
+    assert!(!is_liked(&apple, "i.s1").await?);
+    assert!(!is_liked(&apple, "catalog:ci.s2").await?);
+    assert!(is_liked(&apple, "i.s3").await?);
+    assert_eq!(liked_group(&apple).await?, ["Third Road"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_home_lists_the_likes_kept_in_rune_newest_first_without_asking_for_ratings()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // Apple has rated two songs liked, which the sign-in imported.
+    let apple = open_apple_with(dir.path(), liking(vec!["i.s1", "i.s2"])).await?;
+    let reads = apple.fake.rating_reads.load(Ordering::SeqCst);
+    assert_eq!(liked_group(&apple).await?, ["Second Wind", "First Light"]);
+
+    // A song liked in Rune is the newest; one unliked is gone; a song the binding cannot name
+    // is left out, not failed on.
+    apple.run(&like(&apple, "i.s3", true)).await?;
+    apple.run(&like(&apple, "i.s9", true)).await?;
+    apple.run(&like(&apple, "i.s2", false)).await?;
+    assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
+    // Liked again, a song is the newest.
+    apple.run(&like(&apple, "i.s2", true)).await?;
+    assert_eq!(
+        liked_group(&apple).await?,
+        ["Second Wind", "Third Road", "First Light"]
+    );
+    assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_first_sign_in_imports_apples_likes_once() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), liking(vec!["i.s1", "i.s3"])).await?;
+    let folder = records_of(&apple, apple.record);
+    assert!(folder.join("likes.imported").exists());
+    assert!(folder.join("likes.json").exists());
+    assert!(is_liked(&apple, "i.s1").await?);
+    assert!(!is_liked(&apple, "i.s2").await?);
+    assert!(is_liked(&apple, "i.s3").await?);
+    assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
+    // Apple was only read from.
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // Another sign-in, and a binding made afresh as after a restart, do not read the ratings
+    // again, though Apple's have changed.
+    let reads = apple.fake.rating_reads.load(Ordering::SeqCst);
+    assert!(reads > 0);
+    apple.fake.liked.lock().unwrap().insert("i.s2".into());
+    sign_in_again(&apple, USER_TOKEN).await?;
+    import_settled().await;
+    let (_ui, _binding) = bind_again(&apple).await?;
+    import_settled().await;
+    assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
+    assert!(!is_liked(&apple, "i.s2").await?);
+    assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_like_or_unlike_made_in_rune_while_the_likes_are_imported_is_kept() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let release = Arc::new(tokio::sync::Notify::new());
+    // Apple answers the ratings only when the test lets it, so the import is under way.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            apple_likes: vec!["i.s1", "i.s2"],
+            hold_ratings: Some(release.clone()),
+            import_unfinished: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    fake_asked(&apple, "/v1/me/ratings/library-songs?", 1).await?;
+    // The user unlikes a song Apple has liked, and likes one Apple has not.
+    apple.run(&like(&apple, "i.s2", false)).await?;
+    apple.run(&like(&apple, "i.s3", true)).await?;
+    release.notify_one();
+    import_ended(&apple, apple.record).await?;
+    assert!(is_liked(&apple, "i.s1").await?);
+    assert!(!is_liked(&apple, "i.s2").await?);
+    assert!(is_liked(&apple, "i.s3").await?);
+    // What Rune liked is newer than what came in.
+    assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sign_in_during_an_import_is_imported_for_once_the_import_ends() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            apple_likes: vec!["i.s1"],
+            hold_ratings: Some(release.clone()),
+            import_unfinished: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    fake_asked(&apple, "/v1/me/ratings/library-songs?", 1).await?;
+    let marker = records_of(&apple, apple.record).join("likes.imported");
+    assert!(!marker.exists());
+    // Another sign-in comes while the import waits for Apple: it stops that one, and its own
+    // runs when that has ended.
+    sign_in_again(&apple, APPLE_OTHER_TOKEN).await?;
+    release.notify_one();
+    import_ended(&apple, apple.record).await?;
+    // The first import read the ratings, and the one of the new sign-in read them again.
+    assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), 2);
+    assert!(is_liked(&apple, "i.s1").await?);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn likes_that_could_not_be_read_are_imported_at_the_next_sign_in() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // Apple fails the ratings at the import of the first sign-in.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            apple_likes: vec!["i.s2"],
+            fail_rating_reads_from: 1,
+            import_unfinished: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let folder = records_of(&apple, apple.record);
+    // The import ends with the ids of the account, which come after the likes.
+    wait_until("the first import to end", || async {
+        Ok(folder.join("account.json").exists().then_some(()))
+    })
+    .await?;
+    let marker = folder.join("likes.imported");
+    assert!(folder.join("playlists.imported").exists());
+    assert!(!marker.exists());
+    assert!(!is_liked(&apple, "i.s2").await?);
+    // The user likes a song meanwhile.
+    apple.run(&like(&apple, "i.s1", true)).await?;
+
+    apple.fake.fail_rating_reads_from.store(0, Ordering::SeqCst);
+    sign_in_again(&apple, USER_TOKEN).await?;
+    wait_until("the likes to be imported", || async {
+        Ok(marker.exists().then_some(()))
+    })
+    .await?;
+    assert!(is_liked(&apple, "i.s2").await?);
+    assert!(is_liked(&apple, "i.s1").await?);
+    assert_eq!(liked_group(&apple).await?, ["First Light", "Second Wind"]);
+    apple.finish().await
+}
+
+/// Rune's playlists by name, with the tracks of their entries in order.
+async fn rune_playlist_songs(apple: &OpenApple) -> Result<Vec<(String, Vec<String>)>> {
+    let mut found = Vec::new();
+    for playlist in apple
+        .run(&FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .playlists
+    {
+        let page = apple.run(&playlist_page(playlist.id)).await?;
+        found.push((
+            playlist.name,
+            page.entries
+                .into_iter()
+                .map(|entry| entry.track_uuid)
+                .collect(),
+        ));
+    }
+    found.sort();
+    Ok(found)
+}
+
+fn named_songs(list: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+    list.iter()
+        .map(|(name, songs)| {
+            (
+                (*name).to_owned(),
+                songs.iter().map(|song| (*song).to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// Every playlist of Apple's, as the sign-in imported it.
+fn imported_playlists() -> Vec<(String, Vec<String>)> {
+    named_songs(&[
+        ("Evening Jazz", &["i.s2", "i.s1"]),
+        ("Favourite Songs", &["i.s2"]),
+        ("Road Trip", &["i.s1", "i.s3"]),
+        ("Sunday", &["i.s3", "i.s2"]),
+    ])
+}
+
+/// How often the songs of the subscribed playlist were read, which only an import reads: the
+/// song list joins the user's own playlists only.
+fn import_reads(apple: &OpenApple) -> usize {
+    apple
+        .fake
+        .count("/v1/me/library/playlists/p.sub1/tracks")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_first_sign_in_imports_every_playlist_of_apples_once() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), with_playlists()).await?;
+    let folder = records_of(&apple, apple.record);
+    // Every playlist, with its songs in order, the Favourite Songs and the one subscribed to
+    // included.
+    assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
+    assert!(folder.join("playlists.imported").exists());
+    // Each song is kept with what was known of it, to name it once Apple drops it.
+    let written = std::fs::read_to_string(folder.join("playlists.json"))?;
+    for kept in [
+        "\"imported_from\": \"p.mine2\"",
+        "\"catalog_id\": \"ci.s2\"",
+        "\"title\": \"Second Wind\"",
+        "\"album\": \"Dawn Album\"",
+    ] {
+        assert!(written.contains(kept), "{kept} in {written}");
+    }
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+
+    // Another sign-in, and a binding made afresh as after a restart, import nothing again, and
+    // do not even read Apple's playlists for it.
+    let reads = import_reads(&apple);
+    assert_eq!(reads, 1);
+    sign_in_again(&apple, USER_TOKEN).await?;
+    import_settled().await;
+    let (_ui, _binding) = bind_again(&apple).await?;
+    import_settled().await;
+    assert_eq!(import_reads(&apple), reads);
+    assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_import_cut_short_goes_on_at_the_next_sign_in_beside_rune_playlists() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // Apple fails the songs of "Evening Jazz" once, at the import of the first sign-in.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            fail_once: Some("/v1/me/library/playlists/p.sub1/tracks"),
+            import_unfinished: true,
+            ..with_playlists()
+        },
+    )
+    .await?;
+    let folder = records_of(&apple, apple.record);
+    // The import ends with the ids of the account, which come after the likes.
+    wait_until("the first import to end", || async {
+        Ok(folder.join("account.json").exists().then_some(()))
+    })
+    .await?;
+    let marker = folder.join("playlists.imported");
+    assert_eq!(
+        rune_playlist_songs(&apple).await?,
+        named_songs(&[
+            ("Favourite Songs", &["i.s2"]),
+            ("Road Trip", &["i.s1", "i.s3"]),
+            ("Sunday", &["i.s3", "i.s2"]),
+        ])
+    );
+    assert!(!marker.exists());
+    // A Rune playlist made meanwhile, as one made before this device imported anything.
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    add_song(&apple, mine.id, "i.s2", None).await?;
+
+    // The next sign-in imports what is missing, beside it, and nothing twice.
+    sign_in_again(&apple, USER_TOKEN).await?;
+    wait_until("the playlists to be imported", || async {
+        Ok(marker.exists().then_some(()))
+    })
+    .await?;
+    let mut all = imported_playlists();
+    all.push(("Mine".to_owned(), vec!["i.s2".to_owned()]));
+    all.sort();
+    assert_eq!(rune_playlist_songs(&apple).await?, all);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn playlists_the_user_cannot_change_are_editable_playlists_of_rune_and_no_mixes() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), with_playlists()).await?;
+    let album = apple.binding.intern(AppleIdKind::Album, "l.alb1")?;
+    create_mix(&apple, "Mine", vec![query("lib::album", album)]).await?;
+    // Only Rune's own mix is listed: the Mixes page has no group for Apple's playlists, and the
+    // home and the menus hold none either.
+    assert_eq!(mix_summary(&apple).await?, [("Favorite".to_owned(), 1)]);
+    let page = mix_groups(&apple, &["Apple Music"]).await?;
+    assert!(page[0].collections.is_empty());
+    let home = apple.run(&home_mixes(LibraryHomeListMode::Forward)).await?;
+    assert_eq!(
+        home.result[0]
+            .entries
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.readonly))
+            .collect::<Vec<_>>(),
+        [("Mine", false)]
+    );
+    assert_eq!(
+        rune_mixes(&apple)
+            .await?
+            .iter()
+            .map(|mix| mix.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Mine"]
+    );
+
+    // The one subscribed to and the Favourite Songs are playlists of Rune's, with their songs
+    // in order, that can be changed like any other, renamed within their group too, and nothing
+    // is written to Apple.
+    let jazz = playlist_named(&apple, "Evening Jazz").await?;
+    add_song(&apple, jazz, "i.s3", None).await?;
+    apple
+        .run(&UpdatePlaylistRequest {
+            playlist_id: jazz,
+            name: "Late Jazz".into(),
+            group: "Apple Music".into(),
+            call_id: None,
+        })
+        .await?;
+    let favourites = playlist_named(&apple, "Favourite Songs").await?;
+    add_song(&apple, favourites, "i.s1", Some(0)).await?;
+    assert_eq!(
+        rune_playlist_songs(&apple).await?,
+        named_songs(&[
+            ("Favourite Songs", &["i.s1", "i.s2"]),
+            ("Late Jazz", &["i.s2", "i.s1", "i.s3"]),
+            ("Road Trip", &["i.s1", "i.s3"]),
+            ("Sunday", &["i.s3", "i.s2"]),
+        ])
+    );
+    assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+/// The files the Apple Music library of `record` keeps on this device beside Apple's: the marker
+/// of the import of the playlists, the playlists, the ids of the account, the mixes, the liked
+/// songs and the marker of the import of the likes.
+fn rune_files(apple: &OpenApple, record: LibraryRecordId) -> [std::path::PathBuf; 6] {
+    let folder = records_of(apple, record);
+    [
+        "playlists.imported",
+        "playlists.json",
+        "account.json",
+        "mixes.json",
+        "likes.json",
+        "likes.imported",
+    ]
+    .map(|name| folder.join(name))
+}
+
+/// What the files of `record` hold, as `rune_files` lists them; none for a file it lacks.
+fn rune_file_bytes(apple: &OpenApple, record: LibraryRecordId) -> Vec<Option<String>> {
+    rune_files(apple, record)
+        .iter()
+        .map(|file| std::fs::read_to_string(file).ok())
+        .collect()
+}
+
+/// Removes the Apple Music library `record` as the settings do, or as a reset does with
+/// `delete_device_data`.
+async fn remove_apple(
+    apple: &OpenApple,
+    record: LibraryRecordId,
+    delete_device_data: bool,
+) -> Result<()> {
+    use crate::messages::RemoveLibraryRecordRequest;
+
+    open_own_library(apple).await?;
+    let remove = RemoveLibraryRecordRequest {
+        record_id: record.0.to_string(),
+        call_id: None,
+        delete_device_data,
+    };
+    <RemoveLibraryRecordRequest as crate::Signal>::handle(
+        &remove,
+        apple.node.clone(),
+        None,
+        &remove,
+    )
+    .await?
+    .context("the record's removal")?;
+    Ok(())
+}
+
+/// Adds the Apple Music library again, as the sign-in does: a new record, opened once the import
+/// its sign-in started ended.
+async fn add_apple_again(apple: OpenApple) -> Result<OpenApple> {
+    use crate::messages::{RegisterServiceLibraryRequest, ServiceSignIn, StreamingService};
+    use crate::utils::register_service_library_on_node;
+
+    let registered = register_service_library_on_node(
+        &RegisterServiceLibraryRequest {
+            service: StreamingService::AppleMusic,
+            alias: "Apple Music".into(),
+            sign_in: ServiceSignIn::Platform {
+                user_token: USER_TOKEN.into(),
+                developer_token: Some(DEVELOPER_TOKEN.into()),
+            },
+            call_id: None,
+        },
+        &apple.node,
+    )
+    .await?;
+    let record = LibraryRecordId(
+        registered
+            .record
+            .context("registered record")?
+            .record_id
+            .parse()?,
+    );
+    assert_ne!(record, apple.record);
+    let binding = apple
+        .node
+        .services
+        .apple_music_binding(record)
+        .context("the binding of the library added again")?;
+    apple
+        .node
+        .open_service_catalog(Some(record), binding.clone())
+        .await?;
+    let ui = apple
+        .node
+        .current_ui()
+        .await
+        .context("UI params of the open library")?;
+    let apple = OpenApple {
+        binding,
+        record,
+        ui,
+        ..apple
+    };
+    import_ended(&apple, record).await?;
+    Ok(apple)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_removed_library_comes_back_for_its_own_account_only() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), with_playlists()).await?;
+    // Apple's playlists were imported; the user made a playlist, a mix and a like of their own.
+    let night = make_rune_playlist(&apple, "Night Drive", "Mood").await?;
+    add_song(&apple, night.id, "i.s2", None).await?;
+    let album = apple.binding.intern(AppleIdKind::Album, "l.alb1")?;
+    let mine = create_mix(&apple, "Mine", vec![query("lib::album", album)]).await?;
+    let playlists = rune_playlist_songs(&apple).await?;
+    assert_eq!(playlists.len(), 5);
+    let mix_songs = mix_titles(&apple, stored_queries(&apple, mine.id).await?).await?;
+    assert!(!mix_songs.is_empty());
+    apple.run(&like(&apple, "i.s2", true)).await?;
+    // Some ids of the account's library are kept beside them.
+    let account = std::fs::read_to_string(&rune_files(&apple, apple.record)[2])?;
+    for id in ["\"i.s1\"", "\"p.mine2\""] {
+        assert!(account.contains(id), "{id} in {account}");
+    }
+
+    // Removing the library keeps them on this device as they are, and nothing else of it.
+    let first = apple.record;
+    remove_apple(&apple, first, false).await?;
+    let kept = rune_file_bytes(&apple, first);
+    assert!(kept.iter().all(Option::is_some));
+    let left: Vec<_> = std::fs::read_dir(records_of(&apple, first).parent().context("folder")?)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<std::io::Result<_>>()?;
+    assert_eq!(left, ["rune"]);
+
+    // The same account added again takes them over, and imports nothing again, the likes
+    // included: Apple's ratings are not read again.
+    let reads = import_reads(&apple);
+    let ratings = apple.fake.rating_reads.load(Ordering::SeqCst);
+    let apple = add_apple_again(apple).await?;
+    let second = apple.record;
+    assert_eq!(import_reads(&apple), reads);
+    assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), ratings);
+    assert!(is_liked(&apple, "i.s2").await?);
+    assert!(!records_of(&apple, first).parent().context("folder")?.exists());
+    assert_eq!(rune_file_bytes(&apple, second), kept);
+    // It lists the playlists and mixes, which play what they did.
+    assert_eq!(rune_playlist_songs(&apple).await?, playlists);
+    let night = playlist_named(&apple, "Night Drive").await?;
+    assert_eq!(
+        mix_tracks(apple.run(&mix("lib::playlist", night)).await?),
+        ["i.s2"]
+    );
+    let mixes = rune_mixes(&apple).await?;
+    assert_eq!(
+        mixes
+            .iter()
+            .map(|mix| mix.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Mine"]
+    );
+    let queries = stored_queries(&apple, mixes[0].id).await?;
+    assert_eq!(query_keys(&apple.binding, &queries)?, ["l.alb1"]);
+    assert_eq!(mix_titles(&apple, queries).await?, mix_songs);
+
+    // Another account added after it was removed takes nothing over: it imports its own
+    // playlists, and what the first account left stays as it was.
+    remove_apple(&apple, second, false).await?;
+    let kept = rune_file_bytes(&apple, second);
+    apple.fake.other_account.store(true, Ordering::SeqCst);
+    let apple = add_apple_again(apple).await?;
+    let other = apple.record;
+    assert_eq!(rune_file_bytes(&apple, second), kept);
+    assert_eq!(
+        rune_playlist_songs(&apple).await?,
+        named_songs(&[
+            ("Evening Jazz", &["i.b-s2", "i.b-s1"]),
+            ("Favourite Songs", &["i.b-s2"]),
+            ("Road Trip", &["i.b-s1", "i.b-s3"]),
+            ("Sunday", &["i.b-s3", "i.b-s2"]),
+        ])
+    );
+    assert!(rune_mixes(&apple).await?.is_empty());
+    // Nor does it take the likes of the first account.
+    assert!(!is_liked(&apple, "i.b-s2").await?);
+    apple.run(&like(&apple, "i.b-s1", true)).await?;
+    let account = std::fs::read_to_string(&rune_files(&apple, other)[2])?;
+    assert!(account.contains("\"i.b-s1\""), "{account}");
+    assert!(!account.contains("\"i.s1\""), "{account}");
+
+    // Going back to the first account takes its own over again; the other's stay.
+    remove_apple(&apple, other, false).await?;
+    let others = rune_file_bytes(&apple, other);
+    apple.fake.other_account.store(false, Ordering::SeqCst);
+    let apple = add_apple_again(apple).await?;
+    assert!(rune_file_bytes(&apple, second).iter().all(Option::is_none));
+    assert_eq!(rune_file_bytes(&apple, other), others);
+    assert_eq!(rune_playlist_songs(&apple).await?, playlists);
+    assert_eq!(rune_mixes(&apple).await?.len(), 1);
+    assert!(is_liked(&apple, "i.s2").await?);
+    assert!(!is_liked(&apple, "i.s1").await?);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reset_deletes_them_and_stores_without_account_ids_go_by_the_ids_they_hold() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), with_playlists()).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    add_song(&apple, mine.id, "i.s2", None).await?;
+    create_mix(&apple, "Mix", vec![query("lib::playlist", mine.id)]).await?;
+    apple.run(&like(&apple, "i.s1", true)).await?;
+    let first = apple.record;
+    assert!(rune_file_bytes(&apple, first).iter().all(Option::is_some));
+
+    // A reset deletes them with the record.
+    remove_apple(&apple, first, true).await?;
+    assert!(!records_of(&apple, first).parent().context("folder")?.exists());
+
+    // Records of removed libraries without the ids of their account: one whose songs the
+    // library holds, and one, written later, that names no song of a library at all.
+    let (holds, names_none) = (
+        LibraryRecordId(uuid::Uuid::new_v4()),
+        LibraryRecordId(uuid::Uuid::new_v4()),
+    );
+    let write = |record: LibraryRecordId, track: &str| -> Result<()> {
+        let files = rune_files(&apple, record);
+        std::fs::create_dir_all(files[1].parent().context("the folder")?)?;
+        std::fs::write(&files[0], "")?;
+        std::fs::write(
+            &files[1],
+            format!(
+                r#"{{"format": 1, "playlists": [{{"id": "{}", "name": "Kept {track}",
+                    "group": "Mood", "entries": [{{"occurrence": "o1", "track": "{track}"}}]}}]}}"#,
+                record.0
+            ),
+        )?;
+        Ok(())
+    };
+    write(holds, "i.s3")?;
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    write(names_none, "catalog:900")?;
+    let untouched = rune_file_bytes(&apple, names_none);
+
+    // The library added again takes over those whose songs it holds, with their marker, so it
+    // imports no playlist; the others stay.
+    let reads = import_reads(&apple);
+    let apple = add_apple_again(apple).await?;
+    assert_eq!(import_reads(&apple), reads);
+    assert_eq!(
+        rune_playlist_songs(&apple).await?,
+        named_songs(&[("Kept i.s3", &["i.s3"])])
+    );
+    assert!(!records_of(&apple, holds).parent().context("folder")?.exists());
+    assert_eq!(rune_file_bytes(&apple, names_none), untouched);
+    // Its account's ids are kept beside them from then on.
+    let account = std::fs::read_to_string(&rune_files(&apple, apple.record)[2])?;
+    assert!(account.contains("\"i.s3\""), "{account}");
     apple.finish().await
 }

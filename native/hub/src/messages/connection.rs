@@ -457,6 +457,9 @@ pub struct RemoveLibraryRecordRequest {
     pub record_id: String,
     #[serde(default)]
     pub call_id: Option<u64>,
+    /// Also delete what the library keeps only on this device, as a reset of the app does.
+    #[serde(default)]
+    pub delete_device_data: bool,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]

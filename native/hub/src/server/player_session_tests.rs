@@ -2275,6 +2275,7 @@ async fn a_service_record_whose_folder_cannot_be_deleted_is_still_removed() -> R
     let remove = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: record.record_id.0.to_string(),
+        delete_device_data: false,
     };
     let removed = remove.handle(node.clone(), None, &remove).await;
     fs::set_permissions(&covers, fs::Permissions::from_mode(0o700))?;
@@ -15070,6 +15071,7 @@ async fn the_ui_hears_that_a_service_track_answers_nothing_once_its_record_is_re
         &RemoveLibraryRecordRequest {
             record_id: record_id.to_string(),
             call_id: None,
+            delete_device_data: false,
         },
     )
     .await?;
@@ -15680,6 +15682,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let open_removal = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: second_record_id.clone(),
+        delete_device_data: false,
     }
     .handle(
         node.clone(),
@@ -15687,6 +15690,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
         &RemoveLibraryRecordRequest {
             call_id: None,
             record_id: second_record_id.clone(),
+            delete_device_data: false,
         },
     )
     .await;
@@ -15697,6 +15701,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let unknown_removal = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: Uuid::new_v4().to_string(),
+        delete_device_data: false,
     };
     assert_eq!(
         removal_failure_kind(
@@ -15709,6 +15714,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let remove_remote = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: remote_id.clone(),
+        delete_device_data: false,
     };
     signals.clear();
     remove_remote
@@ -15723,6 +15729,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let remove_subsonic = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: subsonic.record_id.0.to_string(),
+        delete_device_data: false,
     };
     remove_subsonic
         .handle(node.clone(), None, &remove_subsonic)
@@ -15732,6 +15739,7 @@ async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> 
     let remove_invalid = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: invalid_id.0.to_string(),
+        delete_device_data: false,
     };
     remove_invalid
         .handle(node.clone(), None, &remove_invalid)
@@ -18832,6 +18840,7 @@ async fn apple_music_library_opens_before_its_sign_in_and_its_removal_retires_th
     let removal = RemoveLibraryRecordRequest {
         call_id: None,
         record_id,
+        delete_device_data: false,
     };
     removal
         .handle(node.clone(), None, &removal)

@@ -72,6 +72,18 @@ impl RuneMixes {
         }
     }
 
+    /// Mixes whose file is not read until `release` (see `DeviceStore::held`).
+    pub(crate) fn held(path: PathBuf) -> Self {
+        Self {
+            store: DeviceStore::held(path),
+        }
+    }
+
+    /// Reads the file from now on (see `DeviceStore::release`).
+    pub(crate) async fn release(&self) {
+        self.store.release().await;
+    }
+
     /// Every mix, in the order they were made. A file that cannot be read fails with
     /// `UnreadableStore`, which names it.
     pub(crate) async fn list(&self) -> Result<Arc<Vec<StoredMix>>> {

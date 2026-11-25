@@ -242,12 +242,14 @@ impl Signal for RemoveLibraryRecordRequest {
             node.cancel_cover_downloads_for_library(library_id).await;
         }
         // A removed service library's binding and sign-in go with it, before what it kept on
-        // this device is deleted.
+        // this device is deleted. What the user made in Rune stays, unless the request asks for
+        // it to go too.
         node.services.retire(LibraryRecordId(id)).await;
         // The record is gone, so a folder left behind only takes room: the removal still answers,
         // and the UI hears of it.
         if let Some(library_id) = service_library_id
-            && let Err(error) = delete_service_library_folder(config, library_id).await
+            && let Err(error) =
+                delete_service_library_folder(config, library_id, !request.delete_device_data).await
         {
             warn!("Could not delete the folder of service library {library_id}: {error}");
         }

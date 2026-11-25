@@ -269,7 +269,8 @@ impl ServiceRegistry {
 
     /// Signs the library of `record_id` in with a sign-in its service accepted, making its
     /// binding if it has none yet. A binding held before takes the sign-in itself, so the ids it
-    /// gave keep their meaning. No other device may reach the library from then on.
+    /// gave keep their meaning. No other device may reach the library from then on. Every
+    /// sign-in starts the import of what comes in from the service once, in the background.
     pub(crate) fn sign_in(
         &self,
         record_id: LibraryRecordId,
@@ -277,6 +278,7 @@ impl ServiceRegistry {
     ) -> Arc<dyn ServiceBinding> {
         let binding = self.hold_apple_music(record_id);
         binding.sign_in(sign_in.0);
+        binding.import_in_background();
         binding
     }
 

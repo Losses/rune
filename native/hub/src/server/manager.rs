@@ -2180,6 +2180,7 @@ mod lifecycle_tests {
         let request = RemoveLibraryRecordRequest {
             call_id: None,
             record_id: record.record_id.0.to_string(),
+            delete_device_data: false,
         };
         request
             .handle(owner.global_params.node.clone(), None, &request)

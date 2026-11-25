@@ -17,7 +17,7 @@ use crate::request_error::classify;
 use crate::service::ServiceFuture;
 
 /// How many entries a group holds, as for a local library.
-const GROUP_LIMIT: usize = 25;
+pub(crate) const GROUP_LIMIT: usize = 25;
 
 /// How long a random group keeps its entries, which lets covers settle.
 const SEED_SECONDS: u64 = 600;
