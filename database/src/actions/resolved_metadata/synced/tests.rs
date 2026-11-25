@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use sea_orm::{ActiveModelTrait, PaginatorTrait, TransactionTrait};
 
+use crate::actions::resolved_metadata::project_synced_track;
 use crate::sync::model::{Collection, ObjectKey, Payload, RuneModel, Track};
 use crate::test_fixtures::fixtures;
 
@@ -86,7 +87,7 @@ async fn projection_budget_covers_full_lists_and_replacing_an_edition() -> Resul
     let measured = Arc::clone(&calls);
     db.set_metric_callback(move |info| measured.lock().unwrap().push(info.statement.sql.clone()));
     let tx = db.begin().await?;
-    crate::actions::resolved_metadata::project_synced_track(&tx, key.id).await?;
+    project_synced_track(&tx, key.id).await?;
     tx.commit().await?;
 
     let (reads, mutations) = {
