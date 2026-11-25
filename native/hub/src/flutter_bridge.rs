@@ -130,7 +130,7 @@ pub async fn prepare_visualizer(
     height: u32,
 ) {
     #[cfg(target_os = "android")]
-    prepare_window(visualizer, width, height).await;
+    prepare_window(Arc::clone(&visualizer), width, height).await;
     #[cfg(not(target_os = "android"))]
     let _ = (width, height);
     if TEXTURE_LAYER {
@@ -218,11 +218,10 @@ pub async fn resize_visualizer(
     #[cfg(target_os = "android")]
     {
         let textures = TEXTURES.lock().await;
-        let visualizer_ptr = visualizer as *const _;
         if let Some((_, texture, owner)) = &textures.current
             && owner
                 .upgrade()
-                .is_some_and(|v| Arc::as_ptr(&v) == visualizer_ptr)
+                .is_some_and(|v| std::ptr::eq(Arc::as_ptr(&v), visualizer))
         {
             texture.set_size(width, height).await?;
             let window = texture.window().await?;

@@ -1347,12 +1347,12 @@ mod tests {
 
         // Test: different values per node - inspecting state
         node1_vis.set_inspecting(true);
-        node2_vis.set_inspecting(false);
+        node2_vis.set_inspecting(true);
         assert!(node1_vis.is_inspecting());
-        assert!(!node2_vis.is_inspecting());
+        assert!(node2_vis.is_inspecting());
 
         // Test: SetVisualizerLabRequest through handler affects only node1
-        // Node1 starts true, node2 starts false
+        // Node1 starts true, node2 starts true
         let request = crate::messages::SetVisualizerLabRequest {
             enabled: false,
             call_id: None,
@@ -1361,11 +1361,11 @@ mod tests {
             .handle(Arc::clone(&node1), None, &request)
             .await
             .unwrap();
-        // Node1 should now be false, node2 should remain unchanged (false)
+        // Node1 should now be false, node2 should remain unchanged (true)
         assert!(!node1_vis.is_inspecting());
-        assert!(!node2_vis.is_inspecting());
+        assert!(node2_vis.is_inspecting());
 
-        // Now set node2 to true and node1 to false
+        // Now set node1 to false and node2 to true
         node1_vis.set_inspecting(false);
         node2_vis.set_inspecting(true);
         assert!(!node1_vis.is_inspecting());
