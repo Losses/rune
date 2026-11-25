@@ -51,6 +51,23 @@ pub enum ProtocolAdapter {
     },
 }
 
+impl ProtocolAdapter {
+    /// The streaming service the library belongs to, which knows its tracks by the service's
+    /// own ids and keeps no Rune catalogue on this node. None for a Rune library.
+    pub fn service(&self) -> Option<ServiceKind> {
+        match self {
+            Self::SubsonicTranslate { .. } => Some(ServiceKind::Subsonic),
+            Self::Native | Self::RuneForward { .. } => None,
+        }
+    }
+}
+
+/// A streaming service a library can belong to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceKind {
+    Subsonic,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuneForwardMode {

@@ -29,7 +29,7 @@ use crate::player::{
     AudioPlaybackNote, AudioSourceMode, ClearHandoffBlocksResult, HandoffBlockId,
     HandoffLoadResult, InterruptedItem, LibraryTrackKey, PausedPlayback, PlaybackSource,
     PlaybackSourceResolver, PlayerCommandError, PlayerStatus, PlayingItem, PlaylistEdit,
-    PlaylistPlacement, QueueEntry, RemoteAudioError, SubsonicItem, TakeBackBlockResult,
+    PlaylistPlacement, QueueEntry, RemoteAudioError, ServiceItem, TakeBackBlockResult,
     UnavailableReason,
 };
 use crate::realtime_fft::RealTimeFFT;
@@ -227,11 +227,11 @@ async fn open_library_stream(
     ))
 }
 
-async fn open_subsonic_stream(
+async fn open_service_stream(
     resolver: &Arc<dyn PlaybackSourceResolver>,
-    item: crate::player::SubsonicItem,
+    item: ServiceItem,
 ) -> Result<(AnySource, PathBuf)> {
-    let remote = resolver.resolve_subsonic(item).await?;
+    let remote = resolver.resolve_service(item).await?;
     let size = remote.size;
     let guard = remote.cancellation.clone().drop_guard();
     let failed = remote.failure_reason;
@@ -1321,19 +1321,19 @@ impl PlayerInternal {
                             Ok((source, path, resolved_item.clone()))
                         }
                         PlayingItem::LibraryTrack { library_id, .. }
-                            if matches!(library_track_key, Some(LibraryTrackKey::Subsonic(_))) =>
+                            if matches!(library_track_key, Some(LibraryTrackKey::Service(_))) =>
                         {
                             let resolver = resolver
                                 .as_ref()
-                                .context("Subsonic playback resolver unavailable")?;
-                            let item = SubsonicItem {
+                                .context("Service playback resolver unavailable")?;
+                            let item = ServiceItem {
                                 library_id: *library_id,
-                                track_id: match library_track_key.as_ref() {
-                                    Some(LibraryTrackKey::Subsonic(track)) => track.clone(),
-                                    _ => bail!("Subsonic track key unavailable"),
+                                track: match library_track_key.as_ref() {
+                                    Some(LibraryTrackKey::Service(track)) => track.clone(),
+                                    _ => bail!("Service track key unavailable"),
                                 },
                             };
-                            let (source, path) = open_subsonic_stream(resolver, item).await?;
+                            let (source, path) = open_service_stream(resolver, item).await?;
                             Ok((source, path, resolved_item.clone()))
                         }
                         PlayingItem::LibraryTrack { .. } => {

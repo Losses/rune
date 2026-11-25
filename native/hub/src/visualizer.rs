@@ -64,12 +64,12 @@ impl NodeVisualizer {
     }
 }
 
-/// What finding the covers for scenes needs.
+/// What finding the covers for scenes needs. The library of the playing item finds them, as
+/// `refresh_covers` asks it, so a library without files on this device finds its own.
 struct CoverSource {
     runtime: runtime::Handle,
-    fsio: Arc<FsIo>,
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
+    /// The library open in the UI, which finds the covers while the item playing is not one of a
+    /// library's tracks.
     library_id: Uuid,
     item: Arc<Mutex<Option<PlayingItem>>>,
 }
@@ -77,23 +77,13 @@ struct CoverSource {
 /// Let `node`'s visualizer scenes read covers from this library: whenever a scene that asks for
 /// them loads they are found and handed over, and whenever the playing track changes while one is
 /// on screen, so is its cover. Call it within the runtime.
-pub fn provide_covers(
-    node: &Arc<NodeContext>,
-    fsio: Arc<FsIo>,
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    library_id: Uuid,
-    item: Option<PlayingItem>,
-) {
+pub fn provide_covers(node: &Arc<NodeContext>, library_id: Uuid, item: Option<PlayingItem>) {
     let covers = node.node_visualizer();
     *covers
         .cover_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(CoverSource {
         runtime: Handle::current(),
-        fsio,
-        main_db,
-        recommend_db,
         library_id,
         item: Arc::new(Mutex::new(item)),
     }));
@@ -205,12 +195,18 @@ fn refresh_covers(node: &Arc<NodeContext>) {
     });
 }
 
-/// The same query as the cover wall's, for the cover files of random tracks.
-async fn random_covers(source: &CoverSource, node: &NodeContext) -> Result<Vec<PathBuf>> {
-    let queue = node.session_queue_for_library(source.library_id).await?;
+/// The same query as the cover wall's, for the cover files of random tracks of a local library.
+async fn random_covers(
+    fsio: &FsIo,
+    main_db: &MainDbConnection,
+    recommend_db: &RecommendationDbConnection,
+    library_id: Uuid,
+    node: &NodeContext,
+) -> Result<Vec<PathBuf>> {
+    let queue = node.session_queue_for_library(library_id).await?;
     let files = query_mix_media_files(
-        &source.main_db,
-        &source.recommend_db,
+        main_db,
+        recommend_db,
         vec![
             ("lib::random".to_string(), RANDOM_COVERS.to_string()),
             ("filter::with_cover_art".to_string(), "true".to_string()),
@@ -221,7 +217,7 @@ async fn random_covers(source: &CoverSource, node: &NodeContext) -> Result<Vec<P
     )
     .await?;
     let ids: Vec<i32> = files.iter().map(|file| file.id).collect();
-    let paths = bake_cover_art_by_media_files(&source.fsio, &source.main_db, files).await?;
+    let paths = bake_cover_art_by_media_files(fsio, main_db, files).await?;
     Ok(ids
         .iter()
         .filter_map(|id| paths.get(id))
@@ -239,18 +235,10 @@ pub async fn feed_cover_bytes(
     library_id: Uuid,
     playing_path: Option<PathBuf>,
 ) -> Result<(Option<Vec<u8>>, Vec<Vec<u8>>)> {
-    let source = CoverSource {
-        runtime: Handle::current(),
-        fsio,
-        main_db,
-        recommend_db,
-        library_id,
-        item: Arc::new(Mutex::new(None)),
-    };
     let playing = read_cover_bytes(playing_path.as_deref()).await?;
     let mut used_bytes = playing.as_ref().map_or(0, Vec::len);
     let mut random = Vec::with_capacity(RANDOM_COVERS);
-    for path in random_covers(&source, &node)
+    for path in random_covers(&fsio, &main_db, &recommend_db, library_id, &node)
         .await?
         .into_iter()
         .take(RANDOM_COVERS)

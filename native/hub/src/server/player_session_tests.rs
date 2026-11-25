@@ -26,10 +26,12 @@ use crate::node::{NodeContext, ReconnectConfig};
 use crate::request_owner::{CurrentPlayer, OpenLibrary};
 use crate::test_wait::{TEST_DEADLINE, wait_until};
 use crate::utils::{
-    files_to_playback_request, open_library_by_record_on_node, playback_implementation_for_item,
+    files_to_playback_request, library_item_metadata, open_library_by_record_on_node,
+    playback_implementation_for_item, record_library_item_played,
     register_local_library_on_node, register_opendal_library_on_node,
     register_remote_control_on_node, register_subsonic_library_on_node,
     register_subsonic_library_with_node, replace_subsonic_credential_on_node,
+    report_item_played_through,
 };
 use axum::Router;
 use axum::extract::{Path as AxumPath, Query, State};
@@ -104,7 +106,7 @@ use crate::{
     rpc::{Slot, UnsupportedReason, dispatch_gui_request},
     server::api::fetch_device_info_at_port,
     session::store::{SessionState, StoredInterruptedItem},
-    utils::{GlobalParams, subsonic_binding_for_playback},
+    utils::{GlobalParams, service_binding_for_library},
 };
 use database::actions::{
     downloads::cleanup_unselected_downloads,
@@ -124,7 +126,7 @@ use playback::{
     player::{
         AudioPlaybackNote, AudioSourceMode, LibraryItem, MockPlayer, Playable, PlaybackSource,
         PlaybackState as PlayerPlaybackState, PlayedThrough, PlayerStatus, PlayingItem, QueueEntry,
-        RemoteAudioError, SubsonicItem, UnavailableReason,
+        RemoteAudioError, ServiceItem, UnavailableReason,
     },
     strategies::AddMode,
 };
@@ -428,7 +430,7 @@ async fn subsonic_relogin_response(
             state.user_received.notify_one();
             state.release_user.notified().await;
         }
-        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"downloadRole":rotated}}})
+        json!({"subsonic-response":{"status":"ok","user":{"streamRole":true,"jukeboxRole":rotated}}})
     } else if action == "getPlaylists" {
         json!({"subsonic-response":{"status":"ok","playlists":{"playlist":[{"id":"p","name":"Road"}]}}})
     } else {
@@ -597,7 +599,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     .await?;
     assert!(matches!(
         node.current_library(),
-        Ok(OpenLibrary::Subsonic(_))
+        Ok(OpenLibrary::Service(_))
     ));
     assert!(matches!(node.current_player()?, CurrentPlayer::Local));
     let capabilities = capability_snapshot(&node)?;
@@ -961,19 +963,14 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     assert_eq!(restored.queue_entries()[0].item, item);
     assert_eq!(
         restored.queue_entries()[0].item,
-        PlayingItem::from(SubsonicItem {
+        PlayingItem::from(ServiceItem {
             library_id: record.record_id.0,
-            track_id: "song-opaque".to_owned(),
+            track: "song-opaque".to_owned(),
         })
     );
     fixture.global_params.player.lock().await.stop();
-    let binding = subsonic_binding_for_playback(&node, record.record_id.0).await?;
-    let source = binding
-        .playback_source(SubsonicItem {
-            library_id: record.record_id.0,
-            track_id: "song-opaque".to_owned(),
-        })
-        .await?;
+    let binding = service_binding_for_library(&node, record.record_id.0).await?;
+    let source = binding.playback_source("song-opaque").await?;
     let ranged = source.request.get(Some((12, Some(23)))).await?;
     assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
     assert!(stream_ranges.lock().unwrap().iter().any(Option::is_some));
@@ -1736,7 +1733,8 @@ async fn subsonic_relogin_replaces_only_a_verified_secret() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Result<()> {
-    use crate::messages::ReplaceSubsonicCredentialRequest;
+    use crate::messages::{PlayRequest, ReplaceSubsonicCredentialRequest};
+    use crate::rpc::TargetRequest;
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -1760,7 +1758,7 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
         )
         .await?;
         // The old getUser response cannot finish the open until re-login has succeeded.
-        assert!(node.open_subsonic_binding()?.is_none());
+        assert!(!node.service_library_open());
         assert_eq!(
             node.credentials.get(credential).await?.secret.as_bytes(),
             b"new-password"
@@ -1777,10 +1775,11 @@ async fn subsonic_relogin_during_open_installs_the_verified_credential() -> Resu
     assert_eq!(playlists.len(), 1);
     assert_eq!(playlists[0].name, "Road");
     let binding = node
-        .open_subsonic_binding()?
+        .service_binding(record_id.0)?
         .context("open Subsonic binding")?;
-    assert!(
-        binding.probe.roles.download_role,
+    assert_eq!(
+        PlayRequest::slot(&binding.slots()),
+        Slot::Translate,
         "installed the old getUser response"
     );
 
@@ -9321,9 +9320,9 @@ fn session_snapshot_rejects_independent_files() {
 
 #[test]
 fn session_snapshot_rejects_subsonic_tracks_without_mutating_the_queue() {
-    let subsonic_track = SubsonicItem {
+    let subsonic_track = ServiceItem {
         library_id: Uuid::new_v4(),
-        track_id: "remote-track".to_owned(),
+        track: "remote-track".to_owned(),
     };
     let item = PlayingItem::from(subsonic_track.clone());
     let mut status = MockPlayer.get_status();
@@ -11507,7 +11506,7 @@ async fn subsonic_registration_resolves_mode_stores_secret_and_deduplicates() ->
     let ui = open_registered_library_record(node.clone(), summary.record_id.clone()).await?;
     assert!(matches!(
         node.current_player()?,
-        CurrentPlayer::SubsonicJukebox(_)
+        CurrentPlayer::ServicePlayer(_)
     ));
     assert_eq!(node.current_player()?.visualizer_inputs(), VisualizerInputs::None);
     let snapshot = dispatch_gui_request(
@@ -11661,7 +11660,7 @@ async fn subsonic_library_opened_at_startup_answers_gui_requests_until_closed() 
             ui.main_token.is_cancelled(),
             "{mode:?} Subsonic GUI listeners kept running after close"
         );
-        assert!(node.open_subsonic_binding()?.is_none());
+        assert!(!node.service_library_open());
         assert!(node.current_ui().await.is_err());
         assert!(matches!(node.current_player()?, CurrentPlayer::Local));
 
@@ -11710,7 +11709,7 @@ async fn switching_to_and_from_a_subsonic_library_retires_the_previous_ui() -> R
         subsonic.main_token.is_cancelled(),
         "the Subsonic GUI listeners kept running after the local library opened"
     );
-    assert!(node.open_subsonic_binding()?.is_none());
+    assert!(!node.service_library_open());
     assert!(matches!(node.current_player()?, CurrentPlayer::Local));
     assert!(!local.main_token.is_cancelled());
 
@@ -11767,14 +11766,14 @@ async fn local_session_signals_are_hidden_during_subsonic_remote_control() -> Re
     .await?;
     let subsonic_ui = node.current_ui().await?;
     anyhow::ensure!(
-        matches!(node.current_player()?, CurrentPlayer::SubsonicJukebox(_)),
+        matches!(node.current_player()?, CurrentPlayer::ServicePlayer(_)),
         "Subsonic remote-control player did not become current"
     );
     // The jukebox poller broadcasts on its first poll and afterwards only on a change, so
     // nothing recorded is dropped: local signals are checked only after this point.
     let current_since = signals.0.lock().unwrap().len();
     let jukebox_session_id = match node.current_player()? {
-        CurrentPlayer::SubsonicJukebox(binding) => binding.library_id.to_string(),
+        CurrentPlayer::ServicePlayer(player) => player.library_id().to_string(),
         _ => anyhow::bail!("Subsonic remote-control player did not become current"),
     };
     let local_status = fixture.global_params.player.lock().await.status_after_pending();
@@ -12047,7 +12046,7 @@ async fn open_subsonic_jukebox(node: Arc<NodeContext>, endpoint: String) -> Resu
 async fn wait_for_jukebox_player(node: &NodeContext) -> Result<()> {
     wait_until("the jukebox to become the current player", || async {
         Ok(
-            matches!(node.current_player_snapshot()?, CurrentPlayer::SubsonicJukebox(_))
+            matches!(node.current_player_snapshot()?, CurrentPlayer::ServicePlayer(_))
                 .then_some(()),
         )
     })
@@ -12393,7 +12392,7 @@ async fn subsonic_tracks_played_here_report_their_title_and_cover() -> Result<()
     )
     .await?;
     let library_id = match node.current_library()? {
-        OpenLibrary::Subsonic(binding) => binding.library_id,
+        OpenLibrary::Service(binding) => binding.library_id(),
         _ => anyhow::bail!("registered Subsonic library was not opened"),
     };
     let session_id = node.session()?.session_id().await.to_string();
@@ -12981,7 +12980,7 @@ async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Resu
     )
     .await?;
     let library_id = match node.current_library()? {
-        OpenLibrary::Subsonic(binding) => binding.library_id,
+        OpenLibrary::Service(binding) => binding.library_id(),
         _ => anyhow::bail!("registered Subsonic library was not opened"),
     };
     let implementation = playback_implementation_for_item(&node, library_id).await?;
@@ -13039,6 +13038,295 @@ async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Resu
         cover_requests,
         "cached covers were fetched again"
     );
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// Registers a Subsonic library at `endpoint` that plays on this device, and opens it through
+/// its record as the UI does. Returns the library id its tracks carry.
+async fn open_subsonic_library_here(node: &Arc<NodeContext>, endpoint: String) -> Result<Uuid> {
+    let registration = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        node,
+    )
+    .await?;
+    let record = registration.record.context("registered Subsonic library")?;
+    open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: record.record_id.clone(),
+        },
+        node.clone(),
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        ))),
+    )
+    .await?;
+    Ok(Uuid::parse_str(&record.record_id)?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn open_service_library_translates_requests_through_its_binding() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    assert!(matches!(
+        node.current_library()?,
+        OpenLibrary::Service(binding) if binding.library_id() == library_id
+    ));
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+
+    let ui = node.current_ui().await?;
+    let playlists = dispatch_gui_request(&ui, &FetchAllPlaylistsRequest { call_id: None })
+        .await?
+        .context("the library's playlists")?
+        .playlists;
+    assert_eq!(
+        playlists
+            .iter()
+            .map(|playlist| playlist.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Road"]
+    );
+    assert!(calls.lock().unwrap().iter().any(|call| call == "getPlaylists"));
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn service_track_playing_here_reports_its_metadata() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let signals = Arc::new(RecordedSignals::default());
+    let fixture = fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        signals.clone(),
+    )
+    .await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let session_id = node.session()?.session_id().await.to_string();
+
+    let item = play_subsonic_track_here(&fixture, library_id, "song-opaque").await?;
+    let playing = wait_until("the track playing", || async {
+        Ok(statuses_for(&signals, &session_id, &item)
+            .into_iter()
+            .find(|status| status.state == PlaybackState::Playing))
+    })
+    .await?;
+    assert_eq!(playing.title.as_deref(), Some("Song title"));
+    assert_eq!(playing.artist.as_deref(), Some("Artist"));
+
+    // The track is short, so it plays to its end: the server hears that it started, and once
+    // that it was played through.
+    let submitted = "scrobble id=song-opaque submission=true";
+    wait_until("the server to hear the track was played through", || async {
+        Ok(calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| call == submitted)
+            .then_some(()))
+    })
+    .await?;
+    let calls = calls.lock().unwrap().clone();
+    let started = calls
+        .iter()
+        .position(|call| call == "scrobble id=song-opaque submission=false")
+        .context("the start report")?;
+    let played = calls
+        .iter()
+        .position(|call| call == submitted)
+        .context("the play-through report")?;
+    assert!(started < played);
+    assert_eq!(calls.iter().filter(|call| *call == submitted).count(), 1);
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn closed_service_library_is_not_opened_for_item_metadata() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, calls, _, _, _, server) = subsonic_hub_mock(false).await;
+    let record = register_subsonic_library_on_node(
+        &subsonic_registration_request(
+            endpoint,
+            "test-secret",
+            Some(SubsonicOpenModeMessage::PlayOnThisDevice),
+        ),
+        &node,
+    )
+    .await?
+    .record
+    .context("registered Subsonic library")?;
+    let item = PlayingItem::LibraryTrack {
+        library_id: Uuid::parse_str(&record.record_id)?,
+        track: "song-opaque".into(),
+    };
+    calls.lock().unwrap().clear();
+
+    // Opening the library would sign in to its server. Only an open library answers about its
+    // items, so the server hears nothing.
+    assert!(
+        library_item_metadata(&node, &item, true)
+            .await
+            .is_err()
+    );
+    assert!(
+        report_item_played_through(&node, &item)
+            .await
+            .is_err()
+    );
+    assert!(calls.lock().unwrap().is_empty());
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn log_requests_answer_while_a_service_library_is_open() -> Result<()> {
+    use crate::messages::{ClearLogRequest, ListLogRequest, RemoveLogRequest};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+
+    // The library keeps no log on this device, so the log page shows nothing and the
+    // requests that change the log find nothing to change.
+    let ui = node.current_ui().await?;
+    let log = dispatch_gui_request(
+        &ui,
+        &ListLogRequest {
+            cursor: 0,
+            page_size: 10,
+            call_id: None,
+        },
+    )
+    .await?
+    .context("the log page")?;
+    assert!(log.result.is_empty());
+    let removed = dispatch_gui_request(&ui, &RemoveLogRequest { id: 1, call_id: None })
+        .await?
+        .context("the removed entry")?;
+    assert_eq!(removed.id, 1);
+    assert!(
+        dispatch_gui_request(&ui, &ClearLogRequest { call_id: None })
+            .await?
+            .is_some()
+    );
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn visualizer_starts_while_a_service_library_is_open() -> Result<()> {
+    use crate::messages::{SetVisualizerLogRequest, StartVisualizerRequest};
+    use crate::visualizer::VISUALIZER;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    open_subsonic_library_here(&node, endpoint).await?;
+    let ui = node.current_ui().await?;
+
+    assert!(
+        dispatch_gui_request(&ui, &SetVisualizerLogRequest { enabled: false, call_id: None })
+            .await?
+            .is_some()
+    );
+    // The test holds the player's audio, so the visualizer finds it in use and reports that
+    // instead of starting its renderer, which needs a GPU. The start gets that far only when the
+    // open library does not stop it first.
+    let tap = ui.player.lock().await.pcm_tap();
+    let audio = tap.take_consumer().context("the player's audio")?;
+    let started = dispatch_gui_request(
+        &ui,
+        &StartVisualizerRequest {
+            width: 16,
+            height: 16,
+            fps: 1,
+            call_id: None,
+        },
+    )
+    .await;
+    tap.restore_consumer(audio);
+    assert!(started?.is_some());
+    let reported = VISUALIZER.status().last_error.unwrap_or_default();
+    assert!(reported.contains("PCM tap"), "unexpected report: {reported}");
+
+    server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn played_service_track_leaves_local_statistics_alone() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let local_id = session_audio(&fixture, "service-played.ogg").await?;
+    let local_item = PlayingItem::from(library_track_for_id(&fixture, local_id).await?);
+    let library = fixture.global_params.test_library();
+    let (endpoint, _, _, _, _, server) = subsonic_hub_mock(false).await;
+    let library_id = open_subsonic_library_here(&node, endpoint).await?;
+    let played_through = || async {
+        Ok::<_, Error>(
+            media_file_stats::Entity::find()
+                .all(&*library.main_db)
+                .await?
+                .iter()
+                .map(|stats| stats.played_through)
+                .sum::<i32>(),
+        )
+    };
+
+    // A played track of the service is recorded by nothing on this device.
+    record_library_item_played(
+        &node,
+        &PlayingItem::LibraryTrack {
+            library_id,
+            track: "song-opaque".into(),
+        },
+    )
+    .await?;
+    assert_eq!(played_through().await?, 0);
+
+    // The service's implementation leaves local statistics alone even for a track this device
+    // holds, which only the local one counts.
+    let binding = node
+        .service_binding(library_id)?
+        .context("the open service binding")?;
+    Implementation::Service(binding)
+        .record_played(&local_item, library)
+        .await?;
+    assert_eq!(played_through().await?, 0);
+    Implementation::Local
+        .record_played(&local_item, library)
+        .await?;
+    assert_eq!(played_through().await?, 1);
 
     server.abort();
     node.shutdown().await?;
@@ -14389,7 +14677,7 @@ async fn request_scopes_resolve_to_the_current_implementations() -> Result<()> {
                 ..
             } => "Reconnecting",
             Implementation::RunePeer { .. } => "RunePeer",
-            Implementation::Subsonic(_) => "Subsonic",
+            Implementation::Service(_) => "Subsonic",
             #[cfg(test)]
             Implementation::TestOverride { .. } => "TestOverride",
         }
@@ -14742,7 +15030,7 @@ async fn own_ui_receives_capabilities_while_a_subsonic_jukebox_is_current() -> R
     let _ui = open_registered_library_record(node.clone(), summary.record_id.clone()).await?;
     assert!(matches!(
         node.current_player()?,
-        CurrentPlayer::SubsonicJukebox(_)
+        CurrentPlayer::ServicePlayer(_)
     ));
     wait_until("this device's snapshot for the Subsonic library", || async {
         Ok(signals

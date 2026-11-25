@@ -23,7 +23,7 @@ use crate::{
     node::NodeContext,
     request_error::ExpectedRequestError,
     rpc::{Slot, TargetRequest},
-    subsonic_binding::SubsonicBinding,
+    service::{ServiceBinding, ServicePlayer},
     utils::{GlobalParams, ParamsExtractor},
     visualizer::RANDOM_COVERS,
 };
@@ -38,7 +38,7 @@ pub(crate) enum OpenLibrary {
         reconnecting: Option<String>,
         link: Option<Arc<RendererLink>>,
     },
-    Subsonic(Arc<SubsonicBinding>),
+    Service(Arc<dyn ServiceBinding>),
 }
 
 /// The implementation currently connected to the UI as its player.
@@ -49,7 +49,8 @@ pub(crate) enum CurrentPlayer {
         link: Option<Arc<RendererLink>>,
         reconnecting: Option<String>,
     },
-    SubsonicJukebox(Arc<SubsonicBinding>),
+    /// The own player of the open service library, which its binding controls.
+    ServicePlayer(Arc<dyn ServicePlayer>),
 }
 
 /// Executes requests for one concrete library or player implementation.
@@ -64,7 +65,7 @@ pub(crate) enum Implementation {
         link: Option<Arc<RendererLink>>,
         reconnecting: Option<String>,
     },
-    Subsonic(Arc<SubsonicBinding>),
+    Service(Arc<dyn ServiceBinding>),
     #[cfg(test)]
     TestOverride {
         implementation: Box<Implementation>,
@@ -79,7 +80,12 @@ impl Implementation {
         node: &NodeContext,
     ) -> Result<(Option<String>, Vec<String>)> {
         match self.execution_implementation() {
-            Self::Subsonic(binding) => binding.visualizer_covers(item).await,
+            Self::Service(binding) => {
+                let PlayingItem::LibraryTrack { track, .. } = item else {
+                    anyhow::bail!("Service visualizer item is not a library track");
+                };
+                binding.visualizer_covers(track).await
+            }
             _ => {
                 let PlayingItem::LibraryTrack { library_id, .. } = item else {
                     anyhow::bail!("Visualizer item does not belong to a library");
@@ -121,11 +127,11 @@ impl Implementation {
         library: &LibraryHandle,
     ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
         match self.execution_implementation() {
-            Self::Subsonic(binding) => {
-                let PlayingItem::LibraryTrack { library_id, track } = item else {
-                    anyhow::bail!("Subsonic library item is not a library track");
+            Self::Service(binding) => {
+                let PlayingItem::LibraryTrack { track, .. } = item else {
+                    anyhow::bail!("Service library item is not a library track");
                 };
-                binding.item_metadata(*library_id, track, with_cover).await
+                binding.item_metadata(track, with_cover).await
             }
             _ => {
                 let dispatcher = PlayingItemActionDispatcher::new();
@@ -150,18 +156,18 @@ impl Implementation {
     }
 
     pub(crate) async fn track_started(&self, item: &PlayingItem, start_time: u64) {
-        if let (Self::Subsonic(binding), PlayingItem::LibraryTrack { track, .. }) =
+        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) =
             (self.execution_implementation(), item)
         {
-            binding.report_track_started_at(track, start_time).await;
+            binding.track_started(track, start_time).await;
         }
     }
 
     pub(crate) async fn track_played_through(&self, item: &PlayingItem) {
-        if let (Self::Subsonic(binding), PlayingItem::LibraryTrack { track, .. }) =
+        if let (Self::Service(binding), PlayingItem::LibraryTrack { track, .. }) =
             (self.execution_implementation(), item)
         {
-            binding.report_track_played(track).await;
+            binding.track_played_through(track).await;
         }
     }
 
@@ -170,7 +176,8 @@ impl Implementation {
         item: &PlayingItem,
         library: &LibraryHandle,
     ) -> Result<()> {
-        let Self::Subsonic(_) = self.execution_implementation() else {
+        // A service counts the plays of its own tracks, which have no local statistics.
+        let Self::Service(_) = self.execution_implementation() else {
             if let PlayingItem::LibraryTrack { track, .. } = item {
                 let file_uuid =
                     Uuid::parse_str(track).context("Invalid Rune library track UUID")?;
@@ -198,7 +205,7 @@ impl Implementation {
                 slots
             }
             Self::RunePeer { .. } => RequestSlots::rune(),
-            Self::Subsonic(binding) => RequestSlots::subsonic(&binding.probe),
+            Self::Service(binding) => binding.slots(),
             #[cfg(test)]
             Self::TestOverride { slots, .. } => *slots,
         }
@@ -259,8 +266,8 @@ impl Implementation {
                 Ok(Some(response))
             }
             Slot::Translate => {
-                let Self::Subsonic(binding) = self.execution_implementation() else {
-                    anyhow::bail!("Translate slot has no Subsonic binding");
+                let Self::Service(binding) = self.execution_implementation() else {
+                    anyhow::bail!("Translate slot has no service binding");
                 };
                 request.translate(binding.as_ref()).await
             }
@@ -304,7 +311,7 @@ impl OpenLibrary {
                 link: link.as_ref().map(Arc::clone),
                 reconnecting: reconnecting.clone(),
             },
-            Self::Subsonic(binding) => Implementation::Subsonic(Arc::clone(binding)),
+            Self::Service(binding) => Implementation::Service(Arc::clone(binding)),
         }
     }
 
@@ -313,9 +320,7 @@ impl OpenLibrary {
     pub(crate) fn node_implementation(&self) -> Implementation {
         match self {
             Self::Closed | Self::Local | Self::RunePeer { .. } => Implementation::Local,
-            Self::Subsonic(binding) => {
-                Implementation::LocalBeside(Box::new(RequestSlots::subsonic(&binding.probe)))
-            }
+            Self::Service(binding) => Implementation::LocalBeside(Box::new(binding.slots())),
         }
     }
 }
@@ -364,7 +369,7 @@ impl CurrentPlayer {
         match self {
             Self::Local => VisualizerInputs::Full,
             Self::RunePeer { .. } => VisualizerInputs::Full,
-            Self::SubsonicJukebox(binding) => binding.visualizer_inputs(),
+            Self::ServicePlayer(player) => player.visualizer_inputs(),
         }
     }
 
@@ -377,14 +382,14 @@ impl CurrentPlayer {
                 link: link.as_ref().map(Arc::clone),
                 reconnecting: reconnecting.clone(),
             },
-            Self::SubsonicJukebox(binding) => Implementation::Subsonic(Arc::clone(binding)),
+            Self::ServicePlayer(player) => Implementation::Service(Arc::clone(player) as _),
         }
     }
 
     pub(crate) fn suppresses_local_session_events(&self) -> bool {
         match self {
             Self::Local => false,
-            Self::RunePeer { .. } | Self::SubsonicJukebox(_) => true,
+            Self::RunePeer { .. } | Self::ServicePlayer(_) => true,
         }
     }
 }

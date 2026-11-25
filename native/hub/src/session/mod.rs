@@ -59,7 +59,7 @@ use crate::{
     request_error::ExpectedRequestError,
     request_owner::Implementation,
     server::PairedAudioResolver,
-    subsonic_binding::SubsonicBinding,
+    service::ServiceBinding,
     utils::{
         Broadcaster, library_item_metadata, playback_implementation_for_item,
         player::{
@@ -832,7 +832,7 @@ struct ItemEventState {
 
 struct ResolvedLibrary {
     library_id: Uuid,
-    /// The library's files, which a Subsonic library does not have on this node.
+    /// The library's files, which a service library does not have on this node.
     fsio: Option<Arc<FsIo>>,
     media_root: String,
     implementation: Implementation,
@@ -844,7 +844,7 @@ struct LateCover {
     cover: String,
 }
 
-/// The library of a playing library track, and the track's metadata and cover. A Subsonic
+/// The library of a playing library track, and the track's metadata and cover. A service
 /// library has no catalog library on this node, so its binding describes its tracks.
 async fn playing_track_library(
     node: &Arc<NodeContext>,
@@ -857,8 +857,8 @@ async fn playing_track_library(
     Result<(PlayingItemMetadataSummary, Option<String>)>,
 )> {
     let implementation = playback_implementation_for_item(node, library_id).await?;
-    if let Implementation::Subsonic(binding) = &implementation {
-        let metadata = subsonic_track_metadata(binding, item, library_id, track, late_covers).await;
+    if let Implementation::Service(binding) = &implementation {
+        let metadata = service_track_metadata(binding, item, track, late_covers).await;
         let library = ResolvedLibrary {
             library_id,
             fsio: None,
@@ -878,30 +878,29 @@ async fn playing_track_library(
     Ok((library, metadata))
 }
 
-/// A Subsonic track's metadata, with its cover if the cover is already cached. Otherwise the
+/// A service track's metadata, with its cover if the cover is already cached. Otherwise the
 /// cover is fetched and sent to `late_covers` once it is cached.
-async fn subsonic_track_metadata(
-    binding: &Arc<SubsonicBinding>,
+async fn service_track_metadata(
+    binding: &Arc<dyn ServiceBinding>,
     item: &PlayingItem,
-    library_id: Uuid,
     track: &str,
     late_covers: Option<&mpsc::UnboundedSender<LateCover>>,
 ) -> Result<(PlayingItemMetadataSummary, Option<String>)> {
-    let (metadata, cover_id) = binding.item_summary(library_id, track).await?;
-    let cover = binding.cover_path(cover_id.as_deref()).await;
+    let (metadata, cover) = binding.item_metadata(track, true).await?;
     if cover.is_none()
-        && let (Some(cover_id), Some(late_covers)) = (cover_id, late_covers)
+        && let Some(late_covers) = late_covers
     {
         let binding = Arc::clone(binding);
         let item = item.clone();
+        let track = track.to_owned();
         let late_covers = late_covers.clone();
         tokio::spawn(async move {
-            match binding.cached_cover(&cover_id).await {
+            match binding.cover_when_cached(&track).await {
                 Ok(Some(cover)) => {
                     let _ = late_covers.send(LateCover { item, cover });
                 }
                 Ok(None) => {}
-                Err(error) => log::warn!("Could not fetch the playing Subsonic cover: {error:#}"),
+                Err(error) => log::warn!("Could not fetch the playing service cover: {error:#}"),
             }
         });
     }

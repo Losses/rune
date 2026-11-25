@@ -32,15 +32,32 @@ struct Pending {
     sender: mpsc::Sender<Entry>,
     /// Taken by the task that writes, once.
     receiver: Mutex<Option<mpsc::Receiver<Entry>>>,
+    /// Whether the library open now keeps no log on this device, as a streaming service library
+    /// does. What the visualizer reports meanwhile belongs to no library's log, so it is dropped
+    /// instead of waiting for the next library, whether or not the writer runs yet.
+    detached: AtomicBool,
 }
 
-static PENDING: LazyLock<Pending> = LazyLock::new(|| {
-    let (sender, receiver) = mpsc::channel(QUEUE);
-    Pending {
-        sender,
-        receiver: Mutex::new(Some(receiver)),
+impl Pending {
+    fn new() -> Self {
+        let (sender, receiver) = mpsc::channel(QUEUE);
+        Self {
+            sender,
+            receiver: Mutex::new(Some(receiver)),
+            detached: AtomicBool::new(false),
+        }
     }
-});
+
+    fn push(&self, entry: Entry) {
+        if self.detached.load(Ordering::Relaxed) {
+            return;
+        }
+        // A full queue (the library is not open yet, or the database is slow) drops the entry.
+        let _ = self.sender.try_send(entry);
+    }
+}
+
+static PENDING: LazyLock<Pending> = LazyLock::new(Pending::new);
 
 /// An error of the visualizer while doing `operation` (`load_scene`, `gpu`, ...).
 pub fn error(operation: &str, detail: String) {
@@ -59,8 +76,7 @@ pub fn set_diagnostics(enabled: bool) {
 }
 
 fn queue(level: LogLevel, operation: &str, detail: String) {
-    // A full queue (the library is not open yet, or the database is slow) drops the entry.
-    let _ = PENDING.sender.try_send(Entry {
+    PENDING.push(Entry {
         level,
         domain: format!("visualizer::{operation}"),
         detail,
@@ -70,11 +86,19 @@ fn queue(level: LogLevel, operation: &str, detail: String) {
 /// The database the writer inserts into: the library open now.
 static TARGET: Mutex<Option<Arc<MainDbConnection>>> = Mutex::new(None);
 
+/// Stop writing to the database of the library open before, for a library that keeps no log on
+/// this device. Entries reported until `write_to` names a database again are dropped.
+pub fn detach() {
+    PENDING.detached.store(true, Ordering::Relaxed);
+    *TARGET.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Write the entries to `main_db` from now on, the ones that waited first. Every call replaces
 /// the database, so that entries go to the library open now; only the first call starts the
 /// writer, which needs the runtime.
 pub fn write_to(main_db: Arc<MainDbConnection>) {
     *TARGET.lock().unwrap_or_else(|e| e.into_inner()) = Some(main_db);
+    PENDING.detached.store(false, Ordering::Relaxed);
     let receiver = PENDING
         .receiver
         .lock()
@@ -86,11 +110,8 @@ pub fn write_to(main_db: Arc<MainDbConnection>) {
     tokio::spawn(async move {
         let mut recent: HashMap<(String, String), Instant> = HashMap::new();
         while let Some(entry) = receiver.recv().await {
-            if is_repeat(&mut recent, &entry.domain, &entry.detail, Instant::now()) {
-                continue;
-            }
-            let main_db = TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let Some(main_db) = main_db else {
+            let target = TARGET.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let Some(main_db) = destination(&mut recent, &entry, target, Instant::now()) else {
                 continue;
             };
             if let Err(e) = insert_log(&*main_db, entry.level, entry.domain, entry.detail).await {
@@ -98,6 +119,20 @@ pub fn write_to(main_db: Arc<MainDbConnection>) {
             }
         }
     });
+}
+
+/// The database `target` that `entry` is written to, or none when it is not written: while no
+/// database is attached, or when the same entry was written within [`REPEAT`]. Only an entry that
+/// is written counts as a repeat, so one dropped for want of a database is written once a library
+/// that keeps a log is open again.
+fn destination<T>(
+    recent: &mut HashMap<(String, String), Instant>,
+    entry: &Entry,
+    target: Option<T>,
+    now: Instant,
+) -> Option<T> {
+    let target = target?;
+    (!is_repeat(recent, &entry.domain, &entry.detail, now)).then_some(target)
 }
 
 /// Whether the entry was written within [`REPEAT`] before `now`; if not, remember it as written
@@ -120,6 +155,51 @@ fn is_repeat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(detail: &str) -> Entry {
+        Entry {
+            level: LogLevel::Error,
+            domain: "visualizer::gpu".to_owned(),
+            detail: detail.to_owned(),
+        }
+    }
+
+    #[test]
+    fn an_entry_dropped_for_want_of_a_database_does_not_count_as_written() {
+        let mut recent = HashMap::new();
+        let now = Instant::now();
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), None::<&str>, now),
+            None
+        );
+        // Once a library that keeps a log is open, the same entry is written, and only then is it
+        // a repeat.
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), Some("library"), now),
+            Some("library")
+        );
+        assert_eq!(
+            destination(&mut recent, &entry("lost"), Some("library"), now),
+            None
+        );
+    }
+
+    #[test]
+    fn entries_wait_for_the_first_library_but_not_through_one_that_keeps_no_log() {
+        let pending = Pending::new();
+        let mut receiver = pending.receiver.lock().unwrap().take().unwrap();
+        // Before a library is open, an entry waits for the first one's database.
+        pending.push(entry("before"));
+        assert_eq!(receiver.try_recv().unwrap().detail, "before");
+        // While a library that keeps no log is open, an entry is dropped instead of waiting for
+        // the next library.
+        pending.detached.store(true, Ordering::Relaxed);
+        pending.push(entry("while detached"));
+        assert!(receiver.try_recv().is_err());
+        pending.detached.store(false, Ordering::Relaxed);
+        pending.push(entry("after"));
+        assert_eq!(receiver.try_recv().unwrap().detail, "after");
+    }
 
     #[test]
     fn an_entry_is_written_once_per_window_even_when_two_alternate() {

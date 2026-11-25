@@ -18,6 +18,7 @@ pub mod node;
 pub mod request_error;
 mod request_owner;
 pub mod rpc;
+mod service;
 pub mod session;
 mod subsonic_binding;
 mod subsonic_translate;
