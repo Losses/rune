@@ -229,8 +229,11 @@ final class AppleMusicHost {
       let online = NetworkReach.shared.isOnline
       var event: [String: Any] = ["type": "networkState", "host": "appleMusic", "online": online]
       if !online {
+        let downloaded = await Self.downloadedSongIDs()
+        // A report that replaced this one while it read them schedules what comes next.
+        guard !Task.isCancelled else { return }
         // A read that failed is tried again later rather than taken for an empty library.
-        if let downloaded = await Self.downloadedSongIDs() {
+        if let downloaded {
           event["downloaded"] = downloaded
         } else if onlyIfChanged, self?.reportedOffline == true {
           self?.reportReach(after: Self.offlineRefresh, onlyIfChanged: true)
