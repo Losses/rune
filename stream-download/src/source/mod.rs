@@ -257,8 +257,11 @@ where
         // The reader can queue a seek just before the writer publishes its range.
         // EOF also has no bytes to download, even while the source is still active.
         if self.content_length == Some(position) || self.downloaded.get(position).is_some() {
-            if self.requested_position.get() == Some(position) {
-                self.requested_position.clear();
+            if let Some((start, end)) = self.requested_position.get_range()
+                && start == position
+                && end == position
+            {
+                self.requested_position.clear(start, end);
                 self.position_reached.notify_position_reached();
             }
             return Ok(());
@@ -451,16 +454,20 @@ where
                 self.downloaded.add(position..new_position);
             }
 
-            if let Some(requested) = self.requested_position.get() {
+            if let Some((start, end)) = self.requested_position.get_range() {
                 debug!(
-                    requested_position = requested,
+                    requested_position = end,
                     current_position = new_position,
                     "received requested position"
                 );
 
-                if new_position >= requested {
+                // The reader is woken once the whole range it asked for is in storage,
+                // not when the writer passes its end: a disjoint write past the end must
+                // not wake it over an unfilled hole, and a write filling the hole wakes it
+                // even when the write ends before the requested position.
+                if self.downloaded.contiguous_end(start) >= end {
                     debug!("notifying position reached");
-                    self.requested_position.clear();
+                    self.requested_position.clear(start, end);
                     self.position_reached.notify_position_reached();
                 }
             }

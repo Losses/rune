@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use parking_lot::{Condvar, Mutex, RwLock};
@@ -27,8 +27,16 @@ impl SourceHandle {
         self.downloaded.get(position)
     }
 
-    pub(crate) fn wait_for_position(&self, requested_position: u64) {
-        self.request_position(requested_position);
+    pub(crate) fn contiguous_end(&self, position: u64) -> u64 {
+        self.downloaded.contiguous_end(position)
+    }
+
+    pub(crate) fn is_stream_complete(&self) -> bool {
+        self.download_status.is_failed() || self.position_reached.is_stream_done()
+    }
+
+    pub(crate) fn wait_for_position(&self, start: u64, requested_position: u64) {
+        self.request_position(start, requested_position);
         debug!(
             requested_position = requested_position,
             "waiting for requested position"
@@ -38,7 +46,7 @@ impl SourceHandle {
     }
 
     pub(crate) fn seek(&self, seek_position: u64) {
-        self.request_position(seek_position);
+        self.request_position(seek_position, seek_position);
         self.request_seek(seek_position);
         debug!(
             requested_position = seek_position,
@@ -59,8 +67,8 @@ impl SourceHandle {
         self.download_status.is_failed()
     }
 
-    fn request_position(&self, position: u64) {
-        self.requested_position.set(position);
+    fn request_position(&self, start: u64, end: u64) {
+        self.requested_position.set(start, end);
     }
 
     fn request_seek(&self, position: u64) {
@@ -75,29 +83,68 @@ impl SourceHandle {
     }
 }
 
+/// A position the reader is waiting for, as the inclusive start and exclusive end of the
+/// range it is about to read. A seek stores the position twice. Writes check the whole
+/// range for gaps, not only whether the stream passed its end: a disjoint write past the
+/// end must not wake the reader over an unfilled hole, and a write that fills the hole
+/// must wake it even when the write itself stops before the end.
+///
+/// `start` is the presence marker: clearing moves the end out first, so a writer that
+/// sees a request at all sees either its whole range or an end that fails the check.
 #[derive(Debug, Clone)]
-pub(super) struct RequestedPosition(Arc<AtomicI64>);
+pub(super) struct RequestedPosition {
+    start: Arc<AtomicU64>,
+    end: Arc<AtomicU64>,
+}
+
+const NO_REQUESTED_POSITION: u64 = u64::MAX;
 
 impl Default for RequestedPosition {
     fn default() -> Self {
-        Self(Arc::new(AtomicI64::new(-1)))
+        Self {
+            start: Arc::new(AtomicU64::new(NO_REQUESTED_POSITION)),
+            end: Arc::new(AtomicU64::new(NO_REQUESTED_POSITION)),
+        }
     }
 }
 
-// relaxed ordering as we are not using the atomic to
-// lock something or to synchronize threads.
 impl RequestedPosition {
-    pub(super) fn clear(&self) {
-        self.0.store(-1, Ordering::Relaxed);
+    /// Clears the request if it still waits for `start` and `end`, so a newer request is
+    /// kept.
+    pub(super) fn clear(&self, start: u64, end: u64) {
+        if end != self.end.load(Ordering::SeqCst) {
+            return;
+        }
+        if self
+            .start
+            .compare_exchange(
+                start,
+                NO_REQUESTED_POSITION,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            self.end.store(NO_REQUESTED_POSITION, Ordering::SeqCst);
+        }
     }
 
-    pub(super) fn get(&self) -> Option<u64> {
-        let val = self.0.load(Ordering::Relaxed);
-        if val == -1 { None } else { Some(val as u64) }
+    /// The start of the reader's range and the position one past its last byte.
+    pub(super) fn get_range(&self) -> Option<(u64, u64)> {
+        let start = self.start.load(Ordering::SeqCst);
+        if start == NO_REQUESTED_POSITION {
+            return None;
+        }
+        let end = self.end.load(Ordering::SeqCst);
+        if end == NO_REQUESTED_POSITION {
+            return None;
+        }
+        Some((start, end))
     }
 
-    fn set(&self, position: u64) {
-        self.0.store(position as i64, Ordering::Relaxed);
+    fn set(&self, start: u64, end: u64) {
+        self.end.store(end, Ordering::SeqCst);
+        self.start.store(start, Ordering::SeqCst);
     }
 }
 
@@ -125,6 +172,11 @@ impl PositionReached {
         let (mutex, cvar) = self.0.as_ref();
         mutex.lock().stream_done = true;
         cvar.notify_all();
+    }
+
+    pub(super) fn is_stream_done(&self) -> bool {
+        let (mutex, _) = self.0.as_ref();
+        mutex.lock().stream_done
     }
 
     fn wait_for_position_reached(&self) {
@@ -166,6 +218,15 @@ impl Downloaded {
 
     pub(super) fn next_gap(&self, range: Range<u64>) -> Option<Range<u64>> {
         self.0.read().gaps(&range).next()
+    }
+
+    /// The end of the uninterrupted run of downloaded bytes at `position`, or `position`
+    /// itself when nothing is downloaded there.
+    pub(super) fn contiguous_end(&self, position: u64) -> u64 {
+        match self.get(position) {
+            Some(range) => range.end,
+            None => position,
+        }
     }
 }
 

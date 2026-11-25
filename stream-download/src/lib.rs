@@ -456,6 +456,20 @@ impl<P: StorageProvider> StreamDownload<P> {
         res
     }
 
+    /// Reads at most the bytes before `contiguous_end`, the end of the uninterrupted run
+    /// of downloaded bytes at `stream_position`, so a hole in the storage never reaches
+    /// the caller as zeros.
+    fn handle_read_prefix(
+        &mut self,
+        buf: &mut [u8],
+        contiguous_end: u64,
+        stream_position: u64,
+    ) -> io::Result<usize> {
+        let prefix = contiguous_end.saturating_sub(stream_position) as usize;
+        let read_len = prefix.min(buf.len());
+        self.handle_read(&mut buf[..read_len])
+    }
+
     fn normalize_requested_position(&self, requested_position: u64) -> u64 {
         if let Some(content_length) = self.content_length {
             // ensure we don't request a position beyond the end of the stream
@@ -560,30 +574,45 @@ impl<P: StorageProvider> Read for StreamDownload<P> {
             requested_position = requested_position
         );
 
-        if let Some(closest_set) = self.handle.get_downloaded_at_position(stream_position) {
-            trace!(
-                downloaded_range = format!("{closest_set:?}"),
-                "current position already downloaded"
-            );
-            if closest_set.end >= requested_position {
-                trace!("requested position already downloaded");
+        // Wait until the whole range the buffer asks for is in storage. Waking alone is
+        // not enough: a write to a range disjoint from it, past its end, wakes the reader
+        // without filling the hole, so the contiguous run at the reader's position is
+        // checked again after every wake.
+        loop {
+            let contiguous_end = self.handle.contiguous_end(stream_position);
+            if contiguous_end >= requested_position {
+                trace!("requested range already contiguous");
                 return self.handle_read(buf);
             }
-            debug!("requested position not yet downloaded");
-        } else {
-            debug!("stream position not yet downloaded");
+            if contiguous_end == stream_position {
+                debug!("stream position not yet downloaded");
+            } else {
+                debug!(
+                    contiguous_end,
+                    requested_position, "requested position not yet downloaded"
+                );
+            }
+
+            if self.handle.is_stream_complete() {
+                // The download is over and the gap in the range will never fill. Only the
+                // uninterrupted run at the reader's position is stream content: past it,
+                // sparse storage reads back zeros that were never received. A position
+                // outside every downloaded range is the end of the stream or an
+                // unreachable hole; both end the read, like a short read at EOF.
+                debug!("stream complete with an unfilled gap, returning the contiguous prefix");
+                return self.handle_read_prefix(buf, contiguous_end, stream_position);
+            }
+
+            self.handle
+                .wait_for_position(stream_position, requested_position);
+            self.check_for_failure()?;
+            debug!(
+                current_position = stream_position,
+                requested_position = requested_position,
+                output_stream_position = self.output_reader.stream_position()?,
+                "reached requested position"
+            );
         }
-
-        self.handle.wait_for_position(requested_position);
-        self.check_for_failure()?;
-        debug!(
-            current_position = stream_position,
-            requested_position = requested_position,
-            output_stream_position = self.output_reader.stream_position()?,
-            "reached requested position"
-        );
-
-        self.handle_read(buf)
     }
 }
 
