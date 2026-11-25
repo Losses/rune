@@ -22,6 +22,9 @@ use crate::entities::{
 
 use super::{CreditScope, column, queries, recording_identity, tracks};
 
+#[cfg(test)]
+mod tests;
+
 const CHUNK: usize = 192;
 
 pub(crate) const TAG_LIMIT: usize = 128;
