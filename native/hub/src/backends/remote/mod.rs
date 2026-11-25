@@ -6,8 +6,6 @@ use reqwest::StatusCode;
 use reqwest::header;
 use std::fmt;
 use std::result;
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
 use std::{
     collections::HashMap,
     sync::{
@@ -245,8 +243,6 @@ pub struct RendererLink {
     cancel: CancellationToken,
     locally_detached: Arc<AtomicBool>,
     pending_replies: PendingReplies,
-    #[cfg(test)]
-    sent_requests: AtomicUsize,
     node: Weak<NodeContext>,
     reader: task::JoinHandle<()>,
 }
@@ -437,8 +433,6 @@ impl RendererLink {
             cancel,
             locally_detached,
             pending_replies,
-            #[cfg(test)]
-            sent_requests: AtomicUsize::new(0),
             node: Arc::downgrade(&node),
             reader,
         }
@@ -539,8 +533,6 @@ impl RendererLink {
             self.report_send_failure(detail).await;
             return Err(ExpectedRequestError::Unavailable { what: "renderer" }.into());
         }
-        #[cfg(test)]
-        self.sent_requests.fetch_add(1, Ordering::Relaxed);
         match tokio_time::timeout(Duration::from_secs(30), receiver).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) | Err(_) => {
@@ -567,11 +559,6 @@ impl RendererLink {
 
     pub(crate) fn active_library_id(&self) -> Option<Uuid> {
         self.active_library_id.read().ok().and_then(|value| *value)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn sent_request_count(&self) -> usize {
-        self.sent_requests.load(Ordering::Relaxed)
     }
 
     fn set_active_library_id(&self, library_id: Option<Uuid>) {
