@@ -169,7 +169,7 @@ async fn prepare_window(visualizer: Arc<::visualizer::Visualizer>, width: u32, h
     visualizer.set_window(None);
     let visualizer_weak = Arc::downgrade(&visualizer);
     let mut textures = TEXTURES.lock().await;
-    if textures.current.is_none() {
+    if textures.slots.current.is_none() {
         match flutter_texture::register_surface(width, height).await {
             Ok(texture) => install(
                 &mut textures,
@@ -185,7 +185,7 @@ async fn prepare_window(visualizer: Arc<::visualizer::Visualizer>, width: u32, h
                 return;
             }
         }
-    } else if let Some((_, texture, _)) = &textures.current {
+    } else if let Some((_, texture, _)) = &textures.slots.current {
         if let Err(e) = texture.set_size(width, height).await {
             visualizer.report_error(
                 "texture",
@@ -196,7 +196,7 @@ async fn prepare_window(visualizer: Arc<::visualizer::Visualizer>, width: u32, h
     }
     // After registering or resizing, set the window from the current texture for both cases.
     // On Android, this is essential: the first start needs its window to present into.
-    let Some((_, texture, _)) = &textures.current else {
+    let Some((_, texture, _)) = &textures.slots.current else {
         return;
     };
     match texture.window().await {
@@ -218,7 +218,7 @@ pub async fn resize_visualizer(
     #[cfg(target_os = "android")]
     {
         let textures = TEXTURES.lock().await;
-        if let Some((_, texture, owner)) = &textures.current
+        if let Some((_, texture, owner)) = &textures.slots.current
             && owner
                 .upgrade()
                 .is_some_and(|v| std::ptr::eq(Arc::as_ptr(&v), visualizer))
@@ -346,18 +346,35 @@ impl flutter_texture::VulkanFds for SharedImage {
     }
 }
 
+/// The texture slots `take_stopping` works on, generic over the texture type so the ownership
+/// logic can be tested without a Flutter engine (a `Texture` exists only once the engine
+/// registered it).
+struct TextureSlots<T> {
+    /// The texture Dart is told to show and the kind of frames it takes.
+    current: Option<(Kind, T, Weak<::visualizer::Visualizer>)>,
+    /// Each with the id of the texture that replaced it and its owning visualizer.
+    retiring: Vec<(i64, T, Weak<::visualizer::Visualizer>)>,
+}
+
+impl<T> Default for TextureSlots<T> {
+    fn default() -> Self {
+        Self {
+            current: None,
+            retiring: Vec::new(),
+        }
+    }
+}
+
 /// The texture Dart is told to show, and the ones it replaced, until Dart shows their
 /// replacement.
 #[derive(Default)]
 struct Textures {
     /// The visualizer runs and may have a texture.
     running: bool,
-    /// The texture Dart is told to show and the kind of frames it takes.
-    current: Option<(Kind, Texture, Weak<::visualizer::Visualizer>)>,
+    /// The texture slots.
+    slots: TextureSlots<Texture>,
     /// The id of `current` as last sent to Dart.
     announced: Option<i64>,
-    /// Each with the id of the texture that replaced it and its owning visualizer.
-    retiring: Vec<(i64, Texture, Weak<::visualizer::Visualizer>)>,
 }
 
 static TEXTURES: LazyLock<Mutex<Textures>> = LazyLock::new(Mutex::default);
@@ -425,7 +442,21 @@ async fn show(visualizer: Arc<::visualizer::Visualizer>, kind: Kind) {
     if !textures.running {
         return;
     }
-    if textures.current.as_ref().map(|(current, _, _)| *current) != Some(kind) {
+    // The current texture serves this visualizer only when it is of the kind asked for and this
+    // visualizer owns it: reusing another visualizer's texture would attach this one's frame
+    // listener to a texture whose frames come from the other one.
+    let serves_visualizer =
+        textures
+            .slots
+            .current
+            .as_ref()
+            .is_some_and(|(current_kind, _, owner)| {
+                *current_kind == kind
+                    && owner
+                        .upgrade()
+                        .is_some_and(|v| Arc::ptr_eq(&v, &visualizer))
+            });
+    if !serves_visualizer {
         // Android: the texture is made with its window before the visualizer starts; without
         // one, the error is in the status already.
         if cfg!(target_os = "android") {
@@ -455,7 +486,7 @@ async fn show(visualizer: Arc<::visualizer::Visualizer>, kind: Kind) {
             }
         }
     }
-    let Some((_, texture, _)) = &textures.current else {
+    let Some((_, texture, _)) = &textures.slots.current else {
         return;
     };
     let notifier = texture.notifier();
@@ -463,6 +494,22 @@ async fn show(visualizer: Arc<::visualizer::Visualizer>, kind: Kind) {
     let id = texture.id();
     if textures.announced.replace(id) != Some(id) {
         VisualizerTextureResponse { texture_id: id }.send_signal_to_dart();
+    }
+}
+
+/// Make `texture` the one Dart shows, returning the one it replaces. The replaced texture keeps
+/// the owner it had: `stop_visualizer` unregisters it when that visualizer stops, even before
+/// Dart shows its replacement.
+fn replace_current<T>(
+    current: &mut Option<(Kind, T, Weak<::visualizer::Visualizer>)>,
+    retiring: &mut Vec<(i64, T, Weak<::visualizer::Visualizer>)>,
+    kind: Kind,
+    id: i64,
+    texture: T,
+    visualizer_weak: Weak<::visualizer::Visualizer>,
+) {
+    if let Some((_, old, old_owner)) = current.replace((kind, texture, visualizer_weak)) {
+        retiring.push((id, old, old_owner));
     }
 }
 
@@ -474,10 +521,17 @@ fn install(
     visualizer_weak: Weak<::visualizer::Visualizer>,
 ) {
     let id = texture.id();
-    if let Some((_, old, _)) = textures.current.replace((kind, texture, visualizer_weak)) {
-        info!("Visualizer texture {} replaces {}", id, old.id());
-        textures.retiring.push((id, old, Weak::default()));
+    if textures.slots.current.is_some() {
+        info!("Visualizer texture {id} replaces the one before");
     }
+    replace_current(
+        &mut textures.slots.current,
+        &mut textures.slots.retiring,
+        kind,
+        id,
+        texture,
+        visualizer_weak,
+    );
 }
 
 /// Dart shows the texture `texture_id`: the textures it replaced can go.
@@ -485,18 +539,18 @@ pub async fn texture_shown(texture_id: i64) {
     let retired = {
         let mut textures = TEXTURES.lock().await;
         let current = textures
+            .slots
             .current
             .as_ref()
             .map(|(_, texture, _)| texture.id());
         // The current texture shown: every earlier one can go, also any that were replaced before
         // Dart showed them.
-        let (retired, kept) =
-            mem::take(&mut textures.retiring)
-                .into_iter()
-                .partition(|(replacement, _, _)| {
-                    current == Some(texture_id) || *replacement == texture_id
-                });
-        textures.retiring = kept;
+        let (retired, kept) = mem::take(&mut textures.slots.retiring)
+            .into_iter()
+            .partition(|(replacement, _, _)| {
+                current == Some(texture_id) || *replacement == texture_id
+            });
+        textures.slots.retiring = kept;
         retired
     };
     for (_, texture, _) in retired {
@@ -504,8 +558,38 @@ pub async fn texture_shown(texture_id: i64) {
     }
 }
 
+/// The textures of the visualizer that stops, taken out of the shared state; the state keeps
+/// everything else. The owner check comes before anything is taken: a visualizer that owns no
+/// texture leaves the state untouched, so stopping one node's visualizer never takes away
+/// another node's texture.
+fn take_stopping<T>(
+    textures: &mut TextureSlots<T>,
+    visualizer: &::visualizer::Visualizer,
+) -> Vec<T> {
+    let owns = |owner: &Weak<::visualizer::Visualizer>| {
+        owner
+            .upgrade()
+            .is_some_and(|v| std::ptr::eq(Arc::as_ptr(&v), visualizer))
+    };
+    let mut taken: Vec<T> = Vec::new();
+    if textures
+        .current
+        .as_ref()
+        .is_some_and(|(_, _, owner)| owns(owner))
+        && let Some((_, texture, _)) = textures.current.take()
+    {
+        taken.push(texture);
+    }
+    let (stopping, kept): (Vec<_>, Vec<_>) = mem::take(&mut textures.retiring)
+        .into_iter()
+        .partition(|(_, _, owner)| owns(owner));
+    taken.extend(stopping.into_iter().map(|(_, texture, _)| texture));
+    textures.retiring = kept;
+    taken
+}
+
 /// Stop the visualizer: stop telling the texture about frames, stop the render thread, then
-/// unregister the textures. Returns the PCM input, as [`visualizer::Visualizer::stop`] does.
+/// unregister its textures. Returns the PCM input, as [`visualizer::Visualizer::stop`] does.
 pub async fn stop_visualizer(visualizer: Arc<::visualizer::Visualizer>) -> Option<PcmInput> {
     visualizer.set_transport_listener(None);
     visualizer.set_frame_listener(None);
@@ -513,22 +597,10 @@ pub async fn stop_visualizer(visualizer: Arc<::visualizer::Visualizer>) -> Optio
     // The window of a texture whose visualizer did not start.
     #[cfg(target_os = "android")]
     visualizer.set_window(None);
-    let textures = mem::take(&mut *TEXTURES.lock().await);
-    let mut textures_to_unregister: Vec<Texture> = Vec::new();
-    if let Some((_, texture, owner)) = textures.current
-        && owner
-            .upgrade()
-            .is_some_and(|v| Arc::ptr_eq(&v, &visualizer))
-    {
-        textures_to_unregister.push(texture);
-    }
-    for (_, texture, _owner) in textures.retiring.into_iter().filter(|(_, _, owner)| {
-        owner
-            .upgrade()
-            .is_some_and(|v| Arc::ptr_eq(&v, &visualizer))
-    }) {
-        textures_to_unregister.push(texture);
-    }
+    let textures_to_unregister = {
+        let mut textures = TEXTURES.lock().await;
+        take_stopping(&mut textures.slots, &visualizer)
+    };
     for texture in textures_to_unregister {
         texture.unregister().await;
     }
@@ -538,6 +610,108 @@ pub async fn stop_visualizer(visualizer: Arc<::visualizer::Visualizer>) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::visualizer::Visualizer;
+
+    // `Texture` cannot be built in a test: it only exists once it is registered with a running
+    // Flutter engine. `take_stopping` is generic over the texture type for that reason, and the
+    // tests below use ids in its place.
+    fn owned_textures(owners: &[Option<&Arc<Visualizer>>]) -> Vec<(i64, i64, Weak<Visualizer>)> {
+        owners
+            .iter()
+            .enumerate()
+            .map(|(index, owner)| {
+                (
+                    index as i64,
+                    index as i64,
+                    owner.map_or_else(Weak::default, Arc::downgrade),
+                )
+            })
+            .collect()
+    }
+
+    /// Stopping a visualizer that owns nothing touches nothing: another node's texture stays
+    /// the current one (the isolation issue #497 is about).
+    #[test]
+    fn stopping_a_visualizer_keeps_another_ones_textures() {
+        let visualizer_a = Arc::new(Visualizer::new());
+        let visualizer_b = Arc::new(Visualizer::new());
+        let mut slots = TextureSlots {
+            current: Some((Kind::Pixels, 1, Weak::clone(&Arc::downgrade(&visualizer_a)))),
+            retiring: owned_textures(&[Some(&visualizer_a)]),
+        };
+        let taken = take_stopping(&mut slots, &visualizer_b);
+        assert!(taken.is_empty());
+        assert_eq!(
+            slots.current.as_ref().map(|(_, texture, _)| *texture),
+            Some(1)
+        );
+        assert_eq!(slots.retiring.len(), 1);
+    }
+
+    /// Stopping a visualizer takes its own textures, current and retired, and nothing else.
+    #[test]
+    fn stopping_a_visualizer_takes_only_its_own_textures() {
+        let visualizer_a = Arc::new(Visualizer::new());
+        let visualizer_b = Arc::new(Visualizer::new());
+        // Retired textures of both owners; a texture that outlived its visualizer (`None`)
+        // belongs to no one and is not taken either.
+        let mut slots = TextureSlots {
+            current: Some((
+                Kind::Pixels,
+                10,
+                Weak::clone(&Arc::downgrade(&visualizer_b)),
+            )),
+            retiring: vec![
+                (10, 8, Arc::downgrade(&visualizer_b)),
+                (10, 9, Arc::downgrade(&visualizer_a)),
+                (10, 7, Weak::default()),
+            ],
+        };
+        let taken = take_stopping(&mut slots, &visualizer_b);
+        assert_eq!(taken, vec![10, 8]);
+        assert!(slots.current.is_none());
+        assert_eq!(
+            slots
+                .retiring
+                .iter()
+                .map(|(_, texture, _)| *texture)
+                .collect::<Vec<_>>(),
+            vec![9, 7]
+        );
+    }
+
+    /// A retired texture keeps the owner it had when it was replaced, so stopping that owner
+    /// unregisters it even before Dart shows its replacement.
+    #[test]
+    fn a_replaced_texture_keeps_its_owner() {
+        let visualizer_a = Arc::new(Visualizer::new());
+        let visualizer_b = Arc::new(Visualizer::new());
+        let mut slots: TextureSlots<i64> = TextureSlots::default();
+        replace_current(
+            &mut slots.current,
+            &mut slots.retiring,
+            Kind::Pixels,
+            1,
+            1,
+            Arc::downgrade(&visualizer_a),
+        );
+        replace_current(
+            &mut slots.current,
+            &mut slots.retiring,
+            Kind::Pixels,
+            2,
+            2,
+            Arc::downgrade(&visualizer_b),
+        );
+        let Some((_, _, retired_owner)) = slots.retiring.first() else {
+            panic!("the replaced texture must retire");
+        };
+        assert!(
+            retired_owner
+                .upgrade()
+                .is_some_and(|v| Arc::ptr_eq(&v, &visualizer_a))
+        );
+    }
 
     #[test]
     fn the_transport_decides_the_kind_of_texture_on_windows_only() {
