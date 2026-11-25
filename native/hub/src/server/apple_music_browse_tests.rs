@@ -7789,6 +7789,56 @@ async fn a_rune_mix_lasts_through_a_new_binding_by_apples_keys() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_item_added_to_a_mix_changed_meanwhile_is_refused() -> Result<()> {
+    use crate::apple_music_artists::named_artist_remote;
+    use crate::messages::UpdateMixRequest;
+
+    const ARTISTS: &str = "/v1/me/library/artists";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let s1 = apple.binding.intern_track("i.s1")?;
+    let made = create_mix(&apple, "Night", vec![query("lib::track", s1)]).await?;
+    // Adding an artist reads the artist list, whose answer Apple holds.
+    let artist = apple.binding.intern(
+        AppleIdKind::Artist,
+        &named_artist_remote("Artist One").context("an artist key")?,
+    )?;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some((ARTISTS.into(), release.clone()));
+    let reads = apple.fake.count(ARTISTS);
+    let adding = AddItemToMixRequest {
+        mix_id: made.id,
+        operator: "lib::artist".into(),
+        parameter: artist.to_string(),
+        call_id: None,
+    };
+    let add = apple.run(&adding);
+    let change = async {
+        fake_asked(&apple, ARTISTS, reads + 1).await?;
+        // Meanwhile the mix is given other queries.
+        let s2 = apple.binding.intern_track("i.s2")?;
+        apple
+            .run(&UpdateMixRequest {
+                mix_id: made.id,
+                name: "Night".into(),
+                group: String::new(),
+                mode: None,
+                queries: vec![query("lib::track", s2)],
+                call_id: None,
+            })
+            .await?;
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (added, changed) = tokio::join!(add, change);
+    changed?;
+    assert!(added.is_err());
+    let queries = stored_queries(&apple, made.id).await?;
+    assert_eq!(query_keys(&apple.binding, &queries)?, ["i.s2"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn catalogue_items_in_rune_mixes_and_playlists_last_through_a_new_binding() -> Result<()> {
     use crate::service::device_records::device_records_folder;
     use crate::service::rune_mixes::MIXES_FILE;

@@ -837,9 +837,10 @@ pub(crate) async fn add_item_to_mix_request(
     let mut operators = mix_operators(&queries, wire_name)?;
     let operators = operators.split_off(operators.len() - 1);
     let mut kept = keepable_queries(binding, std::slice::from_ref(&added), &operators).await?;
+    // What was checked is the mix as it was read; a change made meanwhile refuses the addition.
     binding
         .rune_mixes
-        .add_query(&stored, kept.remove(0))
+        .add_query(&stored, mix.queries, kept.remove(0))
         .await?;
     binding.content_changed();
     Ok(Some(AddItemToMixResponse { call_id: None }))

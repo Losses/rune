@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::messages::PlaybackMode;
+use crate::request_error::ExpectedRequestError;
 use crate::service::device_records::{DeviceStore, StoredRecord};
 
 /// The file of a library's records folder that holds its mixes.
@@ -153,12 +154,25 @@ impl RuneMixes {
             .await
     }
 
-    /// Adds `query` to the end of the mix `id`.
-    pub(crate) async fn add_query(&self, id: &str, query: StoredQuery) -> Result<()> {
+    /// Adds `query` to the end of the mix `id`, as long as its queries are still `checked`, those
+    /// the addition was checked against: a mix changed meanwhile refuses it.
+    pub(crate) async fn add_query(
+        &self,
+        id: &str,
+        checked: Vec<StoredQuery>,
+        query: StoredQuery,
+    ) -> Result<()> {
         let id = id.to_owned();
         self.store
             .change(move |mixes| {
-                find(mixes, &id)?.queries.push(query);
+                let mix = find(mixes, &id)?;
+                if mix.queries != checked {
+                    return Err(ExpectedRequestError::invalid_input(
+                        "The mix changed while an item was added to it",
+                    )
+                    .into());
+                }
+                mix.queries.push(query);
                 Ok(())
             })
             .await
@@ -224,8 +238,19 @@ mod tests {
             )
             .await?;
         mixes
-            .add_query(&made.id, query("lib::track", "catalog:1"))
+            .add_query(
+                &made.id,
+                vec![query("lib::artist", "name:ann")],
+                query("lib::track", "catalog:1"),
+            )
             .await?;
+        // Checked against other queries than the mix has now, an addition is refused.
+        assert!(
+            mixes
+                .add_query(&made.id, Vec::new(), query("lib::all", "true"))
+                .await
+                .is_err()
+        );
         let kept = mixes.create("Day", "Favorite", None, Vec::new()).await?;
         mixes
             .update(
@@ -277,7 +302,7 @@ mod tests {
         assert!(not_found(mixes.mix("missing").await.unwrap_err()));
         assert!(not_found(
             mixes
-                .add_query("missing", query("lib::all", "true"))
+                .add_query("missing", Vec::new(), query("lib::all", "true"))
                 .await
                 .unwrap_err()
         ));
