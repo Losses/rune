@@ -2176,13 +2176,14 @@ async fn open_subsonic_record(
 fn check_subsonic_server(node: &Arc<NodeContext>, binding: &Arc<SubsonicBinding>) {
     let node = Arc::downgrade(node);
     let client = Arc::clone(&binding.client);
-    let renewed = binding.renewed();
+    let check_over = binding.check_over();
     let binding = Arc::downgrade(binding);
     tokio::spawn(async move {
         let probed = tokio::select! {
             // A sign-in renewed meanwhile is the one the library keeps now, and what the server
-            // answers to the one before says nothing of it.
-            _ = renewed.cancelled() => return,
+            // answers to the one before says nothing of it. A library closed meanwhile takes
+            // nothing from it.
+            _ = check_over.cancelled() => return,
             probed = timeout(Duration::from_secs(10), client.probe()) => probed,
         };
         let Some(binding) = binding.upgrade() else {

@@ -107,9 +107,10 @@ pub(crate) struct SubsonicBinding {
     /// What the last check of the server found. A library opened from what it kept checks the
     /// server in the background, and the probe it gets replaces this one.
     pub(crate) probe: Mutex<SubsonicProbe>,
-    /// Cancelled once the sign-in is renewed: what a check of the server found under the sign-in
-    /// before says nothing of the new one.
-    renewed: CancellationToken,
+    /// Cancelled once the sign-in is renewed, as what a check of the server found under the
+    /// sign-in before says nothing of the new one, or the library closes, which takes nothing
+    /// from a check any more.
+    check_over: CancellationToken,
     pub(crate) catalog: Arc<Mutex<SubsonicCatalog>>,
     pub(crate) lists: SubsonicLists,
     pub(crate) covers: Arc<ServiceCoverCache>,
@@ -602,7 +603,7 @@ impl SubsonicBinding {
             ),
             client,
             probe: Mutex::new(probe),
-            renewed: CancellationToken::new(),
+            check_over: CancellationToken::new(),
             catalog,
             covers: Arc::new(ServiceCoverCache::new(
                 cover_cache_root(&config_dir, library_id),
@@ -657,17 +658,18 @@ impl SubsonicBinding {
     }
 
     /// Takes what the check of the server, made under the sign-in the library opened with,
-    /// found, unless the sign-in was renewed since: a probe replaces the kept one, on disk too,
+    /// found, unless the sign-in was renewed or the library closed since: a probe replaces the
+    /// kept one, on disk too,
     /// and a sign-in the server rejects asks for a new one. A probe that grants the jukebox role
     /// starts following the jukebox, where it is followed. Says whether the probe changed.
     pub(crate) fn take_check(
         self: &Arc<Self>,
         probed: Result<SubsonicProbe, SubsonicError>,
     ) -> bool {
-        // A renewal cancels under this lock, so it comes wholly before the check is taken, which
-        // it then makes stale, or wholly after.
+        // A renewal and a close cancel under this lock, so each comes wholly before the check is
+        // taken, which it then ends, or wholly after.
         let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
-        if self.renewed.is_cancelled() {
+        if self.check_over.is_cancelled() {
             return false;
         }
         match probed {
@@ -705,10 +707,10 @@ impl SubsonicBinding {
         }
     }
 
-    /// Cancelled once the sign-in is renewed, which makes what a check of the server under the
-    /// sign-in before found stale.
-    pub(crate) fn renewed(&self) -> CancellationToken {
-        self.renewed.clone()
+    /// Cancelled once the sign-in is renewed or the library closes, after which the check of the
+    /// server under the sign-in it opened with is over.
+    pub(crate) fn check_over(&self) -> CancellationToken {
+        self.check_over.clone()
     }
 
     /// Asks the UI for a new sign-in, as the server rejects the one the library keeps, which
@@ -1195,7 +1197,7 @@ impl ServiceBinding for SubsonicBinding {
                     user: credential.username.clone(),
                     password: password.to_owned(),
                 });
-            self.renewed.cancel();
+            self.check_over.cancel();
         }
         if other_account {
             // The lists first, so no read of the account before keeps what it brings after.
@@ -1212,6 +1214,12 @@ impl ServiceBinding for SubsonicBinding {
     }
 
     fn close(&self) {
+        {
+            // Under the probe lock, so a check of the server is taken wholly before this or not at
+            // all, and asks for no sign-in for a library that is closed.
+            let _probe = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+            self.check_over.cancel();
+        }
         self.followed.store(false, Ordering::Release);
         self.stop_jukebox_polling();
     }
@@ -2484,5 +2492,36 @@ mod visualizer_feed_tests {
             binding.covers.cancellation.cancel();
             server.abort();
         }
+    }
+
+    /// A rejection of the sign-in the server check found, as the server answers it.
+    fn rejected() -> subsonic::SubsonicError {
+        subsonic::SubsonicError::Server {
+            kind: subsonic::SubsonicServerError::WrongCredentials,
+            message: "Wrong username or password".into(),
+        }
+    }
+
+    fn asked_for_sign_in(signals: &Signals) -> bool {
+        signals
+            .names
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|name| name == "RequestFailedResponse")
+    }
+
+    #[tokio::test]
+    async fn a_library_closed_before_its_server_check_ends_takes_nothing_from_it() {
+        use crate::service::ServiceBinding;
+
+        let (url, _state, server) = server(true, false).await;
+        let root = TempDir::new().unwrap();
+        let signals = Arc::new(Signals::default());
+        let binding = open_binding(url, &root, signals.clone()).await;
+        binding.close();
+        assert!(!binding.take_check(Err(rejected())));
+        assert!(!asked_for_sign_in(&signals));
+        server.abort();
     }
 }
