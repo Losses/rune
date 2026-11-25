@@ -28,7 +28,7 @@ pub enum CapabilityReason {
 /// rinf only reads structs written out in source, so this one is kept by hand;
 /// `capability_snapshot` builds it from the catalogue, so a missing or extra
 /// field fails to compile. Paired devices read it by position, so a request added later goes
-/// at the end and never in the middle.
+/// at the end, never in the middle, and counts in `APPENDED_SINCE_2_0`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, RustSignal)]
 pub struct RequestCapabilities {
     pub record_id: Option<String>,
@@ -192,21 +192,30 @@ pub struct RequestCapabilities {
     pub rename_file_dialog_entry_request: RequestCapability,
     pub fetch_artist_page_request: RequestCapability,
     pub fetch_artist_section_albums_request: RequestCapability,
+    pub register_service_library_request: RequestCapability,
+    pub sign_in_service_library_request: RequestCapability,
+    pub sign_out_service_library_request: RequestCapability,
 }
 
 impl RequestCapabilities {
-    /// Reads a snapshot a paired device sent. A device of protocol 2.0 ends it before the
-    /// fields 2.1 appended, so those are read as refused for a device too old to answer them.
-    /// A device of 2.0 reads a newer snapshot, which is longer, as far as its own fields go.
+    /// How many fields at the end of a snapshot a paired device of an older build may leave
+    /// out: those appended since protocol 2.0, the two artist page requests of 2.1 and the three
+    /// service library requests.
+    const APPENDED_SINCE_2_0: usize = 5;
+
+    /// Reads a snapshot a paired device sent. A device of an older build ends it before the
+    /// fields appended since, so those are read as refused for a device too old to answer them.
+    /// An older device reads a newer snapshot, which is longer, as far as its own fields go.
     pub(crate) fn from_peer(payload: &[u8]) -> anyhow::Result<Self> {
         rinf::deserialize(payload).or_else(|error| {
-            let too_old = RequestCapability::Disabled {
+            let too_old = rinf::serialize(&RequestCapability::Disabled {
                 reason: CapabilityReason::PeerTooOld,
-            };
-            // `fetch_artist_page_request` and `fetch_artist_section_albums_request`.
-            let mut padded = payload.to_vec();
-            padded.extend(rinf::serialize(&(too_old, too_old))?);
-            rinf::deserialize(&padded).map_err(|_| error.into())
+            })?;
+            (1..=Self::APPENDED_SINCE_2_0)
+                .find_map(|missing| {
+                    rinf::deserialize(&[payload, &too_old.repeat(missing)].concat()).ok()
+                })
+                .ok_or_else(|| error.into())
         })
     }
 }
@@ -263,39 +272,77 @@ mod tests {
 
     use super::{CapabilityReason, RequestCapabilities, RequestCapability};
 
-    #[test]
-    fn a_snapshot_from_a_device_of_protocol_2_0_reads_the_artist_requests_as_too_old() -> Result<()>
-    {
-        // A snapshot with every request available: more fields than it has, the rest unread.
+    const TOO_OLD: RequestCapability = RequestCapability::Disabled {
+        reason: CapabilityReason::PeerTooOld,
+    };
+
+    /// A snapshot of this version with every request available, and how it is sent.
+    fn current() -> Result<(RequestCapabilities, Vec<u8>)> {
+        // More fields than it has, the rest unread.
         let mut payload = rinf::serialize(&(Some("record".to_owned()), 3_u64, None::<String>))?;
         for _ in 0..1000 {
             payload.extend(rinf::serialize(&RequestCapability::Available)?);
         }
         let current: RequestCapabilities = rinf::deserialize(&payload)?;
         let full = rinf::serialize(&current)?;
-        // A device of 2.0 sends the same snapshot without the fields 2.1 appended.
+        Ok((current, full))
+    }
+
+    #[test]
+    fn a_snapshot_from_a_device_of_protocol_2_0_reads_the_artist_requests_as_too_old() -> Result<()>
+    {
+        let (current, full) = current()?;
+        // A device of 2.0 sends the same snapshot without the fields appended since.
         let appended = rinf::serialize(&(
             current.fetch_artist_page_request,
             current.fetch_artist_section_albums_request,
+            current.register_service_library_request,
+            current.sign_in_service_library_request,
+            current.sign_out_service_library_request,
         ))?;
         let old = &full[..full.len() - appended.len()];
 
-        let read = RequestCapabilities::from_peer(old)?;
-        let too_old = RequestCapability::Disabled {
-            reason: CapabilityReason::PeerTooOld,
-        };
-        assert_eq!(read.fetch_artist_page_request, too_old);
-        assert_eq!(read.fetch_artist_section_albums_request, too_old);
         assert_eq!(
+            RequestCapabilities::from_peer(old)?,
             RequestCapabilities {
-                fetch_artist_page_request: RequestCapability::Available,
-                fetch_artist_section_albums_request: RequestCapability::Available,
-                ..read
-            },
-            current
+                fetch_artist_page_request: TOO_OLD,
+                fetch_artist_section_albums_request: TOO_OLD,
+                register_service_library_request: TOO_OLD,
+                sign_in_service_library_request: TOO_OLD,
+                sign_out_service_library_request: TOO_OLD,
+                ..current.clone()
+            }
         );
         // A snapshot of this version reads as it is.
         assert_eq!(RequestCapabilities::from_peer(&full)?, current);
+        // One that ends before more fields than were appended since 2.0 is not a snapshot.
+        let field = rinf::serialize(&RequestCapability::Available)?.len();
+        assert!(RequestCapabilities::from_peer(&old[..old.len() - field]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_snapshot_from_a_device_of_protocol_2_1_reads_the_service_library_requests_as_too_old()
+    -> Result<()> {
+        let (current, full) = current()?;
+        // A device of a 2.1 build before them sends the same snapshot without the service
+        // library fields appended last.
+        let appended = rinf::serialize(&(
+            current.register_service_library_request,
+            current.sign_in_service_library_request,
+            current.sign_out_service_library_request,
+        ))?;
+        let old = &full[..full.len() - appended.len()];
+
+        assert_eq!(
+            RequestCapabilities::from_peer(old)?,
+            RequestCapabilities {
+                register_service_library_request: TOO_OLD,
+                sign_in_service_library_request: TOO_OLD,
+                sign_out_service_library_request: TOO_OLD,
+                ..current.clone()
+            }
+        );
         Ok(())
     }
 }

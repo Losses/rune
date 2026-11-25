@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 
 use crate::messages::{HostedPlayerCommand, HostedPlayerEvent};
 use crate::node::NodeSlot;
+use crate::service::reach::Reach;
 
 /// Serialises batches of commands and hands them to `sink`, which must not block.
 pub(crate) struct JsonHostBridge {
@@ -47,10 +48,56 @@ async fn deliver_host_event(player: &Mutex<dyn Playable>, payload: &str) {
     }
 }
 
-/// Passes the app's host events to the local session's player.
+/// What a platform host reports of this device's network. It is for the library of the service
+/// on that host rather than the player, which has no use for it.
+#[derive(serde::Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum ReachabilityEvent {
+    NetworkState {
+        host: String,
+        online: bool,
+        /// The ids of the tracks stored on this device, as the library names them. Only given
+        /// while offline.
+        #[serde(default)]
+        downloaded: Vec<String>,
+    },
+}
+
+/// The host and the reach a `networkState` event reports. None for any other payload.
+fn reachability(payload: &str) -> Option<(String, Reach)> {
+    let ReachabilityEvent::NetworkState {
+        host,
+        online,
+        downloaded,
+    } = serde_json::from_str(payload).ok()?;
+    let reach = if online {
+        Reach::default()
+    } else {
+        Reach::offline(downloaded.into_iter().collect())
+    };
+    Some((host, reach))
+}
+
+/// Passes the app's host events to the local session's player, and what a host reports of the
+/// network to the libraries of the service on it.
 pub async fn receive_hosted_player_events(node: &'static NodeSlot) {
     let receiver = HostedPlayerEvent::get_dart_signal_receiver();
     while let Some(signal) = receiver.recv().await {
+        if let Some((host, reach)) = reachability(&signal.message.payload) {
+            match node.current().await {
+                // A report from a host no service plays through is the player's to ignore.
+                Ok(node) if !node.services.reach_changed(&host, reach) => {}
+                Ok(_) => continue,
+                Err(error) => {
+                    debug!("Dropping a network report before the node is ready: {error:#}");
+                    continue;
+                }
+            }
+        }
         let session = match node.current().await.and_then(|node| node.session()) {
             Ok(session) => session,
             Err(error) => {
@@ -65,6 +112,7 @@ pub async fn receive_hosted_player_events(node: &'static NodeSlot) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use std::sync::{Arc, Mutex as StdMutex};
 
     use playback::hosted::{HostAction, HostFailure};
@@ -74,6 +122,45 @@ mod tests {
             .iter()
             .filter_map(|payload| HostEvent::parse(payload))
             .collect()
+    }
+
+    #[test]
+    fn a_network_state_event_names_the_downloaded_tracks_only_while_offline() {
+        assert_eq!(
+            reachability(
+                r#"{"type":"networkState","host":"platformHost","online":false,"downloaded":["a","b"]}"#
+            ),
+            Some((
+                "platformHost".to_owned(),
+                Reach::offline(HashSet::from(["a".to_owned(), "b".to_owned()]))
+            ))
+        );
+        assert_eq!(
+            reachability(r#"{"type":"networkState","host":"platformHost","online":false}"#),
+            Some(("platformHost".to_owned(), Reach::offline(HashSet::new())))
+        );
+        assert_eq!(
+            reachability(
+                r#"{"type":"networkState","host":"platformHost","online":true,"downloaded":["a"]}"#
+            ),
+            Some(("platformHost".to_owned(), Reach::default()))
+        );
+    }
+
+    #[test]
+    fn other_events_are_not_network_states() {
+        for payload in [
+            r#"{"type":"hostReady","host":"platformHost","authorized":true,"canPlay":true}"#,
+            r#"{"type":"networkState","host":"platformHost"}"#,
+            "not json",
+        ] {
+            assert_eq!(reachability(payload), None, "{payload}");
+        }
+        // The player ignores a network state.
+        assert_eq!(
+            HostEvent::parse(r#"{"type":"networkState","host":"platformHost","online":false}"#),
+            None
+        );
     }
 
     #[test]

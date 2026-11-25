@@ -6,6 +6,9 @@ use std::env;
 use tracing_appender::rolling;
 pub mod access_policy;
 mod apple_bridge;
+mod apple_music_artists;
+mod apple_music_binding;
+mod apple_music_translate;
 pub mod flutter_bridge;
 #[macro_use]
 mod macros;

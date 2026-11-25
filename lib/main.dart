@@ -667,9 +667,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             case RequestFailureCauseServiceSignInRequired(:final recordId)) {
           if (_subsonicReloginOpen) return;
           final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-          // A record of another device, as one a renderer plays from, signs in
-          // there.
-          if (!registry.records.any((record) => record.recordId == recordId) ||
+          if (!signsInWithKeptCredential(registry.records, recordId) ||
               dialogContext == null ||
               !mounted ||
               !dialogContext.mounted) {

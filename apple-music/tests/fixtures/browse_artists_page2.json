@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "id": "r.art2",
+      "type": "library-artists",
+      "href": "/v1/me/library/artists/r.art2",
+      "attributes": {
+        "name": "Artist Two"
+      }
+    }
+  ],
+  "meta": {
+    "total": 2
+  }
+}

@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use database::library_registry::{
-    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode, ServiceKind,
 };
 use log::warn;
 use uuid::Uuid;
@@ -60,6 +60,19 @@ async fn record_summaries(
                     record.record_id.0
                 ),
             }
+        }
+        // A library whose sign-in lives in its binding is signed in only while this device
+        // holds a binding that holds one.
+        if record
+            .protocol
+            .service()
+            .is_some_and(ServiceKind::signs_in_on_this_device)
+        {
+            summary.signed_in = Some(
+                node.services
+                    .held(record.record_id)
+                    .is_some_and(|binding| binding.signed_in()),
+            );
         }
         match &mut summary.kind {
             LibraryRecordKindSummary::Replica {
@@ -228,6 +241,9 @@ impl Signal for RemoveLibraryRecordRequest {
             // Cancel any active cover downloads before deleting the cache
             node.cancel_cover_downloads_for_library(library_id).await;
         }
+        // A removed service library's binding and sign-in go with it, before what it kept on
+        // this device is deleted.
+        node.services.retire(LibraryRecordId(id)).await;
         // The record is gone, so a folder left behind only takes room: the removal still answers,
         // and the UI hears of it.
         if let Some(library_id) = service_library_id

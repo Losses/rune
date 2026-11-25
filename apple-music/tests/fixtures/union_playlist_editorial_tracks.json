@@ -1,0 +1,33 @@
+{
+  "data": [
+    {
+      "id": "a.9001",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.9001",
+      "attributes": {
+        "name": "Editorial Song",
+        "albumName": "Chart Album",
+        "artistName": "Chart Artist",
+        "trackNumber": 1,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "a.9001",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "9001",
+          "reporting": true,
+          "reportingId": "9001"
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 1
+  }
+}

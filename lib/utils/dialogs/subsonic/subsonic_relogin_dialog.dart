@@ -6,7 +6,20 @@ import '../../router/navigation.dart';
 import '../information/error.dart';
 import '../scrobble/utils/scrobble_login_controller.dart';
 import '../scrobble/widgets/scrobble_login_form.dart';
+import '../../../bindings/bindings.dart';
 import '../../../providers/library_registry.dart';
+
+/// Whether a request that needs the sign-in of [recordId] asks for it again
+/// with this dialog: only for a record of this device that signs in with a
+/// credential it keeps. A record whose sign-in lives on this device says
+/// whether it is signed in, and is signed in again by the platform. A record
+/// of another device, as one a renderer plays from, signs in there.
+bool signsInWithKeptCredential(
+  Iterable<LibraryRecordSummary> records,
+  String recordId,
+) => records.any(
+  (record) => record.recordId == recordId && record.signedIn == null,
+);
 
 Future<bool> showSubsonicReloginDialog(
   BuildContext context,

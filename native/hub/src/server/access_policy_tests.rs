@@ -2603,6 +2603,9 @@ mod access_policy_tests {
             "FetchServerCertificateRequest" => RequestAccess::NodeLocal,
             "FetchRemoteFileRequest" => RequestAccess::NodeLocal,
             "RemoveItemFromPlaylistRequest" => RequestAccess::ConnectionEdit,
+            "RegisterServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SignInServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SignOutServiceLibraryRequest" => RequestAccess::NodeLocal,
             "GetOpenLibraryRequest" => RequestAccess::Control,
             _ => return None,
         })

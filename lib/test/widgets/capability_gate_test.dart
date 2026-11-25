@@ -192,6 +192,9 @@ RequestCapabilities snapshot({
     renameFileDialogEntryRequest: capability,
     fetchArtistPageRequest: capability,
     fetchArtistSectionAlbumsRequest: capability,
+    registerServiceLibraryRequest: capability,
+    signInServiceLibraryRequest: capability,
+    signOutServiceLibraryRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

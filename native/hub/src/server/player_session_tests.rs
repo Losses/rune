@@ -15867,15 +15867,15 @@ async fn registered_remote_control_opens_and_routes_library_and_session_requests
     Ok(())
 }
 
-struct TestTcpProxy {
-    listen_addr: SocketAddr,
+pub(super) struct TestTcpProxy {
+    pub(super) listen_addr: SocketAddr,
     connection_count: Arc<AtomicUsize>,
     request_bytes: Arc<AtomicUsize>,
     server: JoinHandle<()>,
 }
 
 impl TestTcpProxy {
-    async fn new(target_addr: SocketAddr) -> Result<Self> {
+    pub(super) async fn new(target_addr: SocketAddr) -> Result<Self> {
         let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
         let listen_addr = listener.local_addr()?;
         let connection_count = Arc::new(AtomicUsize::new(0));
@@ -15934,7 +15934,7 @@ impl TestTcpProxy {
         self.connection_count.load(Ordering::SeqCst)
     }
 
-    fn request_bytes(&self) -> usize {
+    pub(super) fn request_bytes(&self) -> usize {
         self.request_bytes.load(Ordering::SeqCst)
     }
 }
@@ -18459,4 +18459,501 @@ async fn restart_restores_the_queue_under_its_persisted_revision() -> Result<()>
     );
     node.shutdown().await?;
     Ok(())
+}
+
+const APPLE_USER_TOKEN: &str = "apple-user-token-kept-in-memory";
+const APPLE_DEVELOPER_TOKEN: &str = "apple-developer-token-kept-in-memory";
+const APPLE_OTHER_USER_TOKEN: &str = "apple-user-token-of-another-account";
+const APPLE_STOREFRONT: &str =
+    r#"{"data":[{"id":"it","type":"storefronts","attributes":{"name":"Italy"}}]}"#;
+
+/// A fixture whose Apple Music libraries read the Apple Music API at `endpoint`.
+async fn fixture_on_apple_music(dir: &Path, endpoint: String) -> Result<Fixture> {
+    super::fixture_with_services(
+        dir,
+        Arc::new(Quiet),
+        ServiceSetup {
+            apple_music_host: Some(endpoint),
+            ..ServiceSetup::default()
+        },
+    )
+    .await
+}
+
+/// A fake Apple Music API that answers the storefront read with a storefront while `accept`
+/// is set, and with 401 otherwise. It counts the reads.
+async fn fake_apple_music(
+    accept: Arc<AtomicBool>,
+) -> Result<(String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>)> {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let counted = reads.clone();
+    let app = Router::new().route(
+        "/v1/me/storefront",
+        get(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            let accepted = accept.load(Ordering::SeqCst);
+            async move {
+                if accepted {
+                    (StatusCode::OK, APPLE_STOREFRONT)
+                } else {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        r#"{"errors":[{"status":"401","code":"UNAUTHORIZED"}]}"#,
+                    )
+                }
+            }
+        }),
+    );
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    Ok((format!("http://{address}"), reads, task))
+}
+
+fn apple_music_sign_in(user_token: &str) -> crate::messages::ServiceSignIn {
+    crate::messages::ServiceSignIn::Platform {
+        user_token: user_token.into(),
+        developer_token: Some(APPLE_DEVELOPER_TOKEN.into()),
+    }
+}
+
+fn apple_music_registration(user_token: &str) -> crate::messages::RegisterServiceLibraryRequest {
+    crate::messages::RegisterServiceLibraryRequest {
+        service: crate::messages::StreamingService::AppleMusic,
+        alias: "Apple Music".into(),
+        sign_in: apple_music_sign_in(user_token),
+        call_id: None,
+    }
+}
+
+fn apple_music_records(
+    node: &NodeContext,
+) -> Result<Vec<database::library_registry::LibraryRecord>> {
+    Ok(LibraryRegistry::load(Path::new(&*node.config_path))?
+        .libraries
+        .into_iter()
+        .filter(|record| matches!(record.protocol, ProtocolAdapter::AppleMusic))
+        .collect())
+}
+
+/// The files under `root` whose bytes contain `needle`.
+fn files_containing(root: &Path, needle: &str) -> Result<Vec<PathBuf>> {
+    let needle = needle.as_bytes();
+    let mut found = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        for entry in fs::read_dir(&folder)? {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.file_type()?.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            match fs::read(&path) {
+                Ok(bytes) if bytes.windows(needle.len()).any(|window| window == needle) => {
+                    found.push(path);
+                }
+                Ok(_) => {}
+                // A database's journal may go away while the walk runs.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    Ok(found)
+}
+
+fn apple_music_sign_in_request(
+    record_id: &str,
+    sign_in: crate::messages::ServiceSignIn,
+) -> crate::messages::SignInServiceLibraryRequest {
+    crate::messages::SignInServiceLibraryRequest {
+        record_id: record_id.to_owned(),
+        sign_in,
+        call_id: None,
+    }
+}
+
+/// The failure kind of a sign-in that must fail.
+fn sign_in_failure_kind(result: Result<()>) -> Result<RegisterLibraryFailureKind> {
+    let error = match result {
+        Ok(()) => anyhow::bail!("the sign-in must fail"),
+        Err(error) => error,
+    };
+    match crate::request_error::request_failure_cause(&error) {
+        Some(RequestFailureCause::LibraryRegistrationFailed { kind }) => Ok(kind),
+        cause => anyhow::bail!("sign-in failed without its kind ({cause:?}): {error:#}"),
+    }
+}
+
+/// Writes an Apple Music record the way an earlier run left it: registered, not signed in.
+async fn write_apple_music_record(
+    config: &Path,
+) -> Result<database::library_registry::LibraryRecordId> {
+    use database::library_registry::{LibraryRecord, LibraryRecordId};
+
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Apple Music".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::AppleMusic,
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    let record_id = record.record_id;
+    LibraryRegistry::update(config, |registry| {
+        registry.libraries.push(record);
+        Ok(())
+    })
+    .await?;
+    Ok(record_id)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apple_music_registration_keeps_one_record_and_its_tokens_in_memory() -> Result<()> {
+    use crate::utils::{register_service_library_on_node, sign_in_service_library_on_node};
+
+    let dir = tempfile::tempdir()?;
+    let accept = Arc::new(AtomicBool::new(true));
+    let (endpoint, reads, server) = fake_apple_music(accept.clone()).await?;
+    let fixture = fixture_on_apple_music(dir.path(), endpoint).await?;
+    let node = fixture.global_params.node.clone();
+
+    let registration =
+        register_service_library_on_node(&apple_music_registration(APPLE_USER_TOKEN), &node)
+            .await?;
+    assert_eq!(registration.outcome, RegisterLibraryOutcome::Registered);
+    let summary = registration
+        .record
+        .context("registered Apple Music record")?;
+    assert_eq!(summary.kind, LibraryRecordKindSummary::AppleMusic);
+    let records = apple_music_records(&node)?;
+    assert_eq!(records.len(), 1);
+    let record_id = records[0].record_id;
+    assert_eq!(record_id.0.to_string(), summary.record_id);
+    let binding = node
+        .services
+        .apple_music_binding(record_id)
+        .context("signed-in Apple Music binding")?;
+    assert!(binding.is_signed_in());
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+
+    // Registering again, as another account, only signs the same library in.
+    let again =
+        register_service_library_on_node(&apple_music_registration(APPLE_OTHER_USER_TOKEN), &node)
+            .await?;
+    assert_eq!(
+        again.record.context("record registered again")?.record_id,
+        summary.record_id
+    );
+    assert_eq!(apple_music_records(&node)?.len(), 1);
+    assert!(Arc::ptr_eq(
+        &binding,
+        &node
+            .services
+            .apple_music_binding(record_id)
+            .context("binding after registering again")?
+    ));
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+
+    sign_in_service_library_on_node(
+        &apple_music_sign_in_request(&summary.record_id, apple_music_sign_in(APPLE_USER_TOKEN)),
+        &node,
+    )
+    .await?;
+    assert!(binding.is_signed_in());
+    assert_eq!(reads.load(Ordering::SeqCst), 3);
+
+    // Tokens Apple refuses leave the sign-in the binding has.
+    accept.store(false, Ordering::SeqCst);
+    assert_eq!(
+        sign_in_failure_kind(
+            sign_in_service_library_on_node(
+                &apple_music_sign_in_request(
+                    &summary.record_id,
+                    apple_music_sign_in(APPLE_OTHER_USER_TOKEN),
+                ),
+                &node,
+            )
+            .await
+        )?,
+        RegisterLibraryFailureKind::RemoteNotAuthorized
+    );
+    let kept = node
+        .services
+        .apple_music_binding(record_id)
+        .context("binding after a refused sign-in")?;
+    assert!(Arc::ptr_eq(&binding, &kept));
+    assert!(kept.is_signed_in());
+
+    assert!(!dir.path().join("credentials.enc").exists());
+    for token in [
+        APPLE_USER_TOKEN,
+        APPLE_OTHER_USER_TOKEN,
+        APPLE_DEVELOPER_TOKEN,
+    ] {
+        assert_eq!(
+            files_containing(dir.path(), token)?,
+            Vec::<PathBuf>::new(),
+            "{token}"
+        );
+    }
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refused_apple_music_sign_ins_are_typed_and_register_nothing() -> Result<()> {
+    use crate::utils::{register_service_library_on_node, sign_in_service_library_on_node};
+
+    let dir = tempfile::tempdir()?;
+    let (endpoint, _, server) = fake_apple_music(Arc::new(AtomicBool::new(false))).await?;
+    let fixture = fixture_on_apple_music(dir.path(), endpoint).await?;
+    let node = fixture.global_params.node.clone();
+    assert_eq!(
+        registration_failure_kind(
+            register_service_library_on_node(&apple_music_registration(APPLE_USER_TOKEN), &node)
+                .await
+        )?,
+        RegisterLibraryFailureKind::RemoteNotAuthorized
+    );
+
+    // A missing developer token is the platform's failure, not Apple's.
+    for developer_token in [None, Some(String::new())] {
+        let mut request = apple_music_registration(APPLE_USER_TOKEN);
+        request.sign_in = crate::messages::ServiceSignIn::Platform {
+            user_token: APPLE_USER_TOKEN.into(),
+            developer_token,
+        };
+        assert_eq!(
+            registration_failure_kind(register_service_library_on_node(&request, &node).await)?,
+            RegisterLibraryFailureKind::InvalidSource
+        );
+    }
+
+    // Apple stops answering at all.
+    server.abort();
+    let _ = server.await;
+    assert_eq!(
+        registration_failure_kind(
+            register_service_library_on_node(&apple_music_registration(APPLE_USER_TOKEN), &node)
+                .await
+        )?,
+        RegisterLibraryFailureKind::RemoteUnreachable
+    );
+    assert!(apple_music_records(&node)?.is_empty());
+
+    let native = LibraryRegistry::load(Path::new(&*node.config_path))?
+        .libraries
+        .into_iter()
+        .find(|record| matches!(record.protocol, ProtocolAdapter::Native))
+        .context("the fixture's own library")?;
+    for record_id in [Uuid::new_v4(), native.record_id.0] {
+        assert_eq!(
+            sign_in_failure_kind(
+                sign_in_service_library_on_node(
+                    &apple_music_sign_in_request(
+                        &record_id.to_string(),
+                        apple_music_sign_in(APPLE_USER_TOKEN),
+                    ),
+                    &node,
+                )
+                .await
+            )?,
+            RegisterLibraryFailureKind::InvalidRecord
+        );
+        assert_eq!(
+            sign_in_failure_kind(
+                crate::utils::sign_out_service_library_on_node(
+                    &crate::messages::SignOutServiceLibraryRequest {
+                        record_id: record_id.to_string(),
+                        call_id: None,
+                    },
+                    &node,
+                )
+                .await
+            )?,
+            RegisterLibraryFailureKind::InvalidRecord
+        );
+    }
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apple_music_library_opens_before_its_sign_in_and_its_removal_retires_the_binding()
+-> Result<()> {
+    use crate::messages::RemoveLibraryRecordRequest;
+    use crate::utils::sign_in_service_library_on_node;
+
+    let dir = tempfile::tempdir()?;
+    let (endpoint, _, server) = fake_apple_music(Arc::new(AtomicBool::new(true))).await?;
+    let fixture = fixture_on_apple_music(dir.path(), endpoint).await?;
+    let node = fixture.global_params.node.clone();
+    let record = write_apple_music_record(Path::new(&*node.config_path)).await?;
+    let record_id = record.0.to_string();
+
+    // Neither opened nor signed in, the library has no binding.
+    assert!(service_binding_for_library(&node, record.0).await.is_err());
+    // It opens before the platform signs it in, with a binding that holds no sign-in yet.
+    let ui = open_registered_library_record(node.clone(), record_id.clone()).await?;
+    assert_eq!(ui.library_id, Some(record.0));
+    let binding = node
+        .services
+        .apple_music_binding(record)
+        .context("the binding the open made")?;
+    assert!(!binding.is_signed_in());
+    assert!(matches!(
+        node.current_library()?,
+        OpenLibrary::Service(open) if open.library_id() == record.0
+    ));
+    assert!(matches!(node.current_player()?, CurrentPlayer::Local));
+    assert_eq!(
+        service_binding_for_library(&node, record.0)
+            .await?
+            .library_id(),
+        record.0
+    );
+
+    // The sign-in comes to the same binding.
+    sign_in_service_library_on_node(
+        &apple_music_sign_in_request(&record_id, apple_music_sign_in(APPLE_USER_TOKEN)),
+        &node,
+    )
+    .await?;
+    let signed_in = node
+        .services
+        .apple_music_binding(record)
+        .context("signed-in Apple Music binding")?;
+    assert!(Arc::ptr_eq(&signed_in, &binding));
+    assert!(binding.is_signed_in());
+
+    node.close_ui(&ui.main_token).await;
+    let removal = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id,
+    };
+    removal
+        .handle(node.clone(), None, &removal)
+        .await?
+        .context("Apple Music record removal")?;
+    assert!(node.services.apple_music_binding(record).is_none());
+    // The sign-in is gone also for anyone who still holds the binding.
+    assert!(!binding.is_signed_in());
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn other_devices_cannot_reach_an_apple_music_library_whatever_their_grants() -> Result<()> {
+    use crate::access_policy::Action;
+    use crate::utils::sign_in_service_library_on_node;
+    use discovery::access_policy::{AccessPolicy, PeerIdentity};
+
+    let dir = tempfile::tempdir()?;
+    // A record from an earlier run, which this run has not signed in.
+    let from_earlier_run = write_apple_music_record(dir.path()).await?;
+    let (endpoint, _, server) = fake_apple_music(Arc::new(AtomicBool::new(true))).await?;
+    let fixture = fixture_on_apple_music(dir.path(), endpoint).await?;
+    let node = fixture.global_params.node.clone();
+    let own_library = fixture
+        .global_params
+        .library_id
+        .context("fixture library identity")?;
+    let record = write_apple_music_record(Path::new(&*node.config_path)).await?;
+    sign_in_service_library_on_node(
+        &apple_music_sign_in_request(&record.0.to_string(), apple_music_sign_in(APPLE_USER_TOKEN)),
+        &node,
+    )
+    .await?;
+
+    let peer = PeerIdentity {
+        fingerprint: "paired-device".into(),
+        public_key: "paired-key".into(),
+    };
+    // A guest reaches only the libraries shared with it, so it is given the Apple Music
+    // libraries by name too.
+    let mut guest = DeviceGrants::guest();
+    for library_id in [own_library, record.0, from_earlier_run.0] {
+        guest
+            .connection
+            .libraries
+            .insert(library_id, ConnectionLevel::View);
+    }
+    for grants in [DeviceGrants::my_device(), guest] {
+        node.access_policy.set(&peer.fingerprint, grants)?;
+        assert!(
+            node.access_policy
+                .check(
+                    &peer,
+                    &Action::ConnectionView {
+                        library_id: own_library
+                    }
+                )
+                .is_ok()
+        );
+        for library_id in [record.0, from_earlier_run.0] {
+            for action in [
+                Action::ConnectionView { library_id },
+                Action::ConnectionEdit { library_id },
+                Action::SyncPull { library_id },
+            ] {
+                assert!(
+                    node.access_policy.check(&peer, &action).is_err(),
+                    "{action:?}"
+                );
+            }
+        }
+    }
+    server.abort();
+    node.shutdown().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apple_music_sign_in_racing_the_record_removal_leaves_no_binding() -> Result<()> {
+    use crate::utils::sign_in_service_library_on_node;
+
+    let dir = tempfile::tempdir()?;
+    let listener = TokioTcpListener::bind("127.0.0.1:0").await?;
+    let fixture =
+        fixture_on_apple_music(dir.path(), format!("http://{}", listener.local_addr()?)).await?;
+    let node = fixture.global_params.node.clone();
+    let record = write_apple_music_record(Path::new(&*node.config_path)).await?;
+    // The record is removed while Apple checks the tokens.
+    let config = PathBuf::from(&*node.config_path);
+    let app = Router::new().route(
+        "/v1/me/storefront",
+        get(move || {
+            let config = config.clone();
+            async move {
+                LibraryRegistry::update(&config, |registry| {
+                    registry
+                        .libraries
+                        .retain(|library| library.record_id != record);
+                    Ok(())
+                })
+                .await
+                .unwrap();
+                (StatusCode::OK, APPLE_STOREFRONT)
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    assert_eq!(
+        sign_in_failure_kind(
+            sign_in_service_library_on_node(
+                &apple_music_sign_in_request(
+                    &record.0.to_string(),
+                    apple_music_sign_in(APPLE_USER_TOKEN),
+                ),
+                &node,
+            )
+            .await
+        )?,
+        RegisterLibraryFailureKind::InvalidRecord
+    );
+    assert!(node.services.apple_music_binding(record).is_none());
+    server.abort();
+    node.shutdown().await
 }

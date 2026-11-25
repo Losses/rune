@@ -1679,6 +1679,36 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::Library,
             routing: RequestRouting::OpenLibrary,
         },
+        RequestResponse {
+            request: "RegisterServiceLibraryRequest".to_string(),
+            response: Some("RegisterLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "SignInServiceLibraryRequest".to_string(),
+            response: Some("SignInServiceLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "SignOutServiceLibraryRequest".to_string(),
+            response: Some("SignOutServiceLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =

@@ -7,11 +7,20 @@ use anyhow::Result;
 use crate::request_error::ExpectedRequestError;
 
 /// Gives a service's opaque catalog ids the integer ids Rune's messages carry, counted
-/// separately for each kind of id. The ids last as long as the binding that holds the map.
+/// separately for each kind of id, unless kinds share their numbers. The ids last as long as the
+/// binding that holds the map.
 pub(crate) struct RemoteIdMap<K> {
     forward: HashMap<K, HashMap<String, i32>>,
     reverse: HashMap<K, HashMap<i32, String>>,
     next: HashMap<K, i32>,
+    /// The kind whose numbers each kind takes. Kinds that take the numbers of one kind never give
+    /// the same number between them, so a number names one id of one of them.
+    numbering: fn(K) -> K,
+}
+
+/// Each kind counts its own numbers.
+fn own_numbers<K>(kind: K) -> K {
+    kind
 }
 
 impl<K> Default for RemoteIdMap<K> {
@@ -20,16 +29,26 @@ impl<K> Default for RemoteIdMap<K> {
             forward: HashMap::new(),
             reverse: HashMap::new(),
             next: HashMap::new(),
+            numbering: own_numbers,
         }
     }
 }
 
 impl<K: Copy + Eq + Hash + Debug> RemoteIdMap<K> {
+    /// A map in which each kind takes the numbers of the kind `numbering` gives for it, as the
+    /// kinds of ids one message field carries do.
+    pub(crate) fn sharing_numbers(numbering: fn(K) -> K) -> Self {
+        Self {
+            numbering,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn intern(&mut self, kind: K, remote_id: &str) -> Result<i32> {
         if let Some(id) = self.forward.get(&kind).and_then(|ids| ids.get(remote_id)) {
             return Ok(*id);
         }
-        let next = self.next.entry(kind).or_default();
+        let next = self.next.entry((self.numbering)(kind)).or_default();
         *next = next
             .checked_add(1)
             .ok_or_else(|| ExpectedRequestError::invalid_input("Catalog ID map is full"))?;
@@ -86,6 +105,23 @@ mod tests {
         assert_eq!(ids.lookup(Kind::Track, "artist-opaque"), None);
         let error = ids.resolve(Kind::Track, 999).unwrap_err();
         assert!(error.downcast_ref::<ExpectedRequestError>().is_some());
+    }
+
+    #[test]
+    fn kinds_that_share_their_numbers_never_give_one_number_twice() {
+        let mut ids = RemoteIdMap::sharing_numbers(|kind| match kind {
+            Kind::Album | Kind::Track => Kind::Track,
+            Kind::Artist => Kind::Artist,
+        });
+        let track = ids.intern(Kind::Track, "same-opaque").unwrap();
+        let album = ids.intern(Kind::Album, "same-opaque").unwrap();
+        assert_ne!(track, album);
+        assert_eq!(ids.resolve(Kind::Album, album).unwrap(), "same-opaque");
+        assert!(ids.resolve(Kind::Track, album).is_err());
+        assert!(ids.resolve(Kind::Album, track).is_err());
+        // A kind that takes its own numbers still counts from the start.
+        assert_eq!(ids.intern(Kind::Artist, "artist-opaque").unwrap(), 1);
+        assert_eq!(ids.intern(Kind::Album, "same-opaque").unwrap(), album);
     }
 
     #[test]

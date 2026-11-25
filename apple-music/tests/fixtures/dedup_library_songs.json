@@ -1,0 +1,45 @@
+{
+  "data": [
+    {
+      "id": "i.up1",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.up1",
+      "attributes": {
+        "name": "Matched Later",
+        "albumName": "Kept Album",
+        "artistName": "Artist Six",
+        "durationInMillis": 150000,
+        "genreNames": [
+          "Folk"
+        ],
+        "playParams": {
+          "id": "i.up1",
+          "kind": "song",
+          "isLibrary": true
+        }
+      }
+    },
+    {
+      "id": "i.buy1",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.buy1",
+      "attributes": {
+        "name": "Bought Once",
+        "albumName": "Kept Album",
+        "artistName": "Artist Six",
+        "durationInMillis": 150000,
+        "genreNames": [
+          "Folk"
+        ],
+        "playParams": {
+          "id": "i.buy1",
+          "kind": "song",
+          "isLibrary": true,
+          "purchasedId": "7005",
+          "reporting": true,
+          "reportingId": "7005"
+        }
+      }
+    }
+  ]
+}

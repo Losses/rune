@@ -1,0 +1,66 @@
+{
+  "data": [
+    {
+      "id": "a.3001",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.3001",
+      "attributes": {
+        "name": "Loved Elsewhere",
+        "albumName": "Far Album",
+        "artistName": "Artist Four",
+        "trackNumber": 3,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "a.3001",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "3001",
+          "reporting": true,
+          "reportingId": "3001"
+        },
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/far/{w}x{h}bb.jpg"
+        }
+      }
+    },
+    {
+      "id": "i.lib3",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.lib3",
+      "attributes": {
+        "name": "Third Road",
+        "albumName": "Night Album",
+        "artistName": "Artist Two",
+        "trackNumber": 5,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.lib3",
+          "kind": "song",
+          "isLibrary": true
+        },
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/night/{w}x{h}bb.jpg"
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 2
+  }
+}

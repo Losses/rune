@@ -1,0 +1,1307 @@
+//! Answers the library requests of an open Apple Music library from the lists its binding keeps
+//! and from Apple's API, mapping Apple's models to the hub's messages.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use anyhow::Result;
+use apple_music::models::{Artwork, LibraryAlbum, LibrarySong};
+use database::actions::utils::generate_group_name;
+use database::error::ExpectedError;
+use futures::{StreamExt, TryStreamExt, stream};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+
+use crate::TypedRequest;
+use crate::apple_music_artists::{NamedArtist, catalog_artist_remote, named_artist_remote};
+use crate::apple_music_binding::{
+    AppleIdKind, AppleMusicBinding, AppleSong, AppleSongs, CollectionInfo, SongRef, cover_url,
+    is_library_song,
+};
+use crate::macros::{RequestSlots, RequestTranslator};
+use crate::messages::{
+    Album, Artist, AudioOrigin, Collection, CollectionGroup, CollectionGroupSummary,
+    CollectionGroupSummaryResponse, CollectionType, ComplexQueryRequest, ComplexQueryResponse,
+    FetchCollectionByIdsRequest, FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest,
+    FetchCollectionGroupsRequest, FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest,
+    FetchMediaFileByIdsResponse, FetchMediaFilesRequest, FetchMediaFilesResponse,
+    FetchParsedMediaFileRequest, FetchParsedMediaFileResponse, GetLikedRequest,
+    GetLyricByTrackIdRequest, GetMediaFilesCountRequest, GetMediaFilesCountResponse,
+    GetPrimaryColorByTrackIdRequest, MediaFile, MediaFileSummary, MixQueryRequest,
+    MixQueryResponse, ResolveMixQueryRequest, ResolveMixQueryResponse,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse, SearchMediaFileSummaryRequest,
+    SearchMediaFileSummaryResponse, SetLikedRequest,
+};
+use crate::request_error::ExpectedRequestError;
+use crate::rpc::{RequestTranslationFuture, Slot};
+use crate::service::{
+    ServiceBinding, ServiceFuture,
+    home::{self, HomeItem, HomeSource, HomeTrack},
+    mixes::{self, MixItem, MixSource, MixTarget, Plan, unsupported_query},
+};
+
+/// How many songs are looked up at once when a request names songs the binding lacks.
+const LOOKUP_PARALLELISM: usize = 4;
+
+/// How many albums of an artist are read at once.
+const ALBUM_READS: usize = 4;
+
+/// What the ids of albums and artists of the catalog hold before Apple's id, so they never pass
+/// for those of the library.
+const CATALOG_PREFIX: &str = "catalog:";
+
+fn id_kind(collection_type: CollectionType, request: &'static str) -> Result<AppleIdKind> {
+    match collection_type {
+        CollectionType::Album => Ok(AppleIdKind::Album),
+        CollectionType::Artist => Ok(AppleIdKind::Artist),
+        // The library lists no playlists or mixes, and genres and folders are not served.
+        _ => Err(unsupported_query(request)),
+    }
+}
+
+fn to_count(value: i32) -> usize {
+    usize::try_from(value.max(0)).unwrap_or(usize::MAX)
+}
+
+/// The name of a library album.
+fn album_name(album: &LibraryAlbum) -> &str {
+    album
+        .attributes
+        .as_ref()
+        .and_then(|attributes| attributes.name.as_deref())
+        .unwrap_or_default()
+}
+
+/// The cover of a library album.
+fn album_artwork(album: &LibraryAlbum) -> Option<&Artwork> {
+    album.attributes.as_ref()?.artwork.as_ref()
+}
+
+/// One album or artist as listed, with the id the UI knows it by.
+struct Entry {
+    id: i32,
+    name: String,
+    cover: Option<String>,
+    /// The group it is listed in: its first letter.
+    group: String,
+}
+
+/// Every library collection of one kind, numbered and remembered for later pages.
+async fn entries(
+    binding: &AppleMusicBinding,
+    kind: AppleIdKind,
+    request: &'static str,
+) -> Result<Vec<Entry>> {
+    let mut found = Vec::new();
+    let generation = binding.generation();
+    let mut add = |remote: &str, name: &str, artwork: Option<&Artwork>| {
+        let id = binding.intern(kind, remote)?;
+        binding.remember_collection(generation, kind, id, name, artwork);
+        // A cover an earlier listing gave stays, when this one has none.
+        let cover = binding
+            .collection_info(kind, id)
+            .and_then(|info| info.cover)
+            .or_else(|| cover_url(artwork));
+        found.push(Entry {
+            id,
+            name: name.to_owned(),
+            cover,
+            group: generate_group_name(name),
+        });
+        Ok::<_, anyhow::Error>(())
+    };
+    match kind {
+        AppleIdKind::Album => {
+            for album in binding.albums().await?.iter() {
+                add(&album.id, album_name(album), album_artwork(album))?;
+            }
+        }
+        AppleIdKind::Artist => {
+            let named = binding.named_artists().await?;
+            for artist in named.iter() {
+                add(&artist.remote(), &artist.name, artist.artwork.as_ref())?;
+            }
+        }
+        AppleIdKind::LibrarySong | AppleIdKind::CatalogSong | AppleIdKind::CoverArt => {
+            return Err(unsupported_query(request));
+        }
+    }
+    Ok(found)
+}
+
+async fn collection_of(
+    binding: &AppleMusicBinding,
+    entry: &Entry,
+    collection_type: CollectionType,
+) -> Result<Collection> {
+    let covers = entry
+        .cover
+        .clone()
+        .map(|url| vec![(entry.id, url)])
+        .unwrap_or_default();
+    Ok(Collection {
+        id: entry.id,
+        name: entry.name.clone(),
+        queries: Vec::new(),
+        collection_type,
+        cover_art_map: binding.cover_map(covers).await?,
+        readonly: true,
+    })
+}
+
+pub(crate) async fn fetch_collection_group_summary_request(
+    binding: &AppleMusicBinding,
+    request: &FetchCollectionGroupSummaryRequest,
+) -> Result<Option<CollectionGroupSummaryResponse>> {
+    let kind = id_kind(
+        request.collection_type,
+        FetchCollectionGroupSummaryRequest::wire_name(),
+    )?;
+    let entries = entries(
+        binding,
+        kind,
+        FetchCollectionGroupSummaryRequest::wire_name(),
+    )
+    .await?;
+    let mut groups = BTreeMap::<String, i32>::new();
+    for entry in &entries {
+        *groups.entry(entry.group.clone()).or_default() += 1;
+    }
+    Ok(Some(CollectionGroupSummaryResponse {
+        call_id: None,
+        collection_type: request.collection_type,
+        groups: groups
+            .into_iter()
+            .map(|(group_title, count)| CollectionGroupSummary { group_title, count })
+            .collect(),
+    }))
+}
+
+pub(crate) async fn fetch_collection_groups_request(
+    binding: &AppleMusicBinding,
+    request: &FetchCollectionGroupsRequest,
+) -> Result<Option<FetchCollectionGroupsResponse>> {
+    let kind = id_kind(
+        request.collection_type,
+        FetchCollectionGroupsRequest::wire_name(),
+    )?;
+    let entries = entries(binding, kind, FetchCollectionGroupsRequest::wire_name()).await?;
+    let mut groups = Vec::with_capacity(request.group_titles.len());
+    for title in &request.group_titles {
+        let mut members: Vec<&Entry> = entries
+            .iter()
+            .filter(|entry| &entry.group == title)
+            .collect();
+        members.sort_by(|left, right| left.name.cmp(&right.name));
+        let mut collections = Vec::with_capacity(members.len());
+        for entry in members {
+            collections.push(collection_of(binding, entry, request.collection_type).await?);
+        }
+        groups.push(CollectionGroup {
+            group_title: title.clone(),
+            collections,
+        });
+    }
+    Ok(Some(FetchCollectionGroupsResponse {
+        call_id: None,
+        groups,
+    }))
+}
+
+fn not_apple_collection() -> anyhow::Error {
+    ExpectedRequestError::invalid_input("Not an Apple Music collection id").into()
+}
+
+fn collection_not_found() -> ExpectedError {
+    ExpectedError::NotFound {
+        what: "Apple Music collection",
+    }
+}
+
+/// The library album or library artist a collection id the UI holds stands for, by Apple's id.
+/// An artist of the library's artist list is a name Apple gives no id for, so its id is refused
+/// here, and every request that takes artist ids looks for it first. A collection of the catalog
+/// is not the library's, and is not found.
+fn library_collection(binding: &AppleMusicBinding, kind: AppleIdKind, id: i32) -> Result<String> {
+    if binding.named_artist_key(kind, id).is_some() {
+        return Err(not_apple_collection());
+    }
+    let remote = binding.resolve(kind, id)?;
+    if remote.starts_with(CATALOG_PREFIX) {
+        return Err(collection_not_found().into());
+    }
+    Ok(remote)
+}
+
+/// What a library artist is listed with, as the library's artists were read. The artist list
+/// shows the artists their names credit instead, so a library artist the UI holds is looked for
+/// among them. The artist is remembered.
+async fn library_artist_info(
+    binding: &AppleMusicBinding,
+    id: i32,
+    remote: &str,
+) -> Result<CollectionInfo> {
+    let generation = binding.generation();
+    let artists = binding.artists().await?;
+    let artist = artists
+        .iter()
+        .find(|artist| artist.id == remote)
+        .ok_or(collection_not_found())?;
+    let name = artist
+        .attributes
+        .as_ref()
+        .and_then(|attributes| attributes.name.clone())
+        .unwrap_or_default();
+    let catalog = artist.catalog_artists();
+    let artwork = catalog
+        .first()
+        .and_then(|catalog| catalog.attributes.as_ref()?.artwork.as_ref());
+    binding.remember_collection(generation, AppleIdKind::Artist, id, &name, artwork);
+    Ok(CollectionInfo {
+        name,
+        cover: cover_url(artwork),
+    })
+}
+
+pub(crate) async fn fetch_collection_by_ids_request(
+    binding: &AppleMusicBinding,
+    request: &FetchCollectionByIdsRequest,
+) -> Result<Option<FetchCollectionByIdsResponse>> {
+    let wire_name = FetchCollectionByIdsRequest::wire_name();
+    // The mix editor asks for every kind its queries may name, genres too, with no ids for the
+    // kinds a mix does not name.
+    if request.ids.is_empty() {
+        return Ok(Some(FetchCollectionByIdsResponse {
+            call_id: None,
+            collection_type: request.collection_type,
+            result: Vec::new(),
+        }));
+    }
+    let kind = id_kind(request.collection_type, wire_name)?;
+    let mut result = Vec::with_capacity(request.ids.len());
+    for id in &request.ids {
+        let info = match binding.collection_info(kind, *id) {
+            Some(info) => info,
+            None => {
+                if let Some(remote) = binding.named_artist_key(kind, *id) {
+                    // An id from before the list told its artists apart by their catalog
+                    // artists, which the list does not number, opens as the artist its
+                    // spelling goes with now.
+                    let artist = match binding.named_artist(&remote).await {
+                        Ok(artist) => artist,
+                        // The list no longer holds it; the rest still answers.
+                        Err(error) if is_not_found(&error) => {
+                            log::warn!(
+                                "Skipping the Apple Music artist {remote}: the library no longer lists it"
+                            );
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    binding.remember_collection(
+                        binding.generation(),
+                        kind,
+                        *id,
+                        &artist.name,
+                        artist.artwork.as_ref(),
+                    );
+                    CollectionInfo {
+                        name: artist.name.clone(),
+                        cover: cover_url(artist.artwork.as_ref()),
+                    }
+                } else {
+                    let remote = library_collection(binding, kind, *id)?;
+                    if kind == AppleIdKind::Artist {
+                        library_artist_info(binding, *id, &remote).await?
+                    } else {
+                        // Reading the list remembers every entry in it, this one included.
+                        entries(binding, kind, wire_name).await?;
+                        match binding.collection_info(kind, *id) {
+                            Some(info) => info,
+                            None => {
+                                // Something stored earlier may name a collection that is gone,
+                                // as an album the library no longer holds; the rest still
+                                // answers.
+                                log::warn!(
+                                    "Skipping the Apple Music {kind:?} {remote}: it names no collection"
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        let entry = Entry {
+            id: *id,
+            group: generate_group_name(&info.name),
+            name: info.name,
+            cover: info.cover,
+        };
+        result.push(collection_of(binding, &entry, request.collection_type).await?);
+    }
+    Ok(Some(FetchCollectionByIdsResponse {
+        call_id: None,
+        collection_type: request.collection_type,
+        result,
+    }))
+}
+
+pub(crate) async fn search_collection_summary_request(
+    binding: &AppleMusicBinding,
+    request: &SearchCollectionSummaryRequest,
+) -> Result<Option<SearchCollectionSummaryResponse>> {
+    let wire_name = SearchCollectionSummaryRequest::wire_name();
+    let collection_type = request.collection_type.ok_or_else(|| {
+        ExpectedRequestError::invalid_input("Collection summary requires a collection type")
+    })?;
+    let kind = id_kind(collection_type, wire_name)?;
+    let entries = entries(binding, kind, wire_name).await?;
+    let mut result = Vec::new();
+    for entry in entries.iter().take(to_count(request.n)) {
+        result.push(collection_of(binding, entry, collection_type).await?);
+    }
+    Ok(Some(SearchCollectionSummaryResponse {
+        collection_type,
+        result,
+        call_id: request.call_id,
+    }))
+}
+
+/// The wire form of a song. `track` is how the caller named it, which a library copy of a
+/// catalog song must keep.
+fn media_file(
+    binding: &AppleMusicBinding,
+    id: i32,
+    track: &str,
+    song: SongRef<'_>,
+    cover_art_id: Option<i32>,
+) -> MediaFile {
+    MediaFile {
+        id,
+        library_id: ServiceBinding::library_id(binding).to_string(),
+        track: track.to_owned(),
+        path: String::new(),
+        artist: song.artist().unwrap_or_default().to_owned(),
+        album: song.album().unwrap_or_default().to_owned(),
+        title: song.title().to_owned(),
+        duration: song.duration(),
+        cover_art_id,
+        track_number: song
+            .track_number()
+            .and_then(|number| i32::try_from(number).ok()),
+        audio_availability: binding.audio_availability(track),
+        audio_origin: AudioOrigin::Remote,
+    }
+}
+
+/// Songs in wire form, and the `(media file id, address)` pairs of their covers.
+type WireSongs = (Vec<MediaFile>, Vec<(i32, String)>);
+
+/// Numbers songs and their covers and builds their wire form.
+fn media_files<'a>(
+    binding: &AppleMusicBinding,
+    songs: impl IntoIterator<Item = (&'a str, SongRef<'a>)>,
+) -> Result<WireSongs> {
+    let mut files = Vec::new();
+    let mut covers = Vec::new();
+    for (track, song) in songs {
+        let id = binding.intern_track(track)?;
+        let cover = cover_url(song.artwork());
+        let cover_art_id = cover
+            .as_deref()
+            .map(|url| binding.intern(AppleIdKind::CoverArt, url))
+            .transpose()?;
+        files.push(media_file(binding, id, track, song, cover_art_id));
+        covers.extend(cover.map(|url| (id, url)));
+    }
+    Ok((files, covers))
+}
+
+/// The tracks and songs of owned pairs, as `media_files` takes them.
+fn song_refs(songs: &[(String, AppleSong)]) -> impl Iterator<Item = (&str, SongRef<'_>)> {
+    songs
+        .iter()
+        .map(|(track, song)| (track.as_str(), song.as_ref()))
+}
+
+/// The entries of the song list, as `media_files` takes them.
+fn listed<'a>(
+    entries: impl IntoIterator<Item = (&'a str, &'a LibrarySong)>,
+) -> impl Iterator<Item = (&'a str, SongRef<'a>)> {
+    entries
+        .into_iter()
+        .map(|(track, song)| (track, SongRef::Library(song)))
+}
+
+/// Whether a listed song has a cover.
+fn has_cover(song: &LibrarySong) -> bool {
+    song.attributes
+        .as_ref()
+        .is_some_and(|attributes| attributes.artwork.is_some())
+}
+
+pub(crate) async fn fetch_media_files_request(
+    binding: &AppleMusicBinding,
+    request: &FetchMediaFilesRequest,
+) -> Result<Option<FetchMediaFilesResponse>> {
+    let offset = usize::try_from(request.cursor)
+        .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}")))?;
+    let count = usize::try_from(request.page_size).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid page size: {error}"))
+    })?;
+    let list = binding.songs().await?;
+    let (media_files, covers) =
+        media_files(binding, listed(list.entries().skip(offset).take(count)))?;
+    let cover_art_map = if request.bake_cover_arts {
+        binding.cover_map(covers).await?
+    } else {
+        HashMap::new()
+    };
+    Ok(Some(FetchMediaFilesResponse {
+        media_files,
+        cover_art_map,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn fetch_media_file_by_ids_request(
+    binding: &AppleMusicBinding,
+    request: &FetchMediaFileByIdsRequest,
+) -> Result<Option<FetchMediaFileByIdsResponse>> {
+    let tracks = request
+        .ids
+        .iter()
+        .map(|id| binding.resolve_track(*id))
+        .collect::<Result<Vec<_>>>()?;
+    // What the binding holds answers at once; Apple is asked for the rest together. A song
+    // Apple no longer has is left out, so one gone song does not fail the others.
+    binding.read_unknown_tracks(tracks.iter().cloned()).await;
+    let songs: Vec<(String, AppleSong)> = stream::iter(tracks)
+        .map(|track| async move {
+            let song = apple_song(binding, &track).await?;
+            Ok::<_, anyhow::Error>(song.map(|song| (track, song)))
+        })
+        .buffered(LOOKUP_PARALLELISM)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+    let (media_files, covers) = media_files(binding, song_refs(&songs))?;
+    Ok(Some(FetchMediaFileByIdsResponse {
+        call_id: None,
+        media_files,
+        cover_art_map: binding.cover_map(covers).await?,
+    }))
+}
+
+pub(crate) async fn get_media_files_count_request(
+    binding: &AppleMusicBinding,
+    request: &GetMediaFilesCountRequest,
+) -> Result<Option<GetMediaFilesCountResponse>> {
+    let list = binding.songs().await?;
+    Ok(Some(GetMediaFilesCountResponse {
+        count: i32::try_from(list.len()).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("Invalid song count: {error}"))
+        })?,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn fetch_parsed_media_file_request(
+    binding: &AppleMusicBinding,
+    request: &FetchParsedMediaFileRequest,
+) -> Result<Option<FetchParsedMediaFileResponse>> {
+    let track = binding.resolve_track(request.id)?;
+    let song = binding.song(&track).await?;
+    let song_ref = song.as_ref();
+    // A catalog song names catalog albums and artists, which carry their own prefix so they
+    // never pass for a library one.
+    let in_library = matches!(&song, AppleSong::Library(song) if is_library_song(song));
+    let collection = |id: &str| {
+        if in_library {
+            id.to_owned()
+        } else {
+            format!("{CATALOG_PREFIX}{id}")
+        }
+    };
+    // The catalog artists Apple names for the song are the artists the artist list shows for
+    // it, each as the catalog names it.
+    let song_artists = binding.kept_song_artists().await;
+    let catalog_artists = match (&song, song_artists.as_deref()) {
+        (AppleSong::Library(listed), Some(song_artists)) => {
+            song_artists.of(listed).map(|ids| (song_artists, ids))
+        }
+        _ => None,
+    };
+    let artists = if let Some((song_artists, ids)) = catalog_artists {
+        ids.iter()
+            .filter_map(|id| Some((id, song_artists.artists.get(id)?)))
+            .map(|(id, artist)| {
+                Ok::<_, anyhow::Error>(Artist {
+                    id: binding.intern(AppleIdKind::Artist, &catalog_artist_remote(id))?,
+                    name: artist.name.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else if let Some(name) = song_ref.artist() {
+        // A song Apple names no catalog artist for links to the artist of its credit as a
+        // whole, which the artist list shows. A catalog song with an artist relationship links
+        // to that catalog artist.
+        let remote = match (in_library, song_ref.artist_id()) {
+            (false, Some(id)) => Some(collection(id)),
+            _ => named_artist_remote(name),
+        };
+        // A credit that names nobody has nothing to link to, and id 0 is no artist.
+        remote
+            .map(|remote| {
+                Ok::<_, anyhow::Error>(Artist {
+                    id: binding.intern(AppleIdKind::Artist, &remote)?,
+                    name: name.to_owned(),
+                })
+            })
+            .transpose()?
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let album_id = song_ref
+        .album_id()
+        .map(|id| binding.intern(AppleIdKind::Album, &collection(id)))
+        .transpose()?
+        .unwrap_or_default();
+    let album = Album {
+        id: album_id,
+        name: song_ref.album().unwrap_or_default().to_owned(),
+    };
+    let (mut files, _) = media_files(binding, [(track.as_str(), song_ref)])?;
+    Ok(Some(FetchParsedMediaFileResponse {
+        file: files.remove(0),
+        artists,
+        album,
+        call_id: request.call_id,
+    }))
+}
+
+pub(crate) async fn search_media_file_summary_request(
+    binding: &AppleMusicBinding,
+    request: &SearchMediaFileSummaryRequest,
+) -> Result<Option<SearchMediaFileSummaryResponse>> {
+    let count = usize::try_from(request.n)
+        .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid N: {error}")))?;
+    let list = binding.songs().await?;
+    let mut result = Vec::new();
+    for (track, song) in list.entries().take(count) {
+        let song = SongRef::Library(song);
+        let id = binding.intern_track(track)?;
+        let cover_art_id = cover_url(song.artwork())
+            .as_deref()
+            .map(|url| binding.intern(AppleIdKind::CoverArt, url))
+            .transpose()?;
+        result.push(MediaFileSummary {
+            id,
+            name: song.title().to_owned(),
+            cover_art_id,
+            audio_availability: binding.audio_availability(track),
+        });
+    }
+    Ok(Some(SearchMediaFileSummaryResponse {
+        result,
+        call_id: request.call_id,
+    }))
+}
+
+/// The collection a `MixQuery` asks the songs of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DetailQuery {
+    Artist(i32),
+    Album(i32),
+}
+
+impl DetailQuery {
+    /// The query for the songs of `target`, which `request` asks for. The library lists no
+    /// playlists.
+    fn of(target: MixTarget, request: &'static str) -> Result<Self> {
+        match target {
+            MixTarget::Album(id) => Ok(Self::Album(id)),
+            MixTarget::Artist(id) => Ok(Self::Artist(id)),
+            MixTarget::Playlist(_) => Err(unsupported_query(request)),
+        }
+    }
+
+    /// The kind and the id of the collection.
+    fn collection(self) -> (AppleIdKind, i32) {
+        match self {
+            Self::Album(id) => (AppleIdKind::Album, id),
+            Self::Artist(id) => (AppleIdKind::Artist, id),
+        }
+    }
+}
+
+/// A song as a collection lists it: its track and the song.
+type Listed = (String, AppleSong);
+
+/// The songs of the albums of library artists, read from Apple album by album in the order
+/// Apple lists them, each album and each song once.
+async fn library_artist_songs(
+    binding: &AppleMusicBinding,
+    artists: &[String],
+) -> Result<Vec<Listed>> {
+    // Owned ids: closures taking borrowed items here fail the compiler's Send check.
+    let albums = stream::iter(artists.to_vec())
+        .map(|artist| async move { binding.read_artist_albums(&artist).await })
+        .buffered(ALBUM_READS)
+        .try_collect::<Vec<_>>()
+        .await?;
+    let mut seen_albums = HashSet::new();
+    let albums: Vec<String> = albums
+        .into_iter()
+        .flatten()
+        .map(|album| album.id)
+        .filter(|id| seen_albums.insert(id.clone()))
+        .collect();
+    let songs = stream::iter(albums)
+        .map(|album| async move { binding.read_album_songs(&album).await })
+        .buffered(ALBUM_READS)
+        .try_collect::<Vec<_>>()
+        .await?;
+    let mut seen = HashSet::new();
+    Ok(songs
+        .into_iter()
+        .flatten()
+        .filter(|song| seen.insert(song.id.clone()))
+        .map(|song| (song.id.clone(), AppleSong::Library(song)))
+        .collect())
+}
+
+/// The sort keys of a listed song: disc, number and title.
+fn disc_number_title(song: &LibrarySong) -> (u32, u32, String) {
+    let song = SongRef::Library(song);
+    (
+        song.disc_number().unwrap_or_default(),
+        song.track_number().unwrap_or_default(),
+        song.title().to_lowercase(),
+    )
+}
+
+/// The songs of the kept song list that an artist of the library's artist list is credited
+/// with, album by album, each song once. Albums go by year, then name, and an album's songs by
+/// disc, number and title. Songs without an album come last.
+fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed> {
+    let mut seen = HashSet::new();
+    let mut found: Vec<(&str, &LibrarySong)> = list
+        .entries()
+        // The library's songs only: the list also holds songs of playlists that are not.
+        .filter(|(track, song)| {
+            is_library_song(song) && artist.credits_track(track) && seen.insert(*track)
+        })
+        .collect();
+    // An album's year is its earliest song's, as songs of one album may disagree.
+    let mut years: HashMap<Option<&str>, u32> = HashMap::new();
+    for (_, song) in &found {
+        let year = SongRef::Library(song).year().unwrap_or(u32::MAX);
+        let slot = years.entry(song.album_id()).or_insert(year);
+        *slot = (*slot).min(year);
+    }
+    found.sort_by_cached_key(|(_, song)| {
+        let listed = SongRef::Library(song);
+        let (disc, number, title) = disc_number_title(song);
+        (
+            listed.album().is_none() && song.album_id().is_none(),
+            years[&song.album_id()],
+            listed.album().unwrap_or_default().to_lowercase(),
+            song.album_id().map(str::to_owned),
+            disc,
+            number,
+            title,
+        )
+    });
+    found
+        .into_iter()
+        .map(|(track, song)| (track.to_owned(), AppleSong::Library(song.clone())))
+        .collect()
+}
+
+/// The songs of a library album in the kept song list, by disc, number and title.
+fn album_songs_from_list(list: &AppleSongs, album: &str) -> Vec<Listed> {
+    let mut found: Vec<(&str, &LibrarySong)> = list
+        .entries()
+        .filter(|(_, song)| song.album_id() == Some(album))
+        .collect();
+    found.sort_by_cached_key(|(_, song)| disc_number_title(song));
+    found
+        .into_iter()
+        .map(|(track, song)| (track.to_owned(), AppleSong::Library(song.clone())))
+        .collect()
+}
+
+/// The songs of an artist of the library's artist list or of a library album, taken from the
+/// song list, which is kept whole and read again in the background, so these pages need no
+/// reads of their own. `None` when the list cannot be had or holds none of them, as an album
+/// it does not list; the collection is then read from Apple.
+async fn song_list_songs(
+    binding: &AppleMusicBinding,
+    query: DetailQuery,
+) -> Result<Option<Vec<Listed>>> {
+    let (kind, id) = query.collection();
+    let artist = match binding.named_artist_key(kind, id) {
+        Some(key) => Some(binding.named_artist(&key).await?),
+        None => None,
+    };
+    let album = match (&artist, query) {
+        (None, DetailQuery::Album(_)) => Some(library_collection(binding, kind, id)?),
+        _ => None,
+    };
+    if artist.is_none() && album.is_none() {
+        return Ok(None);
+    }
+    let Ok(list) = binding.songs().await else {
+        return Ok(None);
+    };
+    let songs = match (&artist, &album) {
+        (Some(artist), _) => artist_songs_from_list(&list, artist),
+        (None, Some(album)) => album_songs_from_list(&list, album),
+        (None, None) => return Ok(None),
+    };
+    Ok((!songs.is_empty()).then_some(songs))
+}
+
+/// The songs of a collection of the library: from the song list where it lists them, or else
+/// read from Apple. An album lists its songs by disc and number, and an artist of the library's
+/// artist list the songs of every library artist that credits it.
+async fn detail_songs(binding: &AppleMusicBinding, query: DetailQuery) -> Result<Vec<Listed>> {
+    if let Some(songs) = song_list_songs(binding, query).await? {
+        return Ok(songs);
+    }
+    let (kind, id) = query.collection();
+    if let Some(key) = binding.named_artist_key(kind, id) {
+        let artist = binding.named_artist(&key).await?;
+        return library_artist_songs(binding, &artist.credits).await;
+    }
+    let remote = library_collection(binding, kind, id)?;
+    match query {
+        DetailQuery::Album(_) => Ok(binding
+            .read_album_songs(&remote)
+            .await?
+            .into_iter()
+            .map(|song| (song.id.clone(), AppleSong::Library(song)))
+            .collect()),
+        DetailQuery::Artist(_) => library_artist_songs(binding, &[remote]).await,
+    }
+}
+
+/// The songs of a collection that a mix query names, as `detail_songs` gives them. A mix kept
+/// before the library's artist list told its artists apart as it does now may name an artist
+/// the list no longer holds. That query is logged and plays nothing, so the rest of the mix
+/// plays and a mix of nothing else is empty. Any other failure is the caller's.
+async fn mix_detail_songs(binding: &AppleMusicBinding, query: DetailQuery) -> Result<Vec<Listed>> {
+    let (kind, id) = query.collection();
+    if let Some(key) = binding.named_artist_key(kind, id)
+        && let Err(error) = binding.named_artist(&key).await
+    {
+        if is_not_found(&error) {
+            log::warn!("Skipping the Apple Music artist {key} of a mix, which is gone");
+            return Ok(Vec::new());
+        }
+        return Err(error);
+    }
+    detail_songs(binding, query).await
+}
+
+/// Whether a song has a cover.
+fn song_has_cover(song: &AppleSong) -> bool {
+    song.as_ref().artwork().is_some()
+}
+
+pub(crate) async fn mix_query_request(
+    binding: &AppleMusicBinding,
+    request: &MixQueryRequest,
+) -> Result<Option<MixQueryResponse>> {
+    let planned = mixes::plan(&request.queries, MixQueryRequest::wire_name())?;
+    let cursor = usize::try_from(request.cursor)
+        .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}")))?;
+    let count = usize::try_from(request.page_size).map_err(|error| {
+        ExpectedRequestError::invalid_input(format!("Invalid page size: {error}"))
+    })?;
+    // Songs without a cover are dropped before the page is cut, so a page is full of covers.
+    // The cover wall draws at random and shows only covers, which it reads once.
+    let cover_wall = planned.cover_only && matches!(planned.plan, Plan::Random(_));
+    let mut page: Vec<Listed> = match planned.plan {
+        Plan::Collection(target) => {
+            let query = DetailQuery::of(target, MixQueryRequest::wire_name())?;
+            mix_detail_songs(binding, query)
+                .await?
+                .into_iter()
+                .filter(|(_, song)| !planned.cover_only || song_has_cover(song))
+                .skip(cursor)
+                .take(count)
+                .collect()
+        }
+        Plan::All => binding
+            .songs()
+            .await?
+            .entries()
+            .filter(|(_, song)| !planned.cover_only || has_cover(song))
+            .skip(cursor)
+            .take(count)
+            .map(|(track, song)| (track.to_owned(), AppleSong::Library(song.clone())))
+            .collect(),
+        Plan::Random(wanted) => {
+            let list = binding.songs().await?;
+            let pool: Vec<(&str, &LibrarySong)> = list
+                .entries()
+                .filter(|(_, song)| !planned.cover_only || has_cover(song))
+                .collect();
+            // Every query draws afresh, as for a local library, so the page cuts this draw.
+            // A query that names a seed draws the same each time, so its pages agree. Only the
+            // songs picked are cloned.
+            let picked = match request.random_seed {
+                Some(seed) => {
+                    mixes::sample_indices(&mut StdRng::seed_from_u64(seed), pool.len(), wanted)
+                }
+                None => mixes::sample_indices(&mut rand::thread_rng(), pool.len(), wanted),
+            };
+            picked
+                .into_iter()
+                .skip(cursor)
+                .take(count)
+                .map(|index| {
+                    let (track, song) = pool[index];
+                    (track.to_owned(), AppleSong::Library(song.clone()))
+                })
+                .collect()
+        }
+        // Items together are read whole, to join them, and cut after.
+        Plan::Items(items) => items_songs(binding, &items)
+            .await?
+            .into_iter()
+            .filter(|(_, song)| !planned.cover_only || song_has_cover(song))
+            .skip(cursor)
+            .take(count)
+            .collect(),
+    };
+    // The wall's covers must be on disk before it gets the tracks. A song whose cover cannot be
+    // had is left out. Track lists show a cover whenever its download lands.
+    if cover_wall {
+        let cached = binding
+            .cache_covers(
+                page.iter()
+                    .filter_map(|(_, song)| cover_url(song.as_ref().artwork()))
+                    .collect(),
+            )
+            .await;
+        page.retain(|(_, song)| {
+            cover_url(song.as_ref().artwork()).is_some_and(|url| cached.contains(&url))
+        });
+    }
+    let (mut files, covers) = media_files(binding, song_refs(&page))?;
+    let cover_art_map = binding.cover_map(covers).await?;
+    // A batch larger than the cache can evict a cover cached above before the map is built.
+    // The wall reads its covers once, so a song whose cover is gone is left out.
+    if cover_wall {
+        files.retain(|file| cover_art_map.contains_key(&file.id));
+    }
+    Ok(Some(MixQueryResponse {
+        call_id: None,
+        files,
+        cover_art_map,
+    }))
+}
+
+/// The songs of single tracks and collections together, as `mixes::union_order` lists them:
+/// each collection's as its own page lists them, and each song once. An id the binding never
+/// gave names no song, as for a local library, and a song Apple no longer has is left out, as is
+/// an artist the library's artist list no longer holds (`mix_detail_songs`).
+async fn items_songs(binding: &AppleMusicBinding, items: &[MixItem]) -> Result<Vec<Listed>> {
+    // The single tracks the binding lacks are read together first.
+    let tracks: Vec<String> = items
+        .iter()
+        .filter_map(|item| match item {
+            MixItem::Track(id) => binding.resolve_track(*id).ok(),
+            MixItem::Collection(_) => None,
+        })
+        .collect();
+    binding.read_unknown_tracks(tracks).await;
+    let mut songs = Vec::new();
+    for item in mixes::union_order(items) {
+        let target = match item {
+            MixItem::Track(id) => {
+                if let Ok(track) = binding.resolve_track(id)
+                    && let Some(song) = apple_song(binding, &track).await?
+                {
+                    songs.push((track, song));
+                }
+                continue;
+            }
+            MixItem::Collection(target) => DetailQuery::of(target, MixQueryRequest::wire_name())?,
+        };
+        songs.extend(mix_detail_songs(binding, target).await?);
+    }
+    Ok(mixes::first_of_each_key(songs, |(track, _)| track.clone()))
+}
+
+impl MixSource for AppleMusicBinding {
+    fn library_id(&self) -> String {
+        ServiceBinding::library_id(self).to_string()
+    }
+
+    fn collection_tracks(&self, target: MixTarget) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let query = DetailQuery::of(target, ResolveMixQueryRequest::wire_name())?;
+            let songs = mix_detail_songs(self, query).await?;
+            Ok(songs.into_iter().map(|(track, _)| track).collect())
+        })
+    }
+
+    fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let list = self.current_songs().await?;
+            Ok(list
+                .entries()
+                .take(limit)
+                .map(|(track, _)| track.to_owned())
+                .collect())
+        })
+    }
+
+    fn track_key(&self, id: i32) -> Result<Option<String>> {
+        Ok(self.resolve_track(id).ok())
+    }
+}
+
+pub(crate) async fn resolve_mix_query_request(
+    binding: &AppleMusicBinding,
+    request: &ResolveMixQueryRequest,
+) -> Result<Option<ResolveMixQueryResponse>> {
+    Ok(Some(mixes::resolve_mix_query(binding, request).await?))
+}
+
+fn home_track(track: &str, song: &LibrarySong) -> HomeTrack {
+    let song = SongRef::Library(song);
+    HomeTrack {
+        remote: track.to_owned(),
+        name: song.title().to_owned(),
+        cover: cover_url(song.artwork()),
+    }
+}
+
+impl HomeSource for AppleMusicBinding {
+    fn collections(&self, collection_type: CollectionType) -> ServiceFuture<'_, Vec<HomeItem>> {
+        Box::pin(async move {
+            // The library lists no playlists.
+            if collection_type == CollectionType::Playlist {
+                return Ok(Vec::new());
+            }
+            let kind = id_kind(collection_type, ComplexQueryRequest::wire_name())?;
+            let mut items: Vec<HomeItem> = entries(self, kind, ComplexQueryRequest::wire_name())
+                .await?
+                .into_iter()
+                .map(|entry| HomeItem {
+                    id: entry.id,
+                    name: entry.name,
+                    cover: entry.cover,
+                })
+                .collect();
+            // Apple lists the albums it added last first.
+            if kind == AppleIdKind::Album {
+                items.reverse();
+            }
+            Ok(items)
+        })
+    }
+
+    /// Nothing in the library can be renamed or removed here.
+    fn editable(&self, _collection_type: CollectionType) -> bool {
+        false
+    }
+
+    fn tracks(&self, _limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async move {
+            let list = self.songs().await?;
+            // The library's own songs, in the order Apple lists them, which is the order they
+            // were added in; the songs only a playlist holds come after them and are left out.
+            Ok(list
+                .entries()
+                .filter(|(_, song)| is_library_song(song))
+                .map(|(track, song)| home_track(track, song))
+                .collect())
+        })
+    }
+
+    /// The library's own songs, the ones added last first.
+    fn newest_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async move {
+            let list = self.songs().await?;
+            Ok(list
+                .entries()
+                .rev()
+                .filter(|(_, song)| is_library_song(song))
+                .take(limit)
+                .map(|(track, song)| home_track(track, song))
+                .collect())
+        })
+    }
+
+    /// The library keeps no likes.
+    fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn number(&self, tracks: Vec<HomeTrack>) -> Result<Vec<HomeItem>> {
+        tracks
+            .into_iter()
+            .map(|track| {
+                Ok(HomeItem {
+                    id: self.intern_track(&track.remote)?,
+                    name: track.name,
+                    cover: track.cover,
+                })
+            })
+            .collect()
+    }
+
+    fn cover_paths(&self, covers: Vec<(i32, String)>) -> ServiceFuture<'_, HashMap<i32, String>> {
+        Box::pin(self.cover_map(covers))
+    }
+
+    fn random_seed(&self) -> u64 {
+        home::rotating_seed(self.home_seed)
+    }
+
+    fn holds_sign_in(&self) -> bool {
+        self.is_signed_in()
+    }
+}
+
+pub(crate) async fn complex_query_request(
+    binding: &AppleMusicBinding,
+    request: &ComplexQueryRequest,
+) -> Result<Option<ComplexQueryResponse>> {
+    Ok(Some(home::complex_query(binding, request).await?))
+}
+
+/// Whether an error says the thing asked for does not exist.
+fn is_not_found(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<ExpectedError>(),
+        Some(ExpectedError::NotFound { .. })
+    )
+}
+
+/// The song of `track`, unless Apple said it does not have it and nothing listed it since. A
+/// song Apple answers it does not have is remembered as missing.
+async fn apple_song(binding: &AppleMusicBinding, track: &str) -> Result<Option<AppleSong>> {
+    if binding.known_missing(track) && binding.known_song(track).is_none() {
+        return Ok(None);
+    }
+    let generation = binding.generation();
+    match binding.song(track).await {
+        Ok(song) => Ok(Some(song)),
+        Err(error) if is_not_found(&error) => {
+            binding.remember_missing(generation, track);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+macro_rules! apple_music_requests {
+    (
+        supported { $($request:ty => $handler:ident as $method:ident),* $(,)? }
+        routed_native { $($native_request:ty),* $(,)? }
+        items { $($item_request:ty => $item_slot:ident),* $(,)? }
+    ) => {
+        $(const _: () = assert!(
+            <$item_request as crate::rpc::TargetRequest>::ROUTED_BY_ITEM,
+            "item slots are only for requests routed by item",
+        );)*
+
+        impl RequestTranslator for AppleMusicBinding {
+            $(
+                fn $method<'a>(
+                    &'a self,
+                    request: &'a $request,
+                ) -> RequestTranslationFuture<'a, <$request as crate::TypedRequest>::Response> {
+                    Box::pin($handler(self, request))
+                }
+            )*
+        }
+
+        impl RequestSlots {
+            /// What an open Apple Music library answers itself, and what each device item
+            /// decides for itself; everything else is unsupported.
+            pub(crate) fn apple_music() -> Self {
+                let mut slots = Self::unimplemented();
+                $(slots.set::<$request>(Slot::Translate);)*
+                $(slots.set::<$native_request>(Slot::Native);)*
+                slots
+            }
+
+            /// What an Apple Music library answers about its own items, of the requests
+            /// routed by item, whichever library is open and whether or not it is signed in;
+            /// the others are unsupported for its items.
+            pub(crate) fn apple_music_items() -> Self {
+                let mut slots = Self::unimplemented();
+                $(slots.set::<$item_request>(Slot::$item_slot);)*
+                slots
+            }
+        }
+    };
+}
+
+apple_music_requests! {
+    supported {
+        FetchMediaFilesRequest => fetch_media_files_request as translate_fetch_media_files_request,
+        FetchMediaFileByIdsRequest => fetch_media_file_by_ids_request as translate_fetch_media_file_by_ids_request,
+        FetchParsedMediaFileRequest => fetch_parsed_media_file_request as translate_fetch_parsed_media_file_request,
+        SearchMediaFileSummaryRequest => search_media_file_summary_request as translate_search_media_file_summary_request,
+        GetMediaFilesCountRequest => get_media_files_count_request as translate_get_media_files_count_request,
+        FetchCollectionGroupSummaryRequest => fetch_collection_group_summary_request as translate_fetch_collection_group_summary_request,
+        FetchCollectionGroupsRequest => fetch_collection_groups_request as translate_fetch_collection_groups_request,
+        FetchCollectionByIdsRequest => fetch_collection_by_ids_request as translate_fetch_collection_by_ids_request,
+        SearchCollectionSummaryRequest => search_collection_summary_request as translate_search_collection_summary_request,
+        MixQueryRequest => mix_query_request as translate_mix_query_request,
+        ResolveMixQueryRequest => resolve_mix_query_request as translate_resolve_mix_query_request,
+        ComplexQueryRequest => complex_query_request as translate_complex_query_request,
+    }
+    // This device answers these by the library of the item each names, whichever library is
+    // open: the items of another library are that library's to answer.
+    routed_native {
+        SetLikedRequest,
+        GetLikedRequest,
+        GetLyricByTrackIdRequest,
+        GetPrimaryColorByTrackIdRequest,
+    }
+    items {
+        // The hub takes the color of a streaming item from its cover in the library's cover cache.
+        GetPrimaryColorByTrackIdRequest => Native,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use apple_music::models::LibrarySong;
+    use serde_json::{Value, json};
+
+    use super::{album_songs_from_list, artist_songs_from_list};
+    use crate::apple_music_artists::tests::catalog;
+    use crate::apple_music_artists::{NamedArtists, SongArtists};
+    use crate::apple_music_binding::{AppleSongs, catalog_track};
+
+    /// A library song of the library artist credited `artist`, on the album `(id, year)`.
+    fn song(
+        id: &str,
+        title: &str,
+        artist: &str,
+        album: Option<(&str, u32)>,
+        at: u32,
+        catalog_id: Option<&str>,
+    ) -> LibrarySong {
+        let mut attributes = json!({
+            "name": title,
+            "artistName": artist,
+            "trackNumber": at,
+            "discNumber": 1,
+            "playParams": {"id": id, "kind": "song"},
+        });
+        if let Some(catalog_id) = catalog_id {
+            attributes["playParams"]["catalogId"] = Value::from(catalog_id);
+        }
+        let mut song = json!({"id": id, "type": "library-songs", "attributes": attributes});
+        if let Some((album, year)) = album {
+            song["attributes"]["albumName"] = Value::from(format!("Album {album}"));
+            song["attributes"]["releaseDate"] = Value::from(format!("{year}-01-01"));
+            song["relationships"] =
+                json!({"albums": {"data": [{"id": album, "type": "library-albums"}]}});
+        }
+        serde_json::from_value(song).unwrap()
+    }
+
+    fn library(id: &str, name: &str) -> apple_music::models::LibraryArtist {
+        serde_json::from_value(
+            json!({"id": id, "type": "library-artists", "attributes": {"name": name}}),
+        )
+        .unwrap()
+    }
+
+    fn list(songs: Vec<LibrarySong>) -> AppleSongs {
+        serde_json::from_value(json!({"songs": songs, "twins": {}})).unwrap()
+    }
+
+    #[test]
+    fn an_artists_songs_come_from_the_song_list_by_album_year_then_name_and_number() {
+        let songs = vec![
+            song("i.1", "Late", "Ann", Some(("l.b", 2020)), 1, None),
+            song("i.2", "Loose", "ANN", None, 1, None),
+            // The songs of two artists are those Apple's catalog names both artists for.
+            song(
+                "i.3",
+                "Second",
+                "Ann & Bob",
+                Some(("l.a", 2020)),
+                2,
+                Some("c.3"),
+            ),
+            song(
+                "i.4",
+                "First",
+                "Bob, Ann",
+                Some(("l.a", 2020)),
+                1,
+                Some("c.4"),
+            ),
+            song("i.5", "Early", "Ann", Some(("l.c", 2010)), 1, None),
+            song("i.6", "Not Ann", "Bob", Some(("l.a", 2020)), 3, None),
+            // The same song listed again is shown once.
+            song("i.1", "Late", "Ann", Some(("l.b", 2020)), 1, None),
+        ];
+        let mut song_artists = SongArtists::default();
+        song_artists.add(
+            &["c.3".to_owned(), "c.4".to_owned()],
+            vec![
+                ("c.3".into(), vec![catalog("1", "Ann"), catalog("2", "Bob")]),
+                ("c.4".into(), vec![catalog("2", "Bob"), catalog("1", "Ann")]),
+            ],
+        );
+        let named = NamedArtists::new(
+            &[
+                library("r.1", "Ann"),
+                library("r.2", "Ann & Bob"),
+                library("r.3", "Bob"),
+            ],
+            &songs,
+            &song_artists,
+        );
+        let list = list(songs);
+        let ann = named.get("artist:1").unwrap();
+        let titles = |found: Vec<(String, crate::apple_music_binding::AppleSong)>| {
+            found
+                .into_iter()
+                .map(|(_, song)| song.as_ref().title().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            titles(artist_songs_from_list(&list, ann)),
+            ["Early", "First", "Second", "Late", "Loose"]
+        );
+        assert_eq!(
+            titles(album_songs_from_list(&list, "l.a")),
+            ["First", "Second", "Not Ann"]
+        );
+    }
+
+    #[test]
+    fn a_catalog_track_is_listed_once_as_the_library_copy_it_has() {
+        let copy = song("i.copy", "Copy", "Ann", None, 1, Some("900"));
+        let mut playlist_entry = song("p.900", "Copy", "Ann", None, 1, Some("900"));
+        playlist_entry.kind = "songs".to_owned();
+        let list: AppleSongs = serde_json::from_value(json!({
+            "songs": [copy, playlist_entry],
+            "twins": {"900": "i.copy"},
+        }))
+        .unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.library_twin(&catalog_track("900")), Some("i.copy"));
+    }
+}

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::system::{RequestErrorKind, RequestFailureCause};
 use database::library_registry::{
     CatalogPlacement, FsAdapter, InvalidRecord, LibraryAccess, LibraryConnectionAccess,
@@ -116,6 +118,91 @@ pub struct ReplaceSubsonicCredentialResponse {
     pub call_id: Option<u64>,
 }
 
+/// A streaming service whose library this device can register.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamingService {
+    AppleMusic,
+}
+
+/// The kind of record a library of the service has.
+impl From<StreamingService> for ProtocolAdapter {
+    fn from(service: StreamingService) -> Self {
+        match service {
+            StreamingService::AppleMusic => Self::AppleMusic,
+        }
+    }
+}
+
+/// How this device signs in to a streaming service. The hub keeps what it gets in
+/// memory only.
+#[derive(Serialize, Deserialize, SignalPiece, Clone, PartialEq, Eq)]
+pub enum ServiceSignIn {
+    /// Tokens the platform's own service framework handed over.
+    Platform {
+        user_token: String,
+        developer_token: Option<String>,
+    },
+}
+
+impl fmt::Debug for ServiceSignIn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Platform {
+                developer_token, ..
+            } => f
+                .debug_struct("Platform")
+                .field("user_token", &"<redacted>")
+                .field(
+                    "developer_token",
+                    &developer_token.as_ref().map(|_| "<redacted>"),
+                )
+                .finish(),
+        }
+    }
+}
+
+/// Registers the library of a streaming service, signed in with `sign_in`. A service
+/// already registered keeps its record and is only signed in again.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct RegisterServiceLibraryRequest {
+    pub service: StreamingService,
+    pub alias: String,
+    pub sign_in: ServiceSignIn,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Signs the streaming service library of `record_id` in, for example after Rune started.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SignInServiceLibraryRequest {
+    pub record_id: String,
+    pub sign_in: ServiceSignIn,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Sent once the library is signed in. A failure is a typed request failure.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct SignInServiceLibraryResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Forgets the sign-in of the streaming service library of `record_id` on this device.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SignOutServiceLibraryRequest {
+    pub record_id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Sent once the library is signed out. A failure is a typed request failure.
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct SignOutServiceLibraryResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
 pub enum OpenDalLibraryService {
     WebDav {
@@ -185,6 +272,7 @@ pub enum LibraryRecordKindSummary {
         endpoint: String,
         root: String,
     },
+    AppleMusic,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +289,9 @@ pub struct LibraryRecordSummary {
     pub background_sync: Option<bool>,
     pub connection_access: Option<LibraryConnectionAccessSummary>,
     pub sync_access: Option<LibraryAccessSummary>,
+    /// Whether the library is signed in now, for a library whose sign-in lives on this device
+    /// rather than in a credential its record keeps. None for every other library.
+    pub signed_in: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, SignalPiece, Clone, Debug, PartialEq, Eq)]
@@ -220,6 +311,7 @@ pub enum InvalidRecordReasonSummary {
     BackgroundSyncWithoutCatalog,
     DuplicateLibraryId,
     OpenDalInvalid,
+    ServiceInvalid,
 }
 
 impl From<InvalidRecord> for InvalidRecordReasonSummary {
@@ -232,6 +324,7 @@ impl From<InvalidRecord> for InvalidRecordReasonSummary {
             InvalidRecord::BackgroundSyncWithoutCatalog => Self::BackgroundSyncWithoutCatalog,
             InvalidRecord::DuplicateLibraryId => Self::DuplicateLibraryId,
             InvalidRecord::OpenDalInvalid => Self::OpenDalInvalid,
+            InvalidRecord::ServiceInvalid => Self::ServiceInvalid,
         }
     }
 }
@@ -295,6 +388,7 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                     account: String::new(),
                 }
             }
+            ProtocolAdapter::AppleMusic => LibraryRecordKindSummary::AppleMusic,
         };
         Self {
             record_id: record.record_id.0.to_string(),
@@ -304,6 +398,7 @@ impl From<&LibraryRecord> for LibraryRecordSummary {
                 .then(|| record.background_sync()),
             connection_access: record.connection_access().map(Into::into),
             sync_access: record.access_level().map(Into::into),
+            signed_in: None,
         }
     }
 }
@@ -551,7 +646,10 @@ pub struct RemoteRequestFailed {
 
 #[cfg(test)]
 mod tests {
-    use super::{OpenDalLibraryService, RegisterOpenDalLibraryRequest, ShareDataChoice};
+    use super::{
+        OpenDalLibraryService, RegisterOpenDalLibraryRequest, RegisterServiceLibraryRequest,
+        ServiceSignIn, ShareDataChoice, StreamingService,
+    };
 
     fn round_trip(service: OpenDalLibraryService) {
         let request = RegisterOpenDalLibraryRequest {
@@ -584,5 +682,24 @@ mod tests {
             access_key_id: "k".into(),
             secret_access_key: "s".into(),
         });
+    }
+
+    #[test]
+    fn service_sign_in_survives_the_dart_wire_format_and_hides_its_tokens() {
+        let request = RegisterServiceLibraryRequest {
+            service: StreamingService::AppleMusic,
+            alias: "Apple Music".into(),
+            sign_in: ServiceSignIn::Platform {
+                user_token: "user-secret".into(),
+                developer_token: Some("developer-secret".into()),
+            },
+            call_id: Some(7),
+        };
+        let bytes = rinf::serialize(&request).unwrap();
+        let decoded: RegisterServiceLibraryRequest = rinf::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.sign_in, request.sign_in);
+        assert_eq!(decoded.call_id, Some(7));
+        let debug = format!("{:?}", request.sign_in);
+        assert!(!debug.contains("secret"), "{debug}");
     }
 }

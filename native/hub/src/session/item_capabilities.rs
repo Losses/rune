@@ -1,7 +1,8 @@
 //! What the item this device plays supports of the requests answered by the library the item
 //! belongs to, as the UI is told it.
 
-use std::path::Path;
+use std::ptr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use database::library_registry::{LibraryRecord, LibraryRecordId, LibraryRegistry};
@@ -19,8 +20,8 @@ use crate::{
     node::NodeContext,
     request_owner::Implementation,
     rpc::{Slot, UnsupportedReason},
-    service::item_slots,
-    utils::Broadcaster,
+    service::{ServiceBinding, item_slots},
+    utils::{Broadcaster, held_service_binding, load_registry},
 };
 
 /// What the UI was last told the current item supports.
@@ -78,9 +79,10 @@ fn send_with(
     }
 }
 
-/// What the item supports may have changed without a status: the UI opened or closed a library,
-/// or a library record went away. The item's library is looked up again when its record is gone,
-/// and the UI hears what the item supports now.
+/// What the item supports may have changed without a status: a service library signed in or
+/// lost its sign-in, the UI opened or closed a library, or a library record went away. The item's
+/// library is looked up again when it is no longer this device's to answer for it, and the UI
+/// hears what the item supports now.
 pub(super) async fn changed(
     node: &NodeContext,
     item_state: &mut ItemEventState,
@@ -88,10 +90,10 @@ pub(super) async fn changed(
 ) {
     if let Some(ResolvedLibrary {
         library_id,
-        implementation: Implementation::Service(_),
+        implementation: Implementation::Service(binding),
         ..
     }) = &item_state.library
-        && load_registry(node).is_ok_and(|registry| record_of(&registry, *library_id).is_err())
+        && let_go(node, *library_id, binding)
     {
         item_state.library = None;
     }
@@ -99,9 +101,25 @@ pub(super) async fn changed(
     send_with(node, item_state, broadcaster, local_library_open);
 }
 
+/// Whether the binding the item's library resolved to no longer answers for it: the library's
+/// record is gone, as after a removal, or its service signs in with its binding and this device
+/// let that binding go. Any other binding, as one made from its library's record, stays the
+/// item's.
+fn let_go(node: &NodeContext, library_id: Uuid, binding: &Arc<dyn ServiceBinding>) -> bool {
+    let removed =
+        load_registry(node).is_ok_and(|registry| record_of(&registry, library_id).is_err());
+    let released = binding.service().signs_in_on_this_device()
+        && !held_service_binding(node, library_id)
+            .ok()
+            .flatten()
+            .is_some_and(|held| ptr::addr_eq(Arc::as_ptr(&held), Arc::as_ptr(binding)));
+    removed || released
+}
+
 /// The item slots of the library `item` belongs to: those of the implementation it resolved to,
-/// or of the binding held for it since, or else what its service declares for the items of a
-/// library this device holds no binding for. None when the library records cannot be read.
+/// or of the binding held for it since, as after a sign-in, or else what its service declares
+/// for the items of a library this device holds no binding for. None when the library records
+/// cannot be read.
 fn playing_item_slots(
     node: &NodeContext,
     item: Option<&PlayingItem>,
@@ -116,7 +134,7 @@ fn playing_item_slots(
         Some(_) => return Some(file_slots(local_library_open)),
         None => return Some(RequestSlots::local()),
     };
-    match node.service_binding(library_id) {
+    match held_service_binding(node, library_id) {
         Ok(Some(binding)) => Some(Implementation::Service(binding).item_slots()),
         Ok(None) => unheld_item_slots(load_registry(node), library_id),
         Err(error) => {
@@ -124,10 +142,6 @@ fn playing_item_slots(
             None
         }
     }
-}
-
-fn load_registry(node: &NodeContext) -> Result<LibraryRegistry> {
-    LibraryRegistry::load(Path::new(&*node.config_path))
 }
 
 /// The record of the library `library_id`: a service library's id is the id of its record, while

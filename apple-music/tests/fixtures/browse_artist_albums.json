@@ -1,0 +1,57 @@
+{
+  "data": [
+    {
+      "id": "l.alb1",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb1",
+      "attributes": {
+        "name": "Dawn Album",
+        "artistName": "Artist One",
+        "trackCount": 3,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2020-03-04",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb1",
+          "kind": "album",
+          "isLibrary": true
+        }
+      }
+    },
+    {
+      "id": "l.alb3",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb3",
+      "attributes": {
+        "name": "Dusk Album",
+        "artistName": "Artist One",
+        "trackCount": 2,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dusk/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2021-01-01",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb3",
+          "kind": "album",
+          "isLibrary": true
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 2
+  }
+}

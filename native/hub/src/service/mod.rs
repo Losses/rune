@@ -7,6 +7,8 @@ pub(crate) mod ids;
 pub(crate) mod lists;
 pub(crate) mod mixes;
 pub(crate) mod positional_occurrences;
+pub(crate) mod reach;
+pub(crate) mod registry;
 pub(crate) mod store;
 
 use std::sync::Arc;
@@ -21,6 +23,7 @@ use tokio::sync::watch;
 use uuid::Uuid;
 use visualizer::VisualizerInputs;
 
+use crate::apple_music_binding::{APPLE_MUSIC_HOST, hosted_target};
 use crate::macros::{RequestSlots, RequestTranslator};
 
 pub(crate) type ServiceFuture<'a, T> = BoxFuture<'a, Result<T>>;
@@ -29,7 +32,30 @@ pub(crate) type ServiceFuture<'a, T> = BoxFuture<'a, Result<T>>;
 /// open, as its request table declares. The slots of other requests mean nothing here.
 pub(crate) fn item_slots(service: ServiceKind) -> RequestSlots {
     match service {
+        ServiceKind::AppleMusic => RequestSlots::apple_music_items(),
         ServiceKind::Subsonic => RequestSlots::subsonic_items(),
+    }
+}
+
+/// The family of platform hosts that play the tracks of `service` on this device and report its
+/// network, as the host names itself. None for a service that plays through none.
+pub(crate) fn platform_host(service: ServiceKind) -> Option<&'static str> {
+    match service {
+        ServiceKind::AppleMusic => Some(APPLE_MUSIC_HOST),
+        ServiceKind::Subsonic => None,
+    }
+}
+
+/// How this device plays a track of `service` while it holds no binding for its library, as for
+/// a queue restored before the library signs in. A service whose platform host plays its tracks
+/// by their keys alone needs none. None for a service whose tracks need one.
+pub(crate) fn playback_source_without_binding(
+    service: ServiceKind,
+    track: &str,
+) -> Option<Result<ServiceTarget>> {
+    match service {
+        ServiceKind::AppleMusic => Some(hosted_target(track)),
+        ServiceKind::Subsonic => None,
     }
 }
 
@@ -45,6 +71,23 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
 
     /// The service the library belongs to, which declares what its items support.
     fn service(&self) -> ServiceKind;
+
+    /// Whether the binding holds a sign-in, without which the service answers nothing about
+    /// its items.
+    fn signed_in(&self) -> bool {
+        true
+    }
+
+    /// Whether which of its tracks play depends on this device being online: offline, only
+    /// the tracks the device stores play, and the rest are unavailable. The library says so
+    /// itself. The default is that connectivity changes nothing.
+    fn availability_follows_connectivity(&self) -> bool {
+        false
+    }
+
+    /// The device went online or offline, or the tracks it stores changed. Called only for a
+    /// library that declares `availability_follows_connectivity`, which reloads its lists.
+    fn reach_changed(&self, _reach: &reach::Reach) {}
 
     /// The metadata of a track and, when `with_cover` is set, its cover if the cover is cached
     /// already.
@@ -86,6 +129,16 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
     fn track_played_through<'a>(&'a self, _track: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
+
+    /// Reads together what the binding does not hold yet of `tracks`, so they can be named
+    /// without a request each, as the queued tracks of a library that just signed in. The
+    /// default reads nothing.
+    fn read_tracks(&self, _tracks: Vec<String>) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
+    /// The UI opened this library, so the binding may start reading what the UI will ask for.
+    fn opened(&self) {}
 
     /// The service's own player, when the library's tracks play there rather than on this
     /// device. None when this device plays them.

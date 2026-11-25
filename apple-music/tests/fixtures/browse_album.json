@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "id": "l.alb1",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb1",
+      "attributes": {
+        "name": "Dawn Album",
+        "artistName": "Artist One",
+        "trackCount": 3,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2020-03-04",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb1",
+          "kind": "album",
+          "isLibrary": true
+        }
+      },
+      "relationships": {
+        "artists": {
+          "href": "/v1/me/library/albums/l.alb1/artists",
+          "data": [
+            {
+              "id": "r.art1",
+              "type": "library-artists",
+              "href": "/v1/me/library/artists/r.art1",
+              "attributes": {
+                "name": "Artist One"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

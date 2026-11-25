@@ -102,6 +102,19 @@ pub(crate) trait HomeSource: Send + Sync {
     /// A number that stays the same for a while, so a random group shows the same entries
     /// each time the home is read, and changes now and then. `rotating_seed` makes it.
     fn random_seed(&self) -> u64;
+
+    /// Whether the source holds its sign-in. One that does not yet answers from what it kept,
+    /// so a group that needs the sign-in is empty, as one that fails for any other reason is,
+    /// rather than failing the home.
+    fn holds_sign_in(&self) -> bool {
+        true
+    }
+}
+
+/// Whether a failure to read a group fails the whole home: one that denies an account the
+/// source holds, which the caller needs to hear of.
+fn fails_the_home(source: &dyn HomeSource, error: &Error) -> bool {
+    denies_the_account(error) && source.holds_sign_in()
 }
 
 /// The entries a group shows, taken from `items` as the list mode asks.
@@ -258,10 +271,10 @@ fn asks_the_service(query: LibraryHomeQuery) -> bool {
 }
 
 /// Answers every group asked for, in order. A group the service cannot answer is empty and
-/// logged. A failure that denies the account fails the whole request, and so does a failure
-/// when no group that asks the service got an answer: the groups that never ask it, such as
-/// mixes, would otherwise hide an unreachable server. An answer with nothing in it still counts,
-/// so an empty library has an empty home.
+/// logged. A failure that denies the account fails the whole request (see `fails_the_home`),
+/// and so does a failure when no group that asks the service got an answer: the groups that
+/// never ask it, such as mixes, would otherwise hide an unreachable server. An answer with
+/// nothing in it still counts, so an empty library has an empty home.
 pub(crate) async fn complex_query(
     source: &dyn HomeSource,
     request: &ComplexQueryRequest,
@@ -269,7 +282,7 @@ pub(crate) async fn complex_query(
     let groups = request.queries.iter().map(|query| async move {
         let (entries, failure) = match group_entries(source, query.query).await {
             Ok(entries) => (entries, None),
-            Err(error) if denies_the_account(&error) => return Err(error),
+            Err(error) if fails_the_home(source, &error) => return Err(error),
             Err(error) => {
                 log::warn!("Could not list the home group {}: {error:#}", query.title);
                 (Vec::new(), Some(error))
@@ -363,6 +376,8 @@ mod tests {
 
     struct Failing {
         artists: Artists,
+        /// Whether the source holds its sign-in.
+        signed_in: bool,
     }
 
     impl HomeSource for Failing {
@@ -414,6 +429,10 @@ mod tests {
         fn random_seed(&self) -> u64 {
             0
         }
+
+        fn holds_sign_in(&self) -> bool {
+            self.signed_in
+        }
     }
 
     fn asks() -> ComplexQueryRequest {
@@ -438,6 +457,7 @@ mod tests {
         let response = complex_query(
             &Failing {
                 artists: Artists::Answer,
+                signed_in: true,
             },
             &asks(),
         )
@@ -453,6 +473,7 @@ mod tests {
         let error = complex_query(
             &Failing {
                 artists: Artists::SignedOut,
+                signed_in: true,
             },
             &asks(),
         )
@@ -477,6 +498,7 @@ mod tests {
         let error = complex_query(
             &Failing {
                 artists: Artists::Unreachable,
+                signed_in: true,
             },
             &request,
         )
@@ -491,12 +513,42 @@ mod tests {
         let response = complex_query(
             &Failing {
                 artists: Artists::Nothing,
+                signed_in: true,
             },
             &asks(),
         )
         .await
         .unwrap();
         assert!(response.result.iter().all(|group| group.entries.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn a_source_not_signed_in_yet_answers_what_it_kept_and_fails_only_when_nothing() {
+        let mut request = asks();
+        request.queries.push(ComplexQuery {
+            title: "Playlists".into(),
+            query: LibraryHomeQuery::Playlists(LibraryHomeListMode::Forward),
+        });
+        // The artists answer from what was kept, and the groups that need the sign-in are
+        // empty.
+        let source = Failing {
+            artists: Artists::Answer,
+            signed_in: false,
+        };
+        let response = complex_query(&source, &request).await.unwrap();
+        assert!(response.result[0].entries.is_empty());
+        assert_eq!(response.result[1].entries[0].name, "Artist");
+        // With nothing kept, the home fails with the sign-in it waits for.
+        let source = Failing {
+            artists: Artists::SignedOut,
+            signed_in: false,
+        };
+        request.queries.remove(0);
+        let error = complex_query(&source, &request).await.err().unwrap();
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::ServiceSignInRequired { .. })
+        ));
     }
 
     #[test]

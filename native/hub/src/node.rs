@@ -40,13 +40,17 @@ use crate::access_policy::{Action, Denial, RuneAccessPolicy};
 use crate::backends::remote::{RemoteConnectError, RendererLink, RendererLinkUse};
 use crate::macros::{
     RequestAccess, RequestScope, StandaloneRequestReceiver, answer_node_request,
-    capability_snapshot, request_access, request_scope,
+    capability_snapshot, listen_local_gui, request_access, request_scope,
 };
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::SyncTokenStore;
-use crate::service::{ServiceBinding, covers::ServiceCoverCache};
+use crate::service::{
+    ServiceBinding,
+    covers::ServiceCoverCache,
+    registry::{ServiceRegistry, ServiceSetup, keep_service_records_on_this_device},
+};
 use crate::session::PlayerWrap;
 use crate::visualizer::NodeVisualizer;
 use crate::{Session, session::PlayerSession};
@@ -230,6 +234,9 @@ pub struct NodeContext {
     pub node_id: Arc<String>,
     pub library_pool: Arc<LibraryPool>,
     pub credentials: Arc<CredentialStore>,
+    /// The streaming service libraries this device holds a binding for, kept until the app
+    /// quits.
+    pub(crate) services: ServiceRegistry,
     /// Orders the final credential check and binding installation with re-login's
     /// store and client update. Subsonic HTTP probes run outside this lock.
     pub(crate) subsonic_credential_commit: Mutex<()>,
@@ -433,10 +440,12 @@ impl NodeContext {
             ReconnectConfig::default(),
             PlayerSession::real_player(),
             visualizer,
+            ServiceSetup::default(),
         )
         .await
     }
 
+    /// `services` says how the streaming service libraries reach their services.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn with_reconnect_config(
         config_path: &str,
@@ -447,6 +456,7 @@ impl NodeContext {
         reconnect_config: ReconnectConfig,
         wrap_player: PlayerWrap,
         visualizer: Arc<Visualizer>,
+        services: ServiceSetup,
     ) -> Result<Arc<Self>> {
         #[cfg(unix)]
         raise_nofile_soft_limit();
@@ -464,6 +474,7 @@ impl NodeContext {
             Path::new(config_path),
             &permission_manager.list_users().await,
         )?);
+        keep_service_records_on_this_device(&access_policy, Path::new(config_path));
         let (handoff_playback_events, _) = broadcast::channel(128);
         let node = Arc::new(Self {
             protocol_version: StdMutex::new(PROTOCOL_VERSION),
@@ -476,6 +487,12 @@ impl NodeContext {
                 credentials.clone(),
             )?,
             credentials,
+            services: ServiceRegistry::new(
+                Arc::clone(&access_policy),
+                Path::new(config_path),
+                broadcaster.clone(),
+                services,
+            ),
             subsonic_credential_commit: Mutex::new(()),
             node_id,
             permission_manager: Arc::new(RwLock::new(permission_manager)),
@@ -658,8 +675,8 @@ impl NodeContext {
     }
 
     /// What the item this device plays supports may have changed without a status from the
-    /// player: the UI opened or closed a library, or a library record went away. The UI hears it
-    /// again.
+    /// player: a service library signed in or lost its sign-in, the UI opened or closed a
+    /// library, or a library record went away. The UI hears it again.
     pub(crate) fn item_capabilities_changed(&self) {
         if let Ok(session) = self.session() {
             session.item_capabilities_changed();
@@ -1363,6 +1380,26 @@ impl NodeContext {
                 }
             });
         }
+        Ok(generation)
+    }
+
+    /// Opens a service library whose binding this device holds in the UI. Like any other
+    /// library, it gets UI params of its own and the request listeners, so its requests are
+    /// answered even when it is the first library opened since Rune started.
+    pub(crate) async fn open_service_catalog(
+        self: &Arc<Self>,
+        record_id: Option<LibraryRecordId>,
+        binding: Arc<dyn ServiceBinding>,
+    ) -> Result<u64> {
+        let mut params = self.params_for_ui()?;
+        params.library_id = Some(binding.library_id());
+        let params = Arc::new(params);
+        self.attach_ui(&params).await;
+        let generation = self
+            .set_open_service_catalog(record_id, Arc::clone(&binding))
+            .await?;
+        listen_local_gui(&params, &params.main_token);
+        binding.opened();
         Ok(generation)
     }
 

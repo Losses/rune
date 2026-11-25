@@ -1,0 +1,99 @@
+{
+  "data": [
+    {
+      "id": "p.mine1",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.mine1",
+      "attributes": {
+        "name": "Road Trip",
+        "canEdit": true,
+        "hasCatalog": false,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.mine1",
+          "kind": "playlist",
+          "isLibrary": true
+        },
+        "dateAdded": "2024-01-02T03:04:05Z",
+        "artwork": {
+          "width": 1000,
+          "height": 1000,
+          "url": "http://artwork.invalid/roadtrip/{w}x{h}bb.jpg"
+        }
+      }
+    },
+    {
+      "id": "p.favorites",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.favorites",
+      "attributes": {
+        "name": "Favorite Songs",
+        "canEdit": false,
+        "hasCatalog": false,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.favorites",
+          "kind": "playlist",
+          "isLibrary": true
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    },
+    {
+      "id": "p.editorial",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.editorial",
+      "attributes": {
+        "name": "Editorial Hits",
+        "canEdit": false,
+        "hasCatalog": true,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.editorial",
+          "kind": "playlist",
+          "isLibrary": true,
+          "globalId": "pl.editorial1"
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    },
+    {
+      "id": "p.empty",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.empty",
+      "attributes": {
+        "name": "Empty Draft",
+        "canEdit": true,
+        "hasCatalog": false,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.empty",
+          "kind": "playlist",
+          "isLibrary": true
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    },
+    {
+      "id": "p.public",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.public",
+      "attributes": {
+        "name": "Shared Mix",
+        "canEdit": true,
+        "hasCatalog": true,
+        "isPublic": true,
+        "playParams": {
+          "id": "p.public",
+          "kind": "playlist",
+          "isLibrary": true,
+          "globalId": "pl.u-shared1"
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    }
+  ],
+  "meta": {
+    "total": 5
+  }
+}
