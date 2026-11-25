@@ -9241,6 +9241,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-io-surface",
  "objc2-metal",
+ "playback",
  "pollster 0.4.0",
  "rand 0.8.5",
  "realfft",

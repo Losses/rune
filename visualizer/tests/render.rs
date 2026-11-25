@@ -2,9 +2,11 @@
 
 use std::f32::consts::TAU;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, atomic::AtomicU32};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use playback::pcm_tap::PcmTap;
 use rtrb::{Producer, RingBuffer};
 use std::array;
 use std::env;
@@ -84,10 +86,21 @@ fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Fe
     // A test that failed holding its turn poisons the lock; the next may still go.
     let turn = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let (producer, consumer) = RingBuffer::new(1 << 16);
+    // Create a PcmTap to manage the consumer lifecycle
+    let tap = PcmTap::new();
+    tap.restore_consumer(consumer);
+    // Set the sample rate before starting - the visualizer needs to know the format
+    tap.sample_rate().store(48_000, Ordering::Relaxed);
+    tap.channels().store(2, Ordering::Relaxed);
+    let on_consumer_abandoned = {
+        let tap = Arc::clone(&tap);
+        move || tap.take_consumer()
+    };
     let input = PcmInput {
-        consumer,
-        channels: Arc::new(AtomicU32::new(2)),
-        sample_rate: Arc::new(AtomicU32::new(SAMPLE_RATE)),
+        consumer: tap.take_consumer().unwrap(),
+        channels: tap.channels(),
+        sample_rate: tap.sample_rate(),
+        on_consumer_abandoned: Box::new(on_consumer_abandoned),
     };
     let visualizer = Visualizer::new();
     visualizer.prefer_readback(readback);
