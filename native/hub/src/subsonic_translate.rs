@@ -2019,10 +2019,11 @@ async fn song_page(
         .songs)
 }
 
-/// The ids of the first songs of the whole song list, at most [`mixes::MAX_COVER_POOL`], read
-/// page after page and kept for [`LIST_TTL`]. A cover filter has to look at every song, and the
-/// pages of its list are asked for one after another. The songs stay in the catalog, which a
-/// later read may have brought up to date.
+/// The ids of the songs that have a cover among the first songs of the whole song list, at most
+/// [`mixes::MAX_COVER_POOL`], read page after page and kept for [`LIST_TTL`]. A cover filter has
+/// to look at every song, and the pages of its list are asked for one after another, so they count
+/// through the same ids whatever a later read finds about a song's cover. The songs stay in the
+/// catalog, which a later read may have brought up to date.
 async fn song_pool(binding: &SubsonicBinding) -> Result<Arc<Vec<i32>>> {
     if let Some((read, ids)) = &binding
         .catalog
@@ -2041,14 +2042,15 @@ async fn song_pool(binding: &SubsonicBinding) -> Result<Arc<Vec<i32>>> {
         .catalog
         .lock()
         .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
-    let ids = songs
-        .into_iter()
-        .map(|song| {
-            let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
-            catalog.songs.insert(id, song);
-            Ok(id)
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let mut ids = Vec::new();
+    for song in songs {
+        let covered = song.cover_art.is_some();
+        let id = catalog.ids.intern(SubsonicIdKind::Track, &song.id)?;
+        catalog.songs.insert(id, song);
+        if covered {
+            ids.push(id);
+        }
+    }
     let ids = Arc::new(ids);
     catalog.song_pool = Some((Instant::now(), Arc::clone(&ids)));
     Ok(ids)
@@ -2105,11 +2107,13 @@ pub(crate) async fn mix_query_request(
                 .catalog
                 .lock()
                 .map_err(|_| anyhow!("Subsonic catalog lock poisoned"))?;
+            // A song whose cover a later read found gone is left out of its page, and the pages
+            // after it keep their songs.
             ids.iter()
-                .filter_map(|id| catalog.songs.get(id))
-                .filter(|song| song.cover_art.is_some())
                 .skip(cursor)
                 .take(page_size)
+                .filter_map(|id| catalog.songs.get(id))
+                .filter(|song| song.cover_art.is_some())
                 .cloned()
                 .collect()
         }
@@ -5726,6 +5730,41 @@ mod tests {
         assert_eq!(tracks(second), ["song-3"]);
         assert_eq!(endpoint_count(&server, "search3"), reads);
         assert_eq!(endpoint_count(&server, "getRandomSongs"), 0);
+    }
+
+    #[tokio::test]
+    async fn the_pages_of_a_cover_filter_keep_their_songs_when_a_song_loses_its_cover() {
+        let root = TempDir::new().unwrap();
+        let (binding, server) = mock_subsonic(&root, false).await;
+        server.state.listed_covers.store(1, Ordering::SeqCst);
+        let covered = |cursor: i32| MixQueryRequest {
+            cursor,
+            page_size: 1,
+            ..mix_request(&[("lib::all", "true"), ("filter::with_cover_art", "true")])
+        };
+        let tracks = |response: crate::messages::MixQueryResponse| {
+            response
+                .files
+                .into_iter()
+                .map(|file| file.track)
+                .collect::<Vec<_>>()
+        };
+        let first = mix_query_request(&binding, &covered(0))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(first), ["song-1"]);
+        // A later read found that the first song has no cover any more.
+        {
+            let mut catalog = binding.catalog.lock().unwrap();
+            let id = catalog.ids.intern(SubsonicIdKind::Track, "song-1").unwrap();
+            catalog.songs.get_mut(&id).unwrap().cover_art = None;
+        }
+        let second = mix_query_request(&binding, &covered(1))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(tracks(second), ["song-3"]);
     }
 
     #[tokio::test]
