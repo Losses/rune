@@ -111,6 +111,19 @@ struct AppleFake {
     fail_rating_reads_from: AtomicUsize,
     /// Fails the first read of this path.
     fail_once: Mutex<Option<String>>,
+    /// Lists releases of "Artist One" the catalog's page of it knows (see `kinds_albums`).
+    kinds: bool,
+    /// With `kinds`, also lists "Lost Tape", an album of "Artist One" no catalog view lists.
+    lost_tape: bool,
+    /// With `kinds`, also lists this many more albums of "Artist One", each with a catalog id
+    /// the catalog does not know.
+    many_albums: usize,
+    /// Lists "Twin One" of "Twin Artist", on "Twin Second": the library's copy of a song of the
+    /// second of the two albums the catalog has of the artist (see `catalog_artist`).
+    twin: bool,
+    /// Lists "Twin Third" among the albums of "Twin Artist" too, as a release that came out
+    /// later.
+    twin_new_album: AtomicBool,
 }
 
 /// The id another account's library has for `id`, when `id` is a library id: "i.s1" is
@@ -151,6 +164,15 @@ impl AppleFake {
             .unwrap()
             .iter()
             .filter(|(target, _)| target.starts_with(prefix))
+            .count()
+    }
+
+    fn count_containing(&self, part: &str) -> usize {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| target.contains(part))
             .count()
     }
 
@@ -294,6 +316,9 @@ impl AppleFake {
 
     /// A catalog song the fake knows: "ci.s1" is the catalog copy of the library's "i.s1".
     fn catalog_song(&self, id: &str) -> Option<Value> {
+        if let Some(song) = self.viewed_song(id) {
+            return Some(song);
+        }
         let (title, album, artist, number) = match id {
             "777" => ("Catalog Tune", "Catalog Album", "Catalog Artist", None),
             "8001" => ("Unheld Hit", "Elsewhere", "Artist One", Some(1)),
@@ -307,6 +332,13 @@ impl AppleFake {
             "1602" => ("Remix Two", "Dawn Remixes", "Dawn Singer", Some(2)),
             // Found by a search only.
             "1603" => ("Dawn Bonus", "Dawn Remixes", "Dawn Singer", Some(4)),
+            "ci.b3" => ("Big Album 3", "Big Album", "Artist One", Some(3)),
+            "ci.e2" => ("Short EP 2", "Short EP", "Artist One", Some(2)),
+            "9501" => ("Early One", "Twin First", "Twin Artist", Some(1)),
+            "9502" => ("Early Two", "Twin First", "Twin Artist", Some(2)),
+            "ci.t1" => ("Twin One", "Twin Second", "Twin Artist", Some(1)),
+            "9511" => ("Late Two", "Twin Second", "Twin Artist", Some(2)),
+            "9521" => ("New One", "Twin Third", "Twin Artist", Some(1)),
             _ => return None,
         };
         // Its catalog artists, as Apple names them with `include=artists`.
@@ -314,8 +346,9 @@ impl AppleFake {
             "ci.ab" => &[("400", "Ann"), ("401", "Bob")],
             "ci.ja" | "ci.en" => &[("156", "Hiroyuki Sawano")],
             "ci.rev" => &[("156", "Hiroyuki Sawano"), ("400", "Ann")],
-            "ci.s1" | "8001" => &[("300", "Artist One")],
+            "ci.s1" | "8001" | "ci.b3" | "ci.e2" => &[("300", "Artist One")],
             "900" | "1601" | "1602" | "1603" => &[("301", "Dawn Singer")],
+            "9501" | "9502" | "ci.t1" | "9511" | "9521" => &[("330", "Twin Artist")],
             _ => &[],
         };
         let artists: Vec<Value> = artists
@@ -326,6 +359,9 @@ impl AppleFake {
         let album_id = match id {
             "1601" | "1602" | "1603" => Some("1600"),
             "8001" => Some("4007"),
+            "9501" | "9502" => Some("1950"),
+            "ci.t1" | "9511" => Some("1951"),
+            "9521" => Some("1952"),
             _ => None,
         };
         let mut attributes = json!({
@@ -430,7 +466,44 @@ impl AppleFake {
         let (name, artist, songs): (_, _, &'static [&'static str]) = match id {
             "1500" => ("Dawn Album", ("300", "Artist One"), &["ci.s1"]),
             "1600" => ("Dawn Remixes", ("301", "Dawn Singer"), &["1602", "1601"]),
+            "1900" => ("Guest Sessions", ("302", "Guest"), &[]),
+            // The albums of "Twin Artist"; the library holds "Twin One" of the second.
+            "1950" => ("Twin First", ("330", "Twin Artist"), &["9501", "9502"]),
+            "1951" => ("Twin Second", ("330", "Twin Artist"), &["ci.t1", "9511"]),
+            "1952" => ("Twin Third", ("330", "Twin Artist"), &["9521"]),
+            // The releases of "Viewed Artist", whose page is read through `views`.
+            "2001" => ("Alpha", ("310", "Viewed Artist"), &["2101", "2102"]),
+            "2002" => ("Beta", ("310", "Viewed Artist"), &["2103"]),
+            "2003" => ("Gamma", ("310", "Viewed Artist"), &["2104"]),
+            "2010" => ("Spark - Single", ("310", "Viewed Artist"), &["2105"]),
+            "2011" => ("Glow - EP", ("310", "Viewed Artist"), &["2106", "2107"]),
+            "2012" => ("Odd Name", ("310", "Viewed Artist"), &["2109"]),
+            "2020" => ("Others Record", ("311", "Another Artist"), &["2108"]),
+            // The releases of "Artist One", whose page is read through `views` too.
+            "4001" => ("First Album", ("300", "Artist One"), &[]),
+            "4002" => ("Big Album", ("300", "Artist One"), &[]),
+            "4003" => ("Short EP - EP", ("300", "Artist One"), &[]),
+            "4004" => ("Lone Single - Single", ("300", "Artist One"), &[]),
+            "4005" => ("Hits", ("300", "Artist One"), &[]),
+            "4006" => ("Guest Record", ("302", "Guest"), &[]),
+            // The album of "Unheld Hit", a song of "Artist One" on another artist's album.
+            "4007" => ("Elsewhere", ("302", "Guest"), &["8001"]),
             _ => return None,
+        };
+        // Whether Apple calls it a single: the EP named so does, and the one without a name
+        // that says so does not.
+        let single = match id {
+            "2010" | "2011" | "4003" | "4004" => json!(true),
+            "2012" => json!(false),
+            _ => Value::Null,
+        };
+        let compilation = if id == "4005" { json!(true) } else { Value::Null };
+        // The albums of "Viewed Artist" came out in these years; the others have no date.
+        let released = match id {
+            "2001" => json!("2019-03-01"),
+            "2002" => json!("2021-06-01"),
+            "2003" => json!("2019-11-01"),
+            _ => Value::Null,
         };
         let album = json!({
             "id": id,
@@ -439,12 +512,333 @@ impl AppleFake {
                 "name": name,
                 "artistName": artist.1,
                 "trackCount": songs.len(),
+                "isSingle": single,
+                "isCompilation": compilation,
+                "releaseDate": released,
                 "artwork": self.artwork(name),
                 "playParams": {"id": id, "kind": "album"},
             },
             "relationships": {"artists": {"data": [{"id": artist.0, "type": "artists"}]}},
         });
         Some((album, songs))
+    }
+
+    /// A catalog artist the fake knows, with the ids of their albums: "300" has the name of
+    /// the library's "Artist One".
+    fn catalog_artist(id: &str) -> Option<(Value, &'static [&'static str])> {
+        let (name, albums): (_, &'static [&'static str]) = match id {
+            "300" => ("Artist One", &["1500"]),
+            "301" => ("Dawn Singer", &["1600"]),
+            "302" => ("Guest", &["1900"]),
+            "330" => ("Twin Artist", &["1950", "1951"]),
+            "310" => ("Viewed Artist", &[]),
+            _ => return None,
+        };
+        let artist = json!({"id": id, "type": "artists", "attributes": {"name": name}});
+        Some((artist, albums))
+    }
+
+    /// A song of "Viewed Artist": one of its releases' or one of its top songs.
+    fn viewed_song(&self, id: &str) -> Option<Value> {
+        if !(id.starts_with("21") || id.starts_with("30")) || id.len() != 4 {
+            return None;
+        }
+        let number = id.parse::<u32>().ok()? % 100;
+        Some(json!({
+            "id": id,
+            "type": "songs",
+            "attributes": {
+                "name": format!("Song {id}"),
+                "albumName": "Viewed",
+                "artistName": "Viewed Artist",
+                "trackNumber": number,
+                "discNumber": 1,
+                "durationInMillis": 100_000,
+                "playParams": {"id": id, "kind": "song"},
+                "artwork": self.artwork("Viewed"),
+            },
+            "relationships": {"artists": {"data": [{"id": "310", "type": "artists"}]}},
+        }))
+    }
+
+    /// A page of a view of the catalog artist `artist`: the albums or songs `ids`, with the
+    /// subpath of its next page at `next` when there is one.
+    fn view_page(
+        &self,
+        artist: &str,
+        view: &str,
+        ids: &[&str],
+        songs: bool,
+        next: Option<u32>,
+    ) -> Value {
+        let data: Vec<Value> = ids
+            .iter()
+            .map(|id| {
+                if songs {
+                    self.catalog_song(id).expect("a catalog song")
+                } else {
+                    self.catalog_album(id).expect("a catalog album").0
+                }
+            })
+            .collect();
+        let mut page = json!({"data": data});
+        if let Some(offset) = next {
+            page["next"] =
+                json!(format!("/v1/catalog/it/artists/{artist}/view/{view}?offset={offset}"));
+        }
+        page
+    }
+
+    /// A view's first page under the title Apple gives the view.
+    fn titled(mut page: Value, title: &str) -> Value {
+        page["attributes"] = json!({"title": title});
+        page
+    }
+
+    /// The page with the titles of its views in the language `l` of the query: the fake writes
+    /// them in English, and Italy answers in Italian unless `l=en-GB` is sent.
+    fn in_language(mut page: Value, query: &str) -> Value {
+        let english = url::form_urlencoded::parse(query.as_bytes())
+            .any(|(name, tag)| name == "l" && tag == "en-GB");
+        if english {
+            return page;
+        }
+        let italian = |title: &str| -> String {
+            match title {
+                "Latest Release" => "Ultima uscita",
+                "Albums" => "Album",
+                "Singles & EPs" => "Singoli ed EP",
+                "Essential Albums" => "Album essenziali",
+                "Compilations" => "Raccolte",
+                "Appears On" => "Compare in",
+                other => other,
+            }
+            .to_owned()
+        };
+        if let Some(views) = page
+            .pointer_mut("/data/0/views")
+            .and_then(Value::as_object_mut)
+        {
+            for view in views.values_mut() {
+                if let Some(title) = view["attributes"]["title"].as_str().map(italian) {
+                    view["attributes"]["title"] = json!(title);
+                }
+            }
+        }
+        page
+    }
+
+    /// What the fake answers about "Viewed Artist" with `views`, and for the pages its views
+    /// continue on: the albums on two pages, the singles and EPs together, the albums it
+    /// appears on, and five top songs on three pages, the first of which holds the library's
+    /// song under its catalog copy.
+    fn viewed_artist(&self, rest: &str, query: &str) -> Option<Value> {
+        let page = |view: &str, ids: &[&str], songs: bool, next: Option<u32>| {
+            self.view_page("310", view, ids, songs, next)
+        };
+        let offset = url::form_urlencoded::parse(query.as_bytes())
+            .find(|(name, _)| name == "offset")
+            .and_then(|(_, offset)| offset.parse::<u32>().ok());
+        match rest {
+            "310" if query.contains("views=") => Some(json!({"data": [{
+                "id": "310",
+                "type": "artists",
+                "attributes": {"name": "Viewed Artist"},
+                "views": {
+                    "latest-release": Self::titled(page("latest-release", &["2011"], false, None), "Latest Release"),
+                    "full-albums": Self::titled(page("full-albums", &["2001", "2002"], false, Some(2)), "Albums"),
+                    "singles": Self::titled(page("singles", &["2010", "2011", "2012"], false, None), "Singles & EPs"),
+                    "featured-albums": Self::titled(page("featured-albums", &["2001", "2002"], false, None), "Essential Albums"),
+                    "compilation-albums": json!({"data": []}),
+                    "appears-on-albums": Self::titled(page("appears-on-albums", &["2020"], false, None), "Appears On"),
+                    "top-songs": page("top-songs", &["ci.s1", "3001"], true, Some(2)),
+                },
+            }]})),
+            "310/view/full-albums" => Some(page("full-albums", &["2003"], false, None)),
+            "310/view/top-songs" if offset == Some(2) => {
+                Some(page("top-songs", &["3002", "3003"], true, Some(4)))
+            }
+            "310/view/top-songs" => Some(page("top-songs", &["3004"], true, None)),
+            _ => None,
+        }
+    }
+
+    /// The library releases of "Artist One" with their songs, each naming the catalog album it
+    /// is a copy of (see `kinds_artist`): "Big Album" has seven songs, "Short EP" four, "Lone
+    /// Single" one, "Hits" one and is by "Various Artists". With `lost_tape`, "Lost Tape" has
+    /// one song and names a catalog album no view lists.
+    fn kinds_albums(&self) -> Vec<(Value, Vec<Value>)> {
+        let artist = ("r.art1", "Artist One");
+        let release =
+            |id: &str, name: &str, by: (&str, &str), year: &str, catalog: &str, ids: &[&str]| {
+                let mut album = self.album(id, name, by);
+                album["attributes"]["trackCount"] = json!(ids.len());
+                album["attributes"]["releaseDate"] = json!(format!("{year}-01-01"));
+                album["attributes"]["playParams"]["catalogId"] = json!(catalog);
+                let songs = ids
+                    .iter()
+                    .enumerate()
+                    .map(|(at, song)| {
+                        let mut song = self.song(
+                            song,
+                            &format!("{name} {}", at + 1),
+                            (id, name),
+                            artist,
+                            u32::try_from(at + 1).expect("a small number"),
+                        );
+                        song["attributes"]["releaseDate"] = json!(format!("{year}-01-01"));
+                        song
+                    })
+                    .collect();
+                (album, songs)
+            };
+        let mut albums = vec![
+            release(
+                "l.big",
+                "Big Album",
+                artist,
+                "2022",
+                "4002",
+                &["i.b1", "i.b2", "i.b3", "i.b4", "i.b5", "i.b6", "i.b7"],
+            ),
+            release("l.sgl", "Lone Single", artist, "2023", "4004", &["i.g1x"]),
+            release(
+                "l.ep",
+                "Short EP",
+                artist,
+                "2021",
+                "4003",
+                &["i.e1", "i.e2", "i.e3", "i.e4"],
+            ),
+            release(
+                "l.va",
+                "Hits",
+                ("r.va", "Various Artists"),
+                "2018",
+                "4005",
+                &["i.v1"],
+            ),
+        ];
+        if self.lost_tape {
+            albums.push(release("l.lost", "Lost Tape", artist, "2019", "4999", &["i.l1"]));
+        }
+        albums
+    }
+
+    /// What the fake answers about "Artist One" (catalog "300") when `kinds` is set, with
+    /// `views`, and for the pages its views continue on. The albums are "First Album" and
+    /// "Big Album" on two pages, the singles are "Lone Single" and the EP "Short EP", "Hits"
+    /// is a compilation, "Guest Record" is on another artist's album, and the top songs are on
+    /// two pages: only "ci.e2", "ci.s1" and "ci.b3" are copies of the library's songs.
+    fn kinds_artist(&self, rest: &str, query: &str) -> Option<Value> {
+        let page = |view: &str, ids: &[&str], songs: bool, next: Option<u32>| {
+            self.view_page("300", view, ids, songs, next)
+        };
+        let offset = url::form_urlencoded::parse(query.as_bytes())
+            .find(|(name, _)| name == "offset")
+            .and_then(|(_, offset)| offset.parse::<u32>().ok());
+        match rest {
+            "300" if query.contains("views=") => Some(json!({"data": [{
+                "id": "300",
+                "type": "artists",
+                "attributes": {"name": "Artist One"},
+                "views": {
+                    "latest-release": Self::titled(page("latest-release", &["4002"], false, None), "Latest Release"),
+                    "full-albums": Self::titled(page("full-albums", &["4001"], false, Some(1)), "Albums"),
+                    "singles": Self::titled(page("singles", &["4004", "4003"], false, None), "Singles & EPs"),
+                    "featured-albums": Self::titled(page("featured-albums", &["4002", "4001"], false, None), "Essential Albums"),
+                    "compilation-albums": Self::titled(page("compilation-albums", &["4005"], false, None), "Compilations"),
+                    "appears-on-albums": Self::titled(page("appears-on-albums", &["4006"], false, Some(1)), "Appears On"),
+                    "top-songs": page("top-songs", &["ci.e2", "8001"], true, Some(2)),
+                },
+            }]})),
+            "300/view/full-albums" => Some(page("full-albums", &["4002"], false, None)),
+            "300/view/appears-on-albums" => Some(page("appears-on-albums", &[], false, None)),
+            "300/view/top-songs" if offset == Some(2) => {
+                Some(page("top-songs", &["ci.s1", "ci.b3"], true, None))
+            }
+            _ => None,
+        }
+    }
+
+    /// "Twin One", the library's copy of the catalog's "ci.t1" on "Twin Second".
+    fn twin_song(&self) -> Value {
+        let mut song = self.song(
+            "i.t1",
+            "Twin One",
+            ("l.twin", "Twin Second"),
+            ("r.twin", "Twin Artist"),
+            1,
+        );
+        song["attributes"]["playParams"]["catalogId"] = json!("ci.t1");
+        song
+    }
+
+    /// What the fake answers under `/v1/catalog/it/artists/`: the pages of "Viewed Artist" and,
+    /// with `kinds`, of "Artist One", read through their views; the albums of "Twin Artist" on
+    /// two pages, one each; and the other catalog artists with their albums.
+    fn artists_answer(&self, rest: &str, query: &str) -> Option<Value> {
+        if let Some(viewed) = self.viewed_artist(rest, query) {
+            return Some(Self::in_language(viewed, query));
+        }
+        if self.kinds
+            && let Some(viewed) = self.kinds_artist(rest, query)
+        {
+            return Some(Self::in_language(viewed, query));
+        }
+        if rest == "330/albums" {
+            let second = url::form_urlencoded::parse(query.as_bytes())
+                .any(|(name, offset)| name == "offset" && offset == "1");
+            return Some(if second {
+                let mut albums = vec![self.catalog_album("1951")?.0];
+                if self.twin_new_album.load(Ordering::SeqCst) {
+                    albums.push(self.catalog_album("1952")?.0);
+                }
+                json!({"data": albums})
+            } else {
+                json!({
+                    "data": [self.catalog_album("1950")?.0],
+                    "next": "/v1/catalog/it/artists/330/albums?offset=1",
+                })
+            });
+        }
+        if rest.contains("/view/") {
+            return Some(json!({"data": []}));
+        }
+        let (id, albums) = match rest.strip_suffix("/albums") {
+            Some(id) => (id, true),
+            None => (rest, false),
+        };
+        let (artist, ids) = Self::catalog_artist(id)?;
+        Some(if albums {
+            json!({"data": ids
+                .iter()
+                .filter_map(|id| self.catalog_album(id).map(|(album, _)| album))
+                .collect::<Vec<_>>()})
+        } else {
+            json!({"data": [artist]})
+        })
+    }
+
+    /// The catalog albums asked for by id, each with its songs when they are asked to be
+    /// included.
+    fn catalog_albums(&self, query: &str) -> Value {
+        let ids = url::form_urlencoded::parse(query.as_bytes())
+            .find(|(name, _)| name == "ids")
+            .map(|(_, ids)| ids.into_owned())
+            .unwrap_or_default();
+        let tracks = url::form_urlencoded::parse(query.as_bytes())
+            .any(|(name, value)| name == "include" && value.contains("tracks"));
+        json!({"data": ids
+            .split(',')
+            .filter_map(|id| {
+                let (mut album, songs) = self.catalog_album(id)?;
+                if tracks {
+                    album["relationships"]["tracks"] = self.catalog_songs(songs);
+                }
+                Some(album)
+            })
+            .collect::<Vec<_>>()})
     }
 
     /// The catalog's playlist "Morning Picks".
@@ -587,6 +981,12 @@ impl AppleFake {
                 if self.catalog_credits {
                     songs.extend(self.catalog_credited_songs());
                 }
+                if self.twin {
+                    songs.push(self.twin_song());
+                }
+                if self.kinds {
+                    songs.extend(self.kinds_albums().into_iter().flat_map(|(_, songs)| songs));
+                }
                 if self.solo {
                     let mut solo = self.song(
                         "i.solo",
@@ -645,7 +1045,30 @@ impl AppleFake {
                 }
                 songs
             }
-            "/v1/me/library/albums" => json!({"data": albums}),
+            "/v1/me/library/albums" => {
+                let mut listed = albums.to_vec();
+                if self.twin {
+                    let mut twin = self.album("l.twin", "Twin Second", ("r.twin", "Twin Artist"));
+                    twin["attributes"]["playParams"]["catalogId"] = json!("1951");
+                    listed.push(twin);
+                }
+                if self.kinds {
+                    // The page of "Artist One" holds the releases of `kinds_albums` alone.
+                    listed.retain(|album| album["id"] != "l.alb1");
+                    listed.extend(self.kinds_albums().into_iter().map(|(album, _)| album));
+                    for at in 0..self.many_albums {
+                        let mut album = self.album(
+                            &format!("l.many{at}"),
+                            &format!("Many {at}"),
+                            ("r.art1", "Artist One"),
+                        );
+                        album["attributes"]["playParams"]["catalogId"] =
+                            json!(format!("{}", 7000 + at));
+                        listed.push(album);
+                    }
+                }
+                json!({"data": listed})
+            }
             "/v1/me/library/recently-added" if self.night_added_last.load(Ordering::SeqCst) => {
                 json!({"data": [albums[1]]})
             }
@@ -765,6 +1188,10 @@ impl AppleFake {
             "/v1/me/recommendations" => json!({"data": []}),
             "/v1/catalog/it/playlists/pl.cat1" => json!({"data": [self.catalog_playlist()]}),
             "/v1/catalog/it/playlists/pl.cat1/tracks" => self.catalog_songs(&["900", "777"]),
+            "/v1/catalog/it/albums" => self.catalog_albums(query),
+            catalog if catalog.starts_with("/v1/catalog/it/artists/") => {
+                self.artists_answer(&catalog["/v1/catalog/it/artists/".len()..], query)?
+            }
             catalog if catalog.starts_with("/v1/catalog/it/albums/") => {
                 let rest = &catalog["/v1/catalog/it/albums/".len()..];
                 let (id, tracks) = match rest.strip_suffix("/tracks") {
@@ -939,6 +1366,10 @@ impl Clock for TestClock {
     fn now(&self) -> Instant {
         Instant::now().max(self.start) + *self.passed.lock().unwrap()
     }
+
+    fn system_time(&self) -> std::time::SystemTime {
+        std::time::SystemTime::now() + *self.passed.lock().unwrap()
+    }
 }
 
 /// How a node's services reach the fake at `base`, look lyrics up at `lrclib` and tell the time
@@ -1046,6 +1477,14 @@ struct AppleOptions {
     /// Answers every read of this path with this status and body (see
     /// `AppleFake::respond_path`).
     respond: Option<(&'static str, u16, &'static str)>,
+    /// Whether "Artist One" has the releases of `kinds_albums`.
+    kinds: bool,
+    /// Whether, with `kinds`, "Lost Tape" is among them.
+    lost_tape: bool,
+    /// How many more albums of "Artist One" the library lists with `kinds`.
+    many_albums: usize,
+    /// Whether the library holds "Twin One" of "Twin Artist".
+    twin: bool,
 }
 
 async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple> {
@@ -1111,6 +1550,11 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         rating_reads: AtomicUsize::new(0),
         fail_rating_reads_from: AtomicUsize::new(options.fail_rating_reads_from),
         fail_once: Mutex::new(options.fail_once.map(str::to_owned)),
+        kinds: options.kinds,
+        lost_tape: options.lost_tape,
+        many_albums: options.many_albums,
+        twin: options.twin,
+        twin_new_album: AtomicBool::new(false),
     });
     let app = Router::new().fallback(apple_fake).with_state(fake.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -10030,4 +10474,11 @@ mod search {
 mod lyrics {
     use super::*;
     include!("apple_music_lyrics_tests.rs");
+}
+
+// The page of an artist ---------------------------------------------------------------------
+
+mod artist_page {
+    use super::*;
+    include!("apple_music_artist_tests.rs");
 }

@@ -21,17 +21,17 @@ fn mix_query(clause: &QueryOperator) -> MixQuery {
 }
 
 /// The query that names a section of an artist's page.
-fn section_query(artist: i32, section: LibrarySection) -> MixQuery {
+pub(crate) fn section_query(artist: i32, section: LibrarySection) -> MixQuery {
     mix_query(&QueryOperator::LibArtistSection(artist, section))
 }
 
 /// The query that names an artist's tracks.
-fn tracks_query(artist: i32) -> MixQuery {
+pub(crate) fn tracks_query(artist: i32) -> MixQuery {
     mix_query(&QueryOperator::LibArtistTracks(artist))
 }
 
 /// The artist and the section a section's queries name.
-fn named_section(queries: &[MixQuery]) -> Result<(i32, LibrarySection)> {
+pub(crate) fn named_section(queries: &[MixQuery]) -> Result<(i32, LibrarySection)> {
     let invalid =
         || ExpectedRequestError::invalid_input("Not the queries of a section of an artist's page");
     let [query] = queries else {
@@ -132,7 +132,7 @@ impl Signal for FetchArtistPageRequest {
 
 /// The cursor and page size of a request, or an invalid input error for a negative one, as a
 /// mix query answers.
-fn page_bounds(cursor: i32, page_size: i32) -> Result<(usize, usize)> {
+pub(crate) fn page_bounds(cursor: i32, page_size: i32) -> Result<(usize, usize)> {
     let cursor = usize::try_from(cursor)
         .map_err(|error| ExpectedRequestError::invalid_input(format!("Invalid cursor: {error}")))?;
     let page_size = usize::try_from(page_size).map_err(|error| {

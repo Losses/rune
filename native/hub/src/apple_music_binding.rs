@@ -9,13 +9,13 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::Result;
 use apple_music::models::{
-    Album, Artwork, CatalogSearchType, LibraryAlbum, LibraryArtist, LibraryEntry, LibraryPlaylist,
-    LibrarySearchType, LibrarySong, Playlist, Recommendation, Relationship, Resource, Song,
-    SongWithArtists,
+    Album, Artist, ArtistWithViews, Artwork, CatalogSearchType, LibraryAlbum, LibraryArtist,
+    LibraryEntry, LibraryPlaylist, LibrarySearchType, LibrarySong, Playlist, Recommendation,
+    Relationship, Resource, Song, SongWithArtists, View,
 };
 use apple_music::{
     AppleMusicClient, CATALOG_SEARCH_LIMIT, CATALOG_SONGS_BATCH, Error as AppleApiError,
@@ -40,8 +40,10 @@ use uuid::Uuid;
 use crate::{
     apple_music_account,
     apple_music_artists::{NamedArtist, NamedArtists, SongArtists, is_named_artist},
-    apple_music_held::{self, HeldStore},
+    apple_music_classes::ClassStore,
+    apple_music_held::{self, HeldStore, catalog_album_of},
     apple_music_import,
+    apple_music_translate::artist_page::{ArtistReads, classify_in_background},
     apple_music_translate::search::{CatalogFound, KeptSearches, LibraryFound},
     macros::RequestSlots,
     messages::{AudioAvailability, LibraryContentChanged},
@@ -108,6 +110,9 @@ const MAX_KEPT_COLLECTION_SONGS: usize = 20_000;
 
 /// How many recommended mixes are kept across reads of the recommendations.
 const MAX_KEPT_MIXES: usize = 1000;
+
+/// How many catalog artists the artist pages keep what they read of at once.
+const MAX_KEPT_ARTISTS: usize = 32;
 
 /// How a track names a catalog song: `catalog:<id>`. A library song is named by its library id,
 /// which starts with `i.`. The platform host takes a track as it is.
@@ -208,11 +213,13 @@ pub(crate) enum MixRef {
     Recommended(i32),
 }
 
-/// An album or a playlist of the catalog whose songs a page lists, by the id the UI knows it by.
+/// An album, a playlist or an artist of the catalog whose songs a page lists, by the id the UI
+/// knows it by.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(crate) enum CatalogCollection {
     Album(i32),
     Playlist(i32),
+    Artist(i32),
 }
 
 impl CatalogCollection {
@@ -221,6 +228,7 @@ impl CatalogCollection {
         match self {
             Self::Album(id) => (AppleIdKind::Album, id),
             Self::Playlist(id) => (AppleIdKind::Playlist, id),
+            Self::Artist(id) => (AppleIdKind::Artist, id),
         }
     }
 }
@@ -877,6 +885,12 @@ pub(crate) struct AppleCatalog {
     owed: HashSet<&'static str>,
     /// What the catalog searches made lately under this sign-in found.
     searches: KeptSearches,
+    /// What the artist pages read lately of catalog artists, by catalog id.
+    artist_reads: HashMap<String, Arc<ArtistReads>>,
+    /// The catalog artists whose count of top songs was logged.
+    top_songs_logged: HashSet<String>,
+    /// The language tags each storefront has its catalog's texts in, by storefront.
+    storefront_languages: HashMap<String, Arc<Vec<String>>>,
     /// Counts the sign-outs that dropped what was read. A read that began under an earlier
     /// count is not kept.
     generation: u64,
@@ -897,6 +911,9 @@ impl Default for AppleCatalog {
             named_artists: None,
             owed: HashSet::new(),
             searches: KeptSearches::default(),
+            artist_reads: HashMap::new(),
+            top_songs_logged: HashSet::new(),
+            storefront_languages: HashMap::new(),
             generation: 0,
         }
     }
@@ -1025,6 +1042,9 @@ pub(crate) struct AppleMusicBinding {
     pub(crate) rune_likes: RuneLikes,
     /// What Rune's playlists, mixes and likes add to the library (see `apple_music_held`).
     pub(crate) held: HeldStore,
+    /// What the catalog says of the albums the library holds and of their artists, for the
+    /// artist pages (see `apple_music_classes`).
+    pub(crate) classes: ClassStore,
     /// Whether Rune's playlists, mixes and likes wait to be told whose they are (see
     /// `apple_music_account::attach`).
     pub(crate) records_held: AtomicBool,
@@ -1169,6 +1189,7 @@ impl AppleMusicBinding {
                     RuneLikes::new(records.join(LIKES_FILE))
                 },
                 held: HeldStore::default(),
+                classes: ClassStore::default(),
                 records_held: AtomicBool::new(held),
                 config_dir: config_dir.to_owned(),
                 importing: AtomicBool::new(false),
@@ -1272,6 +1293,7 @@ impl AppleMusicBinding {
             self.client.forget_storefront();
         }
         self.held.clear();
+        self.classes.clear();
         self.lists.kept.clear(None);
         let mut catalog = self.catalog();
         catalog.infos.clear();
@@ -1284,6 +1306,8 @@ impl AppleMusicBinding {
         catalog.named_artists = None;
         catalog.owed.clear();
         catalog.searches = KeptSearches::default();
+        catalog.artist_reads.clear();
+        catalog.top_songs_logged.clear();
         catalog.generation += 1;
     }
 
@@ -1315,6 +1339,14 @@ impl AppleMusicBinding {
     /// The time by the clock what the binding keeps ages by.
     pub(crate) fn now(&self) -> Instant {
         self.clock.now()
+    }
+
+    /// The seconds since the Unix epoch by the same clock, for what is kept across restarts.
+    pub(crate) fn epoch_seconds(&self) -> u64 {
+        self.clock
+            .system_time()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
     }
 
     /// Keeps `value` beside the lists as `name`, soon. A sign-out deletes it with them.
@@ -1547,7 +1579,10 @@ impl AppleMusicBinding {
         self.catalog().songs.clone()
     }
 
-    /// The library's albums, as kept, or else read, with the albums Rune holds.
+    /// The library's albums, as kept, or else read, with the albums Rune holds. Each time the
+    /// list is another one, the catalog facts the artist pages place its albums by are read in
+    /// the background for the albums that lack them or have old ones (see
+    /// `apple_music_classes`); the call never waits for them.
     pub(crate) async fn albums(&self) -> Result<Arc<Vec<LibraryAlbum>>> {
         self.note_asked(ALBUMS.name);
         let own = self
@@ -1556,7 +1591,15 @@ impl AppleMusicBinding {
             .get(self.clock.now())
             .await
             .map_err(|error| self.request_error(error, "Apple Music album"))?;
-        Ok(self.with_held_albums(own).await)
+        let albums = self.with_held_albums(own).await;
+        if self.classes.listed_anew(&albums) {
+            let ids = albums
+                .iter()
+                .filter_map(|album| catalog_album_of(album).map(str::to_owned))
+                .collect();
+            classify_in_background(self, ids);
+        }
+        Ok(albums)
     }
 
     /// The library's artists, as kept, or else read.
@@ -1647,10 +1690,11 @@ impl AppleMusicBinding {
         self.catalog().mixes.get(&id).cloned()
     }
 
-    /// The songs of the catalog album or playlist `collection`, whose catalog id is
+    /// The songs of the catalog album, playlist or artist `collection`, whose catalog id is
     /// `catalog_id`: as kept, unless `afresh` asks for them as Apple has them now or none are
-    /// kept, which reads them. An album's come by disc and number. What is read is kept, unless a
-    /// sign-out came meanwhile, and the library takes it in when Rune holds the collection (see
+    /// kept, which reads them. An album's come by disc and number, and an artist's are those of
+    /// its albums (see `read_catalog_artist_songs`). What is read is kept, unless a sign-out came
+    /// meanwhile, and the library takes it in when Rune holds the collection (see
     /// `apple_music_held::collection_read`).
     pub(crate) async fn catalog_collection_songs(
         &self,
@@ -1673,6 +1717,10 @@ impl AppleMusicBinding {
                 .call(self.client.catalog_playlist_tracks(catalog_id))
                 .await
                 .map_err(|error| self.request_error(error, "Apple Music playlist")),
+            CatalogCollection::Artist(_) => self
+                .read_catalog_artist_songs(catalog_id)
+                .await
+                .map_err(|error| self.request_error(error, "Apple Music artist")),
         };
         let songs = Arc::new(songs?);
         {
@@ -1683,6 +1731,173 @@ impl AppleMusicBinding {
         }
         apple_music_held::collection_read(self, held, collection, catalog_id, &songs);
         Ok(songs)
+    }
+
+    /// The songs of the catalog collection `collection` as kept, without a read; they count as
+    /// used now.
+    pub(crate) fn kept_catalog_songs(
+        &self,
+        collection: CatalogCollection,
+    ) -> Option<Arc<Vec<Song>>> {
+        self.catalog().used_collection_songs(collection)
+    }
+
+    /// The songs of the albums of the catalog artist `catalog_id`, album after album in the order
+    /// Apple lists its albums, each album's by disc and number and on that album, each song once.
+    /// They are the songs a mix of the artist plays: those of its own albums, singles and EPs,
+    /// as many as Apple lists (see `apple_music::CATALOG_ARTIST_ALBUMS_MAX_PAGES`).
+    async fn read_catalog_artist_songs(&self, catalog_id: &str) -> Result<Vec<Song>, AppleError> {
+        let albums = self
+            .call(self.client.catalog_artist_albums(catalog_id))
+            .await?;
+        let mut seen = HashSet::new();
+        let ids: Vec<String> = albums
+            .into_iter()
+            .map(|album| album.id)
+            .filter(|id| seen.insert(id.clone()))
+            .collect();
+        let read = self.read_catalog_albums_with_tracks(&ids).await?;
+        let mut seen = HashSet::new();
+        Ok(read
+            .into_iter()
+            .flat_map(|(album, songs)| {
+                songs
+                    .into_iter()
+                    .map(move |song| on_catalog_album(song, &album))
+            })
+            .filter(|song| seen.insert(song.id.clone()))
+            .collect())
+    }
+
+    /// The catalog albums `ids` with their songs, read from Apple many at once, each album's id
+    /// with its songs by disc and number. An album Apple does not have is absent from the answer.
+    pub(crate) async fn read_catalog_albums_with_tracks(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<Song>)>, AppleError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let read = self
+            .call(self.client.catalog_albums_with_tracks(ids))
+            .await?;
+        Ok(read
+            .into_iter()
+            .map(|album| {
+                let songs = album
+                    .relationships
+                    .and_then(|relationships| relationships.tracks)
+                    .map(|tracks| tracks.data)
+                    .unwrap_or_default();
+                (album.id, by_disc_and_number(songs))
+            })
+            .collect())
+    }
+
+    /// The catalog artist `catalog_id`, read from Apple.
+    pub(crate) async fn read_catalog_artist(&self, catalog_id: &str) -> Result<Artist> {
+        self.call(self.client.catalog_artist(catalog_id))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music artist"))
+    }
+
+    /// The catalog artist `catalog_id` with the first page of each of its views `views`, its
+    /// texts in the language `tag` when one is given, read from Apple.
+    pub(crate) async fn read_catalog_artist_views(
+        &self,
+        catalog_id: &str,
+        views: &[&str],
+        tag: Option<&str>,
+    ) -> Result<ArtistWithViews> {
+        self.call(
+            self.client
+                .catalog_artist_with_views_in(catalog_id, views, tag),
+        )
+        .await
+        .map_err(|error| self.request_error(error, "Apple Music artist"))
+    }
+
+    /// The page of a view of the catalog that `next`, the `next` of an earlier page of it, names,
+    /// read from Apple.
+    pub(crate) async fn read_catalog_view_page(&self, next: &str) -> Result<View> {
+        self.call(self.client.catalog_view_page(next))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music artist"))
+    }
+
+    /// The catalog albums `ids` with their artists, read from Apple as many at once as it takes.
+    /// An album Apple does not have is absent from the answer.
+    pub(crate) async fn read_catalog_albums_with_artists(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Album>> {
+        self.call(self.client.catalog_albums_with_artists(ids))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music album"))
+    }
+
+    /// The storefront the catalog is read in, which Apple is asked once per sign-in.
+    pub(crate) async fn storefront(&self) -> Result<String> {
+        self.call(self.client.storefront())
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music storefront"))
+    }
+
+    /// The language tags the catalog of the storefront it is read in has its texts in, such as
+    /// `en-GB`: as kept, or else read from Apple and kept.
+    pub(crate) async fn storefront_languages(&self) -> Result<Arc<Vec<String>>> {
+        let storefront = self.storefront().await?;
+        if let Some(kept) = self.catalog().storefront_languages.get(&storefront) {
+            return Ok(Arc::clone(kept));
+        }
+        let generation = self.generation();
+        let read = self
+            .call(self.client.catalog_storefront(&storefront))
+            .await
+            .map_err(|error| self.request_error(error, "Apple Music storefront"))?;
+        let languages = Arc::new(
+            read.attributes
+                .map(|attributes| attributes.supported_language_tags)
+                .unwrap_or_default(),
+        );
+        let mut catalog = self.catalog();
+        if catalog.generation == generation {
+            catalog
+                .storefront_languages
+                .insert(storefront, Arc::clone(&languages));
+        }
+        Ok(languages)
+    }
+
+    /// What an artist page read lately of the catalog artist `catalog_id`.
+    pub(crate) fn kept_artist_reads(&self, catalog_id: &str) -> Option<Arc<ArtistReads>> {
+        self.catalog().artist_reads.get(catalog_id).cloned()
+    }
+
+    /// Keeps what an artist page read of the catalog artist `catalog_id` under `generation`,
+    /// unless a sign-out came since. Only so many artists are kept.
+    pub(crate) fn keep_artist_reads(
+        &self,
+        generation: u64,
+        catalog_id: &str,
+        reads: Arc<ArtistReads>,
+    ) {
+        let mut catalog = self.catalog();
+        if catalog.generation != generation {
+            return;
+        }
+        if catalog.artist_reads.len() >= MAX_KEPT_ARTISTS {
+            catalog.artist_reads.clear();
+        }
+        catalog.artist_reads.insert(catalog_id.to_owned(), reads);
+    }
+
+    /// Whether the count of the top songs of the catalog artist `catalog_id` is logged for the
+    /// first time under this sign-in, which notes it as logged.
+    pub(crate) fn first_top_songs_total(&self, catalog_id: &str) -> bool {
+        self.catalog()
+            .top_songs_logged
+            .insert(catalog_id.to_owned())
     }
 
     /// The catalog songs `ids`, read from Apple with their catalog albums. A song Apple does not
@@ -2799,6 +3014,19 @@ impl AppleMusicBinding {
 }
 
 /// The songs of a catalog album, by disc and number.
+/// `song`, a song of the catalog album `album`, on that album: its relationships name the album
+/// by its id alone.
+fn on_catalog_album(mut song: Song, album: &str) -> Song {
+    let albums = serde_json::json!({"data": [{"id": album, "type": "albums"}]});
+    match song.relationships.as_mut().and_then(Value::as_object_mut) {
+        Some(relationships) => {
+            relationships.insert("albums".to_owned(), albums);
+        }
+        None => song.relationships = Some(serde_json::json!({ "albums": albums })),
+    }
+    song
+}
+
 fn by_disc_and_number(mut songs: Vec<Song>) -> Vec<Song> {
     songs.sort_by_key(|song| {
         let song = SongRef::Catalog(song);
@@ -2811,7 +3039,7 @@ fn by_disc_and_number(mut songs: Vec<Song>) -> Vec<Song> {
 }
 
 /// The catalog artists Apple names for a catalog song, with the song's id.
-fn song_artists(song: SongWithArtists) -> (String, Vec<apple_music::models::Artist>) {
+fn song_artists(song: SongWithArtists) -> (String, Vec<Artist>) {
     let artists = song
         .relationships
         .and_then(|relationships| relationships.artists)

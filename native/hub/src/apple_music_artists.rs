@@ -25,7 +25,7 @@ pub(crate) const NAMED_ARTIST: &str = "name:";
 pub(crate) const CATALOG_ARTIST: &str = "artist:";
 
 /// How the library's artist list compares names: case and the spaces around them ignored.
-fn artist_key(name: &str) -> String {
+pub(crate) fn artist_key(name: &str) -> String {
     name.trim().to_lowercase()
 }
 
@@ -194,6 +194,11 @@ impl NamedArtist {
             Some(id) => catalog_artist_remote(id),
             None => format!("{NAMED_ARTIST}{}", self.key),
         }
+    }
+
+    /// Apple's catalog id of the artist, when Apple names one for it.
+    pub(crate) fn catalog_id(&self) -> Option<&str> {
+        self.catalog.as_deref()
     }
 
     /// Whether the song of `track` credits it, as the song list it was built from says.

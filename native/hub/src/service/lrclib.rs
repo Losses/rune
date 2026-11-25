@@ -854,6 +854,10 @@ mod tests {
         fn now(&self) -> Instant {
             self.0
         }
+
+        fn system_time(&self) -> std::time::SystemTime {
+            std::time::SystemTime::UNIX_EPOCH
+        }
     }
 
     #[tokio::test]

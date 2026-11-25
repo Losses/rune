@@ -79,6 +79,10 @@ impl Clock for ManualClock {
     fn now(&self) -> Instant {
         self.start + *self.passed.lock().unwrap()
     }
+
+    fn system_time(&self) -> std::time::SystemTime {
+        std::time::SystemTime::now() + *self.passed.lock().unwrap()
+    }
 }
 
 /// Retries quickly, so the tests stay fast.

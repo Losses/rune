@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use apple_music::{AppleMusicClient, RetryPolicy, TokenSource};
 use database::library_registry::{LibraryRecordId, LibraryRegistry, ServiceKind};
@@ -19,15 +19,22 @@ use crate::utils::Broadcaster;
 pub(crate) trait Clock: Send + Sync {
     /// The current instant.
     fn now(&self) -> Instant;
+
+    /// The current time of day, for what is kept on disk and ages across restarts.
+    fn system_time(&self) -> SystemTime;
 }
 
-/// The system's monotonic clock.
+/// The system's clocks.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
+    }
+
+    fn system_time(&self) -> SystemTime {
+        SystemTime::now()
     }
 }
 

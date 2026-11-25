@@ -65,6 +65,15 @@ pub(crate) fn is_rune_album(remote: &str) -> bool {
     remote.starts_with(RUNE_ALBUM)
 }
 
+/// The catalog album an album of the album list is of: the one Apple names for an album of the
+/// library, or the one an album Rune holds is of.
+pub(crate) fn catalog_album_of(album: &LibraryAlbum) -> Option<&str> {
+    album
+        .catalog_id()
+        .or_else(|| album.id.strip_prefix(RUNE_ALBUM))
+        .filter(|id| !id.is_empty())
+}
+
 /// How many catalog albums are read at once for what Rune's mixes name.
 const ALBUM_READS: usize = 4;
 

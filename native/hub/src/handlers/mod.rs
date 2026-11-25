@@ -1,5 +1,5 @@
 mod analyze;
-mod artist;
+pub(crate) mod artist;
 mod collection;
 mod connection;
 mod controllers;

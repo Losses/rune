@@ -5,6 +5,7 @@ use std::hash::Hash;
 
 use anyhow::{Error, Result};
 use database::actions::mixes::QueryOperator;
+use database::mix_operator::ArtistSection;
 use rand::Rng;
 use rand::seq::{SliceRandom, index};
 
@@ -75,6 +76,15 @@ pub(crate) fn first_of_each_key<T, K: Eq + Hash>(
         .collect()
 }
 
+/// One of the lists an artist's page holds the songs of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ArtistListing {
+    /// The songs of the releases of one section, release by release.
+    Section(ArtistSection),
+    /// The artist's tracks, in the service's own order.
+    Tracks,
+}
+
 /// What a service gives the resolver.
 pub(crate) trait MixSource: Send + Sync {
     /// The id of the library the tracks belong to.
@@ -90,6 +100,17 @@ pub(crate) trait MixSource: Send + Sync {
 
     /// The track key a track id stands for, or None for an id the service never gave.
     fn track_key(&self, id: i32) -> Result<Option<String>>;
+
+    /// The first `limit` track keys of one list of the page of the artist `artist`. A service
+    /// that builds no artist page leaves it unsupported.
+    fn artist_page_tracks(
+        &self,
+        _artist: i32,
+        _listing: ArtistListing,
+        _limit: usize,
+    ) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async { Err(unsupported_query(ResolveMixQueryRequest::wire_name())) })
+    }
 }
 
 /// What a non-empty list of queries asks for.
@@ -100,6 +121,8 @@ pub(crate) enum Plan {
     /// Single tracks, or several items together, in the order the queries name them: the
     /// songs of all of them, listed as `union_order` says.
     Items(Vec<MixItem>),
+    /// One list of an artist's page: the artist is the id the UI knows it by.
+    ArtistPage { artist: i32, listing: ArtistListing },
     /// Every song.
     All,
     /// This many songs drawn at random from every song, so the same query gives another draw
@@ -124,7 +147,8 @@ pub(crate) fn sample_indices(rng: &mut impl Rng, len: usize, count: usize) -> Ve
 
 /// The plan for `queries`, or an unsupported error naming `request`. An album may come with
 /// `sort::track_number`, which its tracks are listed in already. Artists, albums, playlists and
-/// single tracks combine into their union, as for a local library.
+/// single tracks combine into their union, as for a local library. A list of an artist's page
+/// stands alone.
 pub(crate) fn plan(queries: &[MixQuery], request: &'static str) -> Result<QueryPlan> {
     let mut parsed = Vec::with_capacity(queries.len());
     for query in queries {
@@ -152,6 +176,16 @@ pub(crate) fn plan(queries: &[MixQuery], request: &'static str) -> Result<QueryP
         [QueryOperator::LibPlaylist(id)] if !in_track_order => {
             Ok(Plan::Collection(MixTarget::Playlist(*id)))
         }
+        [QueryOperator::LibArtistSection(artist, section)] if !in_track_order => {
+            Ok(Plan::ArtistPage {
+                artist: *artist,
+                listing: ArtistListing::Section(*section),
+            })
+        }
+        [QueryOperator::LibArtistTracks(artist)] if !in_track_order => Ok(Plan::ArtistPage {
+            artist: *artist,
+            listing: ArtistListing::Tracks,
+        }),
         [QueryOperator::LibAll(true)] if !in_track_order => Ok(Plan::All),
         // A local library takes the largest of several counts.
         many if !in_track_order
@@ -194,6 +228,11 @@ pub(crate) fn plan(queries: &[MixQuery], request: &'static str) -> Result<QueryP
 async fn plan_tracks(source: &dyn MixSource, plan: Plan) -> Result<Vec<String>> {
     match plan {
         Plan::Collection(target) => source.collection_tracks(target).await,
+        Plan::ArtistPage { artist, listing } => {
+            source
+                .artist_page_tracks(artist, listing, RESOLVED_TRACK_LIMIT)
+                .await
+        }
         Plan::All => source.all_tracks(RESOLVED_TRACK_LIMIT).await,
         // A random draw is not a list a resolve can name twice, so it stays refused here.
         Plan::Random(_) => Err(unsupported_query(ResolveMixQueryRequest::wire_name())),
@@ -316,6 +355,43 @@ mod tests {
                 cover_only: true
             }
         );
+    }
+
+    #[test]
+    fn plans_one_list_of_an_artists_page_alone() {
+        assert_eq!(
+            plan_of(&[("lib::artist_section", "4:singles")]).unwrap(),
+            Plan::ArtistPage {
+                artist: 4,
+                listing: ArtistListing::Section(ArtistSection::Singles)
+            }
+        );
+        assert_eq!(
+            plan_of(&[("lib::artist_tracks", "4")]).unwrap(),
+            Plan::ArtistPage {
+                artist: 4,
+                listing: ArtistListing::Tracks
+            }
+        );
+        // They do not combine with other items, or with an order of their own.
+        assert!(plan_of(&[("lib::artist_tracks", "4"), ("lib::album", "2")]).is_err());
+        assert!(plan_of(&[("lib::artist_tracks", "4"), ("sort::track_number", "true")]).is_err());
+        assert!(plan_of(&[("lib::artist_section", "4:nothing")]).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_service_without_an_artist_page_refuses_its_lists() {
+        let error = resolve_mix_query(&NoSource, &resolve(&[("lib::artist_tracks", "4")]))
+            .await
+            .err()
+            .expect("a refused query");
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::Unsupported {
+                request: "ResolveMixQueryRequest",
+                ..
+            })
+        ));
     }
 
     #[test]
