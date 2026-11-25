@@ -1836,5 +1836,5 @@
   "forYou": "Pour vous",
   "mixesLibraryHomeSubtitle": "Retrouvez les mixes faits pour vous et ceux que vous gardez",
   "onlineLyricsNotice": "Les paroles des morceaux de cette bibliothèque proviennent de LRCLIB (lrclib.net), une base de données de paroles libre et ouverte. Lorsque cette option est activée, Rune envoie à LRCLIB le titre, l’artiste, l’album et la durée de chaque morceau pour en trouver les paroles. Rien d’autre n’est envoyé.",
-  "lookUpLyricsOnLrclib": "Rechercher les Paroles sur LRCLIB"
+  "lookUpLyricsOnLrclib": "Rechercher les paroles sur LRCLIB"
 }
