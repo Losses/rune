@@ -18,12 +18,12 @@ Future<List<String>> fetchCollectionGroupSummaryTitle(
     send: (callId) =>
         fetchGroupsRequest.copyWith(callId: () => callId).sendSignalToRust(),
   );
-  return pickableGroupTitles(rustSignal.message.groups);
+  return pickableGroupTitles(rustSignal.message);
 }
 
-/// The titles of [groups] a collection can be put in, in order: every one but
-/// those the library fills itself.
-List<String> pickableGroupTitles(Iterable<CollectionGroupSummary> groups) => [
-  for (final group in groups)
-    if (!group.reserved) group.groupTitle,
+/// The titles of the groups of [summary] a collection can be put in, in order:
+/// every one but those the library fills itself.
+List<String> pickableGroupTitles(CollectionGroupSummaryResponse summary) => [
+  for (final group in summary.groups)
+    if (!summary.reservedGroups.contains(group.groupTitle)) group.groupTitle,
 ];

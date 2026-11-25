@@ -70,15 +70,21 @@ void main() {
   );
 
   test('pickers leave out the groups a library fills itself', () {
-    CollectionGroupSummary group(String title, {bool reserved = false}) =>
-        CollectionGroupSummary(groupTitle: title, count: 1, reserved: reserved);
+    CollectionGroupSummary group(String title) =>
+        CollectionGroupSummary(groupTitle: title, count: 1);
     expect(
-      pickableGroupTitles([
-        group('Favorite'),
-        group('Apple Music', reserved: true),
-        group(recentlyPlayedGroupKey, reserved: true),
-        group('Mood'),
-      ]),
+      pickableGroupTitles(
+        CollectionGroupSummaryResponse(
+          collectionType: CollectionType.mix,
+          groups: [
+            group('Favorite'),
+            group('Apple Music'),
+            group(recentlyPlayedGroupKey),
+            group('Mood'),
+          ],
+          reservedGroups: ['Apple Music', recentlyPlayedGroupKey],
+        ),
+      ),
       ['Favorite', 'Mood'],
     );
   });

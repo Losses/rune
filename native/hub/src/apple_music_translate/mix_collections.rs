@@ -258,18 +258,14 @@ async fn recommendations_beside_own(
 }
 
 /// Counts `count` more mixes in the group `title` of `summary`, which takes the group the first
-/// time. A group is reserved once a recommendation group of its title is.
-fn count_in(summary: &mut Vec<CollectionGroupSummary>, title: &str, count: usize, reserved: bool) {
+/// time.
+fn count_in(summary: &mut Vec<CollectionGroupSummary>, title: &str, count: usize) {
     let count = i32::try_from(count).unwrap_or(i32::MAX);
     match summary.iter_mut().find(|known| known.group_title == title) {
-        Some(known) => {
-            known.count = known.count.saturating_add(count);
-            known.reserved |= reserved;
-        }
+        Some(known) => known.count = known.count.saturating_add(count),
         None => summary.push(CollectionGroupSummary {
             group_title: title.to_owned(),
             count,
-            reserved,
         }),
     }
 }
@@ -284,15 +280,21 @@ pub(super) async fn mix_group_summary(
     let groups = recommendations_beside_own(binding, !own.is_empty()).await?;
     let mut summary = Vec::new();
     for mix in own.iter() {
-        count_in(&mut summary, &mix.group, 1, false);
+        count_in(&mut summary, &mix.group, 1);
     }
+    // A group is reserved once a recommendation group of its title is.
+    let mut reserved_groups: Vec<String> = Vec::new();
     for (title, ids) in groups.iter() {
-        count_in(&mut summary, title, ids.len(), true);
+        count_in(&mut summary, title, ids.len());
+        if !reserved_groups.iter().any(|known| known == title) {
+            reserved_groups.push(title.to_owned());
+        }
     }
     Ok(CollectionGroupSummaryResponse {
         call_id: None,
         collection_type: CollectionType::Mix,
         groups: summary,
+        reserved_groups,
     })
 }
 

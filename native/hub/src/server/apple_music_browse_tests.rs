@@ -6313,10 +6313,11 @@ async fn no_playlist_of_apples_is_listed_or_written_to() -> Result<()> {
         summary
             .groups
             .iter()
-            .map(|group| (group.group_title.as_str(), group.count, group.reserved))
+            .map(|group| (group.group_title.as_str(), group.count))
             .collect::<Vec<_>>(),
-        [("Apple Music", 4, true)]
+        [("Apple Music", 4)]
     );
+    assert_eq!(summary.reserved_groups, ["Apple Music"]);
     assert!(home_playlists(&apple).await?.iter().all(|entry| !entry.readonly));
 
     // No id names one of Apple's, and a request that names an id nothing was given for is
@@ -7480,14 +7481,18 @@ async fn the_mixes_page_reserves_the_groups_apple_fills() -> Result<()> {
         summary
             .groups
             .iter()
-            .map(|group| (group.group_title.as_str(), group.count, group.reserved))
+            .map(|group| (group.group_title.as_str(), group.count))
             .collect::<Vec<_>>(),
         [
-            ("Favorite", 1, false),
-            ("Made for You", 4, true),
-            (RECENTLY_PLAYED_GROUP, 3, true),
-            (UNTITLED_GROUP, 1, true),
+            ("Favorite", 1),
+            ("Made for You", 4),
+            (RECENTLY_PLAYED_GROUP, 3),
+            (UNTITLED_GROUP, 1),
         ]
+    );
+    assert_eq!(
+        summary.reserved_groups,
+        ["Made for You", RECENTLY_PLAYED_GROUP, UNTITLED_GROUP]
     );
     // No other page reserves a group.
     let albums = apple
@@ -7496,7 +7501,7 @@ async fn the_mixes_page_reserves_the_groups_apple_fills() -> Result<()> {
             call_id: None,
         })
         .await?;
-    assert!(albums.groups.iter().all(|group| !group.reserved));
+    assert!(albums.reserved_groups.is_empty());
     apple.finish().await
 }
 

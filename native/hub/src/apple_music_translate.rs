@@ -237,20 +237,22 @@ pub(crate) async fn fetch_collection_group_summary_request(
     for entry in &entries {
         *groups.entry(entry.group.clone()).or_default() += 1;
     }
+    // The library fills the group of Apple Music's playlists itself, with the playlists it
+    // imported.
+    let reserved_groups =
+        if kind == AppleIdKind::RunePlaylist && groups.contains_key(APPLE_MUSIC_PLAYLIST_GROUP) {
+            vec![APPLE_MUSIC_PLAYLIST_GROUP.to_owned()]
+        } else {
+            Vec::new()
+        };
     Ok(Some(CollectionGroupSummaryResponse {
         call_id: None,
         collection_type: request.collection_type,
         groups: groups
             .into_iter()
-            .map(|(group_title, count)| CollectionGroupSummary {
-                // The library fills the group of Apple Music's playlists itself, with the
-                // playlists it imported.
-                reserved: kind == AppleIdKind::RunePlaylist
-                    && group_title == APPLE_MUSIC_PLAYLIST_GROUP,
-                group_title,
-                count,
-            })
+            .map(|(group_title, count)| CollectionGroupSummary { group_title, count })
             .collect(),
+        reserved_groups,
     }))
 }
 

@@ -3,7 +3,9 @@ import 'dart:async';
 
 import '../../bindings/bindings.dart';
 
-Future<List<CollectionGroupSummary>> fetchCollectionGroupSummary(
+/// The groups of the collection page of [collectionType], with those the
+/// library fills itself.
+Future<CollectionGroupSummaryResponse> fetchCollectionGroupSummary(
   CollectionType collectionType,
 ) async {
   final request = FetchCollectionGroupSummaryRequest(
@@ -15,5 +17,5 @@ Future<List<CollectionGroupSummary>> fetchCollectionGroupSummary(
     CollectionGroupSummaryResponse.rustSignalStream,
     responseCallId: (response) => response.message.callId?.toInt(),
     send: (callId) => request.copyWith(callId: () => callId).sendSignalToRust(),
-  )).message.groups;
+  )).message;
 }
