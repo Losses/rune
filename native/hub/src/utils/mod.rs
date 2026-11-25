@@ -2184,27 +2184,18 @@ fn check_subsonic_server(node: &Arc<NodeContext>, binding: &Arc<SubsonicBinding>
             _ = renewed.cancelled() => return,
             probed = timeout(Duration::from_secs(10), client.probe()) => probed,
         };
-        let Some(binding) = binding.upgrade().filter(|_| !renewed.is_cancelled()) else {
+        let Some(binding) = binding.upgrade() else {
             return;
         };
-        match probed {
-            Ok(Ok(probe)) => {
-                if binding.replace_probe(probe)
-                    && let Some(node) = node.upgrade()
-                    && let Err(error) = node.publish_capabilities()
-                {
-                    log::warn!("Could not publish the capabilities the server gives: {error:#}");
-                }
-            }
-            Ok(Err(SubsonicError::Server {
-                kind:
-                    SubsonicServerError::WrongCredentials
-                    | SubsonicServerError::NotAuthorized
-                    | SubsonicServerError::InvalidApiKey,
-                ..
-            })) => binding.ask_for_sign_in("Subsonic server check"),
-            Ok(Err(error)) => log::info!("Could not check the Subsonic server: {error}"),
-            Err(_) => log::info!("The Subsonic server did not answer its check in time"),
+        let Ok(probed) = probed else {
+            log::info!("The Subsonic server did not answer its check in time");
+            return;
+        };
+        if binding.take_check(probed)
+            && let Some(node) = node.upgrade()
+            && let Err(error) = node.publish_capabilities()
+        {
+            log::warn!("Could not publish the capabilities the server gives: {error:#}");
         }
     });
 }

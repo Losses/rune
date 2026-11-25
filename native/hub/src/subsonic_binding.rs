@@ -635,17 +635,38 @@ impl SubsonicBinding {
         self.lists.kept.keep(PROBE, self.probe());
     }
 
-    /// Takes what a check of the server found in place of the probe, and keeps it on disk. Says
-    /// whether it differs from the probe it replaces.
-    pub(crate) fn replace_probe(&self, probe: SubsonicProbe) -> bool {
-        let changed = {
-            let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
-            let changed = *kept != probe;
-            *kept = probe.clone();
-            changed
-        };
-        self.lists.kept.keep(PROBE, probe);
-        changed
+    /// Takes what the check of the server, made under the sign-in the library opened with,
+    /// found, unless the sign-in was renewed since: a probe replaces the kept one, on disk too,
+    /// and a sign-in the server rejects asks for a new one. Says whether the probe changed.
+    pub(crate) fn take_check(&self, probed: Result<SubsonicProbe, SubsonicError>) -> bool {
+        // A renewal cancels under this lock, so it comes wholly before the check is taken, which
+        // it then makes stale, or wholly after.
+        let mut kept = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.renewed.is_cancelled() {
+            return false;
+        }
+        match probed {
+            Ok(probe) => {
+                let changed = *kept != probe;
+                *kept = probe.clone();
+                self.lists.kept.keep(PROBE, probe);
+                changed
+            }
+            Err(SubsonicError::Server {
+                kind:
+                    SubsonicServerError::WrongCredentials
+                    | SubsonicServerError::NotAuthorized
+                    | SubsonicServerError::InvalidApiKey,
+                ..
+            }) => {
+                self.ask_for_sign_in("Subsonic server check");
+                false
+            }
+            Err(error) => {
+                log::info!("Could not check the Subsonic server: {error}");
+                false
+            }
+        }
     }
 
     /// Cancelled once the sign-in is renewed, which makes what a check of the server under the
@@ -1129,12 +1150,17 @@ impl ServiceBinding for SubsonicBinding {
         // Another username is another account, whose lists the kept ones are not. A new
         // password for the same account keeps them.
         let other_account = self.client.user().as_deref() != Some(credential.username.as_str());
-        self.client
-            .replace_credentials(SubsonicCredentials::Password {
-                user: credential.username.clone(),
-                password: password.to_owned(),
-            });
-        self.renewed.cancel();
+        {
+            // Under the probe lock, so a check of the server under the sign-in before is taken
+            // wholly before this or not at all.
+            let _probe = self.probe.lock().unwrap_or_else(PoisonError::into_inner);
+            self.client
+                .replace_credentials(SubsonicCredentials::Password {
+                    user: credential.username.clone(),
+                    password: password.to_owned(),
+                });
+            self.renewed.cancel();
+        }
         if other_account {
             self.lists.kept.clear(Some(&credential.username));
         }
