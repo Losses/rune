@@ -411,6 +411,7 @@ pub trait PlaybackSourceResolver: Send + Sync {
 pub struct PlaylistStatus {
     pub items: Vec<QueueEntry>,
     pub unavailable: HashMap<PlayingItem, UnavailableReason>,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -819,6 +820,7 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: 0,
                         });
                     }
                     PlayerEvent::UnavailableCleared(item) => {
@@ -834,6 +836,7 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: 0,
                         });
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
@@ -854,6 +857,7 @@ impl Player {
                         playlist_sender_clone.send(PlaylistStatus {
                             items: status.playlist.clone(),
                             unavailable: status.unavailable_reasons.clone(),
+                            revision: 0,
                         });
                     }
                     PlayerEvent::RealtimeFFT(data) => {

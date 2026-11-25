@@ -4,7 +4,7 @@ mod item_capabilities;
 pub(crate) mod store;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::{pending, ready},
     path::{Path, PathBuf},
     slice::from_ref,
@@ -107,6 +107,8 @@ pub struct PlayerSession {
     rename_items: Arc<Notify>,
     /// Wakes the event loop to tell the UI again what the current item supports.
     item_capabilities_changed: Arc<Notify>,
+    /// Queue of revisions for delayed playlist updates.
+    playlist_revision_queue: Arc<Mutex<VecDeque<u64>>>,
 }
 
 /// Asks the event loop to show this session in the UI again once it has handled everything the
@@ -272,15 +274,25 @@ impl PlayerSession {
             .into());
         }
         let mut player = self.player.lock().await;
-        if edit(&mut *player) {
+        let edit_made_changes = edit(&mut *player);
+        let new_revision = if edit_made_changes {
             state.queue_revision = state
                 .queue_revision
                 .checked_add(1)
                 .context("Queue revision overflow")?;
-        }
+            Some(state.queue_revision)
+        } else {
+            None
+        };
         let completion = player.command_completion();
         drop(player);
         drop(state);
+        if let Some(rev) = new_revision {
+            Arc::clone(&self.playlist_revision_queue)
+                .lock()
+                .await
+                .push_back(rev);
+        }
         completion.await?;
         Ok(())
     }
@@ -315,6 +327,12 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
+        let new_revision = state.queue_revision;
+        drop(state);
+        Arc::clone(&self.playlist_revision_queue)
+            .lock()
+            .await
+            .push_back(new_revision);
         Ok(())
     }
 
@@ -345,7 +363,13 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
-        Ok((result, state.queue_revision))
+        let new_revision = state.queue_revision;
+        drop(state);
+        Arc::clone(&self.playlist_revision_queue)
+            .lock()
+            .await
+            .push_back(new_revision);
+        Ok((result, new_revision))
     }
 
     pub(crate) async fn clear_handoff_blocks(&self) -> Result<()> {
@@ -365,6 +389,12 @@ impl PlayerSession {
             .queue_revision
             .checked_add(1)
             .context("Queue revision overflow")?;
+        let new_revision = state.queue_revision;
+        drop(state);
+        Arc::clone(&self.playlist_revision_queue)
+            .lock()
+            .await
+            .push_back(new_revision);
         Ok(())
     }
 
@@ -445,15 +475,9 @@ impl PlayerSession {
         let playlist = PlaylistStatus {
             items: status.playlist,
             unavailable: status.unavailable_reasons,
-        };
-        send_playlist(
-            &node,
-            &playlist,
-            broadcaster.as_ref(),
-            &session_id,
             revision,
-        )
-        .await;
+        };
+        send_playlist(&node, &playlist, broadcaster.as_ref(), &session_id).await;
         Ok(())
     }
 
@@ -566,6 +590,7 @@ impl PlayerSession {
             show_requests,
             rename_items: Arc::new(Notify::new()),
             item_capabilities_changed: Arc::new(Notify::new()),
+            playlist_revision_queue: Arc::new(Mutex::new(VecDeque::new())),
         });
         session.start_events(node, show_receiver).await;
         session.player.lock().await.restore_tagged(
@@ -631,6 +656,7 @@ impl PlayerSession {
         let event_state = self.state.clone();
         let rename_items = self.rename_items.clone();
         let item_capabilities_changed = self.item_capabilities_changed.clone();
+        let playlist_revision_queue = Arc::clone(&self.playlist_revision_queue);
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
         // Authentication can hold the scrobbler lock across network retries.
@@ -707,11 +733,19 @@ impl PlayerSession {
                             }
                         }
                     }
-                    Ok(value) = playlist.recv() => {
+                    Ok(mut value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
                         if let Some(node) = weak.upgrade() {
-                            let revision = event_state.lock().await.queue_revision;
-                            handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id, revision).await;
+                            // Use the queued revision for this playlist update, or fall back to current revision
+                            let mut queue = playlist_revision_queue.lock().await;
+                            let revision = if let Some(rev) = queue.pop_front() {
+                                rev
+                            } else {
+                                // No queued revision, use current
+                                event_state.lock().await.queue_revision
+                            };
+                            value.revision = revision;
+                            handle_playlist_event(&node, value, broadcaster.as_ref(), &session_id).await;
                         }
                     }
                     // Taken in a later pass than the one that saw the barrier answered, and only
@@ -1501,9 +1535,8 @@ async fn handle_playlist_event(
     value: PlaylistStatus,
     broadcaster: &dyn Broadcaster,
     session_id: &str,
-    revision: u64,
 ) {
-    send_playlist(node, &value, broadcaster, session_id, revision).await;
+    send_playlist(node, &value, broadcaster, session_id).await;
 }
 
 async fn handle_played_event(
@@ -1646,8 +1679,8 @@ async fn send_playlist(
     playlist: &PlaylistStatus,
     broadcaster: &dyn Broadcaster,
     session_id: &str,
-    revision: u64,
 ) {
+    let revision = playlist.revision;
     let mut independent_items = Vec::new();
     for entry in &playlist.items {
         let item = &entry.item;
