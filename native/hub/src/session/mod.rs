@@ -1583,6 +1583,13 @@ async fn handle_played_event(
     if let Err(error) = report {
         log::warn!("Could not report library track completion: {error:#}");
     }
+    // The occurrence of the item ended, so the next one starts and reports anew: Repeat One
+    // and adjacent entries of the same track report the item again without a change of item,
+    // which the start flag and the pending now-playing report must not hold against it. The
+    // completion above already consumed what the service stored for this start, so a status of
+    // this occurrence still in flight after it cannot start again.
+    item_state.track_started = false;
+    item_state.now_playing_pending = true;
 }
 
 /// A playback failure reaches the application log, and when no request answer already carried

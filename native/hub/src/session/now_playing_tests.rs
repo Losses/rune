@@ -160,6 +160,10 @@ struct SlowService {
     /// How often the service was asked for the track, and told that it started.
     lookups: AtomicUsize,
     started: AtomicUsize,
+    /// Each start time the service was told, in the order told.
+    starts_at: std::sync::Mutex<Vec<u64>>,
+    /// How often the service was told that a track played through.
+    played: AtomicUsize,
     /// How many lookups ran to the end, so a lookup that was stopped is not counted.
     answered: AtomicUsize,
     /// Held by a test to keep the session waiting as it tells the service that a track started.
@@ -214,11 +218,17 @@ impl ServiceBinding for SlowService {
         self.known.lock().unwrap().then(|| self.summary(track))
     }
 
-    fn track_started<'a>(&'a self, _track: &'a str, _start_time: u64) -> BoxFuture<'a, ()> {
+    fn track_started<'a>(&'a self, _track: &'a str, start_time: u64) -> BoxFuture<'a, ()> {
         self.started.fetch_add(1, Ordering::SeqCst);
+        self.starts_at.lock().unwrap().push(start_time);
         Box::pin(async move {
             drop(self.starts.read().await);
         })
+    }
+
+    fn track_played_through<'a>(&'a self, _track: &'a str) -> BoxFuture<'a, ()> {
+        self.played.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {})
     }
 
     fn visualizer_covers<'a>(
@@ -247,6 +257,8 @@ async fn a_track_that_a_slow_service_names_late_is_named_again() -> Result<()> {
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
         starts: tokio::sync::RwLock::new(()),
+        starts_at: std::sync::Mutex::new(Vec::new()),
+        played: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -308,6 +320,8 @@ async fn a_slow_lookup_stops_when_nothing_follows_the_player() -> Result<()> {
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
         starts: tokio::sync::RwLock::new(()),
+        starts_at: std::sync::Mutex::new(Vec::new()),
+        played: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -335,6 +349,8 @@ async fn a_slow_lookup_stops_when_the_binding_already_names_the_track() -> Resul
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
         starts: tokio::sync::RwLock::new(()),
+        starts_at: std::sync::Mutex::new(Vec::new()),
+        played: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -389,6 +405,8 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
         started: AtomicUsize::new(0),
         answered: AtomicUsize::new(0),
         starts: tokio::sync::RwLock::new(()),
+        starts_at: std::sync::Mutex::new(Vec::new()),
+        played: AtomicUsize::new(0),
     });
     let binding: Arc<dyn ServiceBinding> = service.clone();
     let item = PlayingItem::LibraryTrack {
@@ -452,6 +470,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
 /// still to be queued when it was asked.
 struct ScriptedPlayer {
     reports: SimpleSender<PlayerStatus>,
+    played: SimpleSender<PlayedThrough>,
     status: std::sync::Mutex<PlayerStatus>,
     reported_on_barrier: std::sync::Mutex<Vec<PlayerStatus>>,
     /// What it reports right after it answered a barrier, as a player that moved on just then.
@@ -462,6 +481,7 @@ impl ScriptedPlayer {
     fn new() -> Self {
         Self {
             reports: SimpleChannel::unbounded().0,
+            played: SimpleChannel::unbounded().0,
             status: std::sync::Mutex::new(MockPlayer.get_status()),
             reported_on_barrier: std::sync::Mutex::new(Vec::new()),
             reported_after_barrier: std::sync::Mutex::new(Vec::new()),
@@ -572,7 +592,7 @@ impl Playable for ScriptedPlayer {
         self.reports.subscribe()
     }
     fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
-        MockPlayer.subscribe_played_through()
+        self.played.subscribe()
     }
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
         MockPlayer.subscribe_playlist()
@@ -668,6 +688,8 @@ impl ScriptedSession {
             started: AtomicUsize::new(0),
             answered: AtomicUsize::new(0),
             starts: tokio::sync::RwLock::new(()),
+            starts_at: std::sync::Mutex::new(Vec::new()),
+            played: AtomicUsize::new(0),
         });
         let binding: Arc<dyn ServiceBinding> = service.clone();
         node.set_open_service_catalog(None, binding).await?;
@@ -1028,4 +1050,210 @@ async fn a_report_after_the_barrier_answered_is_what_the_session_shows_again_wit
         .await?;
     assert_eq!(told.0.lock().unwrap().last(), Some(&false));
     node.shutdown().await
+}
+
+/// The player's status and completion events of one queue fed to the session's status and
+/// played event consumers, in the order one task handles them, with the reports the library
+/// and the scrobbler were given. `names` holds the track names the service answers late.
+struct ReportingPlayback {
+    _dir: tempfile::TempDir,
+    node: Arc<NodeContext>,
+    service: Arc<SlowService>,
+    scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
+    item_state: ItemEventState,
+    broadcaster: Arc<dyn Broadcaster>,
+    /// The item events report next, as one loaded queue reports it through Repeat One or
+    /// adjacent entries.
+    item: PlayingItem,
+    playlist: Vec<QueueEntry>,
+}
+
+impl ReportingPlayback {
+    async fn start(tracks: &[&str]) -> Result<Self> {
+        let dir = tempfile::tempdir()?;
+        crate::test_node::disable_sync_listener(dir.path())?;
+        let path = dir.path().to_string_lossy();
+        let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
+        let node = NodeContext::new(
+            &path,
+            &path,
+            broadcaster.clone(),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await?;
+        let library_id = Uuid::new_v4();
+        let service = Arc::new(SlowService {
+            library_id,
+            delay: Duration::ZERO,
+            known: std::sync::Mutex::new(false),
+            lookups: AtomicUsize::new(0),
+            started: AtomicUsize::new(0),
+            answered: AtomicUsize::new(0),
+            starts: tokio::sync::RwLock::new(()),
+            starts_at: std::sync::Mutex::new(Vec::new()),
+            played: AtomicUsize::new(0),
+        });
+        let binding: Arc<dyn ServiceBinding> = service.clone();
+        node.set_open_service_catalog(None, binding).await?;
+        let item = PlayingItem::LibraryTrack {
+            library_id,
+            track: tracks[0].to_owned(),
+        };
+        let report_scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>> =
+            Arc::new(Mutex::new(scrobbling::manager::MockScrobblingManager::new()));
+        Ok(Self {
+            playlist: tracks
+                .iter()
+                .map(|track| {
+                    PlayingItem::LibraryTrack {
+                        library_id,
+                        track: (*track).to_owned(),
+                    }
+                    .into()
+                })
+                .collect(),
+            _dir: dir,
+            node,
+            service,
+            scrobbler: report_scrobbler,
+            item_state: ItemEventState::default(),
+            broadcaster,
+            item,
+        })
+    }
+
+    /// One status of the queue's entries, as the player reports it.
+    fn status(&self, item: &PlayingItem, index: usize, state: PlaybackState) -> PlayerStatus {
+        PlayerStatus {
+            item: Some(item.clone()),
+            index: Some(index),
+            path: None,
+            position: Duration::ZERO,
+            state,
+            playlist: self.playlist.clone(),
+            unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
+            playback_mode: PlaybackMode::RepeatOne,
+            ready: true,
+            volume: 1.0,
+            hosted_by: None,
+        }
+    }
+
+    /// The status consumer handles a status report, as the event loop does.
+    async fn reports(&mut self, item: &PlayingItem, index: usize, state: PlaybackState) {
+        handle_status_event(
+            &self.node,
+            self.status(item, index, state),
+            &mut self.item_state,
+            &None,
+            None,
+            &self.broadcaster,
+            "test",
+        )
+        .await;
+    }
+
+    /// The completion consumer handles a played-through report, as the event loop does.
+    async fn plays_through(&mut self, item: &PlayingItem) {
+        handle_played_event(
+            &self.node,
+            PlayedThrough {
+                item: item.clone(),
+                listened: Duration::from_secs(10),
+                started_at: Some(SystemTime::now()),
+            },
+            &mut self.item_state,
+            &self.scrobbler,
+        )
+        .await;
+    }
+
+    /// Waits until the service was told that `count` starts began, as the event consumers
+    /// report the start once the service has answered the track's metadata.
+    async fn until_started(&self, count: usize) -> Result<()> {
+        let service = self.service.clone();
+        wait_until("the starts reported", move || {
+            let started = service.started.load(Ordering::SeqCst);
+            async move { Ok((started >= count).then_some(())) }
+        })
+        .await
+    }
+
+    /// Waits until the service was told that `count` tracks played through.
+    async fn until_played(&self, count: usize) -> Result<()> {
+        let service = self.service.clone();
+        wait_until("the completions reported", move || {
+            let played = service.played.load(Ordering::SeqCst);
+            async move { Ok((played >= count).then_some(())) }
+        })
+        .await
+    }
+
+    async fn stop(self) -> Result<()> {
+        self.node.shutdown().await
+    }
+}
+
+/// A track played again right after it played through starts again: each occurrence reports
+/// its own start and submits its own completion. The queue holds the same track next to itself,
+/// as Repeat One plays it, so the item never changes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_track_played_again_starts_and_completes_again() -> Result<()> {
+    let mut playback = ReportingPlayback::start(&["track", "track"]).await?;
+    let track = playback.item.clone();
+
+    // The first occurrence starts and ends.
+    playback.reports(&track, 0, PlaybackState::Playing).await;
+    playback.until_started(1).await?;
+    playback.plays_through(&track).await;
+    playback.until_played(1).await?;
+
+    // The second occurrence of the same item starts and ends: its own report and completion.
+    playback.reports(&track, 1, PlaybackState::Playing).await;
+    assert!(
+        playback.until_started(2).await.is_ok(),
+        "the repeated occurrence starts its own now-playing report"
+    );
+    playback.plays_through(&track).await;
+    assert!(
+        playback.until_played(2).await.is_ok(),
+        "the repeated occurrence submits its own completion"
+    );
+
+    playback.stop().await
+}
+
+/// Pausing and resuming the same occurrence does not start another report, and a different
+/// track starts and completes as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pausing_and_resuming_does_not_start_the_track_again() -> Result<()> {
+    let mut playback = ReportingPlayback::start(&["track", "other"]).await?;
+    let track = playback.item.clone();
+    let other = PlayingItem::LibraryTrack {
+        library_id: playback.service.library_id,
+        track: "other".to_owned(),
+    };
+
+    playback.reports(&track, 0, PlaybackState::Playing).await;
+    playback.until_started(1).await?;
+    playback.reports(&track, 0, PlaybackState::Paused).await;
+    playback.reports(&track, 0, PlaybackState::Playing).await;
+    playback.plays_through(&track).await;
+    assert_eq!(
+        playback.service.started.load(Ordering::SeqCst),
+        1,
+        "pausing and resuming does not start the occurrence again"
+    );
+    playback.until_played(1).await?;
+
+    // A different track starts and completes as before.
+    playback.reports(&other, 1, PlaybackState::Playing).await;
+    playback.until_started(2).await?;
+    playback.plays_through(&other).await;
+    playback.until_played(2).await?;
+
+    playback.stop().await
 }
