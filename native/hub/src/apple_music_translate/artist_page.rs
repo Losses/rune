@@ -788,8 +788,8 @@ fn arranged(
 /// default language (see `title_tag`), in the background, from the pages of `artists` (catalog
 /// ids) until every section has one, and keeps them with the storefront's languages. The lists
 /// reload once if that changed what pages show. It asks once per language and first artist
-/// under a sign-in, whose sign-out forgets the titles, and a failed read is only logged, so the
-/// next page asks again.
+/// under a sign-in, whose sign-out forgets the titles, and a read that failed, wholly or for one
+/// of the artists, is only logged, so the next page asks again.
 fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Vec<String>) {
     let Some(first) = artists.first() else {
         return;
@@ -807,8 +807,14 @@ fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Ve
     let language = language.to_owned();
     tokio::spawn(async move {
         match read_titles(&binding, &language, &artists).await {
-            Ok(true) => binding.content_changed(),
-            Ok(false) => {}
+            Ok(read) => {
+                if read.failed {
+                    binding.classes.release(&[key]);
+                }
+                if read.changed {
+                    binding.content_changed();
+                }
+            }
             Err(error) => {
                 log::warn!(
                     "The section titles of Apple Music could not be read, so pages keep what they show: {error:#}"
@@ -819,14 +825,24 @@ fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Ve
     });
 }
 
+/// What a read of the section titles did.
+struct TitlesRead {
+    /// Whether what pages show changed.
+    changed: bool,
+    /// Whether the page of one of the artists could not be read, for anything but Apple not
+    /// having the artist.
+    failed: bool,
+}
+
 /// Reads and keeps the storefront's languages and the section titles in `language`, or else in
-/// the storefront's default language. Whether what pages show changed.
+/// the storefront's default language.
 async fn read_titles(
     binding: &AppleMusicBinding,
     language: &str,
     artists: &[String],
-) -> Result<bool> {
+) -> Result<TitlesRead> {
     let generation = binding.classes.generation();
+    let mut failed = false;
     let storefront = binding.storefront().await?;
     let languages = binding.storefront_languages().await?;
     let tag = title_tag(language, &languages).map(str::to_owned);
@@ -858,8 +874,10 @@ async fn read_titles(
                     }
                 }
                 Err(error) if denies_the_account(&error) => return Err(error),
+                Err(error) if is_not_found(&error) => {}
                 Err(error) => {
                     log::warn!("The section titles of Apple Music could not be read: {error:#}");
+                    failed = true;
                 }
             }
         }
@@ -887,7 +905,10 @@ async fn read_titles(
             changed = classes.shown_differs(&before);
         })
         .await;
-    Ok(kept && changed)
+    Ok(TitlesRead {
+        changed: kept && changed,
+        failed,
+    })
 }
 
 /// Reads the release views of the catalog artist `artist` in the background, each to its end,

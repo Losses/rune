@@ -1433,6 +1433,29 @@ async fn a_library_page_is_titled_in_the_language_or_else_the_storefronts_each_s
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_section_titles_are_read_again_after_the_read_of_an_artist_failed() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), kinds()).await?;
+    let artist = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    wait_synced(&apple, &KINDS_ALBUMS).await?;
+    keep_views(&apple, &ARTIST_ONE_VIEWS, now(&apple)).await;
+    // Apple fails the first read of the artist's page, the one the titles are read from.
+    *apple.fake.fail_once.lock().unwrap() = Some("/v1/catalog/it/artists/300".to_owned());
+
+    // The first page's read of the titles fails; a page opened after it reads them again.
+    let page = wait_titled(&apple, artist, "en").await?;
+    assert_eq!(
+        page.sections
+            .iter()
+            .map(|s| s.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Albums", "Singles & EPs", "Compilations"]
+    );
+    assert_eq!(apple.fake.count("/v1/catalog/it/artists/300?views="), 2);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_section_titles_are_read_again_after_a_sign_out_and_a_sign_in() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple_with(dir.path(), kinds()).await?;
