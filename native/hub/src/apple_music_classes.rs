@@ -39,10 +39,12 @@
 //!   album id. Apple sorts the releases by the kind the label reported, which the facts do not
 //!   carry, so a release the views list goes where they put it, and the facts only place what
 //!   they do not list. `read` is as for the albums.
-//! - `languages`: the language tags each storefront supports, as Apple lists them.
+//! - `languages`: the language tags each storefront supports, its default first.
 //! - `section_titles`: the title Apple gives each section (`ArtistSection::syntax`), per
-//!   storefront and supported language tag, as every artist there has the same. A page uses
-//!   them only when they name every section it shows, and shows none otherwise.
+//!   storefront and supported language tag, as every artist there has the same. A page shows
+//!   those of the client's language, or else of the storefront's default (see `title_tag`),
+//!   each section its own; a section Apple gave no title keeps an empty one, which the client
+//!   names.
 //! - `storefront`: the storefront of the last read, whose titles a page uses.
 //!
 //! All of it is a cache of what Apple says: it goes with the account, and a missing entry only
@@ -161,16 +163,16 @@ impl Classes {
         }
     }
 
-    /// The language tag of the storefront the last read was in that matches the client's
-    /// `language`; `None` when the storefront or its languages are not kept yet, or none
-    /// matches.
+    /// The language tag of the storefront the last read was in that the titles are in for the
+    /// client's `language` (see `title_tag`); `None` when the storefront or its languages are
+    /// not kept yet.
     pub(crate) fn tag_for(&self, language: &str) -> Option<&str> {
         let supported = self.languages.get(self.storefront.as_deref()?)?;
-        matching_tag(language, supported)
+        title_tag(language, supported)
     }
 
     /// The titles kept for the language `language` of the client in the storefront the last
-    /// read was in.
+    /// read was in, or for the storefront's default language when it has none in it.
     pub(crate) fn titles_for(&self, language: &str) -> Option<&BTreeMap<String, String>> {
         let tag = self.tag_for(language)?;
         self.section_titles
@@ -324,6 +326,14 @@ pub(crate) fn matching_tag<'a>(language: &str, supported: &'a [String]) -> Optio
     best.map(|(_, tag)| tag.as_str())
 }
 
+/// The tag of a storefront's `languages`, its default first, that Apple's titles of the sections
+/// are read and shown in for the client's `language`: the one that answers in it (see
+/// `matching_tag`), or else the storefront's default, so a page is titled by Apple whatever the
+/// client's language. `None` only when the storefront lists no language.
+pub(crate) fn title_tag<'a>(language: &str, languages: &'a [String]) -> Option<&'a str> {
+    matching_tag(language, languages).or_else(|| languages.first().map(String::as_str))
+}
+
 /// The classes as kept, with the count of the sign-outs that dropped them.
 #[derive(Default)]
 struct Kept {
@@ -448,7 +458,7 @@ impl ClassStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArtistViews, Classes, MAX_ARTIST_VIEWS, matching_tag};
+    use super::{ArtistViews, Classes, MAX_ARTIST_VIEWS, matching_tag, title_tag};
     use database::mix_operator::ArtistSection;
 
     fn tags(tags: &[&str]) -> Vec<String> {
@@ -486,6 +496,17 @@ mod tests {
         assert_eq!(matching_tag("en", &tags(&["it", "en-GB"])), Some("en-GB"));
         assert_eq!(matching_tag("pt-BR", &tags(&["pt-PT"])), Some("pt-PT"));
         assert_eq!(matching_tag("en", &[]), None);
+    }
+
+    #[test]
+    fn the_titles_are_in_the_storefronts_default_language_when_it_lacks_the_clients() {
+        // Italy answers in Italian, its default, and in British English.
+        let italy = tags(&["it", "en-GB"]);
+        assert_eq!(title_tag("en", &italy), Some("en-GB"));
+        assert_eq!(title_tag("zh-Hans", &italy), Some("it"));
+        assert_eq!(title_tag("en-EO", &italy), Some("it"));
+        assert_eq!(title_tag("", &italy), Some("it"));
+        assert_eq!(title_tag("zh-Hans", &[]), None);
     }
 
     #[test]

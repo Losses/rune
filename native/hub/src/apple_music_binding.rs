@@ -1853,7 +1853,8 @@ impl AppleMusicBinding {
     }
 
     /// The language tags the catalog of the storefront it is read in has its texts in, such as
-    /// `en-GB`: as kept, or else read from Apple and kept.
+    /// `en-GB`, the storefront's default first, which Apple answers in when it is asked for no
+    /// language: as kept, or else read from Apple and kept.
     pub(crate) async fn storefront_languages(&self) -> Result<Arc<Vec<String>>> {
         let storefront = self.storefront().await?;
         if let Some(kept) = self.catalog().storefront_languages.get(&storefront) {
@@ -1864,11 +1865,13 @@ impl AppleMusicBinding {
             .call(self.client.catalog_storefront(&storefront))
             .await
             .map_err(|error| self.request_error(error, "Apple Music storefront"))?;
-        let languages = Arc::new(
-            read.attributes
-                .map(|attributes| attributes.supported_language_tags)
-                .unwrap_or_default(),
-        );
+        let attributes = read.attributes.unwrap_or_default();
+        let mut languages = attributes.supported_language_tags;
+        if let Some(default) = attributes.default_language_tag {
+            languages.retain(|tag| *tag != default);
+            languages.insert(0, default);
+        }
+        let languages = Arc::new(languages);
         let mut catalog = self.catalog();
         if catalog.generation == generation {
             catalog

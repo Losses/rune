@@ -38,7 +38,7 @@ use crate::apple_music_binding::{
     AppleError, AppleIdKind, AppleMusicBinding, AppleSong, CatalogCollection, catalog_track,
     cover_url, release_year,
 };
-use crate::apple_music_classes::{AlbumFacts, ArtistViews, Classes, matching_tag, section_of};
+use crate::apple_music_classes::{AlbumFacts, ArtistViews, Classes, section_of, title_tag};
 use crate::apple_music_held::catalog_album_of;
 use crate::handlers::artist::{named_section, page_bounds, section_query, tracks_query};
 use crate::messages::{
@@ -672,11 +672,11 @@ struct LibrarySection {
 /// The sections of a library artist's page, in page order, empty ones left out: the albums
 /// the library holds, each in the section the catalog artist's views put it in, as kept, or
 /// else the one its kept catalog facts put it in (see `placed`), under the titles Apple gave
-/// in the client's `language`, which are all or none of the page's (see `arranged`); an empty
-/// `language` asks for none. It reads nothing of the catalog, so the page never waits on it.
-/// A page being opened (`classify`) reads in the background the facts of the albums that lack
-/// them, the titles when they are not kept, and, online, the artist's views when what is kept
-/// of them is missing or old; each reloads the page when it changed what shows.
+/// in the client's `language`, or else in the storefront's default language (see `arranged`).
+/// It reads nothing of the catalog, so the page never waits on it. A page being opened
+/// (`classify`) reads in the background the facts of the albums that lack them, the titles when
+/// they are not kept, and, online, the artist's views when what is kept of them is missing or
+/// old; each reloads the page when it changed what shows.
 async fn library_sections(
     binding: &AppleMusicBinding,
     artist: &NamedArtist,
@@ -708,7 +708,7 @@ async fn library_sections(
         classify_in_background(binding, ids);
     }
     let sections = arranged(held.clone(), &classes, catalog, language);
-    if !language.trim().is_empty() && sections.iter().any(|section| section.title.is_empty()) {
+    if classify && sections.iter().any(|section| section.title.is_empty()) {
         // This artist first, then the others of the albums, for the sections it lacks.
         let mut artists = vec![catalog.to_owned()];
         for id in held.iter().filter_map(catalog_album_of) {
@@ -742,8 +742,9 @@ fn placed(classes: &Classes, artist: &str, id: Option<&str>) -> ReleaseSection {
 }
 
 /// The held albums in the sections they are in on the page of the catalog artist `artist`
-/// (see `placed`), newest first in each. The sections have Apple's titles in the client's
-/// `language` when they are kept for every one of them, else none has.
+/// (see `placed`), newest first in each. Each section has Apple's title in the client's
+/// `language`, or else in the storefront's default language, when it is kept, and an empty one
+/// otherwise, which the client names.
 fn arranged(
     mut held: Vec<LibraryAlbum>,
     classes: &Classes,
@@ -773,11 +774,7 @@ fn arranged(
             })
         })
         .collect();
-    let titles = classes.titles_for(language).filter(|titles| {
-        sections
-            .iter()
-            .all(|each| titles.contains_key(each.section.syntax()))
-    });
+    let titles = classes.titles_for(language);
     for each in &mut sections {
         each.title = titles
             .and_then(|titles| titles.get(each.section.syntax()))
@@ -787,12 +784,12 @@ fn arranged(
     sections
 }
 
-/// Reads the titles of the sections in the client's `language` in the background, from the
-/// pages of `artists` (catalog ids) until every section has one, when the storefront supports
-/// the language, and keeps them with the storefront's languages. The lists reload once if
-/// that changed what pages show. It asks once per language and first artist under a sign-in,
-/// whose sign-out forgets the titles, and a failed read is only logged, so the next page asks
-/// again.
+/// Reads the titles of the sections in the client's `language`, or else in the storefront's
+/// default language (see `title_tag`), in the background, from the pages of `artists` (catalog
+/// ids) until every section has one, and keeps them with the storefront's languages. The lists
+/// reload once if that changed what pages show. It asks once per language and first artist
+/// under a sign-in, whose sign-out forgets the titles, and a failed read is only logged, so the
+/// next page asks again.
 fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Vec<String>) {
     let Some(first) = artists.first() else {
         return;
@@ -822,8 +819,8 @@ fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Ve
     });
 }
 
-/// Reads and keeps the storefront's languages and, when it supports `language`, the section
-/// titles in it. Whether what pages show changed.
+/// Reads and keeps the storefront's languages and the section titles in `language`, or else in
+/// the storefront's default language. Whether what pages show changed.
 async fn read_titles(
     binding: &AppleMusicBinding,
     language: &str,
@@ -832,7 +829,7 @@ async fn read_titles(
     let generation = binding.classes.generation();
     let storefront = binding.storefront().await?;
     let languages = binding.storefront_languages().await?;
-    let tag = matching_tag(language, &languages).map(str::to_owned);
+    let tag = title_tag(language, &languages).map(str::to_owned);
     let mut titles = BTreeMap::new();
     if let Some(tag) = &tag {
         let kept = binding.classes.get(binding).await;
@@ -1135,15 +1132,12 @@ async fn cached_covers(binding: &AppleMusicBinding, urls: Vec<String>) -> Vec<St
     covers
 }
 
-/// The tag of the storefront's languages that answers in the client's `language`, which asks
-/// Apple once per storefront. `None` when the client's language is unknown or unsupported, or
-/// Apple could not tell, and the page is then named by Rune.
+/// The tag of the storefront's languages the page is titled in: the one that answers in the
+/// client's `language`, or else the storefront's default (see `title_tag`), which asks Apple
+/// once per storefront. `None` when Apple could not tell, and the page is then named by Rune.
 async fn catalog_tag(binding: &AppleMusicBinding, language: &str) -> Option<String> {
-    if language.trim().is_empty() {
-        return None;
-    }
     match binding.storefront_languages().await {
-        Ok(languages) => matching_tag(language, &languages).map(str::to_owned),
+        Ok(languages) => title_tag(language, &languages).map(str::to_owned),
         Err(error) => {
             log::warn!("The languages of the Apple Music storefront could not be read: {error:#}");
             None
@@ -1151,19 +1145,9 @@ async fn catalog_tag(binding: &AppleMusicBinding, language: &str) -> Option<Stri
     }
 }
 
-/// Clears every title unless every section has one, so a page never names some of its
-/// sections in one language and the rest in another.
-fn leave_untitled_unless_all_titled(sections: &mut [ArtistSection]) {
-    if sections.iter().any(|section| section.title.is_empty()) {
-        for section in sections {
-            section.title.clear();
-        }
-    }
-}
-
 /// The page of an artist: from Apple's catalog for a catalog artist, its sections the views
-/// that hold releases, titled by Apple in the client's language where the storefront has it,
-/// and its tracks the top songs; from the library's kept lists for an entry of the library's
+/// that hold releases, each titled by Apple in the client's language, or else in the
+/// storefront's default language, and its tracks the top songs; from the library's kept lists for an entry of the library's
 /// artist list (see `library_sections` and `library_tracks`).
 pub(crate) async fn fetch_artist_page_request(
     binding: &AppleMusicBinding,
@@ -1215,7 +1199,6 @@ pub(crate) async fn fetch_artist_page_request(
                     count: i32::try_from(count).unwrap_or(i32::MAX),
                 });
             }
-            leave_untitled_unless_all_titled(&mut sections);
             !reads.top_songs.lock().await.songs.is_empty()
         }
         Identity::Library(artist) => {

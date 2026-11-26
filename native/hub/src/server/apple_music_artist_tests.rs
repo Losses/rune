@@ -17,7 +17,7 @@ fn viewed_artist(apple: &OpenApple) -> Result<i32> {
 }
 
 /// The request for the page of an artist from a client whose language is unknown, so the
-/// sections come untitled.
+/// sections are titled in the storefront's own language.
 fn artist_page_request(artist_id: i32) -> FetchArtistPageRequest {
     artist_page_in(artist_id, "")
 }
@@ -226,6 +226,33 @@ async fn keep_views(apple: &OpenApple, sections: &[(&str, &str)], read: u64) {
     change_classes(apple, |classes| {
         classes.storefront = Some("it".into());
         classes.keep_views("it", "300", ArtistViews { sections, read });
+    })
+    .await;
+}
+
+/// Keeps Apple's titles of every section of a library page in Italian, the storefront's own
+/// language, as an earlier page read them, so a page of a client whose language is unknown
+/// reads none.
+async fn keep_titles(apple: &OpenApple) {
+    change_classes(apple, |classes| {
+        classes.storefront = Some("it".into());
+        classes
+            .languages
+            .insert("it".into(), vec!["it".into(), "en-GB".into()]);
+        let titles = [
+            ("albums", "Album"),
+            ("singles", "Singoli ed EP"),
+            ("live", "Dal vivo"),
+            ("compilations", "Raccolte"),
+            ("appears_on", "Compare in"),
+        ];
+        classes.section_titles.entry("it".into()).or_default().insert(
+            "it".into(),
+            titles
+                .iter()
+                .map(|(section, title)| ((*section).to_owned(), (*title).to_owned()))
+                .collect(),
+        );
     })
     .await;
 }
@@ -510,7 +537,7 @@ async fn an_artist_page_lists_its_sections_in_order_with_eps_and_singles_in_one(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_catalog_page_is_titled_by_apple_in_a_language_the_storefront_has_and_untitled_otherwise()
+async fn a_catalog_page_is_titled_by_apple_in_the_clients_language_or_else_the_storefronts()
 -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
@@ -536,33 +563,57 @@ async fn a_catalog_page_is_titled_by_apple_in_a_language_the_storefront_has_and_
     assert_eq!(apple.fake.count_containing("&l=en-GB"), 1);
     assert_eq!(apple.fake.count("/v1/storefronts/it"), 1);
 
-    // A Chinese client gets no titles, and the page is read as before, with no language.
-    // The reads are kept per artist, so this one asks nothing more.
+    // A Chinese client gets the titles in the storefront's own language, Italian, from one
+    // more request for them. The reads are kept per artist, so nothing else is asked.
     let chinese = apple.run(&artist_page_in(artist, "zh-Hans")).await?;
-    assert_eq!(chinese.sections.len(), 5);
-    assert!(
+    assert_eq!(
         chinese
             .sections
             .iter()
-            .all(|section| section.title.is_empty())
+            .map(|s| s.title.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Album",
+            "Ultima uscita",
+            "Singoli ed EP",
+            "Album essenziali",
+            "Compare in"
+        ]
     );
-    assert_eq!(apple.fake.count_containing("/artists/310?views="), 1);
+    assert_eq!(apple.fake.count_containing("/artists/310?views="), 2);
+    assert_eq!(apple.fake.count_containing("&l=it"), 1);
     assert_eq!(apple.fake.count("/v1/storefronts/it"), 1);
     apple.finish().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_unsupported_language_reads_a_catalog_page_without_asking_for_one() -> Result<()> {
+async fn a_catalog_page_in_a_language_the_storefront_lacks_is_titled_in_its_default_language()
+-> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let artist = viewed_artist(&apple)?;
 
+    // Italy has no Chinese: the page is read in its default language, Italian, in one request.
     let page = apple.run(&artist_page_in(artist, "zh-Hans")).await?;
-
-    assert_eq!(page.sections.len(), 5);
-    assert!(page.sections.iter().all(|section| section.title.is_empty()));
+    assert_eq!(
+        page.sections
+            .iter()
+            .map(|s| s.title.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Album",
+            "Ultima uscita",
+            "Singoli ed EP",
+            "Album essenziali",
+            "Compare in"
+        ]
+    );
     assert_eq!(apple.fake.count_containing("/artists/310?views="), 1);
-    assert_eq!(apple.fake.count_containing("&l="), 0);
+    assert_eq!(apple.fake.count_containing("&l=it"), 1);
+    // A client whose language is unknown gets the same, and nothing is asked again.
+    let unknown = apple.run(&artist_page_request(artist)).await?;
+    assert_eq!(unknown.sections[0].title, "Album");
+    assert_eq!(apple.fake.count_containing("/artists/310?views="), 1);
     // A client that later speaks English gets Apple's English titles for the same reads,
     // from one more request.
     let english = apple.run(&artist_page_in(artist, "en")).await?;
@@ -572,11 +623,39 @@ async fn an_unsupported_language_reads_a_catalog_page_without_asking_for_one() -
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_section_apple_gives_no_title_leaves_the_others_titled() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // Apple gives the albums "Viewed Artist" appears on no title.
+    apple.fake.untitled_appears_on.store(true, Ordering::SeqCst);
+    let artist = viewed_artist(&apple)?;
+
+    let page = apple.run(&artist_page_in(artist, "en")).await?;
+
+    // That section alone is untitled, for the client to name.
+    assert_eq!(
+        page.sections
+            .iter()
+            .map(|s| (s.kind, s.title.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (ArtistSectionKind::Albums, "Albums"),
+            (ArtistSectionKind::LatestRelease, "Latest Release"),
+            (ArtistSectionKind::Singles, "Singles & EPs"),
+            (ArtistSectionKind::EssentialAlbums, "Essential Albums"),
+            (ArtistSectionKind::AppearsOn, "")
+        ]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_failing_read_of_the_titles_leaves_the_catalog_page_untitled() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let artist = viewed_artist(&apple)?;
-    // The page is read first with no language, so the titles are read for the next client.
+    // The page is read first in the storefront's own language, so the English titles are read
+    // for the next client.
     apple.run(&artist_page_in(artist, "zh-Hans")).await?;
     *apple.fake.fail_once.lock().unwrap() = Some("/v1/catalog/it/artists/310".to_owned());
     let page = apple.run(&artist_page_in(artist, "en")).await?;
@@ -1265,7 +1344,8 @@ async fn a_library_entry_with_a_catalog_artist_gets_the_catalog_pages_sections_o
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_library_page_is_titled_in_the_language_or_not_at_all_and_never_mixed() -> Result<()> {
+async fn a_library_page_is_titled_in_the_language_or_else_the_storefronts_each_section_its_own()
+-> Result<()> {
     let dir = tempfile::tempdir()?;
     let heard = Arc::new(Heard::default());
     let apple = open_apple_with(
@@ -1285,17 +1365,34 @@ async fn a_library_page_is_titled_in_the_language_or_not_at_all_and_never_mixed(
         page.sections.iter().map(|s| s.title.clone()).collect()
     };
     let untitled = || vec![String::new(); 3];
-    // The page's covers download first: they are announced on their own once they are in.
-    apple.run(&artist_page_request(artist)).await?;
+
+    // Italy has no Chinese: a Chinese client's page is titled in Italian, the storefront's own
+    // language, once the background read of the first page brings the titles, from one artist
+    // page.
+    let first = apple.run(&artist_page_in(artist, "zh-Hans")).await?;
+    assert_eq!(titles(&first), untitled());
+    let chinese = wait_titled(&apple, artist, "zh-Hans").await?;
+    assert_eq!(titles(&chinese), ["Album", "Singoli ed EP", "Raccolte"]);
+    assert_eq!(apple.fake.count("/v1/catalog/it/artists/300?views="), 1);
+    assert!(apple.fake.count_containing("&l=it") >= 1);
+    // A client whose language is unknown gets the same.
+    let unknown = apple.run(&artist_page_request(artist)).await?;
+    assert_eq!(titles(&unknown), ["Album", "Singoli ed EP", "Raccolte"]);
+    // The page's covers and the titles are announced on their own once they are in.
     let announced = told_settled(&heard).await;
 
-    // Nothing is kept in any language: every title is empty, nothing is asked on the way, and
-    // the titles are read in the background, from one artist page, with one announcement.
+    // Nothing is kept in English: every title is empty, nothing is asked on the way, and the
+    // titles are read in the background, from one artist page, with one announcement.
     let before = apple.fake.count("/v1/catalog/it/artists/300?views=");
     let first = apple.run(&artist_page_in(artist, "en")).await?;
     assert_eq!(titles(&first), untitled());
     wait_until("the titles to be kept", || async {
-        Ok(classes(&apple).await.titles_for("en").map(|_| ()))
+        Ok(classes(&apple)
+            .await
+            .section_titles
+            .get("it")
+            .and_then(|tags| tags.get("en-GB"))
+            .map(|_| ()))
     })
     .await?;
     told_after(&heard, announced).await?;
@@ -1320,22 +1417,7 @@ async fn a_library_page_is_titled_in_the_language_or_not_at_all_and_never_mixed(
         before + 1
     );
 
-    // A language the storefront lacks gets no titles, now and after its languages are known,
-    // and no title is read for it.
-    let chinese = apple.run(&artist_page_in(artist, "zh-Hans")).await?;
-    assert_eq!(titles(&chinese), untitled());
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let chinese = apple.run(&artist_page_in(artist, "zh-Hans")).await?;
-    assert_eq!(titles(&chinese), untitled());
-    assert_eq!(
-        apple.fake.count("/v1/catalog/it/artists/300?views="),
-        before + 1
-    );
-    // An unknown client language is the same.
-    let unknown = apple.run(&artist_page_request(artist)).await?;
-    assert_eq!(titles(&unknown), untitled());
-
-    // A title missing for one section of the page leaves the whole page untitled.
+    // A title missing for one section of the page leaves that section alone untitled.
     change_classes(&apple, |classes| {
         classes
             .section_titles
@@ -1345,8 +1427,8 @@ async fn a_library_page_is_titled_in_the_language_or_not_at_all_and_never_mixed(
             .remove("compilations");
     })
     .await;
-    let mixed = apple.run(&artist_page_in(artist, "en")).await?;
-    assert_eq!(titles(&mixed), untitled());
+    let partly = apple.run(&artist_page_in(artist, "en")).await?;
+    assert_eq!(titles(&partly), ["Albums", "Singles & EPs", ""]);
     apple.finish().await
 }
 
@@ -1484,6 +1566,7 @@ async fn the_tracks_of_a_library_page_are_the_liked_songs_then_the_newest_album_
     let artist = artist_named(&listed, "Artist One")?;
     wait_synced(&apple, &KINDS_ALBUMS).await?;
     keep_views(&apple, &ARTIST_ONE_VIEWS, now(&apple)).await;
+    keep_titles(&apple).await;
     apple
         .binding
         .rune_likes
@@ -1667,14 +1750,13 @@ async fn a_library_page_asks_nothing_and_puts_each_album_where_its_facts_say() -
             (ArtistSectionKind::AppearsOn, 1),
         ]
     );
-    // A kept title is missing for one section of the page, so none is used: the page never
-    // names some sections in one language and the rest in another.
+    // A kept title is missing for one section of the page, which alone is untitled.
     assert_eq!(
         page.sections
             .iter()
             .map(|s| s.title.as_str())
             .collect::<Vec<_>>(),
-        ["", "", "", ""]
+        ["Albums", "Singles & EPs", "Compilations", ""]
     );
     assert_eq!(
         page_keys(
@@ -1790,6 +1872,7 @@ async fn a_library_page_answers_from_the_facts_then_puts_its_albums_where_apples
     let artist = artist_named(&listed, "Artist One")?;
     wait_synced(&apple, &KINDS_ALBUMS).await?;
     short_ep_looks_like_an_album(&apple).await;
+    keep_titles(&apple).await;
     let release = Arc::new(tokio::sync::Notify::new());
     *apple.fake.hold_once.lock().unwrap() =
         Some(("/v1/catalog/it/artists/300".into(), release.clone()));
@@ -1926,6 +2009,7 @@ async fn offline_a_library_page_reads_no_views_and_uses_those_kept_however_old()
     let artist = artist_named(&listed, "Artist One")?;
     wait_synced(&apple, &KINDS_ALBUMS).await?;
     short_ep_looks_like_an_album(&apple).await;
+    keep_titles(&apple).await;
     apple.node.services.reach_changed(
         crate::apple_music_binding::APPLE_MUSIC_HOST,
         Reach::offline(HashSet::new()),
