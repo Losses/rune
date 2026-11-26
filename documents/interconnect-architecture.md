@@ -55,7 +55,7 @@ Two more settings in the same file say what this device does on its own. They ha
 | `auto_device_sync` | on | Sync libraries that are not open in the UI with paired devices. |
 | `auto_share_sync` | on | Sync libraries stored in a shared folder that are not open in the UI with that folder. |
 
-- The library open in the UI always syncs, whatever the two switches say.
+- The library open in the UI always syncs in the ways that apply to it, whatever the two switches say: with paired devices, and with its shared folder when it is stored in one.
 - The switches are about work this device starts. A paired device with a sync grant can still sync any library this device holds, open or not; that is decided by `accept_sync` and the grants.
 - A library stored in a shared folder can also be synced on request (Sync Now). The request runs one pass that pulls and pushes, in the share worker's own loop so it never overlaps a scheduled pass, ignores a retry backoff, works for a library that is closed and with `auto_share_sync` off, and answers when the pass has ended. A failure is the answer of the request and is not also reported as the library's sync state. A library that is not stored in a shared folder is refused.
 - The worker reads both switches on every pass. Switching one off stops the passes of the libraries it no longer covers; the share worker keeps its store sessions.

@@ -751,6 +751,9 @@ async fn run_share_worker(
         // Manual and scheduled passes are both run from this loop, one at a time, so they
         // never work on the same library at once.
         let request = tokio::select! {
+            // A stop wins over a request that is ready at the same moment, so the worker
+            // never starts opening a library for a pass it is about to abandon.
+            biased;
             _ = cancel.cancelled() => {
                 flush_share_worker(&global, &state.sessions, &notify).await;
                 return;
@@ -945,7 +948,11 @@ async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util_sync::C
         maintenance.retain(|id, _| ids.contains(id));
         for id in ids {
             // Maintenance alone is no reason to open a library, or to keep one open.
-            let Some(library) = global.library_pool.acquire_open_background(id).await else {
+            let library = tokio::select! {
+                _ = cancel.cancelled() => return,
+                library = global.library_pool.acquire_open_background(id) => library,
+            };
+            let Some(library) = library else {
                 continue;
             };
             let state = maintenance.entry(id).or_default();
