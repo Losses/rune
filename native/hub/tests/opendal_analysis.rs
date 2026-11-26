@@ -841,6 +841,7 @@ async fn remote_track_plays_and_seeks_again_after_a_restart_on_both_backends() -
                             play: true,
                         }),
                         block: None,
+                        started_playback: None,
                     },
                     None,
                 ))

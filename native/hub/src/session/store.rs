@@ -94,6 +94,16 @@ impl From<&StoredQueueEntry> for QueueEntry {
     }
 }
 
+/// The controller device whose load started the playback the queue continues. It persists
+/// with the queue because the playback it names does: a restart that resumes the queue resumes
+/// that controller's playback, so a revocation still reaches it. Resuming or pausing does not
+/// change it; the next started load does.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct StoredPlaybackOwner {
+    pub fingerprint: String,
+    pub public_key: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SessionState {
     version: u32,
@@ -104,6 +114,13 @@ pub(crate) struct SessionState {
     pub index: Option<usize>,
     pub position: Duration,
     pub mode: WirePlaybackMode,
+    #[serde(default)]
+    pub playback_owner: Option<StoredPlaybackOwner>,
+    /// Stamps the load that recorded `playback_owner`, so an interrupted load can hand the
+    /// ownership back only while nothing newer has taken it. It lives in memory only: after a
+    /// restart no interrupted load survives to roll anything back.
+    #[serde(skip)]
+    pub playback_owner_generation: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -187,6 +204,8 @@ impl Default for SessionState {
             index: None,
             position: Duration::ZERO,
             mode: WirePlaybackMode::Sequential,
+            playback_owner: None,
+            playback_owner_generation: 0,
         }
     }
 }
