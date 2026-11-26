@@ -9719,6 +9719,51 @@ async fn a_catalog_playlist_a_mix_names_holds_its_songs_as_apple_changes_them() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_apple_lacked_under_the_tokens_before_is_asked_for_again_under_new_ones()
+-> Result<()> {
+    const GONE: &str = "catalog:404404";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let asked = || {
+        apple
+            .fake
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| target.contains("404404"))
+            .count()
+    };
+    // The queue's lookup asks Apple for a song it does not have, and Apple holds the answer.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/songs".into(), release.clone()));
+    let lookup = apple.binding.read_unknown_tracks([GONE.to_owned()]);
+    let switch = async {
+        wait_until("the song to be asked for", || async {
+            Ok((asked() == 1).then_some(()))
+        })
+        .await?;
+        // Other tokens sign in meanwhile, which may be another account's.
+        apple
+            .binding
+            .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (found, switch) = tokio::join!(lookup, switch);
+    switch?;
+    assert!(found.is_empty());
+    // What Apple lacked under the tokens before is asked for again under the new ones, once.
+    assert!(!apple.binding.known_missing(GONE));
+    apple.binding.read_unknown_tracks([GONE.to_owned()]).await;
+    assert_eq!(asked(), 2);
+    assert!(apple.binding.known_missing(GONE));
+    apple.binding.read_unknown_tracks([GONE.to_owned()]).await;
+    assert_eq!(asked(), 2);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_song_a_read_before_a_sign_out_asked_for_is_read_again_after_it() -> Result<()> {
     const SONGS: &str = "/v1/catalog/it/songs";
     let dir = tempfile::tempdir()?;

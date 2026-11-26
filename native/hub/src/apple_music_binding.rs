@@ -1202,6 +1202,11 @@ impl AppleMusicBinding {
     /// it does not have, as an answer without them may have been a passing one.
     pub(crate) fn sign_in(&self, tokens: Tokens) {
         let changed = self.tokens.replace(Some(tokens));
+        // Counted before the songs Apple did not have are forgotten, so a read under the tokens
+        // before that ends now keeps none of its own (see `read_unknown_tracks`).
+        if changed {
+            self.token_changes.fetch_add(1, Ordering::SeqCst);
+        }
         let owed = {
             let mut catalog = self.catalog();
             catalog.missing.clear();
@@ -1209,7 +1214,6 @@ impl AppleMusicBinding {
         };
         apple_music_held::signed_in(self);
         if changed {
-            self.token_changes.fetch_add(1, Ordering::SeqCst);
             // The storefront belongs to the account, which may be another one.
             self.client.forget_storefront();
             self.read_again(owed);
@@ -2427,6 +2431,7 @@ impl AppleMusicBinding {
         }
         let generation = self.generation();
         for chunk in wanted.chunks(READ_TRACKS_CHUNK) {
+            let changes = self.token_changes();
             let found = match self.read_songs(chunk).await {
                 Ok(found) => found,
                 Err(error) => {
@@ -2439,10 +2444,12 @@ impl AppleMusicBinding {
                 return HashMap::new();
             }
             // A song asked for that Apple did not answer with is one it does not have, which is
-            // not asked for again under this sign-in.
+            // not asked for again under this sign-in. Under other tokens since, which may be
+            // another account's, it is asked for again.
+            let same_tokens = self.token_changes() == changes;
             let missing: Vec<String> = chunk
                 .iter()
-                .filter(|track| !found.contains_key(*track))
+                .filter(|track| same_tokens && !found.contains_key(*track))
                 .cloned()
                 .collect();
             if catalog.missing.len() + missing.len() > MAX_MISSING_TRACKS {
