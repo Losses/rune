@@ -1,5 +1,5 @@
 <script lang="ts">
-	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
+	import MediaQuery from '#lib/components/ui/MediaQuery.svelte';
 
 	interface Props {
 		status: string;

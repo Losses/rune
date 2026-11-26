@@ -1,5 +1,5 @@
 <script lang="ts">
-	import PermissionIcon from '$lib/components/icons/PermissionIcon.svelte';
+	import PermissionIcon from '#lib/components/icons/PermissionIcon.svelte';
 
 	interface Props {
 		deviceId: string;

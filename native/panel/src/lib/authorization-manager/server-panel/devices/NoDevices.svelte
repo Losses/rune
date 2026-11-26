@@ -1,6 +1,6 @@
 <script>
 
-	import PremiumIconColor from "$lib/components/icons/PremiumIconColor.svelte";
+	import PremiumIconColor from "#lib/components/icons/PremiumIconColor.svelte";
 
 </script>
 <div class="no-devices">

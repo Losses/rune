@@ -2,11 +2,11 @@
 	import { format } from 'timeago.js';
 	import StatusBadge from './StatusBadge.svelte';
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';
-	import type { IDevice } from '$lib/authorization-manager';
-	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
-	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+	import type { IDevice } from '#lib/authorization-manager/index.ts';
+	import FingerprintIcon from '#lib/components/icons/FingerprintIcon.svelte';
+	import FluentButton from '#lib/components/ui/FluentButton.svelte';
 	import FingerprintDialog from './FingerprintDialog.svelte';
-	import RemoveIcon from '$lib/components/icons/RemoveIcon.svelte';
+	import RemoveIcon from '#lib/components/icons/RemoveIcon.svelte';
 
 	interface Props {
 		device: IDevice;

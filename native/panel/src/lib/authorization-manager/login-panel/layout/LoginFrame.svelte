@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	import RuneLogo from '$lib/components/icons/RuneLogo.svelte';
-	import Background from '$lib/components/ui/Background.svelte';
+	import RuneLogo from '#lib/components/icons/RuneLogo.svelte';
+	import Background from '#lib/components/ui/Background.svelte';
 
 	interface Props {
 		children: Snippet;
