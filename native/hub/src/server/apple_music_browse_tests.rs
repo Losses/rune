@@ -5853,11 +5853,15 @@ async fn a_failed_catalog_read_names_artists_by_their_whole_credits_and_is_tried
     ];
     assert_eq!(names(&all_artists(&apple).await?), by_credits);
     // Once Apple answers again, a later listing asks it behind the list, and the list follows.
+    // Apple's answer is held until that listing was checked, so it cannot change the list first.
     *apple.fake.respond_path.lock().unwrap() = None;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/songs".into(), release.clone()));
     apple
         .clock
         .advance(crate::apple_music_binding::SHORT_LIST_AGE);
     assert_eq!(names(&all_artists(&apple).await?), by_credits);
+    release.notify_one();
     wait_until("the artists to be told apart by the catalog", || async {
         let listed = all_artists(&apple).await?;
         Ok((names(&listed)
