@@ -788,6 +788,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             ids: search.artists.clone(),
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -800,6 +801,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Album,
             bake_cover_arts: true,
             ids: search.albums.clone(),
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -823,6 +825,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -846,6 +849,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -908,6 +912,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![search.artists[0]],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -946,6 +951,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Mix,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await
@@ -6183,7 +6189,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
         let queue = f
             .global_params
             .node
-            .session_queue_for_library(library.library_id)
+            .own_player_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let queries = vec![("lib::queue".into(), "true".into())];
@@ -6244,7 +6250,7 @@ async fn session_f4_nodes_with_matching_sqlite_filenames_keep_queues_separate() 
         let queue = fixture
             .global_params
             .node
-            .session_queue_for_library(library.library_id)
+            .own_player_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let rows = query_mix_media_files(
@@ -12039,20 +12045,20 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
-    let first = tempfile::tempdir()?;
-    let second = tempfile::tempdir()?;
-    let signals = Arc::new(RecordedSignals::default());
+/// A caller, A, paired with B, which has its library open, and A's handle on B's library.
+async fn library_reached_through_remote(
+    first: &Path,
+    second: &Path,
+) -> Result<(Fixture, Fixture, Arc<GlobalParams>)> {
     let a = super::fixture_with_reconnect_config(
-        first.path(),
+        first,
         Uuid::new_v4(),
         Duration::from_secs(300),
-        signals.clone(),
+        Arc::new(RecordedSignals::default()),
         reconnect_config(Duration::from_millis(400)),
     )
     .await?;
-    let b = fixture(second.path()).await?;
+    let b = fixture(second).await?;
     b.global_params
         .node
         .set_open_local_catalog(
@@ -12070,6 +12076,14 @@ async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
         .await?;
     let remote =
         super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
+    Ok((a, b, remote))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    let (a, b, remote) = library_reached_through_remote(first.path(), second.path()).await?;
 
     // B owns the library and its own player plays `playing`. The caller, which browses B's
     // library through the remote handle, controls another player whose queue holds `queued`.
@@ -12152,6 +12166,195 @@ async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
             .collect::<Vec<_>>(),
         vec![playing_track.clone()]
     );
+
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_requests_use_the_queue_the_caller_sent() -> Result<()> {
+    use crate::messages::{
+        CollectionType, ComplexQuery, ComplexQueryRequest, CreateMixRequest,
+        FetchCollectionByIdsRequest, FetchCollectionGroupsRequest,
+        GetCoverArtIdsByMixQueriesRequest, GetCoverArtIdsByMixQueriesRequestUnit,
+        LibraryHomeListMode, LibraryHomeQuery,
+    };
+
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    let (a, b, remote) = library_reached_through_remote(first.path(), second.path()).await?;
+
+    // B owns the library and its own player plays `playing`. The caller controls another
+    // player whose queue holds `queued`. Each track has its own cover, so the covers chosen for
+    // a mix of `lib::queue` tell which queue a request read.
+    let playing = session_audio(&b, "rr-library-playing.ogg").await?;
+    let queued = session_audio(&b, "rr-library-queued.ogg").await?;
+    attach_test_cover(&b, playing, b"rr-library-playing-cover").await?;
+    attach_test_cover(&b, queued, b"rr-library-queued-cover").await?;
+    queue_session(&b, &[playing]).await?;
+    let queued_ref: PlayingItemRef = library_track_for_id(&b, queued).await?.into();
+    let PlayingItemRef::LibraryTrack {
+        track: queued_track,
+        ..
+    } = &queued_ref
+    else {
+        anyhow::bail!("expected a library track");
+    };
+    // The same track named as one of another library selects nothing from this one.
+    let elsewhere = PlayingItemRef::LibraryTrack {
+        library_id: Uuid::new_v4().to_string(),
+        track: queued_track.clone(),
+    };
+    let library = b.global_params.test_library();
+    let queued_cover = media_files::Entity::find_by_id(queued)
+        .one(&*library.main_db)
+        .await?
+        .and_then(|file| file.cover_art_uuid)
+        .context("cover of the queued track")?;
+    let queued_cover = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::SourceUuid.eq(queued_cover))
+        .one(&*library.main_db)
+        .await?
+        .context("cover art of the queued track")?
+        .id;
+    let queue_query = vec![MixQuery {
+        operator: "lib::queue".into(),
+        parameter: "true".into(),
+    }];
+    let mix = dispatch_gui_request(
+        &b.global_params,
+        &CreateMixRequest {
+            name: "Queue".into(),
+            group: "Queue".into(),
+            mode: None,
+            queries: queue_query.clone(),
+            call_id: None,
+        },
+    )
+    .await?
+    .context("mix of the queue")?
+    .mix;
+    let covered_tracks = |cover_art_map: &HashMap<i32, String>| {
+        let mut tracks = cover_art_map.keys().copied().collect::<Vec<_>>();
+        tracks.sort();
+        tracks
+    };
+
+    // Through the remote handle and on B itself, each request reads the queue its caller sent,
+    // never B's own player queue.
+    for (caller, params) in [("remote", &remote), ("local", &b.global_params)] {
+        for (sent, items, tracks, covers) in [
+            (
+                "the queued track",
+                vec![queued_ref.clone()],
+                vec![queued],
+                vec![queued_cover],
+            ),
+            ("an empty queue", Vec::new(), Vec::new(), Vec::new()),
+            (
+                "a track of another library",
+                vec![elsewhere.clone()],
+                Vec::new(),
+                Vec::new(),
+            ),
+        ] {
+            let queue = || CallerQueue {
+                items: items.clone(),
+            };
+
+            let by_ids = dispatch_gui_request(
+                params,
+                &FetchCollectionByIdsRequest {
+                    collection_type: CollectionType::Mix,
+                    bake_cover_arts: true,
+                    ids: vec![mix.id],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("mix by id")?;
+            let fetched = by_ids.result.first().context("fetched mix")?;
+            assert_eq!(
+                covered_tracks(&fetched.cover_art_map),
+                tracks,
+                "{caller} mix by id with {sent}"
+            );
+
+            let groups = dispatch_gui_request(
+                params,
+                &FetchCollectionGroupsRequest {
+                    collection_type: CollectionType::Mix,
+                    bake_cover_arts: true,
+                    group_titles: vec![mix.group.clone()],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("mix groups")?;
+            let grouped = groups
+                .groups
+                .iter()
+                .flat_map(|group| &group.collections)
+                .find(|collection| collection.id == mix.id)
+                .context("grouped mix")?;
+            assert_eq!(
+                covered_tracks(&grouped.cover_art_map),
+                tracks,
+                "{caller} mix groups with {sent}"
+            );
+
+            let home = dispatch_gui_request(
+                params,
+                &ComplexQueryRequest {
+                    queries: vec![ComplexQuery {
+                        title: "Mixes".into(),
+                        query: LibraryHomeQuery::Mixes(LibraryHomeListMode::Forward),
+                    }],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("library home")?;
+            let listed = home
+                .result
+                .iter()
+                .flat_map(|group| &group.entries)
+                .find(|entry| entry.id == mix.id)
+                .context("mix on the library home")?;
+            assert_eq!(
+                covered_tracks(&listed.cover_art_map),
+                tracks,
+                "{caller} library home with {sent}"
+            );
+
+            let cover_ids = dispatch_gui_request(
+                params,
+                &GetCoverArtIdsByMixQueriesRequest {
+                    requests: vec![GetCoverArtIdsByMixQueriesRequestUnit {
+                        id: mix.id,
+                        queries: queue_query.clone(),
+                    }],
+                    n: 18,
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("cover art ids")?;
+            let unit = cover_ids
+                .result
+                .first()
+                .context("cover art ids of the mix")?;
+            assert_eq!(
+                unit.cover_art_ids, covers,
+                "{caller} cover art ids with {sent}"
+            );
+        }
+    }
 
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -15198,6 +15401,7 @@ async fn an_open_subsonic_library_answers_its_home() -> Result<()> {
                 group("Playlists", LibraryHomeQuery::Playlists(mode)),
                 group("Tracks", LibraryHomeQuery::Tracks(mode)),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         },
     )

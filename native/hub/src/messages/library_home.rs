@@ -5,7 +5,7 @@ use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
 use super::collection::CollectionType;
-use super::mix::MixQuery;
+use super::mix::{CallerQueue, MixQuery};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, SignalPiece)]
 pub enum LibraryHomeDomain {
@@ -67,6 +67,8 @@ pub struct ComplexQuery {
 #[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct ComplexQueryRequest {
     pub queries: Vec<ComplexQuery>,
+    /// The caller's own player queue, which `lib::queue` selects.
+    pub queue: CallerQueue,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

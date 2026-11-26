@@ -385,7 +385,7 @@ mod tests {
     use anyhow::anyhow;
 
     use super::*;
-    use crate::messages::ComplexQuery;
+    use crate::messages::{CallerQueue, ComplexQuery};
     use crate::request_error::ExpectedRequestError;
 
     fn numbers(count: i32) -> Vec<i32> {
@@ -556,6 +556,7 @@ mod tests {
                     query: LibraryHomeQuery::Artists(mode),
                 },
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         }
     }
@@ -672,6 +673,7 @@ mod tests {
                 title: "Mixes".into(),
                 query: LibraryHomeQuery::Mixes(mode),
             }],
+            queue: CallerQueue::default(),
             call_id: None,
         }
     }

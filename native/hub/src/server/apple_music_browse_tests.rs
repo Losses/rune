@@ -2173,6 +2173,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type,
                 bake_cover_arts: false,
                 group_titles: vec![title.clone()],
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(page.groups[0].group_title, title);
@@ -2189,6 +2190,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type,
                 bake_cover_arts: false,
                 ids: ids.clone(),
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(
@@ -2222,6 +2224,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type: refused,
                 bake_cover_arts: false,
                 group_titles: vec!["A".into()],
+                queue: CallerQueue::default(),
             })
             .await
             .err()
@@ -2235,6 +2238,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             ids: vec![4242],
+            queue: CallerQueue::default(),
         })
         .await
         .err()
@@ -2339,6 +2343,7 @@ async fn apple_music_home_lists_its_groups_and_leaves_the_rest_empty() -> Result
                 group("Genres", LibraryHomeQuery::Genres(mode)),
                 group("Most", LibraryHomeQuery::Most),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2690,6 +2695,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
                     LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
                 ),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2710,6 +2716,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
                     LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
                 ),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2724,6 +2731,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
             "Tracks",
             LibraryHomeQuery::Tracks(LibraryHomeListMode::Random),
         )],
+        queue: CallerQueue::default(),
         call_id: None,
     };
     let first = apple.run(&random(())).await?;
@@ -2755,6 +2763,7 @@ async fn an_empty_apple_library_has_an_empty_home() -> Result<()> {
                     query,
                 })
                 .collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2896,6 +2905,7 @@ async fn parsed_media_files_share_collection_ids_and_take_catalog_songs() -> Res
                         collection_type,
                         bake_cover_arts: false,
                         group_titles: vec![title.into()],
+                        queue: CallerQueue::default(),
                     })
                     .await?
                     .groups
@@ -4069,6 +4079,7 @@ async fn home_names(ui: &crate::utils::GlobalParams) -> Result<Vec<Vec<String>>>
                     query,
                 })
                 .collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         },
     )
@@ -6005,6 +6016,7 @@ async fn collection_names(
             collection_type,
             bake_cover_arts: false,
             ids: ids.to_vec(),
+            queue: CallerQueue::default(),
         })
         .await?
         .result
@@ -6021,6 +6033,7 @@ async fn listed_artists(apple: &OpenApple, titles: &[&str]) -> Result<Vec<(Strin
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             group_titles: titles.iter().map(|title| (*title).to_owned()).collect(),
+            queue: CallerQueue::default(),
         })
         .await?
         .groups
@@ -6703,6 +6716,7 @@ async fn an_artist_the_library_no_longer_lists_is_skipped_by_the_collections_fet
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![gone, held],
+            queue: CallerQueue::default(),
         })
         .await?;
     assert_eq!(
@@ -6848,6 +6862,7 @@ async fn home_playlists(apple: &OpenApple) -> Result<Vec<crate::messages::Comple
                 title: "Playlists".into(),
                 query: LibraryHomeQuery::Playlists(LibraryHomeListMode::Forward),
             }],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -7150,6 +7165,7 @@ async fn a_rune_playlist_is_renamed_regrouped_and_removed_but_not_put_in_apples_
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids: vec![night.id],
+            queue: CallerQueue::default(),
         })
         .await?;
     assert!(by_ids.result.is_empty());
@@ -7184,6 +7200,7 @@ async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             group_titles: vec!["Calm".into(), "Mood".into()],
+            queue: CallerQueue::default(),
         })
         .await?;
     let shown = |index: usize| {
@@ -7204,6 +7221,7 @@ async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
                 collection_type: CollectionType::Playlist,
                 bake_cover_arts: true,
                 ids: vec![night.id],
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(by_ids.result[0].name, "Night Drive");
@@ -7718,6 +7736,7 @@ async fn mix_groups(apple: &OpenApple, titles: &[&str]) -> Result<Vec<Collection
             collection_type: CollectionType::Mix,
             bake_cover_arts: true,
             group_titles: titles.iter().map(|title| (*title).to_owned()).collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?
@@ -7746,6 +7765,7 @@ async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Re
                 collection_type: CollectionType::Album,
                 bake_cover_arts: bake,
                 ids: vec![album],
+                queue: CallerQueue::default(),
             })
             .await?;
         let files = apple
@@ -7760,6 +7780,7 @@ async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Re
                 collection_type: CollectionType::Mix,
                 bake_cover_arts: bake,
                 group_titles: vec!["Made for You".into()],
+                queue: CallerQueue::default(),
                 call_id: None,
             })
             .await?;
@@ -7814,6 +7835,7 @@ fn home_mixes(mode: LibraryHomeListMode) -> ComplexQueryRequest {
             title: "Mixes".into(),
             query: LibraryHomeQuery::Mixes(mode),
         }],
+        queue: CallerQueue::default(),
         call_id: None,
     }
 }
@@ -7915,6 +7937,7 @@ async fn mix_cover_names(apple: &OpenApple, mix: i32, count: usize) -> Result<Ve
                 collection_type: CollectionType::Mix,
                 bake_cover_arts: true,
                 ids: vec![mix],
+                queue: CallerQueue::default(),
                 call_id: None,
             })
             .await?;
@@ -7977,6 +8000,7 @@ async fn recommendation_groups_are_listed_as_locked_mixes_with_lasting_ids() -> 
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             ids: vec![remixes.queries[0].parameter.parse()?],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8040,6 +8064,7 @@ async fn recommendation_groups_are_listed_as_locked_mixes_with_lasting_ids() -> 
             collection_type: CollectionType::Mix,
             bake_cover_arts: false,
             ids: vec![picks.id, 9999, remixes.id],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8192,6 +8217,7 @@ async fn a_recommended_mix_lists_and_plays_the_songs_of_its_album_or_playlist() 
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids: vec![picks_playlist],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8979,6 +9005,7 @@ async fn liked_group(apple: &OpenApple) -> Result<Vec<String>> {
                 title: "Liked".into(),
                 query: LibraryHomeQuery::Liked,
             }],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -9929,6 +9956,7 @@ async fn all_albums(apple: &OpenApple) -> Result<Vec<(String, i32)>> {
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             group_titles: titles,
+            queue: CallerQueue::default(),
         })
         .await?
         .groups

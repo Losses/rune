@@ -104,6 +104,7 @@ async fn album_names(apple: &OpenApple, ids: Vec<i32>) -> Result<Vec<String>> {
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             ids,
+            queue: CallerQueue::default(),
         })
         .await?
         .result

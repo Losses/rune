@@ -1925,8 +1925,6 @@ async fn handle_status_event(
                 fsio,
                 Arc::clone(&library.main_db),
                 Arc::clone(&library.recommend_db),
-                Arc::clone(&node),
-                library_id,
                 current_path,
             )
             .await

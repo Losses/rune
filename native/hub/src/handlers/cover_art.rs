@@ -1,4 +1,3 @@
-use crate::node::NodeContext;
 use database::entities::{media_cover_art, media_cover_art::Column};
 use std::future::Future;
 use std::path::Path;
@@ -19,7 +18,7 @@ use crate::{
     Session, Signal,
     handlers::playback::{
         ItemRoutingParams, item_service, item_service_binding, local_item_library,
-        playing_item_from_request, reject_remote_independent_item,
+        playing_item_from_request, queue_file_ids, reject_remote_independent_item,
     },
     library_pool::LibraryHandle,
     messages::*,
@@ -30,19 +29,19 @@ use crate::{
 use std::collections;
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.node.clone())
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for GetCoverArtIdsByMixQueriesRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
     type Response = GetCoverArtIdsByMixQueriesResponse;
     async fn handle(
         &self,
-        (library, node): Self::Params,
+        (library,): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -51,7 +50,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
         let queries = &request.requests;
-        let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
+        let queue = Arc::new(queue_file_ids(&request.queue.items, &library).await?);
 
         let files_futures = queries.clone().into_iter().map(|x| {
             let main_db = Arc::clone(&main_db);

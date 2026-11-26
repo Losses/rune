@@ -41,7 +41,7 @@ impl DownloadParams {
     async fn cleanup(&self, library: &LibraryHandle) -> Result<()> {
         let queue = self
             .node
-            .session_queue_for_library(library.library_id)
+            .own_player_queue_for_library(library.library_id)
             .await?;
         let result = cleanup_unselected_downloads(
             &library.main_db,

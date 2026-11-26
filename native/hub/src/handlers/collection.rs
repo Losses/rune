@@ -1,4 +1,3 @@
-use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::utils::CollectionCoverOptions;
 use std::{collections::HashMap, sync::Arc};
@@ -20,6 +19,7 @@ use ::database::{
 use ::fsio::FsIo;
 use uuid::Uuid;
 
+use super::playback::queue_file_ids;
 use crate::utils::{GlobalParams, ParamsExtractor, inject_cover_art_map, require_library};
 use crate::{Session, Signal, messages::*};
 use std::clone;
@@ -337,20 +337,20 @@ impl Signal for FetchCollectionGroupSummaryRequest {
 }
 
 impl ParamsExtractor for FetchCollectionGroupsRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.node.clone())
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for FetchCollectionGroupsRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
     type Response = FetchCollectionGroupsResponse;
 
     async fn handle(
         &self,
-        (library, node): Self::Params,
+        (library,): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -358,7 +358,7 @@ impl Signal for FetchCollectionGroupsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
-        let queue = node.session_queue_for_library(library.library_id).await?;
+        let queue = queue_file_ids(&dart_signal.queue.items, &library).await?;
         let params = CollectionActionParams {
             group_titles: Some(dart_signal.group_titles.clone()),
             bake_cover_arts: dart_signal.bake_cover_arts,
@@ -444,20 +444,20 @@ impl Signal for FetchCollectionGroupsRequest {
 }
 
 impl ParamsExtractor for FetchCollectionByIdsRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.node.clone())
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for FetchCollectionByIdsRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
     type Response = FetchCollectionByIdsResponse;
 
     async fn handle(
         &self,
-        (library, node): Self::Params,
+        (library,): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -465,7 +465,7 @@ impl Signal for FetchCollectionByIdsRequest {
         let fsio = &library.fsio;
         let main_db = &library.main_db;
         let recommend_db = &library.recommend_db;
-        let queue = node.session_queue_for_library(library.library_id).await?;
+        let queue = queue_file_ids(&dart_signal.queue.items, &library).await?;
         let params = CollectionActionParams {
             ids: Some(dart_signal.ids.clone()),
             bake_cover_arts: dart_signal.bake_cover_arts,

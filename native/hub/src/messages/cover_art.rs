@@ -2,7 +2,7 @@ use requests::NamedLibraries;
 use rinf::{DartSignal, RustSignal, SignalPiece};
 use serde::{Deserialize, Serialize};
 
-use super::mix::MixQuery;
+use super::mix::{CallerQueue, MixQuery};
 use super::playback::PlayingItemRef;
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece, NamedLibraries)]
@@ -15,6 +15,8 @@ pub struct GetCoverArtIdsByMixQueriesRequestUnit {
 pub struct GetCoverArtIdsByMixQueriesRequest {
     pub requests: Vec<GetCoverArtIdsByMixQueriesRequestUnit>,
     pub n: i32,
+    /// The caller's own player queue, which `lib::queue` selects.
+    pub queue: CallerQueue,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

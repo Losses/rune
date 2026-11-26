@@ -8,7 +8,7 @@ use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::appended::{appended_field, field};
-use super::mix::MixQuery;
+use super::mix::{CallerQueue, MixQuery};
 
 #[derive(
     Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
@@ -82,6 +82,8 @@ pub struct FetchCollectionGroupsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub group_titles: Vec<String>,
+    /// The caller's own player queue, which `lib::queue` selects.
+    pub queue: CallerQueue,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -114,6 +116,8 @@ pub struct FetchCollectionByIdsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub ids: Vec<i32>,
+    /// The caller's own player queue, which `lib::queue` selects.
+    pub queue: CallerQueue,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

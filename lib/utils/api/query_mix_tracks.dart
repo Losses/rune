@@ -25,6 +25,15 @@ MixQueryRequest mixQueryRequest(
   );
 }
 
+/// The queue of the player the UI shows, for requests whose queries may select
+/// it (`lib::queue`).
+CallerQueue shownPlayerQueue() => CallerQueue(
+  items: queueItemsToExclude(
+    castTo: null,
+    queue: PlaylistUpdate.latestRustSignal?.message.items,
+  ),
+);
+
 Future<List<InternalMediaFile>> queryMixTracks(
   QueryList queries, [
   int? cursor,
