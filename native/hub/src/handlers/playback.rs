@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use discovery::access_policy::PeerIdentity;
 use log::warn;
 use tokio::sync::{Mutex, broadcast, broadcast::error::RecvError};
 use uuid::Uuid;
@@ -28,7 +29,7 @@ use ::playback::player::{
 };
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
-use crate::node::{HandoffPlaybackEvent, HandoffPlaybackReport};
+use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport};
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::server::libraries::{cast_library_state, cast_library_states, parse_library_ids};
 use crate::service::ServiceBinding;
@@ -272,7 +273,7 @@ fn edit_playlist(
     player: &dyn Playable,
     prepared: &[(PlayingItem, PlaybackSource)],
     options: PlaylistEditOptions,
-) -> (bool, PlaylistEdit) {
+) -> (bool, bool, PlaylistEdit) {
     let PlaylistEditOptions {
         mode,
         start_index,
@@ -298,14 +299,20 @@ fn edit_playlist(
         });
     let changed = (mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty())
         || !prepared.is_empty();
+    // A commanded load always displaces the track that plays, and replacing the playlist
+    // clears it outright; inserting behind or next to it does not. Whatever plays the
+    // displaced track later is no longer the playback the current owner started.
+    let displaces = load.is_some() || placement == PlaylistPlacement::Replace;
     (
         changed,
+        displaces,
         PlaylistEdit {
             tracks: prepared.to_vec(),
             placement,
             playback_mode: playback_mode.map(Into::into),
             load,
             block: None,
+            started_playback: None,
         },
     )
 }
@@ -507,6 +514,46 @@ impl Signal for PauseRequest {
         apply_player_command(&player, PlayerCommand::Pause).await?;
         Ok(Some(()))
     }
+}
+
+impl ParamsExtractor for PauseReportingRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.player),)
+    }
+}
+
+impl Signal for PauseReportingRequest {
+    type Params = (Arc<Mutex<dyn Playable>>,);
+    type Response = PauseReportingResponse;
+
+    async fn handle(
+        &self,
+        (player,): Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        // The player answers after the commands already sent, such as a Play pressed just
+        // before this pause, and counts a track that is reopening to play as playing.
+        let paused = { player.lock().await.pause_reporting() };
+        let paused = paused
+            .await
+            .map_err(|_| Error::new(player_command_error(PlayerCommandError::ThreadUnavailable)))?;
+        Ok(Some(PauseReportingResponse {
+            paused: paused.into(),
+            call_id: None,
+        }))
+    }
+}
+
+/// Names who started a load: the controller device's identity for a remote load, `None` for
+/// one this device itself made.
+fn load_initiator(session: Option<&Session>) -> Option<PeerIdentity> {
+    session.map(|session| PeerIdentity {
+        fingerprint: session.fingerprint.clone(),
+        public_key: session.public_key.clone(),
+    })
 }
 
 async fn record_skip(node: &NodeContext, player: &Arc<Mutex<dyn Playable>>) -> Result<()> {
@@ -930,6 +977,7 @@ impl Signal for HandoffLoadRequest {
             &node,
             PlayerHandoffBlockId::try_from(&request.block)?,
             &request.load,
+            session.as_ref(),
         )
         .await?;
         Ok(Some(HandoffLoadResponse {
@@ -1017,7 +1065,7 @@ impl Signal for LoadResolvedItemsRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         if session.is_some() {
-            let result = apply_cast_load(&node, request).await?;
+            let result = apply_cast_load(&node, request, session.as_ref()).await?;
             return Ok(Some(LoadResolvedItemsResponse {
                 call_id: None,
                 result,
@@ -1036,33 +1084,33 @@ impl Signal for LoadResolvedItemsRequest {
                     .map_err(|error| {
                         ExpectedRequestError::invalid_input(format!("Invalid start index: {error}"))
                     })?;
-                let mut completion = None;
                 node.session()?
-                    .edit_queue(request.expected_revision, |player| {
-                        let (changed, edit) = edit_playlist(
-                            player,
-                            &prepared,
-                            PlaylistEditOptions {
-                                mode: request.mode,
-                                start_index,
-                                playback_mode: request.playback_mode,
-                                position: request
-                                    .position_seconds
-                                    .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok()),
-                                play: request.play,
-                            },
-                        );
-                        completion = Some(
-                            player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
-                        );
-                        changed
-                    })
+                    .edit_queue_with_load(
+                        request.expected_revision,
+                        load_initiator(session.as_ref()),
+                        |player, started_report| {
+                            let (changed, displaces, mut edit) = edit_playlist(
+                                player,
+                                &prepared,
+                                PlaylistEditOptions {
+                                    mode: request.mode,
+                                    start_index,
+                                    playback_mode: request.playback_mode,
+                                    position: request.position_seconds.and_then(|seconds| {
+                                        Duration::try_from_secs_f64(seconds).ok()
+                                    }),
+                                    play: request.play,
+                                },
+                            );
+                            edit.started_playback = Some(started_report);
+                            let completion =
+                                Some(player.command_with_completion(PlayerCommand::EditPlaylist(
+                                    edit, None,
+                                )));
+                            (changed, false, displaces, completion)
+                        },
+                    )
                     .await?;
-                if let Some(completion) = completion {
-                    completion
-                        .await
-                        .map_err(|error| Error::new(player_command_error(error)))?;
-                }
                 return Ok(Some(LoadResolvedItemsResponse {
                     call_id: None,
                     result: ResolvedItemsLoadResult::default(),
@@ -1166,31 +1214,30 @@ impl Signal for LoadResolvedItemsRequest {
                         "Invalid playback position: expected a finite, non-negative number of seconds",
                     )
                 })?;
-            let mut completion = None;
             node.session()?
-                .edit_queue(request.expected_revision, |player| {
-                    let (changed, edit) = edit_playlist(
-                        player,
-                        &prepared,
-                        PlaylistEditOptions {
-                            mode: request.mode,
-                            start_index,
-                            playback_mode: request.playback_mode,
-                            position,
-                            play: request.play,
-                        },
-                    );
-                    completion = Some(
-                        player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
-                    );
-                    changed
-                })
+                .edit_queue_with_load(
+                    request.expected_revision,
+                    load_initiator(session.as_ref()),
+                    |player, started_report| {
+                        let (changed, displaces, mut edit) = edit_playlist(
+                            player,
+                            &prepared,
+                            PlaylistEditOptions {
+                                mode: request.mode,
+                                start_index,
+                                playback_mode: request.playback_mode,
+                                position,
+                                play: request.play,
+                            },
+                        );
+                        edit.started_playback = Some(started_report);
+                        let completion = Some(
+                            player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                        );
+                        (changed, false, displaces, completion)
+                    },
+                )
                 .await?;
-            if let Some(completion) = completion {
-                completion
-                    .await
-                    .map_err(|error| Error::new(player_command_error(error)))?;
-            }
         }
         Ok(Some(LoadResolvedItemsResponse {
             call_id: None,
@@ -1267,8 +1314,9 @@ impl Signal for CastPreflightRequest {
 async fn apply_cast_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
+    session: Option<&Session>,
 ) -> Result<ResolvedItemsLoadResult> {
-    let (result, _) = apply_resolved_items_load(node, request, None).await?;
+    let (result, _) = apply_resolved_items_load(node, request, None, session).await?;
     Ok(result)
 }
 
@@ -1276,11 +1324,12 @@ async fn apply_handoff_load(
     node: &NodeContext,
     block: PlayerHandoffBlockId,
     request: &LoadResolvedItemsRequest,
+    session: Option<&Session>,
 ) -> Result<PlayingItemRef> {
     if request.mode != PlaylistOperateMode::PlayNext {
         return Err(ExpectedRequestError::invalid_input("Handoff load must use PlayNext").into());
     }
-    let (_, handoff_item) = apply_resolved_items_load(node, request, Some(block)).await?;
+    let (_, handoff_item) = apply_resolved_items_load(node, request, Some(block), session).await?;
     handoff_item.ok_or_else(|| {
         ExpectedRequestError::Unavailable {
             what: "handoff block item",
@@ -1289,10 +1338,14 @@ async fn apply_handoff_load(
     })
 }
 
+/// Applies the load and, when it starts playback, names `session`'s device the owner of the
+/// playback that runs from then on: the controller device for a remote start, no one in
+/// particular (`None`) for a start this device itself made.
 async fn apply_resolved_items_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
     block: Option<PlayerHandoffBlockId>,
+    session: Option<&Session>,
 ) -> Result<(ResolvedItemsLoadResult, Option<PlayingItemRef>)> {
     let position = request
         .position_seconds
@@ -1459,33 +1512,34 @@ async fn apply_resolved_items_load(
                 position,
                 play,
                 playback_mode: request.playback_mode.map(Into::into),
+                initiator: load_initiator(session),
             })
             .await?;
     } else {
-        let mut completion = None;
         node.session()?
-            .edit_queue(request.expected_revision, |player| {
-                let (changed, edit) = edit_playlist(
-                    player,
-                    &prepared,
-                    PlaylistEditOptions {
-                        mode: request.mode,
-                        start_index,
-                        playback_mode: request.playback_mode,
-                        position,
-                        play: request.play,
-                    },
-                );
-                completion =
-                    Some(player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)));
-                changed
-            })
+            .edit_queue_with_load(
+                request.expected_revision,
+                load_initiator(session),
+                |player, started_report| {
+                    let (changed, displaces, mut edit) = edit_playlist(
+                        player,
+                        &prepared,
+                        PlaylistEditOptions {
+                            mode: request.mode,
+                            start_index,
+                            playback_mode: request.playback_mode,
+                            position,
+                            play: request.play,
+                        },
+                    );
+                    edit.started_playback = Some(started_report);
+                    let completion = Some(
+                        player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
+                    );
+                    (changed, false, displaces, completion)
+                },
+            )
             .await?;
-        if let Some(completion) = completion {
-            completion
-                .await
-                .map_err(|error| Error::new(player_command_error(error)))?;
-        }
     }
     Ok((result, handoff_item))
 }
@@ -1873,7 +1927,7 @@ impl Signal for HandoffRequest {
                     let restore_snapshot = copy_session_snapshot(&snapshot);
                     snapshot.playing = paused.was_playing;
                     let load = handoff_load(snapshot, PlaylistOperateMode::Replace);
-                    if let Err(error) = apply_cast_load(&node, &load).await {
+                    if let Err(error) = apply_cast_load(&node, &load, None).await {
                         let restore = handoff_load(restore_snapshot, PlaylistOperateMode::PlayNext);
                         source
                             .call(&HandoffLoadRequest {
@@ -1982,36 +2036,63 @@ async fn pause_handoff_source(
     generation: u64,
 ) -> Result<PausedHandoffSource> {
     if let Some(source) = attached {
+        // A renderer whose protocol predates the reporting pause cannot answer what its
+        // pause stopped, so the snapshot before the pause is its only answer. For one that
+        // can, the same snapshot is the recovery answer of a pause whose own answer is lost:
+        // the pause may have landed while its reply did not.
         let before = source
             .call(&SessionSnapshotRequest { call_id: None })
             .await?;
+        // A queue the destination cannot load fails the handoff before the source is
+        // touched: a pause is more than an interruption, because it settles a pending
+        // automatic resume.
+        if before
+            .items
+            .iter()
+            .any(|item| !matches!(item, PlayingItemRef::LibraryTrack { .. }))
+        {
+            return Err(ExpectedRequestError::Unavailable {
+                what: "casting files outside a library",
+            }
+            .into());
+        }
+        // The pause answers what it stopped: a play that reached the player after the last
+        // snapshot, such as a track reopening to play, counts as playing here.
         let paused = match node
             .pause_handoff_source(source.fingerprint(), &source, generation)
             .await
         {
             Ok(paused) => paused,
             Err(error) => {
+                // A pause that fails leaves the source in an unknown state: its reply may
+                // be all that was lost. When the source was playing before the handoff,
+                // leaving it paused loses playback the user never asked to stop, so it is
+                // resumed.
                 if before.playing {
                     source.call(&PlayRequest { call_id: None }).await?;
                 }
                 return Err(error);
             }
         };
-        if !paused {
+        let Some(paused) = paused else {
             return Err(ExpectedRequestError::HandoffSuperseded.into());
-        }
+        };
+        let was_playing = match paused {
+            HandoffPause::Reported(report) => report == PauseReport::Playing,
+            HandoffPause::Unreported => before.playing,
+        };
         let snapshot = source.call(&SessionSnapshotRequest { call_id: None }).await;
         let snapshot = match snapshot {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                if before.playing {
+                if was_playing {
                     source.call(&PlayRequest { call_id: None }).await?;
                 }
                 return Err(error);
             }
         };
         if snapshot.playing {
-            if before.playing {
+            if was_playing {
                 source.call(&PlayRequest { call_id: None }).await?;
             }
             // Something resumed the source while it was being handed off.
@@ -2020,7 +2101,7 @@ async fn pause_handoff_source(
         Ok(PausedHandoffSource {
             snapshot,
             source: PausedSource::Renderer(source),
-            was_playing: before.playing,
+            was_playing,
         })
     } else {
         let session = node.session()?;
@@ -2194,7 +2275,7 @@ async fn hand_off_to_this_device(
 ) -> Result<()> {
     let session = node.session()?;
     let original = session_snapshot(node, &session).await?;
-    if let Err(error) = apply_cast_load(node, load).await {
+    if let Err(error) = apply_cast_load(node, load, None).await {
         if original.items.is_empty() {
             if let Err(restore_error) = node
                 .session()?
@@ -2208,7 +2289,7 @@ async fn hand_off_to_this_device(
             }
         } else {
             let restore = handoff_load(original, PlaylistOperateMode::Replace);
-            if let Err(restore_error) = apply_cast_load(node, &restore).await {
+            if let Err(restore_error) = apply_cast_load(node, &restore, None).await {
                 warn!("Could not restore local queue after failed handoff: {restore_error:#}");
             }
         }

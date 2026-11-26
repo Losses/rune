@@ -2491,6 +2491,7 @@ mod access_policy_tests {
             "LoadRequest" => RequestAccess::Control,
             "PlayRequest" => RequestAccess::Control,
             "PauseRequest" => RequestAccess::Control,
+            "PauseReportingRequest" => RequestAccess::Control,
             "NextRequest" => RequestAccess::Control,
             "PreviousRequest" => RequestAccess::Control,
             "SwitchRequest" => RequestAccess::Control,

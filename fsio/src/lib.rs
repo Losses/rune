@@ -11,6 +11,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::ops;
+use std::time;
 use thiserror::Error;
 use tokio::runtime;
 
@@ -176,6 +177,16 @@ impl FileStream for fs::File {
     }
 }
 
+/// The change token for a modification time in whole seconds.
+///
+/// A file modified during the current second can change again without its
+/// time moving, so that second vouches for nothing until it has passed. A time
+/// in the future stays a token: a file with a wrong timestamp would otherwise
+/// be scanned again on every scan.
+fn modification_time_token(modified_secs: u64, now_secs: u64) -> Option<String> {
+    (modified_secs != now_secs).then(|| modified_secs.to_string())
+}
+
 #[async_trait]
 pub trait FileIo: Send + Sync {
     /// A name for logs and messages, not for deciding anything.
@@ -243,10 +254,19 @@ pub trait FileIo: Send + Sync {
     /// Seconds since the UNIX epoch of the last modification.
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError>;
     /// Stable backend-provided signal used to skip unchanged files during scans.
-    /// Backends without a stronger signal use modification time. `None` means
-    /// the backend offers no signal, so the file must be treated as changed.
+    /// Backends without a stronger signal use modification time, which is no
+    /// signal while the second of the modification is still running. `None`
+    /// means the backend offers no signal, so the file must be treated as
+    /// changed.
     fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
-        self.modified_time(path).map(|time| Some(time.to_string()))
+        // The clock is read after the file, so a second that it reports as
+        // passed cannot be given to a later modification.
+        let modified = self.modified_time(path)?;
+        let now = time::SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Ok(modification_time_token(modified, now))
     }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
@@ -357,3 +377,15 @@ mod noop_fs;
 use noop_fs::NoOpFsIo;
 
 pub mod self_test;
+
+#[cfg(test)]
+mod tests {
+    use super::modification_time_token;
+
+    #[test]
+    fn modification_time_is_a_token_only_outside_the_current_second() {
+        assert_eq!(modification_time_token(100, 100), None);
+        assert_eq!(modification_time_token(99, 100), Some("99".to_string()));
+        assert_eq!(modification_time_token(101, 100), Some("101".to_string()));
+    }
+}

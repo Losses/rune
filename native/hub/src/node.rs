@@ -55,11 +55,11 @@ use crate::{
     messages::{
         AttachedRenderer, CapabilityReason, ClientStatus, ClientSummary,
         IncommingClientPermissionNotification, InitializeNodeRequest, InitializeNodeResponse,
-        LibraryTaskKind, LibraryTaskStateChanged, PauseRequest, PlaybackStatus, PlayerHostChanged,
-        PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest, RemoteLibraryReconnecting,
-        RemoteLossKind, RendererAttachmentChanged, RendererLinkLost, RequestCapabilities,
-        RequestCapability, TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate,
-        VisualizerInputsChanged,
+        LibraryTaskKind, LibraryTaskStateChanged, PauseReport, PauseReportingRequest, PauseRequest,
+        PlaybackStatus, PlayerHostChanged, PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest,
+        RemoteLibraryReconnecting, RemoteLossKind, RendererAttachmentChanged, RendererLinkLost,
+        RequestCapabilities, RequestCapability, TrustListUpdated, TrustedClientsChanged,
+        TrustedServerCertificate, VisualizerInputsChanged,
     },
     server::{
         ServerManager, WebSocketService,
@@ -210,6 +210,16 @@ async fn depart_local_player(
         .await
         .map_err(|error| AnyhowError::new(player_command_error(error)))
         .context("Pause local player when another player becomes current")
+}
+
+/// How the pause of a handoff source answered, when it could.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HandoffPause {
+    /// The renderer's reporting pause answered what it stopped.
+    Reported(PauseReport),
+    /// The renderer's protocol predates the reporting pause, so nothing was answered and the
+    /// handoff reads the snapshot it took before the pause.
+    Unreported,
 }
 
 /// Process services shared by every local library and remote controller.
@@ -692,30 +702,61 @@ impl NodeContext {
         self.handoff_generation.load(Ordering::Acquire)
     }
 
+    /// Pauses the source renderer for a handoff. The pause answers what it stopped, so the
+    /// handoff keeps a source that was reopening to play playing: an earlier snapshot may be
+    /// too old for a play that reaches the player after it. `Ok(None)` when a newer handoff
+    /// has superseded this one.
+    ///
+    /// A renderer whose protocol predates the reporting pause cannot answer, so it receives
+    /// the plain pause and the answer is [`HandoffPause::Unreported`]: the handoff falls back
+    /// to the snapshot it took before the pause.
     pub(crate) async fn pause_handoff_source(
         self: &Arc<Self>,
         fingerprint: &str,
         source: &RendererLink,
         generation: u64,
-    ) -> Result<bool> {
+    ) -> Result<Option<HandoffPause>> {
         let _guard = self.handoff_gate.lock().await;
         if self.handoff_generation() != generation {
-            return Ok(false);
+            return Ok(None);
         }
 
-        match source.call(&PauseRequest { call_id: None }).await {
-            Ok(()) => Ok(true),
-            Err(first_error) => {
-                let (retry_link, _) = self
-                    .connect_renderer(fingerprint, RendererLinkUse::Cast)
-                    .await
-                    .with_context(|| format!("Pause source renderer {fingerprint}"))?;
-                let result = retry_link.call(&PauseRequest { call_id: None }).await;
-                retry_link.close();
-                result
-                    .context("Pause source renderer after reconnect")
-                    .map(|()| true)
-                    .or(Err(first_error))
+        // A renderer older than the reporting minor cannot answer what its pause stopped,
+        // so it gets the pause it knows and the handoff falls back to the snapshot it took
+        // before it.
+        if source.peer_version().minor >= PauseReportingRequest::INTRODUCED_MINOR {
+            match source.call(&PauseReportingRequest { call_id: None }).await {
+                Ok(response) => Ok(Some(HandoffPause::Reported(response.paused))),
+                Err(first_error) => {
+                    let (retry_link, _) = self
+                        .connect_renderer(fingerprint, RendererLinkUse::Cast)
+                        .await
+                        .with_context(|| format!("Pause source renderer {fingerprint}"))?;
+                    let result = retry_link
+                        .call(&PauseReportingRequest { call_id: None })
+                        .await;
+                    retry_link.close();
+                    result
+                        .context("Pause source renderer after reconnect")
+                        .map(|response| Some(HandoffPause::Reported(response.paused)))
+                        .or(Err(first_error))
+                }
+            }
+        } else {
+            match source.call(&PauseRequest { call_id: None }).await {
+                Ok(()) => Ok(Some(HandoffPause::Unreported)),
+                Err(first_error) => {
+                    let (retry_link, _) = self
+                        .connect_renderer(fingerprint, RendererLinkUse::Cast)
+                        .await
+                        .with_context(|| format!("Pause source renderer {fingerprint}"))?;
+                    let result = retry_link.call(&PauseRequest { call_id: None }).await;
+                    retry_link.close();
+                    result
+                        .context("Pause source renderer after reconnect")
+                        .map(|()| Some(HandoffPause::Unreported))
+                        .or(Err(first_error))
+                }
             }
         }
     }
@@ -1076,6 +1117,24 @@ impl NodeContext {
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
         *current = player;
+        // This device's player owns the visualizer again, so its session's reports are the
+        // playback to show. Until then they are ignored: the session keeps reporting the paused
+        // track it holds beside the current player, which would take the clock away from the
+        // feed of the player that is current. The feed also ends when its player can no longer
+        // feed: a peer that lost its link for good keeps the visualizer frozen on its last
+        // report otherwise. While the peer is reconnecting the feed stays — its clock is closer
+        // to what plays than the local paused track, and it resumes with the link.
+        let feed_over = matches!(
+            *current,
+            CurrentPlayer::Local
+                | CurrentPlayer::RunePeer {
+                    link: None,
+                    reconnecting: None,
+                }
+        );
+        if feed_over {
+            self.visualizer().release_feed();
+        }
         self.publish_visualizer_inputs(&current)?;
         self.publish_player_host(&current);
         Ok(())

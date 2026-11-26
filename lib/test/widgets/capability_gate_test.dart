@@ -64,6 +64,7 @@ RequestCapabilities snapshot({
     loadRequest: capability,
     playRequest: capability,
     pauseRequest: capability,
+    pauseReportingRequest: capability,
     nextRequest: capability,
     previousRequest: capability,
     switchRequest: capability,

@@ -616,9 +616,10 @@ mod change_tests {
             .await
     }
 
-    fn record_trust_changes(
-        manager: &mut PermissionManager,
-    ) -> Arc<Mutex<Vec<(String, Option<UserStatus>)>>> {
+    /// Trust changes observed through the hook, recorded as (fingerprint, new status).
+    type ObservedTrustChanges = Arc<Mutex<Vec<(String, Option<UserStatus>)>>>;
+
+    fn record_trust_changes(manager: &mut PermissionManager) -> ObservedTrustChanges {
         let changes = Arc::new(Mutex::new(Vec::new()));
         let observed = changes.clone();
         manager.set_trust_change_hook(Arc::new(move |fingerprint, status| {

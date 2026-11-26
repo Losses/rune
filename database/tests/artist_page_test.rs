@@ -462,6 +462,50 @@ async fn releases_fall_into_sections_by_their_tags_album_artists_and_length() ->
 }
 
 #[tokio::test]
+async fn a_section_plays_one_version_of_each_track_as_the_release_does() -> Result<()> {
+    let lib = Library::new().await?;
+    // Two versions of each of three tracks in one release, told apart by a comment.
+    for number in ["1", "2", "3"] {
+        for version in ["a", "b"] {
+            let title = format!("Song {number}");
+            lib.song(
+                &format!("Twice/{number}{version}.flac"),
+                300,
+                &[
+                    ("ARTIST", "Ann"),
+                    ("ALBUM", "Twice"),
+                    ("TITLE", &title),
+                    ("TRACKNUMBER", number),
+                    ("DATE", "2020"),
+                    ("COMMENT", version),
+                ],
+            )?;
+        }
+    }
+    lib.scan().await?;
+    lib.covers().await?;
+    let ann = lib.artist("Ann").await?;
+    let album = lib.album("Twice").await?;
+
+    // The release has three tracks and its album plays one version of each.
+    assert_eq!(lib.sections(ann).await?, [(ArtistSection::Singles, 1)]);
+    let mut release = lib.every_page("lib::album", &album.to_string(), 10).await?;
+    release.sort_unstable();
+    assert_eq!(release.len(), 3);
+    for cover_only in [false, true] {
+        let mut section: Vec<i32> =
+            artist_section_files(&lib.db, ann, ArtistSection::Singles, cover_only, 0, 10)
+                .await?
+                .into_iter()
+                .map(|file| file.id)
+                .collect();
+        section.sort_unstable();
+        assert_eq!(section, release, "cover only: {cover_only}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_typed_release_goes_to_the_section_of_its_type_whatever_its_length() -> Result<()> {
     let lib = Library::new().await?;
     // By their length these would be albums.

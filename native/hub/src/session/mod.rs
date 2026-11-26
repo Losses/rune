@@ -15,7 +15,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use database::{
     actions::{
         file::file_ids_by_uuid,
@@ -25,6 +25,7 @@ use database::{
     error::ExpectedError,
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
+use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use fsio::FsIo;
 use futures::future::BoxFuture;
 use playback::{
@@ -33,8 +34,8 @@ use playback::{
     hosted::is_hosted_path,
     player::{
         HandoffBlockId, InterruptedItem, Playable, PlaybackSource, PlaybackState, PlayedThrough,
-        Player, PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry, TakeBackBlockResult,
-        UnavailableReason,
+        Player, PlayerCommandError, PlayerStatus, PlayingItem, PlaylistStatus, QueueEntry,
+        TakeBackBlockResult, UnavailableReason,
     },
 };
 use scrobbling::{
@@ -59,7 +60,7 @@ use crate::{
         VisualizerFeedChart, VisualizerFeedCovers,
     },
     node::{HiddenLocalSession, NodeContext},
-    request_error::ExpectedRequestError,
+    request_error::{ExpectedRequestError, player_command_error},
     request_owner::Implementation,
     server::PairedAudioResolver,
     service::ServiceBinding,
@@ -73,7 +74,7 @@ use crate::{
     },
     visualizer::{feed_cover_bytes, playing_cover_changed},
 };
-use store::SessionState;
+use store::{SessionState, StoredPlaybackOwner};
 use tokio::task;
 
 /// One renderer and its durable queue, with node-scoped event listeners.
@@ -85,6 +86,9 @@ pub(crate) struct HandoffLoadParams {
     pub position: Duration,
     pub play: bool,
     pub playback_mode: Option<PlaybackMode>,
+    /// Who started this load when it starts playback: the controller device's identity for a
+    /// remote load, `None` for one this device itself made.
+    pub initiator: Option<PeerIdentity>,
 }
 
 /// Builds the player a session plays through from the real one.
@@ -107,6 +111,9 @@ pub struct PlayerSession {
     rename_items: Arc<Notify>,
     /// Wakes the event loop to tell the UI again what the current item supports.
     item_capabilities_changed: Arc<Notify>,
+    /// Wakes the persistence task when the playback owner changes, so the owner reaches the
+    /// session store whether or not any player event follows.
+    playback_owner_changed: Arc<Notify>,
 }
 
 /// Asks the event loop to show this session in the UI again once it has handled everything the
@@ -261,6 +268,76 @@ impl PlayerSession {
     where
         F: FnOnce(&mut dyn Playable) -> bool + Send,
     {
+        self.edit_queue_inner(expected_revision, None, |player, _started_report| {
+            (edit(player), false, false, None)
+        })
+        .await
+    }
+
+    /// An edit that loads playback records who started it: `initiator` is the controller
+    /// device's identity for a remote load, or `Some(None)` for one this device itself made.
+    /// The edit closure answers `(changed, starts_playback, displaces, completion)` and wires
+    /// the report channel it receives into its playlist edit, as in [`Self::edit_queue_inner`].
+    pub(crate) async fn edit_queue_with_load<F>(
+        &self,
+        expected_revision: Option<u64>,
+        initiator: Option<PeerIdentity>,
+        edit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(
+                &mut dyn Playable,
+                oneshot::Sender<bool>,
+            ) -> (
+                bool,
+                bool,
+                bool,
+                Option<BoxFuture<'static, Result<(), PlayerCommandError>>>,
+            ) + Send,
+    {
+        self.edit_queue_inner(expected_revision, Some(initiator), edit)
+            .await
+    }
+
+    /// Applies the edit under both locks, so ownership moves in the same serialized step that
+    /// starts playback: the initiator is written before the edit's commands go out, in the
+    /// order the edits themselves take effect. A load whose completion never returns — the
+    /// connection revoked mid-load drops its handler — still owns the playback it started,
+    /// and an interrupted load hands the ownership back only while no newer load has taken it,
+    /// which the generation tells apart.
+    ///
+    /// An initiator the policy no longer grants control is refused before anything is sent:
+    /// the revocation pass ran before this write, and nothing after it could catch the load.
+    /// A revocation inside the write's own serialization window — after the admission check,
+    /// before the ownership write — is re-checked where the ownership is written and paused
+    /// inline, once, behind the load's commands; everything after the locks release is the
+    /// revocation watcher's. Since ownership bookkeeping for a revocation is settled inside
+    /// the write itself, nothing of it is lost when the caller's task is cancelled while the
+    /// load completes.
+    ///
+    /// The edit closure answers `(changed, starts_playback, displaces, completion)` and
+    /// receives the report channel the player answers with whether the edit started playback,
+    /// which the closure wires into its playlist edit; the completion is the explicit one the
+    /// edit's load command comes with, so the rollback decision is made from whether that
+    /// command itself succeeded, not only from whether the player thread is still answering.
+    /// The caller does not await the completion again: its error is this call's error.
+    async fn edit_queue_inner<F>(
+        &self,
+        expected_revision: Option<u64>,
+        initiator: Option<Option<PeerIdentity>>,
+        edit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(
+                &mut dyn Playable,
+                oneshot::Sender<bool>,
+            ) -> (
+                bool,
+                bool,
+                bool,
+                Option<BoxFuture<'static, Result<(), PlayerCommandError>>>,
+            ) + Send,
+    {
         let mut state = self.state.lock().await;
         if let Some(expected) = expected_revision
             && expected != state.queue_revision
@@ -270,6 +347,23 @@ impl PlayerSession {
                 current: state.queue_revision,
             }
             .into());
+        }
+        // A remote initiator the policy no longer grants control never writes at all: the
+        // revocation's pass over the owner already ran before the edit could be authorized
+        // here, so nothing the edit would send can be caught after it, and a request that
+        // slips through the admission check in that window is refused rather than paused
+        // after the fact. The initiator stays in the admission window only while its access
+        // stands.
+        if let Some(Some(initiator)) = &initiator
+            && let Some(node) = self.node.upgrade()
+        {
+            node.access_policy.check(
+                &PeerIdentity {
+                    fingerprint: initiator.fingerprint.clone(),
+                    public_key: initiator.public_key.clone(),
+                },
+                &crate::access_policy::Action::Control,
+            )?;
         }
         let mut player = self.player.lock().await;
         // The revision is committed before the edit's commands go out, because they must carry
@@ -282,16 +376,119 @@ impl PlayerSession {
             .context("Queue revision overflow")?;
         state.queue_revision = candidate;
         player.tag_queue_revision(candidate);
-        let edit_made_changes = edit(&mut *player);
+        let (started_report, started_rx) = oneshot::channel();
+        let (edit_made_changes, starts_playback, displaces, explicit_completion) =
+            edit(&mut *player, started_report);
         player.clear_queue_revision_tag();
         if !edit_made_changes {
             state.queue_revision -= 1;
         }
+        // Whether the edit started playback is the player's own answer where the edit applies
+        // when it carries the report channel; the player's decision cannot be mirrored from
+        // outside, since a track loaded paused without output reads externally exactly like a
+        // user-paused one while the player counts it as having no current item. An edit that
+        // wires no report falls back to what its closure declared.
+        let started = match started_rx.await {
+            Ok(started) => started,
+            Err(_) => starts_playback,
+        };
+        let mut ownership = None;
+        if (started || displaces)
+            && let Some(initiator) = initiator
+        {
+            let generation = state.playback_owner_generation + 1;
+            ownership = Some((
+                generation,
+                state.playback_owner.clone(),
+                state.playback_owner_generation,
+            ));
+            if started {
+                state.playback_owner = initiator.map(|initiator| StoredPlaybackOwner {
+                    fingerprint: initiator.fingerprint,
+                    public_key: initiator.public_key,
+                });
+            } else {
+                // A load that displaces the current track without starting playback ends the
+                // playback the previous owner started: whatever plays the new track later —
+                // a resume, which never moves the ownership — is no longer it. A plain pause
+                // and play on the untouched queue displaces nothing and keeps the owner.
+                state.playback_owner = None;
+            }
+            state.playback_owner_generation = generation;
+            // A revocation landing between the admission check above and this write cannot be
+            // seen by the watcher — it passes while the owner here is not yet written, and the
+            // load's commands are already out. The re-check happens under the same lock hold
+            // the watcher serializes against, so a revoked owner is caught with certainty and
+            // paused inline, once, behind the load's own commands. The pause is fire-and-forget:
+            // the release is written in the same step, so a re-approved controller's newer load
+            // can never be caught by it, and the revocation work does not depend on this
+            // request's task surviving the wait for the load's completion.
+            if let Some(owner) = state.playback_owner.clone()
+                && self.node.upgrade().is_some_and(|node| {
+                    node.access_policy
+                        .check(
+                            &PeerIdentity {
+                                fingerprint: owner.fingerprint.clone(),
+                                public_key: owner.public_key.clone(),
+                            },
+                            &crate::access_policy::Action::Control,
+                        )
+                        .is_err()
+                })
+            {
+                log::info!(
+                    "Pausing playback: controller {} lost control access as its load was written",
+                    owner.fingerprint
+                );
+                player.pause();
+                state.playback_owner = None;
+                ownership = None;
+            }
+        }
         let completion = player.command_completion();
         drop(player);
         drop(state);
-        completion.await?;
+        if ownership.is_some() {
+            self.playback_owner_changed.notify_one();
+        }
+        let failure = match completion.await {
+            Err(error) => Some(error),
+            Ok(_) => match explicit_completion {
+                Some(explicit) => explicit.await.err(),
+                None => None,
+            },
+        };
+        if let Some(error) = failure {
+            // `Superseded` propagates to the caller, as it always did, but it never rolls the
+            // ownership back: a newer load's ownership is already safe behind its generation,
+            // and a pause — the revocation watcher's, or one the device made mid-load — leaves
+            // the edit's queue applied and playing nothing, so the ownership of the playback
+            // the load started must survive its interruption exactly where the edit put it.
+            if error != PlayerCommandError::Superseded {
+                self.rollback_playback_owner(ownership).await;
+            }
+            return Err(Error::new(player_command_error(error)));
+        }
         Ok(())
+    }
+
+    /// Hands the ownership back to what it was before the load whose completion failed, but
+    /// only while no newer load has taken it: the generation the load stamped is still the
+    /// current one. A newer load's ownership is never rolled back by an older load's failure.
+    async fn rollback_playback_owner(
+        &self,
+        ownership: Option<(u64, Option<StoredPlaybackOwner>, u64)>,
+    ) {
+        let Some((generation, previous_owner, previous_generation)) = ownership else {
+            return;
+        };
+        let mut state = self.state.lock().await;
+        if state.playback_owner_generation == generation {
+            state.playback_owner = previous_owner;
+            state.playback_owner_generation = previous_generation;
+            drop(state);
+            self.playback_owner_changed.notify_one();
+        }
     }
 
     pub(crate) async fn handoff_load_queue(&self, params: HandoffLoadParams) -> Result<()> {
@@ -312,6 +509,19 @@ impl PlayerSession {
                 .checked_add(1)
                 .context("Queue revision overflow")?,
         );
+        // The same admission rule as in `edit_queue_inner`: an initiator already revoked when
+        // the handoff is written is refused rather than dispatched and paused after the fact.
+        if let Some(initiator) = &params.initiator
+            && let Some(node) = self.node.upgrade()
+        {
+            node.access_policy.check(
+                &PeerIdentity {
+                    fingerprint: initiator.fingerprint.clone(),
+                    public_key: initiator.public_key.clone(),
+                },
+                &crate::access_policy::Action::Control,
+            )?;
+        }
         let response = player.handoff_load(
             params.tracks,
             params.block,
@@ -321,10 +531,66 @@ impl PlayerSession {
             params.playback_mode,
         );
         player.clear_queue_revision_tag();
+        // Ownership moves with the command itself, in the same serialized step as in
+        // `edit_queue_inner`: a handoff load interrupted after this point still owns the
+        // playback it started. The player only loads when a start index comes with the
+        // command, so playback starts exactly when both are set, and any start displaces the
+        // current track, ending the previous owner's playback the same way an edit's load does.
+        let starts = params.play && params.start_index.is_some();
+        let displaces = params.start_index.is_some();
+        let mut ownership = None;
+        if starts || displaces {
+            let generation = state.playback_owner_generation + 1;
+            ownership = Some((
+                generation,
+                state.playback_owner.clone(),
+                state.playback_owner_generation,
+            ));
+            if starts {
+                state.playback_owner = params.initiator.map(|initiator| StoredPlaybackOwner {
+                    fingerprint: initiator.fingerprint,
+                    public_key: initiator.public_key,
+                });
+            } else {
+                state.playback_owner = None;
+            }
+            state.playback_owner_generation = generation;
+            // The same revocation window re-check as in `edit_queue_inner`.
+            if let Some(owner) = state.playback_owner.clone()
+                && self.node.upgrade().is_some_and(|node| {
+                    node.access_policy
+                        .check(
+                            &PeerIdentity {
+                                fingerprint: owner.fingerprint.clone(),
+                                public_key: owner.public_key.clone(),
+                            },
+                            &crate::access_policy::Action::Control,
+                        )
+                        .is_err()
+                })
+            {
+                log::info!(
+                    "Pausing playback: controller {} lost control access as its handoff load was written",
+                    owner.fingerprint
+                );
+                player.pause();
+                state.playback_owner = None;
+                ownership = None;
+            }
+        }
         drop(player);
-        let result = response
-            .await
-            .context("Handoff load player command failed")?;
+        if ownership.is_some() {
+            self.playback_owner_changed.notify_one();
+        }
+        let result = response.await;
+        if result.is_err() {
+            drop(state);
+            self.rollback_playback_owner(ownership).await;
+            return result
+                .context("Handoff load player command failed")
+                .map(|_| ());
+        }
+        let result = result.context("Handoff load player command failed")?;
         state.add_handoff_block(params.block, result.interrupted);
         state.update_queue(&result.items);
         state.queue_revision = state
@@ -608,6 +874,7 @@ impl PlayerSession {
             show_requests,
             rename_items: Arc::new(Notify::new()),
             item_capabilities_changed: Arc::new(Notify::new()),
+            playback_owner_changed: Arc::new(Notify::new()),
         });
         session.start_events(node, show_receiver).await;
         // The restored queue is the queue the persisted revision describes: restore is no
@@ -828,6 +1095,7 @@ impl PlayerSession {
         let path = self.path.clone();
         let persistence_writes = self.persistence_writes.clone();
         let cancel = self.cancel.clone();
+        let owner_changed = self.playback_owner_changed.clone();
         let persistence_task = tokio::spawn(async move {
             let mut written = state.lock().await.clone();
             let mut dirty_deadline = None;
@@ -838,6 +1106,12 @@ impl PlayerSession {
                         flush_session_state(&state, &path, &mut written, &persistence_writes).await;
                         return;
                     },
+                    // The owner moves without any player event — a revocation that releases a
+                    // paused playback's owner emits none — so it must mark the store dirty
+                    // itself instead of riding the load's queue and status reports.
+                    _ = owner_changed.notified() => {
+                        dirty_deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
+                    }
                     Some(value) = persist_playlist_rx.recv() => {
                         record_playlist_change(&state, value.items, &mut dirty_deadline).await;
                     }
@@ -849,10 +1123,117 @@ impl PlayerSession {
                 }
             }
         });
-        self.tasks
-            .lock()
-            .await
-            .extend([event_task, persistence_task, now_playing_task]);
+        // Revoking a controller's control access stops the playback it started, wherever its
+        // connection is by then. The owner persists with the queue, so the playback stays the
+        // controller's own across pauses, reconnects and restarts; a playback the device
+        // itself or another controller loaded survives the revocation. The owner is released
+        // once the revocation has acted — playback already paused needs no acting on — so
+        // what the device resumes afterwards is its own again. The first pass runs before
+        // waiting for a change because the revocation may have finished while the session was
+        // down or still starting.
+        let state = self.state.clone();
+        let player = self.player.clone();
+        let revoke_weak = self.node.clone();
+        let revoke_cancel = self.cancel.clone();
+        let owner_notify = self.playback_owner_changed.clone();
+        let revoke_task = tokio::spawn(async move {
+            let Some(node) = revoke_weak.upgrade() else {
+                return;
+            };
+            let policy = node.access_policy.clone();
+            drop(node);
+            let mut changes = policy.changes();
+            loop {
+                revoke_playback_owner_once(&state, &player, &owner_notify, &revoke_weak).await;
+                tokio::select! {
+                    biased;
+                    _ = revoke_cancel.cancelled() => return,
+                    result = changes.changed() => if result.is_err() { return },
+                }
+            }
+        });
+        self.tasks.lock().await.extend([
+            event_task,
+            persistence_task,
+            now_playing_task,
+            revoke_task,
+        ]);
+    }
+}
+
+/// Pauses the playback the current owner started and releases the ownership when that owner no
+/// longer holds control access. The owner is read again under both locks, in the same order the
+/// load edits take them, so the pause is serialized with the loads that move ownership: playback
+/// another controller or the device itself started is never paused here. The pause is not
+/// conditioned on the player state — a load that has not reached Playing yet would otherwise
+/// slip past it — and pausing what already stands paused is a no-op. The generation is
+/// remembered with the pause: while it is awaited the locks are off, and a load a re-approved
+/// controller started meanwhile must survive the release, so the release is conditioned on both
+/// the owner and its generation standing unchanged. The revocation watcher runs this pass on
+/// every access-policy change; the load edits run it after their completion when the owner they
+/// recorded was already revoked while the load was in flight, a revocation no policy change can
+/// wake the watcher for again.
+async fn revoke_playback_owner_once(
+    state: &Mutex<SessionState>,
+    player: &Mutex<dyn Playable>,
+    owner_notify: &Notify,
+    node: &Weak<NodeContext>,
+) {
+    let Some(node) = node.upgrade() else {
+        return;
+    };
+    let policy = node.access_policy.clone();
+    drop(node);
+    let revoked = {
+        let owner = state.lock().await.playback_owner.clone();
+        owner.filter(|owner| {
+            policy
+                .check(
+                    &PeerIdentity {
+                        fingerprint: owner.fingerprint.clone(),
+                        public_key: owner.public_key.clone(),
+                    },
+                    &crate::access_policy::Action::Control,
+                )
+                .is_err()
+        })
+    };
+    let Some(owner) = revoked else {
+        return;
+    };
+    let fingerprint = owner.fingerprint.clone();
+    let completion = {
+        let state = state.lock().await;
+        if state.playback_owner.as_ref() != Some(&owner) {
+            drop(state);
+            None
+        } else {
+            let generation = state.playback_owner_generation;
+            let mut player = player.lock().await;
+            let completion = player.command_with_completion(playback::PlayerCommand::Pause);
+            drop(player);
+            drop(state);
+            Some((completion, generation))
+        }
+    };
+    if let Some((completion, generation)) = completion {
+        if let Err(error) = completion.await {
+            log::warn!(
+                "Could not pause playback of the revoked controller {fingerprint}: {error:?}"
+            );
+        } else {
+            log::info!("Paused playback: controller {fingerprint} lost control access");
+        }
+        let mut state = state.lock().await;
+        if state.playback_owner.as_ref() == Some(&owner)
+            && state.playback_owner_generation == generation
+        {
+            state.playback_owner = None;
+            drop(state);
+            owner_notify.notify_one();
+        } else {
+            drop(state);
+        }
     }
 }
 
@@ -1587,13 +1968,14 @@ async fn handle_played_event(
 
 /// A playback failure reaches the application log, and when no request answer already carried
 /// it, also reaches the user as a typed request failure: nothing else reports a playback that
-/// stops on its own.
+/// stops on its own. The first failure of a chain through broken tracks is reported, and its
+/// continuations stay in the log, so a queue of broken tracks does not bury the user in reports.
 async fn handle_log_event(node: &NodeContext, error: InternalLog, broadcaster: &dyn Broadcaster) {
     let detail = error.error.clone();
     if let Some(item) = &error.item {
         let _ = item_log(node, item, error.domain.clone(), detail.clone()).await;
     }
-    if error.answered {
+    if error.answered || error.chain_continuation {
         return;
     }
     let kind = match error.failure {
@@ -2043,6 +2425,10 @@ mod test_access {
     impl PlayerSession {
         pub(crate) fn persistence_write_count(&self) -> usize {
             self.persistence_writes.load(Ordering::Acquire)
+        }
+
+        pub(crate) async fn playback_owner_for_test(&self) -> Option<StoredPlaybackOwner> {
+            self.state.lock().await.playback_owner.clone()
         }
     }
 }

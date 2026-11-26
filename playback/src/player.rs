@@ -69,6 +69,53 @@ impl RemoteAudioError {
     }
 }
 
+/// Validates the answer of a peer's audio endpoint against the range it was asked for. A peer
+/// that answers a ranged request with the wrong status, a content range that does not name the
+/// asked range, or fewer bytes than its headers promise serves audio playback cannot accept, so
+/// the response is rejected before any of it is read.
+pub fn validate_audio_response(
+    response: &reqwest::Response,
+    size: u64,
+    range: Option<(u64, Option<u64>)>,
+) -> Result<()> {
+    use anyhow::ensure;
+    let expected_length = if let Some((start, end)) = range {
+        ensure!(start < size, "audio range starts beyond content");
+        let last = end.unwrap_or(size - 1).min(size - 1);
+        ensure!(last >= start, "invalid audio range");
+        if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "unexpected status {}",
+                response.status()
+            )));
+        }
+        let expected = format!("bytes {start}-{last}/{size}");
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|h| h.to_str().ok())
+            != Some(expected.as_str())
+        {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "content range does not match {expected}"
+            )));
+        }
+        last - start + 1
+    } else {
+        if response.status() != reqwest::StatusCode::OK {
+            anyhow::bail!(RemoteAudioError::unreachable(format!(
+                "unexpected status {}",
+                response.status()
+            )));
+        }
+        size
+    };
+    if response.content_length() != Some(expected_length) {
+        anyhow::bail!(RemoteAudioError::Incomplete);
+    }
+    Ok(())
+}
+
 impl UnavailableReason {
     pub fn classify(error: &anyhow::Error) -> Self {
         for cause in error.chain() {
@@ -597,6 +644,11 @@ pub struct PlaylistEdit {
     pub playback_mode: Option<PlaybackMode>,
     pub load: Option<PlaylistLoad>,
     pub block: Option<HandoffBlockId>,
+    /// When set, the player answers here whether applying the edit started playback — an
+    /// explicit load that plays, or a PlayNext insertion it starts on its own. The answer is
+    /// the player's own decision where the edit applies, not a reading of its state from
+    /// outside, which cannot tell a user-paused track from one loaded paused without output.
+    pub started_playback: Option<oneshot::Sender<bool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
