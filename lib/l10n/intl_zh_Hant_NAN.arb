@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "共清單內底的項目攏總刣掉。",
+  "factoryResetSubtitle": "共清單內底的項目攏總刣掉，連 Rune 佇這台裝置為串流媒體庫保存的播放清單、Mix 清單佮有按讚的也共刣掉。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "重設媒體庫會清掉你開檔案的歷史紀錄，毋過你目前的媒體庫內容袂變動。敢欲繼續？",
+  "resetLibrarySubtitle": "重設媒體庫會清掉你開檔案的歷史紀錄，閣會永遠刣掉 Rune 佇這台裝置為串流媒體庫保存的播放清單、Mix 清單佮有按讚的，毋過你目前的媒體庫內容袂變動。敢欲繼續？",
   "@resetLibrarySubtitle": {},
   "unavailable": "無法使用",
   "@unavailable": {

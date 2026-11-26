@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "棄庫錄之諸項。",
+  "factoryResetSubtitle": "棄庫錄之諸項，並棄 Rune 於此器為流庫所藏之錄、彙、悅。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "只祛訪蹤，無改曲庫。誠欲將乎？",
+  "resetLibrarySubtitle": "只祛訪蹤，並永棄 Rune 於此器為流庫所藏之錄、彙、悅，無改曲庫。誠欲將乎？",
   "@resetLibrarySubtitle": {},
   "unavailable": "無從取用",
   "@unavailable": {

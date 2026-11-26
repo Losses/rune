@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "音楽集全項目削除。",
+  "factoryResetSubtitle": "音楽集全項目削除。流通音楽集用に本機保存の再生一覧表、調和構成、良も削除。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "資料集初期化為、履歴消去。既存資料影響無。実行可？",
+  "resetLibrarySubtitle": "資料集初期化為、履歴消去、流通音楽集用に本機保存の再生一覧表、調和構成、良も永久削除。既存資料影響無。実行可？",
   "@resetLibrarySubtitle": {},
   "unavailable": "利用不可",
   "@unavailable": {

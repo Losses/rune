@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko.",
+  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko, kaj la ludlistojn, miksaĵojn kaj ŝatatojn, kiujn Rune konservas en ĉi tiu aparato por kontinufluaj bibliotekoj.",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modala titolo demandante uzantojn ĉu ili volas restarigi la bibliotekon."
   },
-  "resetLibrarySubtitle": "Restarigo de la biblioteko malplenigos vian dosier-historion. Via ekzistanta amaskomunikila biblioteko restos senŝanĝa. Ĉu vi volas daŭrigi?",
+  "resetLibrarySubtitle": "Restarigo de la biblioteko malplenigos vian dosier-historion kaj porĉiame forigos la ludlistojn, miksaĵojn kaj ŝatatojn, kiujn Rune konservas en ĉi tiu aparato por kontinufluaj bibliotekoj. Via ekzistanta amaskomunikila biblioteko restos senŝanĝa. Ĉu vi volas daŭrigi?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Ne disponebla",
   "@unavailable": {

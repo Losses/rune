@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Remove all items from the library list.",
+  "factoryResetSubtitle": "Remove all items from the library list, and the playlists, mixes and likes Rune keeps on this device for streaming libraries.",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -635,7 +635,7 @@
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "Resetting the library will clear your file open history. Your existing media library will remain unchanged. Do you want to proceed?",
+  "resetLibrarySubtitle": "Resetting the library will clear your file open history and permanently delete the playlists, mixes and likes Rune keeps on this device for streaming libraries. Your existing media library will remain unchanged. Do you want to proceed?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Unavailable",
   "@unavailable": {

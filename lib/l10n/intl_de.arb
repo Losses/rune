@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "Der Titel des Buttons auf der Einstellungsseite, der die Aktion 'Bibliothekshistorie zurücksetzen' auslöst."
   },
-  "factoryResetSubtitle": "Alle Elemente aus der Bibliotheksliste entfernen.",
+  "factoryResetSubtitle": "Alle Elemente aus der Bibliotheksliste sowie die Wiedergabelisten, Mixes und „Gefällt mir“-Markierungen entfernen, die Rune auf diesem Gerät für Streaming-Bibliotheken speichert.",
   "@factoryResetSubtitle": {
     "description": "Der beschreibende Text für den 'Werkseinstellungen'-Button in der Einstellungsoberfläche."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modaltitel, der Benutzer fragt, ob sie die Bibliothek zurücksetzen möchten."
   },
-  "resetLibrarySubtitle": "Das Zurücksetzen der Bibliothek löscht Ihren Dateiverlauf. Ihre bestehende Medienbibliothek bleibt unverändert. Möchten Sie fortfahren?",
+  "resetLibrarySubtitle": "Das Zurücksetzen der Bibliothek löscht Ihren Dateiverlauf und entfernt dauerhaft die Wiedergabelisten, Mixes und „Gefällt mir“-Markierungen, die Rune auf diesem Gerät für Streaming-Bibliotheken speichert. Ihre bestehende Medienbibliothek bleibt unverändert. Möchten Sie fortfahren?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Nicht verfügbar",
   "@unavailable": {
