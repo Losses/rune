@@ -2854,6 +2854,79 @@ async fn webdav_lyric_requests_do_not_panic_in_the_async_runtime() -> Result<()>
     Ok(())
 }
 
+// With valid embedded timed lyrics the sidecar search must not run at all: a
+// broken .lrc next to the track neither errors the request nor overrides the
+// embedded lyrics.
+#[tokio::test]
+async fn valid_embedded_lyrics_win_over_a_broken_sidecar() -> Result<()> {
+    use crate::messages::RegisterLocalLibraryRequest;
+
+    let node_dir = tempfile::tempdir()?;
+    let second_library_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: second_library_dir.path().to_string_lossy().into_owned(),
+            alias: "Embedded lyrics library".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &fixture.global_params.node,
+    )
+    .await?;
+    let record = registered.record.context("embedded lyrics library record")?;
+    let library_id = LibraryRegistry::load(node_dir.path())?
+        .catalogs()
+        .find(|library| library.alias == record.alias)
+        .and_then(|library| library.library_id)
+        .context("embedded lyrics library catalog id")?;
+    let library = fixture
+        .global_params
+        .library_pool
+        .acquire(library_id)
+        .await?;
+    let target = Path::new(&library.media_root).join("embedded-wins.ogg");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/embedded-lyrics.ogg"),
+        &target,
+    )?;
+    fs::write(target.with_extension("lrc"), "no timestamps at all")?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        Path::new(&library.media_root),
+        &target,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .filter(Column::FileName.eq("embedded-wins.ogg"))
+        .one(&*library.main_db)
+        .await?
+        .context("embedded lyrics track")?;
+
+    let lyrics = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLyricByTrackIdRequest {
+            call_id: None,
+            item: Some(PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: file.source_uuid.clone(),
+            }),
+        },
+    )
+    .await?
+    .context("lyrics response")?;
+    let contents = lyrics
+        .lines
+        .iter()
+        .flat_map(|line| line.sections.iter().map(|section| section.content.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(contents, ["Embedded line wins"]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn setting_liked_on_a_read_only_replica_returns_a_typed_error() -> Result<()> {
     use crate::messages::SetLikedRequest;
