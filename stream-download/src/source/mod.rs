@@ -182,7 +182,15 @@ where
             Ok(StreamOutcome::CancelledByUser) => {
                 (Err(cancelled_by_user()), StreamOutcome::CancelledByUser)
             }
-            Err(e) => (Err(e), StreamOutcome::Completed),
+            Err(e) => {
+                // A cancel while the writer waits for ring-buffer space surfaces as the
+                // writer's error, so the outcome is read from the token, not the error.
+                if self.cancellation_token.is_cancelled() {
+                    (Err(e), StreamOutcome::CancelledByUser)
+                } else {
+                    (Err(e), StreamOutcome::Completed)
+                }
+            }
         };
         let res = if res.is_ok() {
             // `on_finish` can wait, for a command to exit, and readers wait for it. A cancel
@@ -472,9 +480,18 @@ where
                 }
             }
             if new_written == 0 {
-                // We're not able to write any data, so we need to wait for space to be available
+                // We're not able to write any data, so we need to wait for space to be
+                // available. This wait is inside the write loop the outer select drives,
+                // so a cancellation while the ring is full must be observed here too:
+                // without it the download task stays pending until the next read.
                 debug!("waiting for next read");
-                self.notify_read.wait_for_read().await;
+                tokio::select! {
+                    () = self.cancellation_token.cancelled() => {
+                        debug!("received cancellation request while waiting for space");
+                        return Err(cancelled_by_user());
+                    }
+                    () = self.notify_read.wait_for_read() => {}
+                }
                 debug!("read finished");
             }
 

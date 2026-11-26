@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{Source, SourceStream};
 use crate::storage::StorageProvider;
+use crate::storage::bounded::BoundedStorageProvider;
 use crate::storage::memory::{MemoryStorage, MemoryStorageProvider};
 use crate::storage::temp::TempStorageProvider;
 use crate::{Settings, StreamDownload};
@@ -427,4 +428,189 @@ async fn read_at_eof_with_unfilled_hole_stops_at_the_hole() {
         content[0..50],
         "the read must return the downloaded prefix"
     );
+}
+
+/// #540: cancelling a download whose writer waits for ring-buffer space must finish the
+/// task's cleanup without another read. On unpatched master the writer's inner
+/// `wait_for_read` cannot observe the cancellation, so the download task never reaches
+/// its cleanup: the stream never reports completion, and readers are never released by
+/// it. The cancellation token the completion handle waits on fires on cancel even while
+/// the task is still stuck, so the cleanup is observed through the stream completion it
+/// signals.
+///
+/// Setup: a ring of 8 and a chunk of 24 bytes, which cannot fit in the ring at once.
+/// Once the reader drains the first ringful the writer fills it again and stalls inside
+/// its write loop with positions 16..24 of its chunk unwritten, because freeing a slot
+/// needs a read, and the frozen consumer never reads again.
+#[tokio::test]
+async fn cancellation_finishes_a_writer_waiting_for_space() {
+    use std::num::NonZeroUsize;
+
+    let mut content = vec![0u8; 32];
+    for (i, byte) in content.iter_mut().enumerate() {
+        *byte = (i + 1) as u8;
+    }
+    let content = content;
+
+    let (stream, tx, _seeks) = controlled_stream(Some(32));
+    let mut download = StreamDownload::from_stream(
+        stream,
+        BoundedStorageProvider::new(MemoryStorageProvider, NonZeroUsize::new(8).expect("nonzero")),
+        Settings::default().prefetch_bytes(0),
+    )
+    .await
+    .expect("create test stream");
+    let download_handle = download.handle.clone();
+    let completion = download.handle();
+    let cancel = download.cancellation_token();
+
+    tx.send(Some(Bytes::copy_from_slice(&content[0..24])))
+        .expect("send chunk larger than the ring");
+
+    // The reader drains exactly the first ringful, then the consumer stops: no further
+    // read can ever free a slot for the writer.
+    let (finished, reader_finished) = oneshot::channel();
+    let reader = thread::spawn(move || {
+        let mut received = Vec::new();
+        while received.len() < 8 {
+            let mut buf = [0u8; 1];
+            match download.read(&mut buf) {
+                Ok(0) => break,
+                Ok(read) => received.extend_from_slice(&buf[..read]),
+                Err(e) => panic!("the first reads must succeed: {e}"),
+            }
+        }
+        let _ = finished.send((received, download));
+    });
+
+    // Once the first ringful is drained the writer fills it again and stalls: positions
+    // 16..24 of its chunk remain unwritten. The freeze check proves the writer is inside
+    // its write loop waiting for a read, not waiting for the next chunk in the outer
+    // select, which observes cancellation on unpatched master too.
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let end = download_handle
+                .get_downloaded_at_position(0)
+                .map_or(0, |range| range.end);
+            if end >= 16 {
+                break;
+            }
+            yield_now().await;
+        }
+    })
+    .await
+    .expect("peer step timed out: writer filling the ring ahead of the reader");
+    // Let the writer settle into its wait for a read.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let end_at_cancel = download_handle
+        .get_downloaded_at_position(0)
+        .map_or(0, |range| range.end);
+    assert!(
+        end_at_cancel < 24,
+        "the writer must still hold unwritten positions of its chunk at cancellation, \
+         got end {end_at_cancel}"
+    );
+
+    cancel.cancel();
+
+    timeout(Duration::from_secs(1), async {
+        while !download_handle.is_stream_complete() {
+            yield_now().await;
+        }
+    })
+    .await
+    .expect(
+        "the download task must finish its cleanup after cancellation instead of waiting          for a read that can never happen",
+    );
+    timeout(Duration::from_secs(1), completion.wait_for_completion())
+        .await
+        .expect("peer step timed out: download completion");
+
+    let (received, download) = timeout(Duration::from_secs(1), reader_finished)
+        .await
+        .expect("the draining reader must finish")
+        .expect("reader result");
+    reader.join().expect("reader thread");
+    assert_eq!(received.len(), 8, "the reader drained the first ringful");
+    drop(download);
+}
+
+/// Control for the same backpressure scenario without a cancellation: the second chunk
+/// fills the ring exactly and the writer stalls, then reads that free space must resume
+/// the writer, and the download must complete with the whole stream.
+#[tokio::test]
+async fn a_read_resumes_a_writer_waiting_for_space() {
+    use std::num::NonZeroUsize;
+
+    let mut first = vec![0u8; 32];
+    for (i, byte) in first.iter_mut().enumerate() {
+        *byte = (i + 1) as u8;
+    }
+    let mut tail = vec![0u8; 8];
+    for (i, byte) in tail.iter_mut().enumerate() {
+        *byte = (i + 33) as u8;
+    }
+    let mut content = first.clone();
+    content.extend_from_slice(&tail);
+
+    let (stream, tx, _seeks) = controlled_stream(Some(40));
+    let mut download = StreamDownload::from_stream(
+        stream,
+        BoundedStorageProvider::new(MemoryStorageProvider, NonZeroUsize::new(8).expect("nonzero")),
+        Settings::default().prefetch_bytes(0),
+    )
+    .await
+    .expect("create test stream");
+    let download_handle = download.handle.clone();
+    let completion = download.handle();
+
+    tx.send(Some(Bytes::copy_from_slice(&first)))
+        .expect("send first chunk");
+
+    // The reader consumes the whole stream one byte at a time.
+    let content_len = content.len();
+    let (finished, reader_finished) = oneshot::channel();
+    let reader = thread::spawn(move || {
+        let mut received = Vec::new();
+        let mut buf = [0u8; 1];
+        while received.len() < content_len {
+            match download.read(&mut buf) {
+                Ok(0) => break,
+                Ok(read) => received.extend_from_slice(&buf[..read]),
+                Err(e) => panic!("reads must succeed: {e}"),
+            }
+        }
+        let _ = finished.send((received, download));
+    });
+
+    // Once the writer passes 16, the reader has drained the first ringful and the ring
+    // holds exactly 16..24. The second chunk stalls the writer at 24: no read is possible
+    // until 8 is written, and writing 8 needs a read. The reader's reads resume it.
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let end = download_handle
+                .get_downloaded_at_position(0)
+                .map_or(0, |range| range.end);
+            if end >= 16 {
+                break;
+            }
+            yield_now().await;
+        }
+    })
+    .await
+    .expect("peer step timed out: writer passing the first ringful");
+    tx.send(Some(Bytes::copy_from_slice(&tail)))
+        .expect("send second chunk");
+    tx.send(None).expect("end the stream");
+
+    let (received, download) = timeout(Duration::from_secs(2), reader_finished)
+        .await
+        .expect("peer step timed out: reads resuming the writer through the full ring")
+        .expect("reader result");
+    reader.join().expect("reader thread");
+    assert_eq!(received, content, "the reads return the whole stream");
+    timeout(Duration::from_secs(1), completion.wait_for_completion())
+        .await
+        .expect("peer step timed out: download completion");
+    drop(download);
 }
