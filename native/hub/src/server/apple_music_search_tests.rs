@@ -54,15 +54,15 @@ async fn a_search_lists_the_librarys_matches_then_the_catalogs_and_each_song_onc
         track_keys(&apple, &search.tracks).await?,
         ["i.s1", "catalog:900", "catalog:1603"]
     );
-    // The catalog's "Dawn Album" names no catalog id in the library, so it is the library's
-    // album of its name and artist.
+    // The library's "Dawn Album" names no catalog album, so the catalog's album of the same
+    // name and artist may be another edition: both are listed, the library's first.
     assert_eq!(
         remotes(&apple, AppleIdKind::Album, &search.albums)?,
-        ["l.alb1", "catalog:1600"]
+        ["l.alb1", "catalog:1500", "catalog:1600"]
     );
     assert_eq!(
         collection_names(&apple, CollectionType::Album, &search.albums).await?,
-        ["Dawn Album", "Dawn Remixes"]
+        ["Dawn Album", "Dawn Album", "Dawn Remixes"]
     );
     // The artists are those of the library's artist list: the library's "Artist One" and the
     // catalog artist it is are one. "Dawn Singer" is no artist of the library, and is left out.
@@ -99,11 +99,11 @@ async fn a_search_lists_the_librarys_matches_then_the_catalogs_and_each_song_onc
         .await?;
     assert_eq!(tracks.tracks, search.tracks);
     assert!(tracks.albums.is_empty() && tracks.artists.is_empty() && tracks.playlists.is_empty());
-    // The count asked for is taken from each part: the catalog's first song and album are the
-    // library's own.
+    // The count asked for is taken from each part: the catalog's first song is
+    // the library's own, and its first album is no copy.
     let one = apple.run(&search_request(1, Vec::new(), false)).await?;
     assert_eq!(one.tracks, search.tracks[..1]);
-    assert_eq!(one.albums, search.albums[..1]);
+    assert_eq!(one.albums, search.albums[..2]);
     // The same search again asks the library, and takes what the catalog found before.
     assert_eq!(apple.fake.count(LIBRARY_SEARCH), 3);
     assert_eq!(apple.fake.count(CATALOG_SEARCH), 1);
@@ -171,15 +171,15 @@ async fn a_failing_library_search_leaves_the_catalogs_matches_as_the_copies_the_
         })
         .await?;
     let search = search_for(&apple).await?;
-    // The song list and the album list still know the library's copies of what the catalog
-    // found.
+    // The song list still knows the library's copy of the catalog's song. The album list holds
+    // no album that names a catalog album, so the catalog's albums are the catalog's.
     assert_eq!(
         track_keys(&apple, &search.tracks).await?,
         ["i.s1", "catalog:900", "catalog:1603"]
     );
     assert_eq!(
         remotes(&apple, AppleIdKind::Album, &search.albums)?,
-        ["l.alb1", "catalog:1600"]
+        ["catalog:1500", "catalog:1600"]
     );
     assert_eq!(
         remotes(&apple, AppleIdKind::Artist, &search.artists)?,

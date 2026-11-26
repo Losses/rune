@@ -177,26 +177,6 @@ async fn search_both(
     }
 }
 
-/// A name as names are compared: case and the spaces around it ignored. None for no name.
-fn name_key(name: Option<&str>) -> Option<String> {
-    let key = name?.trim().to_lowercase();
-    (!key.is_empty()).then_some(key)
-}
-
-/// What a library album or a catalog album is told apart by when the library album names no
-/// catalog album: its name and its artist's.
-fn album_key(name: Option<&str>, artist: Option<&str>) -> Option<(String, String)> {
-    Some((name_key(name)?, name_key(artist).unwrap_or_default()))
-}
-
-fn library_album_key(album: &LibraryAlbum) -> Option<(String, String)> {
-    let attributes = album.attributes.as_ref()?;
-    album_key(
-        attributes.name.as_deref(),
-        attributes.artist_name.as_deref(),
-    )
-}
-
 /// The library's own copies of catalog songs and albums, as the library's search found them and
 /// the lists kept of the library know them, so a catalog match is answered as the copy the
 /// library holds. Nothing is read from Apple for it.
@@ -206,22 +186,11 @@ struct Copies {
     songs: HashMap<String, String>,
     /// The library album of each catalog album, by the catalog album's id.
     album_ids: HashMap<String, String>,
-    /// The library albums whose catalog album nothing names, by their name and artist.
-    album_names: HashMap<(String, String), String>,
 }
 
 impl Copies {
     fn new(found: &LibraryFound, kept_albums: &[LibraryAlbum]) -> Self {
         let mut copies = Self::default();
-        // The library's search may answer an album without its catalog album, which the kept
-        // album list names; then it stands for that one only, not for any of the same name.
-        let named: HashSet<&str> = found
-            .albums
-            .iter()
-            .chain(kept_albums)
-            .filter(|album| album.catalog_id().is_some())
-            .map(|album| album.id.as_str())
-            .collect();
         for song in &found.songs {
             if let Some(catalog_id) = song.store_id() {
                 copies
@@ -230,23 +199,14 @@ impl Copies {
                     .or_insert_with(|| song.id.clone());
             }
         }
+        // An album stands for a catalog album only when Apple relates the two: one of the same
+        // name and artist may be another edition, so it is listed beside it.
         for album in found.albums.iter().chain(kept_albums) {
-            match album.catalog_id() {
-                Some(catalog_id) => {
-                    copies
-                        .album_ids
-                        .entry(catalog_id.to_owned())
-                        .or_insert_with(|| album.id.clone());
-                }
-                None if named.contains(album.id.as_str()) => {}
-                None => {
-                    if let Some(key) = library_album_key(album) {
-                        copies
-                            .album_names
-                            .entry(key)
-                            .or_insert_with(|| album.id.clone());
-                    }
-                }
+            if let Some(catalog_id) = album.catalog_id() {
+                copies
+                    .album_ids
+                    .entry(catalog_id.to_owned())
+                    .or_insert_with(|| album.id.clone());
             }
         }
         copies
@@ -265,15 +225,7 @@ impl Copies {
 
     /// The library album that is a copy of `album`, a catalog album.
     fn album(&self, album: &Album) -> Option<String> {
-        if let Some(copy) = self.album_ids.get(&album.id) {
-            return Some(copy.clone());
-        }
-        let attributes = album.attributes.as_ref()?;
-        let key = album_key(
-            attributes.name.as_deref(),
-            attributes.artist_name.as_deref(),
-        )?;
-        self.album_names.get(&key).cloned()
+        self.album_ids.get(&album.id).cloned()
     }
 }
 
@@ -559,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn a_catalog_album_is_a_library_copy_by_name_only_when_the_copys_catalog_album_is_unknown() {
+    fn a_catalog_album_is_a_library_copy_only_when_the_library_album_names_it() {
         // The library's search answers the library album without its catalog album, which the
         // kept album list names.
         let found = LibraryFound {
@@ -573,12 +525,10 @@ mod tests {
         );
         // Another release of the same name and artist is the catalog's.
         assert_eq!(copies.album(&catalog_album("200")), None);
-        // A library album whose catalog album nothing names still stands for one by its name.
+        // A library album whose catalog album nothing names stands for none, whatever its name.
         let copies = Copies::new(&found, &[]);
-        assert_eq!(
-            copies.album(&catalog_album("200")).as_deref(),
-            Some("l.night")
-        );
+        assert_eq!(copies.album(&catalog_album("100")), None);
+        assert_eq!(copies.album(&catalog_album("200")), None);
     }
 
     #[test]
