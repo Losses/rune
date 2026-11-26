@@ -1405,8 +1405,11 @@ struct ItemEventState {
     metadata_found: bool,
     /// Whether the system's Now Playing still lacks what `metadata` says.
     controls_behind: bool,
-    /// Whether Rune's own Now Playing gave way to a platform host that plays the track.
+    /// Whether Rune's own Now Playing gave way to a platform host that plays the track and shows
+    /// itself in the system's media controls.
     controls_yielded: bool,
+    /// Whether the media controls were last told that a platform host plays the current track.
+    audio_hosted: bool,
     /// Whether this state only shows the current state again, outside the session's event loop.
     /// It does not know whether Now Playing gave way to a host, so it hands nothing over: only
     /// the loop does.
@@ -1418,6 +1421,7 @@ struct ItemEventState {
 struct NowPlayingReport {
     item_changed: bool,
     metadata_found: bool,
+    /// A platform host plays the track, and shows itself in the system's media controls.
     hosted: bool,
     playing: bool,
 }
@@ -1432,12 +1436,12 @@ struct NowPlayingUpdate {
 /// What `report` sends to the system's Now Playing, and whether the system still lacks the
 /// current item's metadata afterwards; `behind` says whether it lacked it before.
 ///
-/// A platform host that plays the track publishes Now Playing itself, so nothing goes out
-/// meanwhile, and the item's metadata goes out once the host lets go. The host lets go while
-/// its ending track still reports playing, just before the next track starts or the player
-/// stops; that report sends nothing, so the system never shows the ending track again.
-/// Metadata that was not found is never sent, and progress waits for the metadata it goes
-/// with.
+/// A platform host that plays the track and shows itself in the system's media controls
+/// publishes Now Playing itself, so nothing goes out meanwhile, and the item's metadata goes out
+/// once the host lets go. The host lets go while its ending track still reports playing, just
+/// before the next track starts or the player stops; that report sends nothing, so the system
+/// never shows the ending track again. Metadata that was not found is never sent, and progress
+/// waits for the metadata it goes with.
 fn now_playing_update(behind: bool, report: NowPlayingReport) -> (bool, NowPlayingUpdate) {
     let behind = report.metadata_found && (behind || report.item_changed || report.hosted);
     if report.hosted {
@@ -1466,9 +1470,9 @@ enum NowPlayingHandOff {
     Reclaim,
 }
 
-/// Whether Rune's Now Playing gives way to a host after a report of whether a host plays the
-/// track, given whether it did before, and the hand-off that the report makes: one at each
-/// change, and none while it stays.
+/// Whether Rune's Now Playing gives way to a host after a report of whether a host that shows
+/// itself in the system's media controls plays the track, given whether it did before, and the
+/// hand-off that the report makes: one at each change, and none while it stays.
 fn now_playing_hand_off(yielded: bool, hosted: bool) -> (bool, Option<NowPlayingHandOff>) {
     match (yielded, hosted) {
         (false, true) => (true, Some(NowPlayingHandOff::YieldToHost)),
@@ -1486,6 +1490,43 @@ fn now_playing_hand_off(yielded: bool, hosted: bool) -> (bool, Option<NowPlaying
 fn late_metadata_update(yielded: bool, behind: bool) -> (bool, bool) {
     let behind = yielded || behind;
     (behind, !behind)
+}
+
+/// What a status report sends to the system's Now Playing, and the hand-off it makes, which
+/// `item_state` records. A host holds Now Playing only if it shows itself in the system's media
+/// controls, as it said when it started: the track of a host that does not goes out as Rune's
+/// own tracks do, and Rune's commands stay.
+fn now_playing_step(
+    item_state: &mut ItemEventState,
+    status: &PlayerStatus,
+    item_changed: bool,
+) -> (NowPlayingUpdate, Option<NowPlayingHandOff>) {
+    let hosted = status.hosted_by.is_some() && status.host_shows_in_media_controls;
+    let (behind, update) = now_playing_update(
+        item_state.controls_behind,
+        NowPlayingReport {
+            item_changed,
+            metadata_found: item_state.metadata_found,
+            hosted,
+            playing: status.state == PlaybackState::Playing,
+        },
+    );
+    item_state.controls_behind = behind;
+    let (yielded, hand_off) = now_playing_hand_off(item_state.controls_yielded, hosted);
+    item_state.controls_yielded = yielded;
+    (update, hand_off)
+}
+
+/// Whether the media controls are to hear that a platform host now plays the current track, or
+/// no longer does, whatever the host shows: once at each change, and only from the session's
+/// event loop, as a re-show reports an older snapshot.
+fn hosted_audio_change(item_state: &mut ItemEventState, status: &PlayerStatus) -> Option<bool> {
+    let hosted = status.hosted_by.is_some();
+    if item_state.re_show || hosted == item_state.audio_hosted {
+        return None;
+    }
+    item_state.audio_hosted = hosted;
+    Some(hosted)
 }
 
 /// How long a status report waits for a service to name the track playing.
@@ -1727,6 +1768,15 @@ async fn handle_status_event(
     broadcaster: &Arc<dyn Broadcaster>,
     session_id: &str,
 ) {
+    // Ahead of the metadata lookup, which can take seconds: the host's player asks for what its
+    // audio needs as it starts, such as the audio focus, which the media controls must not take
+    // from it meanwhile.
+    if let Some(hosted) = hosted_audio_change(item_state, &value)
+        && let Some(manager) = controls
+        && let Err(error) = manager.lock().await.set_hosted_audio(hosted)
+    {
+        log::warn!("Could not tell the media controls whether a host plays the track: {error:#}");
+    }
     let item_changed = value.item != item_state.last_item;
     if item_changed {
         item_state.metadata = PlayingItemMetadataSummary::default();
@@ -1780,19 +1830,7 @@ async fn handle_status_event(
             Some(SystemTime::now()),
         ));
     }
-    let (controls_behind, system_now_playing) = now_playing_update(
-        item_state.controls_behind,
-        NowPlayingReport {
-            item_changed,
-            metadata_found: item_state.metadata_found,
-            hosted: value.hosted_by.is_some(),
-            playing: value.state == PlaybackState::Playing,
-        },
-    );
-    item_state.controls_behind = controls_behind;
-    let (controls_yielded, hand_off) =
-        now_playing_hand_off(item_state.controls_yielded, value.hosted_by.is_some());
-    item_state.controls_yielded = controls_yielded;
+    let (system_now_playing, hand_off) = now_playing_step(item_state, &value, item_changed);
     if let (Some(manager), Some(hand_off)) = (controls, hand_off)
         && !item_state.re_show
     {
@@ -2393,14 +2431,18 @@ impl Drop for PlayerSession {
 
 #[cfg(test)]
 mod system_now_playing_tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use playback::PlaybackMode;
+    use playback::player::{PlaybackState, PlayerStatus, PlayingItem};
+
     #[cfg(target_os = "linux")]
     use super::mpris_duration;
     use super::{
-        NowPlayingHandOff, NowPlayingReport, NowPlayingUpdate, late_metadata_update,
-        now_playing_hand_off, now_playing_update,
+        ItemEventState, NowPlayingHandOff, NowPlayingReport, NowPlayingUpdate, hosted_audio_change,
+        late_metadata_update, now_playing_hand_off, now_playing_step, now_playing_update,
     };
-    #[cfg(target_os = "linux")]
-    use std::time::Duration;
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -2568,6 +2610,157 @@ mod system_now_playing_tests {
                 report(true, false, false, true)
             ]),
             [NOTHING, PROGRESS]
+        );
+    }
+
+    /// A status of `track`, which `host` plays if given, and of whether that host said it shows
+    /// itself in the system's media controls.
+    fn status(track: &str, host: Option<(&str, bool)>, state: PlaybackState) -> PlayerStatus {
+        let item = PlayingItem::IndependentFile(track.to_owned());
+        PlayerStatus {
+            item: Some(item.clone()),
+            index: Some(0),
+            path: None,
+            position: Duration::from_secs(1),
+            state,
+            playlist: vec![item.into()],
+            unavailable: Vec::new(),
+            unavailable_reasons: HashMap::new(),
+            playback_mode: PlaybackMode::Sequential,
+            ready: true,
+            volume: 1.0,
+            hosted_by: host.map(|(host, _)| host.to_owned()),
+            host_shows_in_media_controls: host.is_some_and(|(_, shows)| shows),
+        }
+    }
+
+    /// What a run of statuses sends to the system's Now Playing and the hand-offs they make,
+    /// each with whether its item is new, for items whose metadata was found.
+    fn steps(
+        item_state: &mut ItemEventState,
+        statuses: &[(PlayerStatus, bool)],
+    ) -> Vec<(NowPlayingUpdate, Option<NowPlayingHandOff>)> {
+        item_state.metadata_found = true;
+        statuses
+            .iter()
+            .map(|(status, item_changed)| now_playing_step(item_state, status, *item_changed))
+            .collect()
+    }
+
+    #[test]
+    fn a_host_that_does_not_show_itself_has_its_tracks_published_as_runes_own() {
+        use PlaybackState::{Paused, Playing};
+        let unshown = Some(("host", false));
+        let mut item_state = ItemEventState::default();
+        assert_eq!(
+            steps(
+                &mut item_state,
+                &[
+                    (status("local", None, Playing), true),
+                    // The host takes over before its track is current, and then plays it.
+                    (status("local", unshown, Playing), false),
+                    (status("first", unshown, Playing), true),
+                    (status("first", unshown, Playing), false),
+                    // It moves on by itself, and pauses.
+                    (status("second", unshown, Playing), true),
+                    (status("second", unshown, Paused), false),
+                    // A track of Rune's own follows.
+                    (status("local", None, Playing), true),
+                ]
+            ),
+            [
+                (METADATA_AND_PROGRESS, None),
+                (PROGRESS, None),
+                (METADATA_AND_PROGRESS, None),
+                (PROGRESS, None),
+                (METADATA_AND_PROGRESS, None),
+                (PROGRESS, None),
+                (METADATA_AND_PROGRESS, None),
+            ]
+        );
+
+        // A cover or a name that arrives late while the host plays goes out at once.
+        steps(
+            &mut item_state,
+            &[(status("third", unshown, Playing), true)],
+        );
+        assert_eq!(
+            late_metadata_update(item_state.controls_yielded, item_state.controls_behind),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn a_host_that_shows_itself_holds_now_playing_while_it_plays() {
+        use NowPlayingHandOff::{Reclaim, YieldToHost};
+        use PlaybackState::Playing;
+        let shown = Some(("host", true));
+        let mut item_state = ItemEventState::default();
+        assert_eq!(
+            steps(
+                &mut item_state,
+                &[
+                    (status("local", None, Playing), true),
+                    (status("local", shown, Playing), false),
+                    (status("first", shown, Playing), true),
+                ]
+            ),
+            [
+                (METADATA_AND_PROGRESS, None),
+                (NOTHING, Some(YieldToHost)),
+                (NOTHING, None),
+            ]
+        );
+        assert_eq!(
+            late_metadata_update(item_state.controls_yielded, item_state.controls_behind),
+            (true, false)
+        );
+        assert_eq!(
+            steps(&mut item_state, &[(status("local", None, Playing), true)]),
+            [(METADATA_AND_PROGRESS, Some(Reclaim))]
+        );
+    }
+
+    #[test]
+    fn the_media_controls_hear_whenever_a_host_takes_the_track_or_lets_go() {
+        use PlaybackState::Playing;
+        let mut item_state = ItemEventState::default();
+        let changes: Vec<_> = [
+            None,
+            Some(("host", false)),
+            Some(("host", false)),
+            None,
+            Some(("host", true)),
+            None,
+            None,
+        ]
+        .into_iter()
+        .map(|host| hosted_audio_change(&mut item_state, &status("track", host, Playing)))
+        .collect();
+        assert_eq!(
+            changes,
+            [
+                None,
+                Some(true),
+                None,
+                Some(false),
+                Some(true),
+                Some(false),
+                None
+            ]
+        );
+
+        // A re-show tells them nothing.
+        let mut re_show = ItemEventState {
+            re_show: true,
+            ..ItemEventState::default()
+        };
+        assert_eq!(
+            hosted_audio_change(
+                &mut re_show,
+                &status("track", Some(("host", false)), Playing)
+            ),
+            None
         );
     }
 }
