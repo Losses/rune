@@ -1542,7 +1542,9 @@ async fn sync_one(
         unreachable!()
     } else {
         let local = library.library_sync.identity().await?;
-        let playback_queue = global.session_queue_for_library(library.library_id).await?;
+        let playback_queue = global
+            .own_player_queue_for_library(library.library_id)
+            .await?;
         for attempt in 0..2 {
             let (base, client) = authenticated_client(
                 global,

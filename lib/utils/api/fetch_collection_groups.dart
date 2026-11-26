@@ -1,4 +1,5 @@
 import 'request_failure.dart';
+import 'query_mix_tracks.dart';
 import '../../bindings/bindings.dart';
 
 Future<List<CollectionGroup>> fetchCollectionGroups(
@@ -9,6 +10,7 @@ Future<List<CollectionGroup>> fetchCollectionGroups(
     collectionType: collectionType,
     groupTitles: groupTitles,
     bakeCoverArts: true,
+    queue: shownPlayerQueue(),
   );
 
   // Listen for the response from Rust

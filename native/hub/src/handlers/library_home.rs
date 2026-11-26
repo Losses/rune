@@ -1,4 +1,3 @@
-use crate::node::NodeContext;
 use crate::utils::CollectionCoverOptions;
 use std::{marker::PhantomData, sync::Arc};
 
@@ -6,6 +5,7 @@ use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 
+use super::playback::queue_file_ids;
 use crate::{
     Session, Signal,
     library_pool::LibraryHandle,
@@ -207,20 +207,20 @@ fn create_query(query: LibraryHomeQuery) -> Result<Box<dyn ComplexQuery>> {
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (all_params.library.clone(), all_params.node.clone())
+        (all_params.library.clone(),)
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (Option<LibraryHandle>, Arc<NodeContext>);
+    type Params = (Option<LibraryHandle>,);
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (library, node): Self::Params,
+        (library,): Self::Params,
         session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -229,7 +229,7 @@ impl Signal for ComplexQueryRequest {
         let main_db = Arc::clone(&library.main_db);
         let recommend_db = Arc::clone(&library.recommend_db);
         let library_id = library.library_id;
-        let queue = Arc::new(node.session_queue_for_library(library.library_id).await?);
+        let queue = Arc::new(queue_file_ids(&dart_signal.queue.items, &library).await?);
         let queries = &dart_signal.queries;
         let session = session.as_ref();
 

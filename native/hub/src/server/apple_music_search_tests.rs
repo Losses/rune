@@ -275,6 +275,7 @@ async fn search_finds_rune_playlists_by_name_in_the_order_they_were_made() -> Re
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids: vec![road_songs.id],
+            queue: CallerQueue::default(),
         })
         .await?;
     assert_eq!(

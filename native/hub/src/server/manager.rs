@@ -4580,6 +4580,7 @@ mod lifecycle_tests {
                 collection_type: CollectionType::Artist,
                 bake_cover_arts,
                 ids: vec![artist.id],
+                queue: CallerQueue::default(),
                 call_id: None,
             };
             let local = dispatch_gui_request(&owner.global_params, &request)

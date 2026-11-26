@@ -8,7 +8,7 @@ use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::appended::{appended_field, field};
-use super::mix::MixQuery;
+use super::mix::{CallerQueue, MixQuery};
 
 #[derive(
     Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
@@ -77,13 +77,53 @@ impl<'de> Deserialize<'de> for CollectionGroupSummaryResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
+#[derive(Serialize, DartSignal, NamedLibraries)]
 pub struct FetchCollectionGroupsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub group_titles: Vec<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
+    /// The caller's own player queue, which `lib::queue` selects. A controller of protocol 2.0
+    /// sends none, which is read as an empty queue.
+    #[serde(default)]
+    pub queue: CallerQueue,
+}
+
+impl<'de> Deserialize<'de> for FetchCollectionGroupsRequest {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Fields;
+
+        impl<'de> Visitor<'de> for Fields {
+            type Value = FetchCollectionGroupsRequest;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct FetchCollectionGroupsRequest")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                Ok(FetchCollectionGroupsRequest {
+                    collection_type: field(&mut seq, 0, &self)?,
+                    bake_cover_arts: field(&mut seq, 1, &self)?,
+                    group_titles: field(&mut seq, 2, &self)?,
+                    call_id: field(&mut seq, 3, &self)?,
+                    queue: appended_field(&mut seq),
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "FetchCollectionGroupsRequest",
+            &[
+                "collection_type",
+                "bake_cover_arts",
+                "group_titles",
+                "call_id",
+                "queue",
+            ],
+            Fields,
+        )
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, SignalPiece)]
@@ -109,13 +149,53 @@ pub struct FetchCollectionGroupsResponse {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
+#[derive(Serialize, DartSignal, NamedLibraries)]
 pub struct FetchCollectionByIdsRequest {
     pub collection_type: CollectionType,
     pub bake_cover_arts: bool,
     pub ids: Vec<i32>,
     #[serde(default)]
     pub call_id: Option<u64>,
+    /// The caller's own player queue, which `lib::queue` selects. A controller of protocol 2.0
+    /// sends none, which is read as an empty queue.
+    #[serde(default)]
+    pub queue: CallerQueue,
+}
+
+impl<'de> Deserialize<'de> for FetchCollectionByIdsRequest {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Fields;
+
+        impl<'de> Visitor<'de> for Fields {
+            type Value = FetchCollectionByIdsRequest;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct FetchCollectionByIdsRequest")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                Ok(FetchCollectionByIdsRequest {
+                    collection_type: field(&mut seq, 0, &self)?,
+                    bake_cover_arts: field(&mut seq, 1, &self)?,
+                    ids: field(&mut seq, 2, &self)?,
+                    call_id: field(&mut seq, 3, &self)?,
+                    queue: appended_field(&mut seq),
+                })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "FetchCollectionByIdsRequest",
+            &[
+                "collection_type",
+                "bake_cover_arts",
+                "ids",
+                "call_id",
+                "queue",
+            ],
+            Fields,
+        )
+    }
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]
@@ -148,7 +228,11 @@ mod tests {
     use anyhow::Result;
     use serde::{Deserialize, Serialize};
 
-    use super::{CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType};
+    use super::{
+        CollectionGroupSummary, CollectionGroupSummaryResponse, CollectionType,
+        FetchCollectionByIdsRequest, FetchCollectionGroupsRequest,
+    };
+    use crate::messages::{CallerQueue, PlayingItemRef};
 
     /// The group summaries as a peer of protocol 2.0 sends and reads them.
     #[derive(Serialize, Deserialize)]
@@ -194,6 +278,109 @@ mod tests {
         assert_eq!(old.groups, [("Night".to_owned(), 2), ("Day".to_owned(), 3)]);
         let read: CollectionGroupSummaryResponse = rinf::deserialize(&new)?;
         assert_eq!(read.reserved_groups, ["Day"]);
+        Ok(())
+    }
+
+    /// A request for collection groups as a peer of protocol 2.0 sends and reads it.
+    #[derive(Serialize, Deserialize)]
+    struct GroupsRequestOf2_0 {
+        collection_type: CollectionType,
+        bake_cover_arts: bool,
+        group_titles: Vec<String>,
+        call_id: Option<u64>,
+    }
+
+    /// A request for collections by ID as a peer of protocol 2.0 sends and reads it.
+    #[derive(Serialize, Deserialize)]
+    struct ByIdsRequestOf2_0 {
+        collection_type: CollectionType,
+        bake_cover_arts: bool,
+        ids: Vec<i32>,
+        call_id: Option<u64>,
+    }
+
+    fn queue() -> CallerQueue {
+        CallerQueue {
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: "library".into(),
+                track: "track".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_groups_request_from_a_controller_of_protocol_2_0_is_read_with_an_empty_queue() -> Result<()>
+    {
+        let old = rinf::serialize(&GroupsRequestOf2_0 {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: true,
+            group_titles: vec!["Night".into()],
+            call_id: Some(7),
+        })?;
+        let read: FetchCollectionGroupsRequest = rinf::deserialize(&old)?;
+        assert_eq!(read.collection_type, CollectionType::Mix);
+        assert!(read.bake_cover_arts);
+        assert_eq!(read.group_titles, ["Night"]);
+        assert_eq!(read.call_id, Some(7));
+        assert!(read.queue.items.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_hub_of_protocol_2_0_reads_a_groups_request_with_a_queue_as_far_as_its_fields_go()
+    -> Result<()> {
+        let new = rinf::serialize(&FetchCollectionGroupsRequest {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: true,
+            group_titles: vec!["Night".into()],
+            call_id: Some(7),
+            queue: queue(),
+        })?;
+        let old: GroupsRequestOf2_0 = rinf::deserialize(&new)?;
+        assert_eq!(old.collection_type, CollectionType::Mix);
+        assert!(old.bake_cover_arts);
+        assert_eq!(old.group_titles, ["Night"]);
+        assert_eq!(old.call_id, Some(7));
+        let read: FetchCollectionGroupsRequest = rinf::deserialize(&new)?;
+        assert_eq!(read.queue.items, queue().items);
+        Ok(())
+    }
+
+    #[test]
+    fn a_by_ids_request_from_a_controller_of_protocol_2_0_is_read_with_an_empty_queue() -> Result<()>
+    {
+        let old = rinf::serialize(&ByIdsRequestOf2_0 {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: true,
+            ids: vec![3, 4],
+            call_id: Some(7),
+        })?;
+        let read: FetchCollectionByIdsRequest = rinf::deserialize(&old)?;
+        assert_eq!(read.collection_type, CollectionType::Mix);
+        assert!(read.bake_cover_arts);
+        assert_eq!(read.ids, [3, 4]);
+        assert_eq!(read.call_id, Some(7));
+        assert!(read.queue.items.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_hub_of_protocol_2_0_reads_a_by_ids_request_with_a_queue_as_far_as_its_fields_go()
+    -> Result<()> {
+        let new = rinf::serialize(&FetchCollectionByIdsRequest {
+            collection_type: CollectionType::Mix,
+            bake_cover_arts: true,
+            ids: vec![3, 4],
+            call_id: Some(7),
+            queue: queue(),
+        })?;
+        let old: ByIdsRequestOf2_0 = rinf::deserialize(&new)?;
+        assert_eq!(old.collection_type, CollectionType::Mix);
+        assert!(old.bake_cover_arts);
+        assert_eq!(old.ids, [3, 4]);
+        assert_eq!(old.call_id, Some(7));
+        let read: FetchCollectionByIdsRequest = rinf::deserialize(&new)?;
+        assert_eq!(read.queue.items, queue().items);
         Ok(())
     }
 }

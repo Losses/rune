@@ -918,7 +918,11 @@ impl NodeContext {
         }
     }
 
-    pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
+    /// The tracks of `library_id` in the queue of this device's own player. Only work this
+    /// device does for itself reads it: choosing which downloads to keep. A request reads the
+    /// queue its caller sent ([`crate::messages::CallerQueue`]), which may belong to another
+    /// player.
+    pub async fn own_player_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
         self.session()?.queue_for_library(library_id).await
     }
 

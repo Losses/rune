@@ -150,7 +150,6 @@ impl Implementation {
                 };
                 let library = node.library_pool.acquire(*library_id).await?;
                 let (_, playing) = self.item_metadata(item, true, &library).await?;
-                let queue = node.session_queue_for_library(*library_id).await?;
                 let files = query_mix_media_files(
                     &library.main_db,
                     &library.recommend_db,
@@ -160,7 +159,8 @@ impl Implementation {
                     ],
                     0,
                     RANDOM_COVERS,
-                    &queue,
+                    // The query has no `lib::queue`, so it selects nothing from a queue.
+                    &[],
                 )
                 .await?;
                 let ids = files.iter().map(|file| file.id).collect::<Vec<_>>();
