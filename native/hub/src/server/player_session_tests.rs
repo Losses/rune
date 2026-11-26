@@ -145,7 +145,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 
 /// A hook the mock server runs once when it answers the account check.
-type OnGetUser = Arc<StdMutex<Option<Box<dyn FnOnce() + Send>>>>;
+type OnGetUser = Arc<StdMutex<Vec<Box<dyn FnOnce() + Send>>>>;
 
 #[derive(Clone)]
 struct SubsonicHubMock {
@@ -221,7 +221,7 @@ async fn subsonic_hub_mock_with_hook(
     let stream_ranges = Arc::new(StdMutex::new(Vec::new()));
     let reject_stream = Arc::new(AtomicBool::new(false));
     let supports_ranges = Arc::new(AtomicBool::new(true));
-    let on_get_user: OnGetUser = Arc::new(StdMutex::new(None));
+    let on_get_user: OnGetUser = Arc::new(StdMutex::new(Vec::new()));
     let state = SubsonicHubMock {
         calls: calls.clone(),
         stream_ranges: stream_ranges.clone(),
@@ -359,7 +359,15 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": format!("rejected t={} s={} p=test-secret", query.get("t").map(String::as_str).unwrap_or_default(), query.get("s").map(String::as_str).unwrap_or_default()) } } })
         }
         "getUser" => {
-            if let Some(hook) = state.on_get_user.lock().unwrap().take() {
+            let hook = {
+                let mut hooks = state.on_get_user.lock().unwrap();
+                if hooks.is_empty() {
+                    None
+                } else {
+                    Some(hooks.remove(0))
+                }
+            };
+            if let Some(hook) = hook {
                 hook();
             }
             json!({ "subsonic-response": { "status": "ok", "user": { "streamRole": true, "downloadRole": true } } })
@@ -1316,7 +1324,7 @@ async fn open_fails_and_closes_when_the_last_selection_cannot_be_saved() -> Resu
     let registry_file = Path::new(&*node.config_path).join("libraries.json");
     let saved_registry = fs::read(&registry_file)?;
     let corrupt_registry = registry_file.clone();
-    *on_get_user.lock().unwrap() = Some(Box::new(move || {
+    on_get_user.lock().unwrap().push(Box::new(move || {
         let _ = fs::write(&corrupt_registry, b"{ no longer a registry");
     }));
     let result = open().await;
@@ -1344,7 +1352,200 @@ async fn open_fails_and_closes_when_the_last_selection_cannot_be_saved() -> Resu
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     assert_eq!(registry.last_open_record, Some(record.record_id));
 
+    // The rollback closes the binding by the token the open captured when it installed it,
+    // so once another open has replaced the binding, a late rollback closes nothing of the
+    // new one. `close_ui` matches by that token: the stale one leaves the replacement alone,
+    // the replacement's own one closes it.
+    let opened_params = node.current_ui().await?;
+    let replacement = Arc::new(node.params_for_ui()?);
+    node.attach_ui(&replacement).await;
+    node.close_ui(&opened_params.main_token).await;
+    let surviving = node
+        .current_ui()
+        .await
+        .expect("a rollback with a stale token must not close the replacement binding");
+    assert!(Arc::ptr_eq(&surviving, &replacement));
+    node.close_ui(&replacement.main_token).await;
+    assert!(
+        node.current_ui().await.is_err(),
+        "closing with the replacement's own token must close it"
+    );
+
     server.abort();
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// Another open that installs its binding while a first open is still saving its selection
+/// is the newer open, and the failed first open's rollback must leave that binding alone.
+/// The first save is held in flight by a registry update ahead of it in the write-lock
+/// queue, which releases once the second open's binding is installed and leaves the config
+/// directory read-only, so the first save fails on its write. The second save needs no write
+/// at all: the selection it would write is the one the registry already has, so its update
+/// ends without touching the disk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_open_leaves_a_binding_opened_during_its_save_open() -> Result<()> {
+    use crate::messages::{OpenLibraryFailureKind, OpenLibraryRequest};
+    use database::library_registry::LibraryRegistry;
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let config_dir = Path::new(&*node.config_path).to_path_buf();
+
+    // The first open is the fixture's own local library. The second is another local
+    // library, registered ahead of the race: both registration and either open are finished
+    // with the registry before the race starts, so nothing in it writes there but the saves.
+    let first_id = LibraryRegistry::load(&config_dir)?
+        .catalog(fixture.global_params.library_id.context("local library")?)?
+        .record_id;
+    let second_library_dir = tempfile::tempdir()?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: second_library_dir
+                .path()
+                .to_string_lossy()
+                .into_owned(),
+            alias: "Newer open".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &node,
+    )
+    .await?;
+    let second = registered.record.context("second library record")?;
+    let second_id = second.record_id.clone();
+    // The second open's selection is already the persisted one, so its save has nothing to
+    // write and succeeds even after the directory turns read-only.
+    let second_library_id = LibraryRegistry::load(&config_dir)?
+        .libraries
+        .iter()
+        .find(|record| record.alias == "Newer open")
+        .and_then(|record| record.library_id)
+        .context("second library id")?;
+    // Opening a library the pool has never seen costs its database setup. Holding a handle
+    // ahead of the race keeps the second open itself fast, so its binding is installed well
+    // inside the first save's wait on the write lock.
+    let _second_handle = fixture
+        .global_params
+        .library_pool
+        .acquire(second_library_id)
+        .await?;
+    let second_record_id = database::library_registry::LibraryRecordId(
+        Uuid::parse_str(&second_id).context("second record id")?,
+    );
+    LibraryRegistry::update(&config_dir, |registry| {
+        registry.last_open_record = Some(second_record_id);
+        Ok(())
+    })
+    .await?;
+
+    // The fixture's own UI is attached already, with the first library's id, so it would
+    // look like the first open's binding. Closing it first leaves the field clear: the
+    // first binding with that id afterwards is the first open's.
+    node.close_ui(&fixture.global_params.main_token).await;
+    assert!(node.current_ui().await.is_err());
+
+    // Either open touches the registry write lock only in its final save: the record lookup
+    // reads without it and the binding install does not use it. The lock is FIFO, so an
+    // update enqueued before either open runs ahead of both saves, and while it holds the
+    // lock the first save waits behind it. The test releases it once the second open's
+    // binding is installed, turning the directory read-only inside its critical section, so
+    // the first save, the first write behind it, fails there.
+    let (second_binding_tx, second_binding_rx) = std_mpsc::channel();
+    let holder_dir = config_dir.clone();
+    let holder = tokio::spawn(async move {
+        let readonly_dir = holder_dir.clone();
+        LibraryRegistry::update(&holder_dir, move |_| {
+            use std::os::unix::fs::PermissionsExt;
+            second_binding_rx
+                .recv_timeout(Duration::from_secs(30))
+                .map_err(|_| Error::msg("the second open did not install its binding"))?;
+            fs::set_permissions(&readonly_dir, fs::Permissions::from_mode(0o555))
+                .map_err(Error::new)
+        })
+        .await
+    });
+
+    let scrobbler = || {
+        Arc::new(Mutex::new(ScrobblingManager::new(
+            10,
+            Duration::from_secs(5),
+        )))
+    };
+    let open = |record_id: String| OpenLibraryRequest {
+        call_id: Some(1),
+        record_id,
+    };
+    let first_open = {
+        let node = node.clone();
+        let request = open(first_id.0.to_string());
+        let scrobbler = scrobbler();
+        tokio::spawn(async move {
+            open_library_by_record_on_node(&request, node, scrobbler).await
+        })
+    };
+
+    let first_library_id = fixture.global_params.library_id.context("local library")?;
+    wait_until("the first open installs its binding", || {
+        let node = node.clone();
+        async move {
+            Ok(match node.current_ui().await {
+                Ok(params) if params.library_id == Some(first_library_id) => Some(()),
+                _ => None,
+            })
+        }
+    })
+    .await?;
+
+    let second_open = {
+        let node = node.clone();
+        let request = open(second_id);
+        let scrobbler = scrobbler();
+        tokio::spawn(async move {
+            open_library_by_record_on_node(&request, node, scrobbler).await
+        })
+    };
+
+    wait_until("the second open installs its binding", || {
+        let node = node.clone();
+        async move {
+            Ok(match node.current_ui().await {
+                Ok(params) if params.library_id == Some(second_library_id) => Some(()),
+                _ => None,
+            })
+        }
+    })
+    .await?;
+    let _ = second_binding_tx.send(());
+
+    let first_result = first_open.await.expect("the first open does not hang");
+    let second_result = second_open.await.expect("the second open does not hang");
+    holder
+        .await
+        .expect("the holding update does not hang")
+        .expect("the holding update turns the directory read-only");
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&config_dir, fs::Permissions::from_mode(0o755))?;
+
+    assert!(second_result.is_ok(), "the second open must succeed");
+    assert_eq!(
+        opened_failure_kind(first_result)?,
+        OpenLibraryFailureKind::Storage,
+        "the first open's save must fail in the read-only directory"
+    );
+    let surviving = node
+        .current_ui()
+        .await
+        .expect("the failed open's rollback must not close the newer binding");
+    assert_eq!(
+        surviving.library_id,
+        Some(second_library_id),
+        "the surviving binding is the newer open's"
+    );
+
     node.shutdown().await?;
     Ok(())
 }
