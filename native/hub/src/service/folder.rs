@@ -98,15 +98,16 @@ pub(crate) async fn delete_service_library_folder(
 /// Deletes the folders the service libraries removed before left on this device, which hold
 /// their records (see `delete_service_library_folder`): those of the libraries that `known` does
 /// not name. A reset of the app deletes them with the libraries it removes, with anything a
-/// removal could not delete beside the records.
+/// removal could not delete beside the records. A folder of service libraries that cannot be
+/// listed fails it, as nothing could be deleted.
 pub(crate) async fn delete_left_service_library_folders(
     config_dir: &Path,
     known: HashSet<Uuid>,
 ) -> io::Result<()> {
     let root = config_dir.to_owned();
-    let left = tokio::task::spawn_blocking(move || left_device_records(&root, Uuid::nil(), &known))
+    let left = tokio::task::spawn_blocking(move || scan_left(&root, Uuid::nil(), &known))
         .await
-        .map_err(io::Error::other)?;
+        .map_err(io::Error::other)??;
     for removed in left {
         remove_if_there(
             tokio_fs::remove_dir_all(service_library_folder(config_dir, removed)).await,
@@ -136,8 +137,16 @@ pub(crate) fn left_device_records(
     library_id: Uuid,
     known: &HashSet<Uuid>,
 ) -> Vec<Uuid> {
-    let Ok(listing) = fs::read_dir(config_dir.join(SERVICE_LIBRARIES)) else {
-        return Vec::new();
+    scan_left(config_dir, library_id, known).unwrap_or_default()
+}
+
+/// The libraries `left_device_records` answers, or the error of a folder of service libraries
+/// that is there but cannot be read; one that is not there holds none.
+fn scan_left(config_dir: &Path, library_id: Uuid, known: &HashSet<Uuid>) -> io::Result<Vec<Uuid>> {
+    let listing = match fs::read_dir(config_dir.join(SERVICE_LIBRARIES)) {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
     };
     let mut left: Vec<(SystemTime, Uuid)> = listing
         .flatten()
@@ -149,7 +158,7 @@ pub(crate) fn left_device_records(
         })
         .collect();
     left.sort_unstable_by(|left, right| right.cmp(left));
-    left.into_iter().map(|(_, removed)| removed).collect()
+    Ok(left.into_iter().map(|(_, removed)| removed).collect())
 }
 
 /// When the records in `folder` were written last; None when it is no folder.
@@ -300,6 +309,23 @@ mod tests {
         delete_left_service_library_folders(root.path(), HashSet::from([known]))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_reset_that_cannot_read_the_service_libraries_says_so() {
+        let root = TempDir::new().unwrap();
+        // None yet is nothing to delete.
+        delete_left_service_library_folders(root.path(), HashSet::new())
+            .await
+            .unwrap();
+        // One that is there but cannot be listed is no empty one.
+        fs::write(root.path().join("service-libraries"), b"").unwrap();
+        assert!(
+            delete_left_service_library_folders(root.path(), HashSet::new())
+                .await
+                .is_err()
+        );
+        assert!(left_device_records(root.path(), Uuid::new_v4(), &HashSet::new()).is_empty());
     }
 
     #[tokio::test]
