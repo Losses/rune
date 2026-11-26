@@ -741,17 +741,18 @@ impl HeldStore {
     }
 
     /// Builds what `named`, the items of `mixes`, `playlists` and `likes`, add to the library
-    /// from what was read, forgetting what they no longer name, and answers it with the items
-    /// not read yet.
+    /// from what was read, forgetting what they no longer name when `whole` says that every one
+    /// of their files was read, and answers it with the items not read yet.
     fn build(
         &self,
         binding: &AppleMusicBinding,
         named: Named,
+        whole: bool,
         (mixes, playlists, likes): Sources,
     ) -> (Arc<Held>, Unread) {
         let mut state = self.state();
         let state = &mut *state;
-        if state.read.keep_only(&named) {
+        if whole && state.read.keep_only(&named) {
             binding.keep_beside_lists(HELD, state.read.stored());
         }
         let built = Held::built(&named, &state.read);
@@ -837,10 +838,19 @@ type Sources = (
 /// for again at most every `RETRY_AFTER` when a read of it failed.
 pub(crate) async fn held(binding: &AppleMusicBinding) -> Arc<Held> {
     binding.held.restore(binding).await;
-    // A file that cannot be read names nothing, as it lists nothing.
-    let mixes = binding.rune_mixes.listed().await.unwrap_or_default();
-    let playlists = binding.rune_playlists.listed().await.unwrap_or_default();
-    let likes = binding.rune_likes.listed().await.unwrap_or_default();
+    // A file that cannot be read names nothing, as it lists nothing; but what was read for the
+    // items it names is not forgotten, as they come back once it can be read again.
+    let (mixes, playlists, likes) = (
+        binding.rune_mixes.list().await,
+        binding.rune_playlists.list().await,
+        binding.rune_likes.list().await,
+    );
+    let whole = mixes.is_ok() && playlists.is_ok() && likes.is_ok();
+    let (mixes, playlists, likes) = (
+        mixes.unwrap_or_default(),
+        playlists.unwrap_or_default(),
+        likes.unwrap_or_default(),
+    );
     if let Some((held, again)) = binding
         .held
         .current(&mixes, &playlists, &likes, binding.now())
@@ -853,7 +863,7 @@ pub(crate) async fn held(binding: &AppleMusicBinding) -> Arc<Held> {
     let named = Named::of(&mixes, &playlists, &likes, binding);
     let (held, unread) = binding
         .held
-        .build(binding, named, (mixes, playlists, likes));
+        .build(binding, named, whole, (mixes, playlists, likes));
     if !unread.is_empty() {
         read_in_background(binding, unread);
     }

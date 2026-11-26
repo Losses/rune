@@ -9456,6 +9456,40 @@ async fn a_catalog_album_in_a_rune_mix_is_in_the_library_until_no_mix_names_it()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_was_read_for_a_mix_stays_while_the_file_of_the_mixes_cannot_be_read() -> Result<()> {
+    use crate::service::rune_mixes::MIXES_FILE;
+
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let catalog = apple.binding.intern(AppleIdKind::Album, "catalog:1600")?;
+    create_mix(&apple, "Remixes", vec![query("lib::album", catalog)]).await?;
+    album_listed(&apple, "Dawn Remixes").await?;
+    held_on_disk(&apple, &["1600"]).await?;
+    // The file of the mixes cannot be read once the app starts again, offline. No mix names
+    // the album then, so it is not listed.
+    let mixes = records_of(&apple, apple.record).join(MIXES_FILE);
+    let kept = std::fs::read(&mixes)?;
+    std::fs::write(&mixes, b"not a list of mixes")?;
+    let restarted = restart_apple(apple).await?;
+    let (_ui, binding) = restarted.open().await?;
+    let album_names = async || -> Result<Vec<String>> {
+        Ok(binding
+            .albums()
+            .await?
+            .iter()
+            .filter_map(|album| album.attributes.as_ref()?.name.clone())
+            .collect())
+    };
+    assert!(!album_names().await?.contains(&"Dawn Remixes".to_owned()));
+    // Once it can be read again, the album is listed from what was read for it, which a library
+    // that is not signed in cannot read again.
+    std::fs::write(&mixes, kept)?;
+    let listed = album_names().await?;
+    assert!(listed.contains(&"Dawn Remixes".to_owned()), "{listed:?}");
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_catalog_song_in_a_rune_playlist_brings_its_album_holding_only_it() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
