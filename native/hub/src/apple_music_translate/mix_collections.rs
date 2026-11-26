@@ -210,15 +210,18 @@ async fn known_mix(binding: &AppleMusicBinding, id: i32) -> Result<Option<Recomm
     Ok(binding.recommended_mix(id))
 }
 
-/// A recommended mix as the mixes are listed: one query naming what it plays, locked.
+/// A recommended mix as the mixes are listed: one query naming what it plays, locked. It has
+/// its cover when `bake` asks for covers.
 async fn mix_collection(
     binding: &AppleMusicBinding,
     id: i32,
     mix: &RecommendedMix,
+    bake: bool,
 ) -> Result<Collection> {
     let covers = mix
         .cover
         .clone()
+        .filter(|_| bake)
         .map(|url| vec![(id, url)])
         .unwrap_or_default();
     Ok(Collection {
@@ -299,10 +302,12 @@ pub(super) async fn mix_group_summary(
 }
 
 /// The mixes of the groups `titles` names: Rune's own by name, then the recommended ones as
-/// last built. A title they do not have is an empty group.
+/// last built. A title they do not have is an empty group. The mixes have their covers when
+/// `bake` asks for covers.
 pub(super) async fn mix_collection_groups(
     binding: &AppleMusicBinding,
     titles: &[String],
+    bake: bool,
 ) -> Result<FetchCollectionGroupsResponse> {
     let own = binding.rune_mixes.listed().await?;
     let groups = recommendations_beside_own(binding, !own.is_empty()).await?;
@@ -313,7 +318,7 @@ pub(super) async fn mix_collection_groups(
         members.sort_by(|left, right| left.name.cmp(&right.name));
         let mut collections = Vec::with_capacity(members.len());
         for mix in members {
-            collections.push(rune_mix_collection(binding, &kept, mix).await?);
+            collections.push(rune_mix_collection(binding, &kept, mix, bake).await?);
         }
         let ids = groups
             .iter()
@@ -322,7 +327,7 @@ pub(super) async fn mix_collection_groups(
             .unwrap_or_default();
         for &id in ids {
             if let Some(mix) = binding.recommended_mix(id) {
-                collections.push(mix_collection(binding, id, &mix).await?);
+                collections.push(mix_collection(binding, id, &mix, bake).await?);
             }
         }
         answered.push(CollectionGroup {
@@ -338,9 +343,11 @@ pub(super) async fn mix_collection_groups(
 
 /// The mixes among `ids`: Rune's own as kept, and the recommended ones, built again once when
 /// some are not known. Those that are gone are left out, as a local library leaves them out.
+/// The mixes have their covers when `bake` asks for covers.
 pub(super) async fn mixes_by_ids(
     binding: &AppleMusicBinding,
     ids: &[i32],
+    bake: bool,
 ) -> Result<FetchCollectionByIdsResponse> {
     let refs: Vec<MixRef> = ids.iter().map(|id| binding.mix_ref(*id)).collect();
     if refs
@@ -355,12 +362,12 @@ pub(super) async fn mixes_by_ids(
         match mix {
             MixRef::Rune(stored) => {
                 if let Some(mix) = rune_mix_if_kept(binding, &stored).await? {
-                    result.push(rune_mix_collection(binding, &kept, &mix).await?);
+                    result.push(rune_mix_collection(binding, &kept, &mix, bake).await?);
                 }
             }
             MixRef::Recommended(id) => {
                 if let Some(mix) = binding.recommended_mix(id) {
-                    result.push(mix_collection(binding, id, &mix).await?);
+                    result.push(mix_collection(binding, id, &mix, bake).await?);
                 }
             }
         }
@@ -713,14 +720,20 @@ async fn rune_mix_covers(
         .collect()
 }
 
-/// A Rune mix as the mixes are listed, with the queries that play it.
+/// A Rune mix as the mixes are listed, with the queries that play it, and its covers when
+/// `bake` asks for covers.
 async fn rune_mix_collection(
     binding: &AppleMusicBinding,
     kept: &KeptCovers,
     mix: &StoredMix,
+    bake: bool,
 ) -> Result<Collection> {
     let queries = session_queries(binding, &mix.queries)?;
-    let covers = rune_mix_covers(binding, kept, &queries).await?;
+    let covers = if bake {
+        rune_mix_covers(binding, kept, &queries).await?
+    } else {
+        Vec::new()
+    };
     Ok(Collection {
         id: binding.intern(AppleIdKind::RuneMix, &mix.id)?,
         name: mix.name.clone(),

@@ -1032,7 +1032,7 @@ pub(crate) struct AppleMusicBinding {
     pub(crate) config_dir: PathBuf,
     /// Whether what comes in from Apple once, its playlists and likes, is being imported into
     /// Rune (see `import_in_background`).
-    importing: AtomicBool,
+    pub(crate) importing: AtomicBool,
     /// Set when a sign-in came while an import was under way: the import runs once more when it
     /// ends, for that sign-in.
     import_again: AtomicBool,
@@ -1202,6 +1202,11 @@ impl AppleMusicBinding {
     /// it does not have, as an answer without them may have been a passing one.
     pub(crate) fn sign_in(&self, tokens: Tokens) {
         let changed = self.tokens.replace(Some(tokens));
+        // Counted before the songs Apple did not have are forgotten, so a read under the tokens
+        // before that ends now keeps none of its own (see `read_unknown_tracks`).
+        if changed {
+            self.token_changes.fetch_add(1, Ordering::SeqCst);
+        }
         let owed = {
             let mut catalog = self.catalog();
             catalog.missing.clear();
@@ -1209,7 +1214,6 @@ impl AppleMusicBinding {
         };
         apple_music_held::signed_in(self);
         if changed {
-            self.token_changes.fetch_add(1, Ordering::SeqCst);
             // The storefront belongs to the account, which may be another one.
             self.client.forget_storefront();
             self.read_again(owed);
@@ -1879,16 +1883,27 @@ impl AppleMusicBinding {
             }
             Ok::<_, AppleApiError>(())
         };
-        let read = try_join(
+        let (library, playlists) = join(
             library,
             self.client
                 .library_playlists()
                 .try_collect::<Vec<LibraryPlaylist>>(),
         )
         .await;
-        let ((), playlists) = match read {
-            Ok(read) => read,
-            Err(error) => return Err(self.judged(error).await),
+        if let Err(error) = library {
+            return Err(self.judged(error).await);
+        }
+        let mut unread = None;
+        // Playlists Apple cannot list are as a playlist it cannot read: they do not cost a first
+        // song list either.
+        let playlists = match playlists {
+            Ok(playlists) => playlists,
+            Err(error) => {
+                let error = self.playlist_failure(error).await?;
+                log::warn!("Could not list the Apple Music playlists for the song list: {error}");
+                unread = Some(error);
+                Vec::new()
+            }
         };
 
         // Owned ids: closures taking borrowed items here fail the compiler's Send check.
@@ -1903,19 +1918,13 @@ impl AppleMusicBinding {
             .collect()
             .await;
         let mut extra = Vec::new();
-        let mut unread = None;
         for songs in read {
             let error = match songs {
                 Ok(songs) => {
                     extra.extend(songs);
                     continue;
                 }
-                // An expired sign-in stops the read; Apple refusing this playlist alone does not.
-                Err(error) if rejects_tokens(&error) => match self.judged(error).await {
-                    AppleError::SignedOut => return Err(AppleError::SignedOut),
-                    refused => refused,
-                },
-                Err(error) => classified(&error),
+                Err(error) => self.playlist_failure(error).await?,
             };
             // One playlist that cannot be read does not cost a first song list.
             log::warn!("Skipped an Apple Music playlist that could not be read: {error}");
@@ -1958,6 +1967,18 @@ impl AppleMusicBinding {
             list.push(song);
         }
         Ok(list)
+    }
+
+    /// What a failed read of the playlists for the song list is: an expired sign-in stops the
+    /// whole read, as its error; Apple refusing the playlists alone does not, and is answered.
+    async fn playlist_failure(&self, error: AppleApiError) -> Result<AppleError, AppleError> {
+        if !rejects_tokens(&error) {
+            return Ok(classified(&error));
+        }
+        match self.judged(error).await {
+            AppleError::SignedOut => Err(AppleError::SignedOut),
+            refused => Ok(refused),
+        }
     }
 
     /// The songs of a library playlist; none for an empty one.
@@ -2410,6 +2431,7 @@ impl AppleMusicBinding {
         }
         let generation = self.generation();
         for chunk in wanted.chunks(READ_TRACKS_CHUNK) {
+            let changes = self.token_changes();
             let found = match self.read_songs(chunk).await {
                 Ok(found) => found,
                 Err(error) => {
@@ -2422,10 +2444,12 @@ impl AppleMusicBinding {
                 return HashMap::new();
             }
             // A song asked for that Apple did not answer with is one it does not have, which is
-            // not asked for again under this sign-in.
+            // not asked for again under this sign-in. Under other tokens since, which may be
+            // another account's, it is asked for again.
+            let same_tokens = self.token_changes() == changes;
             let missing: Vec<String> = chunk
                 .iter()
-                .filter(|track| !found.contains_key(*track))
+                .filter(|track| same_tokens && !found.contains_key(*track))
                 .cloned()
                 .collect();
             if catalog.missing.len() + missing.len() > MAX_MISSING_TRACKS {

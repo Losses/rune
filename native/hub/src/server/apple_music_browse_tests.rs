@@ -1887,6 +1887,30 @@ async fn apple_music_home_lists_its_groups_and_leaves_the_rest_empty() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_tracks_page_asks_apple_for_the_songs_when_online() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let read = apple.fake.count("/v1/me/library/songs");
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::all".into(),
+                parameter: "true".into(),
+            }],
+            hint_position: 0,
+            initial_playback_item: Some(song_ref(&apple, "i.s2")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(resolved.start_index, Some(1));
+    assert!(apple.fake.count("/v1/me/library/songs") > read);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn apple_music_takes_the_queries_the_tracks_and_album_pages_send() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
@@ -3617,6 +3641,29 @@ async fn an_apple_library_opens_offline_from_what_it_kept_and_waits_for_its_sign
     }
     let (summary, _) = binding.item_metadata("i.s2", false).await?;
     assert_eq!(summary.title, "Second Wind");
+    assert_eq!(restarted.fake.total(), asked);
+
+    // The Tracks page resolves the song it shows as playable from the same kept list.
+    let tracks_page = ResolveMixQueryRequest {
+        queries: vec![MixQuery {
+            operator: "lib::all".into(),
+            parameter: "true".into(),
+        }],
+        hint_position: 0,
+        initial_playback_item: Some(PlayingItemRef::LibraryTrack {
+            library_id: restarted.record.0.to_string(),
+            track: "i.s2".into(),
+        }),
+        instantly_play: true,
+        fallback_playing_items: Vec::new(),
+        excluded: ExcludedItems::default(),
+        call_id: None,
+    };
+    let resolved = dispatch_gui_request(&ui, &tracks_page)
+        .await?
+        .context("the Tracks page offline")?;
+    assert_eq!(resolved.start_index, Some(1));
+    assert_eq!(resolved.playing_items.len(), 3);
     assert_eq!(restarted.fake.total(), asked);
 
     // A read that needs Apple fails as every request does offline.
@@ -7170,6 +7217,62 @@ fn mix_names(group: &CollectionGroup) -> Vec<&str> {
         .collect()
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    let album = album_listed(&apple, "Dawn Album").await?;
+    let song = apple.binding.intern_track("i.s1")?;
+    // How many covers an album, a song, the recommended mixes and the Tracks page come with.
+    let covers = async |bake| -> Result<(usize, usize, usize, usize)> {
+        let albums = apple
+            .run(&FetchCollectionByIdsRequest {
+                call_id: None,
+                collection_type: CollectionType::Album,
+                bake_cover_arts: bake,
+                ids: vec![album],
+            })
+            .await?;
+        let files = apple
+            .run(&FetchMediaFileByIdsRequest {
+                ids: vec![song],
+                bake_cover_arts: bake,
+                call_id: None,
+            })
+            .await?;
+        let mixes = apple
+            .run(&FetchCollectionGroupsRequest {
+                collection_type: CollectionType::Mix,
+                bake_cover_arts: bake,
+                group_titles: vec!["Made for You".into()],
+                call_id: None,
+            })
+            .await?;
+        let tracks = apple
+            .run(&MixQueryRequest {
+                bake_cover_arts: bake,
+                ..mix("lib::all", "true")
+            })
+            .await?;
+        Ok((
+            albums.result[0].cover_art_map.len(),
+            files.cover_art_map.len(),
+            mixes.groups[0]
+                .collections
+                .iter()
+                .map(|mix| mix.cover_art_map.len())
+                .sum(),
+            tracks.cover_art_map.len(),
+        ))
+    };
+    wait_until("the covers to be cached", || async {
+        Ok((covers(true).await? == (1, 1, 3, 3)).then_some(()))
+    })
+    .await?;
+    assert_eq!(covers(false).await?, (0, 0, 0, 0));
+    apple.finish().await
+}
+
 /// The queries a mix page plays, as it fetches them.
 async fn stored_queries(apple: &OpenApple, mix_id: i32) -> Result<Vec<MixQuery>> {
     Ok(apple
@@ -8385,10 +8488,13 @@ fn with_playlists() -> AppleOptions {
     }
 }
 
-/// Lets the import a sign-in started do what it does: once everything was imported, it asks
-/// Apple nothing, which the counts of what Apple was asked then show.
-async fn import_settled() {
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+/// Waits for the import the last sign-in of `binding` started to end: once everything was
+/// imported, it asks Apple nothing, which the counts of what Apple was asked then show.
+async fn import_settled(binding: &AppleMusicBinding) -> Result<()> {
+    wait_until("the import of the sign-in to end", || async {
+        Ok((!binding.importing.load(Ordering::SeqCst)).then_some(()))
+    })
+    .await
 }
 
 /// Makes a binding of the library afresh, as at the next start: the one held is retired, the
@@ -8629,9 +8735,9 @@ async fn the_first_sign_in_imports_apples_likes_once() -> Result<()> {
     assert!(reads > 0);
     apple.fake.liked.lock().unwrap().insert("i.s2".into());
     sign_in_again(&apple, USER_TOKEN).await?;
-    import_settled().await;
-    let (_ui, _binding) = bind_again(&apple).await?;
-    import_settled().await;
+    import_settled(&apple.binding).await?;
+    let (_ui, binding) = bind_again(&apple).await?;
+    import_settled(&binding).await?;
     assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
     assert!(!is_liked(&apple, "i.s2").await?);
     assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
@@ -8810,9 +8916,9 @@ async fn the_first_sign_in_imports_every_playlist_of_apples_once() -> Result<()>
     let reads = import_reads(&apple);
     assert_eq!(reads, 1);
     sign_in_again(&apple, USER_TOKEN).await?;
-    import_settled().await;
-    let (_ui, _binding) = bind_again(&apple).await?;
-    import_settled().await;
+    import_settled(&apple.binding).await?;
+    let (_ui, binding) = bind_again(&apple).await?;
+    import_settled(&binding).await?;
     assert_eq!(import_reads(&apple), reads);
     assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
     apple.finish().await
@@ -8835,6 +8941,27 @@ async fn a_playlist_apple_refuses_alone_costs_no_first_song_list() -> Result<()>
     let songs = apple.binding.songs().await?;
     assert_eq!(songs.len(), 3);
     assert!(apple.fake.count(SUNDAY) > 0);
+    assert!(apple.binding.is_signed_in());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn playlists_apple_fails_to_list_cost_no_first_song_list() -> Result<()> {
+    const PLAYLISTS: &str = "/v1/me/library/playlists";
+    let dir = tempfile::tempdir()?;
+    // Apple fails to list the playlists, though it lists the library's songs.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            respond: Some((PLAYLISTS, 500, r#"{"errors":[{"status":"500"}]}"#)),
+            import_unfinished: true,
+            ..with_playlists()
+        },
+    )
+    .await?;
+    let songs = apple.binding.songs().await?;
+    assert_eq!(songs.len(), 3);
+    assert!(apple.fake.count(PLAYLISTS) > 0);
     assert!(apple.binding.is_signed_in());
     apple.finish().await
 }
@@ -9435,6 +9562,40 @@ async fn a_catalog_album_in_a_rune_mix_is_in_the_library_until_no_mix_names_it()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_was_read_for_a_mix_stays_while_the_file_of_the_mixes_cannot_be_read() -> Result<()> {
+    use crate::service::rune_mixes::MIXES_FILE;
+
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let catalog = apple.binding.intern(AppleIdKind::Album, "catalog:1600")?;
+    create_mix(&apple, "Remixes", vec![query("lib::album", catalog)]).await?;
+    album_listed(&apple, "Dawn Remixes").await?;
+    held_on_disk(&apple, &["1600"]).await?;
+    // The file of the mixes cannot be read once the app starts again, offline. No mix names
+    // the album then, so it is not listed.
+    let mixes = records_of(&apple, apple.record).join(MIXES_FILE);
+    let kept = std::fs::read(&mixes)?;
+    std::fs::write(&mixes, b"not a list of mixes")?;
+    let restarted = restart_apple(apple).await?;
+    let (_ui, binding) = restarted.open().await?;
+    let album_names = async || -> Result<Vec<String>> {
+        Ok(binding
+            .albums()
+            .await?
+            .iter()
+            .filter_map(|album| album.attributes.as_ref()?.name.clone())
+            .collect())
+    };
+    assert!(!album_names().await?.contains(&"Dawn Remixes".to_owned()));
+    // Once it can be read again, the album is listed from what was read for it, which a library
+    // that is not signed in cannot read again.
+    std::fs::write(&mixes, kept)?;
+    let listed = album_names().await?;
+    assert!(listed.contains(&"Dawn Remixes".to_owned()), "{listed:?}");
+    restarted.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_catalog_song_in_a_rune_playlist_brings_its_album_holding_only_it() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
@@ -9617,7 +9778,7 @@ async fn the_catalog_songs_of_an_imported_playlist_are_read_together_and_kept_on
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_burst_of_songs_added_to_a_playlist_tells_the_ui_once_after_the_last() -> Result<()> {
+async fn a_burst_of_songs_added_to_a_playlist_is_kept_and_tells_the_ui() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let (apple, heard) = open_apple_heard(dir.path()).await?;
     let mine = make_rune_playlist(&apple, "Mine", "Favorite").await?;
@@ -9628,10 +9789,9 @@ async fn a_burst_of_songs_added_to_a_playlist_tells_the_ui_once_after_the_last()
             add_song(&apple, mine.id, song, None).await?;
         }
     }
-    // Nothing is told while the songs come in quick succession, and once after the last.
-    assert_eq!(heard.count(CONTENT_CHANGED), told);
+    // The UI is told once the changes come to rest. How often depends on how fast the songs are
+    // written, so the binding's own tests tell a burst apart on a clock they move.
     told_after(&heard, told).await?;
-    assert_eq!(told_settled(&heard).await, told + 1);
     let page = apple.run(&playlist_page(mine.id)).await?;
     assert_eq!(page.entries.len(), 30);
     apple.finish().await
@@ -9694,6 +9854,51 @@ async fn a_catalog_playlist_a_mix_names_holds_its_songs_as_apple_changes_them() 
         .await?;
     assert_eq!(all_tracks(&apple).await?.1, 3);
     assert_eq!(names(&all_albums(&apple).await?), ["Dawn Album", "Night Album"]);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_song_apple_lacked_under_the_tokens_before_is_asked_for_again_under_new_ones()
+-> Result<()> {
+    const GONE: &str = "catalog:404404";
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let asked = || {
+        apple
+            .fake
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| target.contains("404404"))
+            .count()
+    };
+    // The queue's lookup asks Apple for a song it does not have, and Apple holds the answer.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/songs".into(), release.clone()));
+    let lookup = apple.binding.read_unknown_tracks([GONE.to_owned()]);
+    let switch = async {
+        wait_until("the song to be asked for", || async {
+            Ok((asked() == 1).then_some(()))
+        })
+        .await?;
+        // Other tokens sign in meanwhile, which may be another account's.
+        apple
+            .binding
+            .sign_in(Tokens::new(DEVELOPER_TOKEN, APPLE_OTHER_TOKEN).context("tokens")?);
+        release.notify_one();
+        Ok::<_, anyhow::Error>(())
+    };
+    let (found, switch) = tokio::join!(lookup, switch);
+    switch?;
+    assert!(found.is_empty());
+    // What Apple lacked under the tokens before is asked for again under the new ones, once.
+    assert!(!apple.binding.known_missing(GONE));
+    apple.binding.read_unknown_tracks([GONE.to_owned()]).await;
+    assert_eq!(asked(), 2);
+    assert!(apple.binding.known_missing(GONE));
+    apple.binding.read_unknown_tracks([GONE.to_owned()]).await;
+    assert_eq!(asked(), 2);
     apple.finish().await
 }
 

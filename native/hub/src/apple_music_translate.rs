@@ -196,14 +196,17 @@ fn rune_entry(binding: &AppleMusicBinding, playlist: &StoredPlaylist) -> Result<
     })
 }
 
+/// A collection as listed, with its cover when `bake` asks for covers.
 async fn collection_of(
     binding: &AppleMusicBinding,
     entry: &Entry,
     collection_type: CollectionType,
+    bake: bool,
 ) -> Result<Collection> {
     let covers = entry
         .cover
         .clone()
+        .filter(|_| bake)
         .map(|url| vec![(entry.id, url)])
         .unwrap_or_default();
     Ok(Collection {
@@ -261,9 +264,13 @@ pub(crate) async fn fetch_collection_groups_request(
     request: &FetchCollectionGroupsRequest,
 ) -> Result<Option<FetchCollectionGroupsResponse>> {
     if request.collection_type == CollectionType::Mix {
-        return mix_collections::mix_collection_groups(binding, &request.group_titles)
-            .await
-            .map(Some);
+        return mix_collections::mix_collection_groups(
+            binding,
+            &request.group_titles,
+            request.bake_cover_arts,
+        )
+        .await
+        .map(Some);
     }
     let kind = id_kind(
         request.collection_type,
@@ -279,7 +286,15 @@ pub(crate) async fn fetch_collection_groups_request(
         members.sort_by(|left, right| left.name.cmp(&right.name));
         let mut collections = Vec::with_capacity(members.len());
         for entry in members {
-            collections.push(collection_of(binding, entry, request.collection_type).await?);
+            collections.push(
+                collection_of(
+                    binding,
+                    entry,
+                    request.collection_type,
+                    request.bake_cover_arts,
+                )
+                .await?,
+            );
         }
         groups.push(CollectionGroup {
             group_title: title.clone(),
@@ -362,7 +377,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
         }));
     }
     if request.collection_type == CollectionType::Mix {
-        return mix_collections::mixes_by_ids(binding, &request.ids)
+        return mix_collections::mixes_by_ids(binding, &request.ids, request.bake_cover_arts)
             .await
             .map(Some);
     }
@@ -371,7 +386,7 @@ pub(crate) async fn fetch_collection_by_ids_request(
         return Ok(Some(FetchCollectionByIdsResponse {
             call_id: None,
             collection_type: request.collection_type,
-            result: playlists_by_ids(binding, &request.ids).await?,
+            result: playlists_by_ids(binding, &request.ids, request.bake_cover_arts).await?,
         }));
     }
     let mut result = Vec::with_capacity(request.ids.len());
@@ -437,7 +452,15 @@ pub(crate) async fn fetch_collection_by_ids_request(
             cover: info.cover,
             readonly: true,
         };
-        result.push(collection_of(binding, &entry, request.collection_type).await?);
+        result.push(
+            collection_of(
+                binding,
+                &entry,
+                request.collection_type,
+                request.bake_cover_arts,
+            )
+            .await?,
+        );
     }
     Ok(Some(FetchCollectionByIdsResponse {
         call_id: None,
@@ -448,8 +471,13 @@ pub(crate) async fn fetch_collection_by_ids_request(
 
 /// The playlists among `ids`: Rune's as they are listed, and those of the catalog that a page
 /// opened. A Rune playlist removed meanwhile is left out, as a local library leaves it out, and
-/// so is every one while their file cannot be read.
-async fn playlists_by_ids(binding: &AppleMusicBinding, ids: &[i32]) -> Result<Vec<Collection>> {
+/// so is every one while their file cannot be read. Each has its cover when `bake` asks for
+/// covers.
+async fn playlists_by_ids(
+    binding: &AppleMusicBinding,
+    ids: &[i32],
+    bake: bool,
+) -> Result<Vec<Collection>> {
     let kept = binding.rune_playlists.listed().await?;
     let mut result = Vec::with_capacity(ids.len());
     for id in ids {
@@ -471,7 +499,7 @@ async fn playlists_by_ids(binding: &AppleMusicBinding, ids: &[i32]) -> Result<Ve
                 }
             }
         };
-        result.push(collection_of(binding, &entry, CollectionType::Playlist).await?);
+        result.push(collection_of(binding, &entry, CollectionType::Playlist, bake).await?);
     }
     Ok(result)
 }
@@ -583,7 +611,7 @@ pub(crate) async fn search_collection_summary_request(
     let entries = entries(binding, kind, wire_name).await?;
     let mut result = Vec::new();
     for entry in entries.iter().take(to_count(request.n)) {
-        result.push(collection_of(binding, entry, collection_type).await?);
+        result.push(collection_of(binding, entry, collection_type, true).await?);
     }
     Ok(Some(SearchCollectionSummaryResponse {
         collection_type,
@@ -713,10 +741,15 @@ pub(crate) async fn fetch_media_file_by_ids_request(
         .flatten()
         .collect();
     let (media_files, covers) = media_files(binding, song_refs(&songs))?;
+    let cover_art_map = if request.bake_cover_arts {
+        binding.cover_map(covers).await?
+    } else {
+        HashMap::new()
+    };
     Ok(Some(FetchMediaFileByIdsResponse {
         call_id: None,
         media_files,
-        cover_art_map: binding.cover_map(covers).await?,
+        cover_art_map,
     }))
 }
 
@@ -1694,7 +1727,11 @@ pub(crate) async fn mix_query_request(
         });
     }
     let (mut files, covers) = media_files(binding, song_refs(&page))?;
-    let cover_art_map = binding.cover_map(covers).await?;
+    let cover_art_map = if request.bake_cover_arts || cover_wall {
+        binding.cover_map(covers).await?
+    } else {
+        HashMap::new()
+    };
     // A batch larger than the cache can evict a cover cached above before the map is built.
     // The wall reads its covers once, so a song whose cover is gone is left out.
     if cover_wall {
@@ -1767,7 +1804,18 @@ impl MixSource for AppleMusicBinding {
 
     fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
         Box::pin(async move {
-            let list = self.current_songs().await?;
+            let list = match self.current_songs().await {
+                Ok(list) => list,
+                // Without a way to reach Apple or a sign-in, the Tracks page lists the kept
+                // songs, so the songs it shows as playable resolve from the same list.
+                Err(error) => match error.downcast_ref::<ExpectedRequestError>() {
+                    Some(
+                        ExpectedRequestError::Unavailable { .. }
+                        | ExpectedRequestError::ServiceSignInRequired { .. },
+                    ) => self.kept_songs().await.ok_or(error)?,
+                    _ => return Err(error),
+                },
+            };
             Ok(list
                 .entries()
                 .take(limit)

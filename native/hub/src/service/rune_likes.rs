@@ -90,6 +90,12 @@ impl RuneLikes {
             .is_some_and(|like| like.liked))
     }
 
+    /// Every song the store holds, liked or not, in order. A file that cannot be read fails with
+    /// `UnreadableStore`, which names it.
+    pub(crate) async fn list(&self) -> Result<Arc<Vec<StoredLike>>> {
+        self.store.list().await
+    }
+
     /// Every song the store holds, liked or not, in order. A file that cannot be read lists none
     /// (see `DeviceStore::listed`).
     pub(crate) async fn listed(&self) -> Result<Arc<Vec<StoredLike>>> {
