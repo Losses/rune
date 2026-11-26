@@ -10054,6 +10054,15 @@ async fn a_catalog_album_in_a_rune_mix_is_in_the_library_until_no_mix_names_it()
     );
     // Nothing went into Apple's library, and the pages list it again without reading it again.
     assert!(apple.fake.writes.lock().unwrap().is_empty());
+    // The facts the artist pages place the album by are read in the background once it is listed.
+    wait_until("the album to be classified", || async {
+        let seen = apple.fake.seen.lock().unwrap();
+        Ok(seen
+            .iter()
+            .any(|(target, _)| target.starts_with("/v1/catalog/it/albums?ids=1600"))
+            .then_some(()))
+    })
+    .await?;
     let reads = apple.fake.total();
     for _ in 0..2 {
         all_albums(&apple).await?;
