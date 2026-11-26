@@ -2806,53 +2806,38 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn panel_broadcast_route_changes_the_saved_setting() -> Result<()> {
-        use axum::body::Body;
-        use axum::http::{Method, Request, header::CONTENT_TYPE};
-        use tower::ServiceExt;
-
         let pair = ServedPair::new(false).await?;
         let node = pair.server.global_params.node.clone();
         let config = Path::new(&*node.config_path).to_owned();
-        // The route is mounted here without the panel login in front of it: the login cannot
-        // issue or check a token in this build, because `jsonwebtoken` is compiled without a
-        // crypto backend.
-        let panel = Router::new()
-            .route("/panel/broadcast", put(toggle_broadcast_handler))
-            .with_state(Arc::new(ServerState {
-                node: Arc::downgrade(&node),
-                session_cancel: CancellationToken::new(),
-                app_state: Arc::new(AppState {
-                    cover_temp_dir: COVER_TEMP_DIR.clone(),
-                }),
-                websocket_service: node.websocket_service.clone(),
-                discovery_device_info: Arc::new(RwLock::new(node.device_info().await?)),
-                permission_manager: node.permission_manager.clone(),
-                device_scanner: node.device_scanner.clone(),
-            }));
-        let toggle = |enabled: bool| {
-            let panel = panel.clone();
-            async move {
-                let request = Request::builder()
-                    .method(Method::PUT)
-                    .uri("/panel/broadcast")
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        serde_json::json!({"enabled": enabled}).to_string(),
-                    ))?;
-                anyhow::Ok(panel.oneshot(request).await?.status())
-            }
+        let client = pinned_anonymous_client(&pair.controller.global_params, None).await?;
+        let url = format!("{}/panel/broadcast", pair.base);
+        let toggle = |enabled: bool, token: Option<&str>| {
+            let request = client
+                .put(&url)
+                .json(&serde_json::json!({"enabled": enabled}));
+            let request = match token {
+                Some(token) => request.bearer_auth(token),
+                None => request,
+            };
+            async move { anyhow::Ok(request.send().await?.status()) }
         };
         assert!(node.sync_settings.read().await.broadcast);
         assert!(node.device_scanner.is_announcing().await);
 
-        assert_eq!(toggle(false).await?, StatusCode::NO_CONTENT);
+        assert_eq!(toggle(false, None).await?, StatusCode::UNAUTHORIZED);
+        assert!(SyncSettings::load(&config).broadcast);
+        assert!(node.sync_settings.read().await.broadcast);
+        assert!(node.device_scanner.is_announcing().await);
+
+        let token = pair.server.generate_jwt_token(None)?;
+        assert_eq!(toggle(false, Some(&token)).await?, StatusCode::NO_CONTENT);
         let saved = SyncSettings::load(&config);
         assert!(!saved.broadcast);
         assert!(saved.media_server, "the panel switched the server off");
         assert!(!node.sync_settings.read().await.broadcast);
         assert!(!node.device_scanner.is_announcing().await);
 
-        assert_eq!(toggle(true).await?, StatusCode::NO_CONTENT);
+        assert_eq!(toggle(true, Some(&token)).await?, StatusCode::NO_CONTENT);
         assert!(SyncSettings::load(&config).broadcast);
         assert!(node.sync_settings.read().await.broadcast);
         assert!(node.device_scanner.is_announcing().await);
