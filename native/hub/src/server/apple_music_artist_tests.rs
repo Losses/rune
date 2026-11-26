@@ -1033,6 +1033,38 @@ async fn a_search_lists_the_catalog_artists_it_finds_when_the_artist_list_fails(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_lists_the_catalog_artists_it_finds_when_the_artist_list_takes_too_long()
+-> Result<()> {
+    use crate::apple_music_translate::search::SEARCH_WAIT;
+
+    let dir = tempfile::tempdir()?;
+    // Apple holds its answer of the library's artists until the search is over.
+    let release = Arc::new(tokio::sync::Notify::new());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            hold: Some(("/v1/me/library/artists", release.clone())),
+            import_unfinished: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let started = Instant::now();
+    let found = searched_artists(&apple).await?;
+    assert!(started.elapsed() >= SEARCH_WAIT);
+    // Both catalog artists are answered as themselves, and open the catalog's page.
+    assert_eq!(
+        found
+            .iter()
+            .map(|id| apple.binding.resolve(AppleIdKind::Artist, *id))
+            .collect::<Result<Vec<_>>>()?,
+        ["catalog:300", "catalog:301"]
+    );
+    release.notify_one();
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_catalog_artist_that_is_not_on_the_list_still_opens_its_catalog_page() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
