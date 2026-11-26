@@ -536,7 +536,12 @@ impl CGDisplayMode {
                     .into_iter()
                     .map(|value0| {
                         let x = *value0.deref() as *mut ::sys::CGDisplayMode;
-                        unsafe { CGDisplayMode::from_ptr(x) }
+                        // The array lends its elements and is released when this function
+                        // returns, so each wrapper needs a reference of its own to release.
+                        unsafe {
+                            CFRetain(x as *const _);
+                            CGDisplayMode::from_ptr(x)
+                        }
                     }).collect();
                 Some(vec)
             }
