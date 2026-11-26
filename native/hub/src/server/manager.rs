@@ -1082,6 +1082,7 @@ mod lifecycle_tests {
     mod player_session_tests {
         use super::*;
         include!("player_session_tests.rs");
+        include!("handoff_reconcile_tests.rs");
     }
 
     mod gui_listener_tests {

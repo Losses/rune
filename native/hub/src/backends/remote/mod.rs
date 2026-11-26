@@ -337,6 +337,9 @@ impl RendererLink {
             .map(|library_id| Uuid::parse_str(&library_id).map_err(protocol))
             .transpose()?;
         link.set_active_library_id(library_id);
+        // A connection reaching the renderer is the one moment stale handoff blocks from a
+        // rollback whose outcome was lost can be asked about again.
+        node.reconcile_handoff_rollbacks(&link).await;
         Ok((link, host.to_owned(), alias))
     }
 

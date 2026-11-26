@@ -1942,11 +1942,23 @@ impl Signal for HandoffRequest {
                 {
                     node.remember_handoff_block(source.fingerprint().to_owned(), block)
                         .await;
+                    if !NodeContext::handoff_block_confirmed_absent(&error) {
+                        // The answer never came back, so the target may still hold the block
+                        // this return path cannot see anymore.
+                        node.note_pending_handoff_rollback(source.fingerprint(), block)
+                            .await;
+                    }
                     log::info!("Handoff block is unavailable; using the existing return path");
                 }
                 Err(error) => {
                     node.remember_handoff_block(source.fingerprint().to_owned(), block)
                         .await;
+                    // A failure that is not a confirmed absence leaves the block's state on the
+                    // target unknown; a later connection must ask again.
+                    if !NodeContext::handoff_block_confirmed_absent(&error) {
+                        node.note_pending_handoff_rollback(source.fingerprint(), block)
+                            .await;
+                    }
                     resume_handoff_source(&node, paused).await?;
                     return Err(error);
                 }
@@ -2232,6 +2244,17 @@ async fn hand_off_to_renderer(
             .await;
         match rollback {
             Err(rollback_error) => {
+                if NodeContext::handoff_block_confirmed_absent(&rollback_error) {
+                    // The target answered that the block is not there, so nothing is left to
+                    // take back and the remembered record would only shadow a later handoff.
+                    node.forget_handoff_block(link.fingerprint(), block).await;
+                } else {
+                    // Whether the take-back applied is unknown: it may still run on the target
+                    // or never have arrived. It stays pending until a connection to the target
+                    // can ask again, so a retry does not pile the new block on top of it.
+                    node.note_pending_handoff_rollback(link.fingerprint(), block)
+                        .await;
+                }
                 warn!("Could not roll back failed handoff block: {rollback_error:#}");
                 return Err(error.context(format!("handoff rollback failed: {rollback_error:#}")));
             }
