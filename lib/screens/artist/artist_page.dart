@@ -9,6 +9,7 @@ import '../../config/animation.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/responsive_providers.dart';
 import '../../utils/api/fetch_artist_page.dart';
+import '../../utils/api/query_mix_tracks.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/l10n.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
@@ -116,6 +117,9 @@ class ArtistPage extends StatefulWidget {
   final Future<FetchArtistPageResponse> Function(int artistId, String language)
   fetch;
 
+  /// Loads a page of the tracks. Only a test gives another one.
+  final QueryTrackPageLoader loadTracks;
+
   /// Tells when the library's content changed. Only a test gives another one.
   final Stream<void>? contentChanged;
 
@@ -128,6 +132,7 @@ class ArtistPage extends StatefulWidget {
     required this.artistId,
     required this.name,
     this.fetch = fetchArtistPage,
+    this.loadTracks = queryMixTracks,
     this.contentChanged,
     this.random,
   });
@@ -469,6 +474,7 @@ class _ArtistPageState extends State<ArtistPage> {
                   layoutManager: _layoutManager,
                   queries: QueryList.fromMixQuery(response.tracks),
                   mode: null,
+                  loadMixPage: widget.loadTracks,
                   layout: DeviceType.tv,
                   underTitle: true,
                 ),
@@ -545,6 +551,7 @@ class _ArtistPageState extends State<ArtistPage> {
         layoutManager: _layoutManager,
         queries: QueryList.fromMixQuery(response.tracks),
         mode: null,
+        loadMixPage: widget.loadTracks,
         header: header,
       );
     }
