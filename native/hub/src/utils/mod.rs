@@ -2227,13 +2227,29 @@ pub(crate) async fn open_library_by_record_on_node(
     };
     match result {
         Ok(generation) => {
+            // The binding this open installed is the current one until another open replaces
+            // it, and its token is what `close_ui` matches, so the rollback below closes only
+            // this open's binding, never the one a later open installed meanwhile.
+            let installed_token = node
+                .current_ui()
+                .await
+                .ok()
+                .map(|params| params.main_token.clone());
             if let Err(error) = LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
                 registry.last_open_record = Some(record_id);
                 Ok(())
             })
             .await
             {
-                log::error!("Could not persist last open library record: {error:#}");
+                // An open that its selection does not survive is not the open it reports, so
+                // the binding this one installed closes with it, matching the reported failure.
+                if let Some(token) = installed_token {
+                    node.close_ui(&token).await;
+                }
+                return failed(
+                    OpenLibraryFailureKind::Storage,
+                    error.context("Could not save the library as the last selection"),
+                );
             }
             Ok(OpenLibraryResponse {
                 call_id: request.call_id,
