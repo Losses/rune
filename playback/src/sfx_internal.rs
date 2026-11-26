@@ -74,10 +74,15 @@ impl SfxPlayerInternal {
                 }
 
                 debug!("Received command: {cmd:?}");
-                match cmd {
+                // A failed command, such as an effect whose file cannot be opened or decoded,
+                // is logged and dropped; the player lives on for the next command.
+                let result = match cmd {
                     SfxPlayerCommand::Load { path } => self.load(Some(path)),
                     SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume),
-                }?;
+                };
+                if let Err(e) = result {
+                    error!("Sound effect command failed: {e:#}");
+                }
             } else {
                 break;
             }
@@ -171,6 +176,28 @@ mod tests {
             run.await.unwrap();
         }
         internal.cancellation_token = CancellationToken::new();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_player_survives_a_failed_effect() {
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let mut internal = SfxPlayerInternal::new(commands, CancellationToken::new());
+
+        // A file that does not exist fails before any output device is needed.
+        commands_sender
+            .send(SfxPlayerCommand::Load {
+                path: PathBuf::from("/nonexistent/no-such-effect.ogg"),
+            })
+            .unwrap();
+        run_briefly(&mut internal, &commands_sender).await;
+
+        // Later commands are still applied.
+        commands_sender
+            .send(SfxPlayerCommand::SetVolume(0.5))
+            .unwrap();
+        run_briefly(&mut internal, &commands_sender).await;
+        assert_eq!(internal.volume, 0.5);
+        assert!(!commands_sender.is_closed());
     }
 
     #[tokio::test(start_paused = true)]
