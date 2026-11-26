@@ -358,6 +358,24 @@ mod tests {
         assert!(!has_device_records(root.path(), reset));
     }
 
+    /// Opens the file or folder at `path` so its times can be set. Windows opens a folder only
+    /// with backup semantics, and sets times only through a handle that may write attributes.
+    fn open_to_set_times(path: &std::path::Path) -> fs::File {
+        let mut options = fs::OpenOptions::new();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            options
+                .access_mode(FILE_WRITE_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+        }
+        #[cfg(not(windows))]
+        options.read(true);
+        options.open(path).unwrap()
+    }
+
     #[test]
     fn the_records_removed_libraries_left_are_found_newest_first_and_taken_over_whole() {
         let root = TempDir::new().unwrap();
@@ -373,10 +391,7 @@ mod tests {
         let written = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let records = device_records_folder(root.path(), older);
         for path in [records.join("playlists.json"), records] {
-            fs::File::open(&path)
-                .unwrap()
-                .set_modified(written)
-                .unwrap();
+            open_to_set_times(&path).set_modified(written).unwrap();
         }
         write_records(root.path(), newer, "newer");
         write_records(root.path(), known, "known");
