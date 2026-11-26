@@ -1,5 +1,5 @@
 use super::*;
-use crate::library_pool::{LibraryHandle, LibraryResources};
+use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
 use crate::messages::{
     OpenDalLibraryService, OpenDalShareDataDetection, RegisterOpenDalLibraryRequest,
     ShareDataChoice,
@@ -7,13 +7,16 @@ use crate::messages::{
 use crate::node::NodeContext;
 use crate::server::utils::device::RunMode;
 use crate::test_wait::{TEST_DEADLINE, wait_until};
+use crate::utils::nid::get_or_create_node_id;
 use crate::utils::{
     Broadcaster, RinfRustSignal, detect_opendal_share_data, register_opendal_library_on_node,
 };
 use chrono::Utc;
-use database::connection::RecommendationDbConnection;
+use database::connection::{MainDbConnection, RecommendationDbConnection, check_storage_mode};
 use database::credentials::{Credential, CredentialRef, CredentialStore, Secret};
-use database::library_registry::{CatalogPlacement, FsAdapter, LibraryRecordId, ProtocolAdapter};
+use database::library_registry::{
+    CatalogPlacement, FsAdapter, LibraryRecordId, ProtocolAdapter, resolve_library,
+};
 use database::sync::LibrarySyncStore;
 use database::sync::model::{Collection, ObjectKey, RuneModel};
 use database::sync::share::{BaseCutRequest, ShareWriter, cut_base};
@@ -24,6 +27,7 @@ use fsio::{OpenDalConfig, OpenDalObjectStore};
 use futures::future::try_join_all;
 use rcgen::CertificateParams;
 use rcgen::KeyPair;
+use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
@@ -529,19 +533,23 @@ async fn worker_hub_on_share(
     Ok(hub)
 }
 
-async fn worker_hub_on_share_prepared(
-    namespace: Uuid,
-    session: ShareStoreSession,
-    library: support::SqlLibrary,
-) -> Result<WorkerHub> {
-    let timers = ShareWorkerTimers {
+fn fast_share_timers() -> ShareWorkerTimers {
+    ShareWorkerTimers {
         tick: Duration::from_millis(25),
         foreground_pull: Duration::from_millis(50),
         background_pull: Duration::from_millis(50),
         push_debounce: Duration::from_millis(10),
         statistics_push: Duration::from_millis(50),
         idle_push: Duration::from_millis(100),
-    };
+    }
+}
+
+async fn worker_hub_on_share_prepared(
+    namespace: Uuid,
+    session: ShareStoreSession,
+    library: support::SqlLibrary,
+) -> Result<WorkerHub> {
+    let timers = fast_share_timers();
     let factory: Arc<dyn ShareStoreFactory> = Arc::new(FixedShareFactory { session });
     let directory = tempfile::tempdir()?;
     let (node, broadcaster, handle) =
@@ -582,6 +590,186 @@ async fn share_worker_fixtures_do_not_start_the_media_server() -> Result<()> {
         [(false, None), (false, None)],
         "share workers must not request or start the media server"
     );
+    Ok(())
+}
+
+/// A node with an ordinary, background-synced local library whose pool closes it after a
+/// controlled idle timeout. The pool is created with the timeout before the node, which reuses
+/// it, and the library opens through its registry record like a backgrounded real library.
+struct IdlePatrolNode {
+    _directory: tempfile::TempDir,
+    root: String,
+    node: Arc<NodeContext>,
+    // The node reuses this pool only while the strong reference lives, so the harness keeps it.
+    pool: Arc<LibraryPool>,
+    library_id: Uuid,
+    cancel: CancellationToken,
+    task: Option<task::JoinHandle<()>>,
+}
+
+impl IdlePatrolNode {
+    async fn new(idle_timeout: Duration) -> Result<Self> {
+        let directory = tempfile::tempdir()?;
+        let root = directory
+            .path()
+            .join("media")
+            .to_string_lossy()
+            .into_owned();
+        let fsio = FsIo::new();
+        let mode = check_storage_mode(&fsio, &root)?;
+        let mut registry = LibraryRegistry::load(directory.path())?;
+        let record = resolve_library(&fsio, &mut registry, &root, "Idle test", mode).await?;
+        let library_id = record.catalog_library_id().context("local library id")?;
+        let path = directory.path().to_string_lossy().into_owned();
+        write_quick_identity(directory.path())?;
+        crate::test_node::disable_media_server(directory.path())?;
+        get_or_create_node_id(&path).await?;
+        let credentials = Arc::new(CredentialStore::open(directory.path()));
+        let node_id = node_id_file(directory.path())?;
+        let pool = LibraryPool::with_idle_timeout_and_credentials(
+            directory.path(),
+            directory.path(),
+            &node_id,
+            idle_timeout,
+            credentials,
+        )?;
+        let broadcaster = Arc::new(QuietBroadcaster::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            broadcaster,
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await?;
+        anyhow::ensure!(
+            Arc::ptr_eq(&pool, &node.library_pool),
+            "the node did not reuse the controlled-timeout pool"
+        );
+        Ok(Self {
+            _directory: directory,
+            root,
+            node,
+            pool,
+            library_id,
+            cancel: CancellationToken::new(),
+            task: None,
+        })
+    }
+
+    fn start_worker(&mut self) {
+        let cancel = self.cancel.clone();
+        let node = Arc::downgrade(&self.node);
+        let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        self.task = Some(tokio::spawn(run_share_worker(
+            node,
+            notify,
+            cancel,
+            Arc::new(MemoryShareFactory {
+                store: Arc::new(MemoryObjectStore::default()),
+            }),
+            fast_share_timers(),
+        )));
+    }
+
+    /// The pool's connection to the library, acquired as background work so the probe itself
+    /// cannot refresh the idle clock. Reuses the open entry or reopens the library.
+    async fn probe_connection(&self) -> Result<Arc<MainDbConnection>> {
+        Ok(self
+            .pool
+            .acquire_background(self.library_id)
+            .await?
+            .main_db
+            .clone())
+    }
+
+    /// The connection changes identity when the pool closed the idle database and the next
+    /// access reopened it.
+    async fn wait_for_reopen_after(&self, connection: &Arc<MainDbConnection>) -> Result<()> {
+        wait_until("the idle library to close and reopen", || async {
+            let probe = self.probe_connection().await?;
+            Ok((!Arc::ptr_eq(&probe, connection)).then_some(()))
+        })
+        .await
+    }
+
+    async fn stop(mut self) -> Result<()> {
+        self.cancel.cancel();
+        if let Some(task) = self.task.take() {
+            task.await?;
+        }
+        self.node.shutdown().await?;
+        Ok(())
+    }
+}
+
+fn node_id_file(config_dir: &std_path::Path) -> Result<String> {
+    Ok(fs::read_to_string(config_dir.join("nid"))?
+        .trim()
+        .to_owned())
+}
+
+#[tokio::test]
+async fn share_patrol_of_an_unshared_library_allows_idle_closure() -> Result<()> {
+    let idle_timeout = Duration::from_millis(400);
+    let mut fixture = IdlePatrolNode::new(idle_timeout).await?;
+    let library_id = fixture.library_id;
+    fixture.start_worker();
+
+    // The patrol visits the library: with no open entry yet, only its acquire can create the
+    // database in the media root.
+    wait_until(
+        "the share patrol to open the library's database",
+        || async {
+            Ok(std_path::Path::new(&fixture.root)
+                .join(".rune")
+                .join(".0.db")
+                .exists()
+                .then_some(()))
+        },
+    )
+    .await?;
+    let initial = fixture.probe_connection().await?;
+    initial
+        .execute_unprepared("CREATE TABLE share_idle_probe (value INTEGER NOT NULL)")
+        .await?;
+    initial
+        .execute_unprepared("INSERT INTO share_idle_probe (value) VALUES (42)")
+        .await?;
+
+    // Background visits continue, yet once external use stops the library still closes after
+    // the idle timeout, and the next access reopens it.
+    fixture.wait_for_reopen_after(&initial).await?;
+    let reopened = fixture.probe_connection().await?;
+    let result = reopened
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT value FROM share_idle_probe".to_owned(),
+        ))
+        .await?;
+    assert_eq!(
+        result
+            .context("persisted probe data")?
+            .try_get::<i64>("", "value")?,
+        42
+    );
+
+    // An active lease keeps the library open across several idle periods. Eviction is only
+    // time-driven, so this negative observation needs one bounded wait rather than a condition.
+    let lease = fixture.node.library_pool.acquire(library_id).await?;
+    let leased_connection = lease.main_db.clone();
+    tokio_time::sleep(idle_timeout * 5).await;
+    let probe = fixture.probe_connection().await?;
+    assert!(
+        Arc::ptr_eq(&probe, &leased_connection),
+        "the idle library closed while a lease was held"
+    );
+    drop(lease);
+    drop(probe);
+    fixture.wait_for_reopen_after(&leased_connection).await?;
+
+    fixture.stop().await?;
     Ok(())
 }
 
