@@ -144,6 +144,9 @@ use tokio::sync::{Mutex, Notify, broadcast, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep, timeout};
 
+/// A hook the mock server runs once when it answers the account check.
+type OnGetUser = Arc<StdMutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 #[derive(Clone)]
 struct SubsonicHubMock {
     calls: Arc<StdMutex<Vec<String>>>,
@@ -153,6 +156,8 @@ struct SubsonicHubMock {
     reject_credentials: bool,
     visualizer_covers: bool,
     starred: Arc<AtomicBool>,
+    /// Runs once when the account check is answered, while a client waits on the server.
+    on_get_user: OnGetUser,
 }
 
 async fn subsonic_hub_mock(
@@ -165,7 +170,16 @@ async fn subsonic_hub_mock(
     Arc<AtomicBool>,
     JoinHandle<()>,
 ) {
-    subsonic_hub_mock_with_covers(reject_credentials, false).await
+    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, task) =
+        subsonic_hub_mock_with_hook(reject_credentials, false).await;
+    (
+        endpoint,
+        calls,
+        stream_ranges,
+        reject_stream,
+        supports_ranges,
+        task,
+    )
 }
 
 async fn subsonic_hub_mock_with_covers(
@@ -179,10 +193,35 @@ async fn subsonic_hub_mock_with_covers(
     Arc<AtomicBool>,
     JoinHandle<()>,
 ) {
+    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, task) =
+        subsonic_hub_mock_with_hook(reject_credentials, visualizer_covers).await;
+    (
+        endpoint,
+        calls,
+        stream_ranges,
+        reject_stream,
+        supports_ranges,
+        task,
+    )
+}
+
+async fn subsonic_hub_mock_with_hook(
+    reject_credentials: bool,
+    visualizer_covers: bool,
+) -> (
+    String,
+    Arc<StdMutex<Vec<String>>>,
+    Arc<StdMutex<Vec<Option<String>>>>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+    OnGetUser,
+    JoinHandle<()>,
+) {
     let calls = Arc::new(StdMutex::new(Vec::new()));
     let stream_ranges = Arc::new(StdMutex::new(Vec::new()));
     let reject_stream = Arc::new(AtomicBool::new(false));
     let supports_ranges = Arc::new(AtomicBool::new(true));
+    let on_get_user: OnGetUser = Arc::new(StdMutex::new(None));
     let state = SubsonicHubMock {
         calls: calls.clone(),
         stream_ranges: stream_ranges.clone(),
@@ -191,6 +230,7 @@ async fn subsonic_hub_mock_with_covers(
         reject_credentials,
         visualizer_covers,
         starred: Arc::new(AtomicBool::new(false)),
+        on_get_user: on_get_user.clone(),
     };
     let app = Router::new()
         .route("/rest/{*action}", get(subsonic_hub_response))
@@ -204,6 +244,7 @@ async fn subsonic_hub_mock_with_covers(
         stream_ranges,
         reject_stream,
         supports_ranges,
+        on_get_user,
         task,
     )
 }
@@ -318,6 +359,9 @@ async fn subsonic_hub_response(
             json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": format!("rejected t={} s={} p=test-secret", query.get("t").map(String::as_str).unwrap_or_default(), query.get("s").map(String::as_str).unwrap_or_default()) } } })
         }
         "getUser" => {
+            if let Some(hook) = state.on_get_user.lock().unwrap().take() {
+                hook();
+            }
             json!({ "subsonic-response": { "status": "ok", "user": { "streamRole": true, "downloadRole": true } } })
         }
         "search3" => {
@@ -1207,6 +1251,100 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
     server.abort();
     bad_server.abort();
     node.close_ui(&fixture.global_params.main_token).await;
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn open_fails_and_closes_when_the_last_selection_cannot_be_saved() -> Result<()> {
+    use crate::messages::{OpenLibraryFailureKind, OpenLibraryRequest};
+    use database::library_registry::{
+        CatalogPlacement, LibraryRecord, LibraryRecordId, LibraryRegistry, ProtocolAdapter,
+        SubsonicOpenMode,
+    };
+    use scrobbling::manager::ScrobblingManager;
+    use tokio::sync::Mutex;
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let (endpoint, _, _, _, _, on_get_user, server) =
+        subsonic_hub_mock_with_hook(false, false).await;
+    let credential = node
+        .credentials
+        .put(Credential {
+            username: "account".into(),
+            secret: Secret::new(b"test-secret".to_vec()),
+        })
+        .await?;
+    let record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: "Unsaved Subsonic".into(),
+        library_id: None,
+        protocol: ProtocolAdapter::SubsonicTranslate {
+            endpoint: endpoint.clone(),
+            credential,
+            mode: SubsonicOpenMode::PlayOnThisDevice,
+        },
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        registry.libraries.push(record.clone());
+        Ok(())
+    })
+    .await?;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let open_request = OpenLibraryRequest {
+        call_id: Some(1),
+        record_id: record.record_id.0.to_string(),
+    };
+    let open = || {
+        open_library_by_record_on_node(
+            &open_request,
+            node.clone(),
+            Arc::clone(&scrobbler),
+        )
+    };
+    // The registry cannot be written once its file no longer parses. The open reads the
+    // record before it asks the server about the account, so corrupting the file while that
+    // answer is on the way makes the final save, made after the binding opened, fail there.
+    let registry_file = Path::new(&*node.config_path).join("libraries.json");
+    let saved_registry = fs::read(&registry_file)?;
+    let corrupt_registry = registry_file.clone();
+    *on_get_user.lock().unwrap() = Some(Box::new(move || {
+        let _ = fs::write(&corrupt_registry, b"{ no longer a registry");
+    }));
+    let result = open().await;
+    assert_eq!(
+        opened_failure_kind(result)?,
+        OpenLibraryFailureKind::Storage,
+        "an open whose last selection cannot be saved must report failure"
+    );
+    assert!(
+        matches!(node.current_library(), Ok(OpenLibrary::Closed)),
+        "a failed open must not leave a binding open"
+    );
+    // The selection was never persisted, so a fresh load keeps the previous one.
+    fs::write(&registry_file, &saved_registry)?;
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert_ne!(registry.last_open_record, Some(record.record_id));
+
+    // A working save is the control: the open reports success, the binding stays and a
+    // fresh load restores the selection.
+    open().await?;
+    assert!(matches!(
+        node.current_library(),
+        Ok(OpenLibrary::Service(_))
+    ));
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+    assert_eq!(registry.last_open_record, Some(record.record_id));
+
+    server.abort();
     node.shutdown().await?;
     Ok(())
 }

@@ -2233,7 +2233,15 @@ pub(crate) async fn open_library_by_record_on_node(
             })
             .await
             {
-                log::error!("Could not persist last open library record: {error:#}");
+                // An open that its selection does not survive is not the open it reports, so
+                // the binding this one installed closes with it, matching the reported failure.
+                if let Ok(params) = node.current_ui().await {
+                    node.close_ui(&params.main_token).await;
+                }
+                return failed(
+                    OpenLibraryFailureKind::Storage,
+                    error.context("Could not save the library as the last selection"),
+                );
             }
             Ok(OpenLibraryResponse {
                 call_id: request.call_id,
