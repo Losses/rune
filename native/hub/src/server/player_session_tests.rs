@@ -14995,6 +14995,32 @@ async fn cancelled_session_dropping_a_show_request_leaves_the_next_session_visib
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn visualizer_cover_wall_does_not_follow_a_player_queue() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let queued = session_audio(&fixture, "visualizer-wall-queued.ogg").await?;
+    let other = session_audio(&fixture, "visualizer-wall-other.ogg").await?;
+    attach_test_cover(&fixture, queued, b"visualizer-wall-queued-cover").await?;
+    attach_test_cover(&fixture, other, b"visualizer-wall-other-cover").await?;
+    let item: PlayingItem = library_track_for_id(&fixture, queued).await?.into();
+
+    // The wall shows covers of the playing item's library, whatever this device's player has
+    // queued: with nothing queued and with one of the two tracks queued it is the same wall.
+    let (_, unqueued_wall) = Implementation::Local.visualizer_covers(&item, &node).await?;
+    queue_session(&fixture, &[queued]).await?;
+    let (_, queued_wall) = Implementation::Local.visualizer_covers(&item, &node).await?;
+    let sorted = |mut wall: Vec<String>| {
+        wall.sort();
+        wall
+    };
+    let unqueued_wall = sorted(unqueued_wall);
+    assert_eq!(unqueued_wall.len(), 2, "{unqueued_wall:?}");
+    assert_eq!(sorted(queued_wall), unqueued_wall);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
