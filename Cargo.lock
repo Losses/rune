@@ -113,7 +113,7 @@ dependencies = [
  "media-compute",
  "num-complex",
  "pollster 0.4.0",
- "rand 0.8.5",
+ "rand 0.8.8",
  "realfft",
  "rubato",
  "rustfft",
@@ -209,7 +209,7 @@ dependencies = [
  "axum",
  "futures-util",
  "log",
- "rand 0.8.5",
+ "rand 0.10.3",
  "reqwest 0.12.18",
  "serde",
  "serde_json",
@@ -1988,7 +1988,7 @@ dependencies = [
  "paste",
  "playback",
  "portpicker",
- "rand 0.8.5",
+ "rand 0.8.8",
  "rayon",
  "regex",
  "reqwest 0.12.18",
@@ -2223,7 +2223,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pem",
- "rand 0.8.5",
+ "rand 0.10.3",
  "rcgen",
  "reqwest 0.12.18",
  "rsa",
@@ -3139,7 +3139,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "portable-atomic",
  "quanta",
- "rand 0.8.5",
+ "rand 0.8.8",
  "smallvec",
  "spinning_top",
 ]
@@ -3518,7 +3518,7 @@ dependencies = [
  "playback",
  "portpicker",
  "radix_trie",
- "rand 0.8.5",
+ "rand 0.10.3",
  "rcgen",
  "regex",
  "requests",
@@ -4171,7 +4171,7 @@ dependencies = [
  "p256",
  "p384",
  "pem",
- "rand 0.8.5",
+ "rand 0.8.8",
  "rsa",
  "serde",
  "serde_json",
@@ -5025,7 +5025,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.8",
  "smallvec",
  "zeroize",
 ]
@@ -5757,7 +5757,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e4cc64c2ad9ebe670cb8fd69dd50ae301650392e81c05f9bfcb2d5bdbc24b0"
 dependencies = [
  "phf_shared",
- "rand 0.8.5",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -5854,7 +5854,7 @@ dependencies = [
  "objc2-media-player",
  "objc2-ui-kit",
  "once_cell",
- "rand 0.8.5",
+ "rand 0.10.3",
  "raw-window-handle 0.5.2",
  "reqwest 0.12.18",
  "rodio",
@@ -6006,7 +6006,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be97d76faf1bfab666e1375477b23fde79eccf0276e9b63b92a39d676a889ba9"
 dependencies = [
- "rand 0.8.5",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -6325,9 +6325,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.8.5"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -6448,7 +6448,7 @@ dependencies = [
  "once_cell",
  "paste",
  "profiling",
- "rand 0.8.5",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "simd_helpers",
  "system-deps",
@@ -7022,7 +7022,7 @@ dependencies = [
  "borsh",
  "bytes",
  "num-traits",
- "rand 0.8.5",
+ "rand 0.8.8",
  "rkyv",
  "serde",
  "serde_json",
@@ -7296,7 +7296,7 @@ dependencies = [
  "clap",
  "log",
  "md5",
- "rand 0.8.5",
+ "rand 0.8.8",
  "reqwest 0.12.18",
  "serde",
  "serde_json",
@@ -8182,7 +8182,7 @@ dependencies = [
  "axum",
  "discovery",
  "md5",
- "rand 0.8.5",
+ "rand 0.10.3",
  "reqwest 0.12.18",
  "serde",
  "serde_json",
@@ -8611,7 +8611,7 @@ dependencies = [
  "fsio_media_source",
  "log",
  "once_cell",
- "rand 0.8.5",
+ "rand 0.10.3",
  "reqwest 0.12.18",
  "rubato",
  "rustfft",
@@ -9429,7 +9429,7 @@ dependencies = [
  "objc2-metal",
  "playback",
  "pollster 0.4.0",
- "rand 0.8.5",
+ "rand 0.10.3",
  "realfft",
  "rtrb",
  "serde",
@@ -10629,7 +10629,7 @@ dependencies = [
  "nix 0.26.4",
  "once_cell",
  "ordered-stream",
- "rand 0.8.5",
+ "rand 0.8.8",
  "serde",
  "serde_repr",
  "sha1 0.10.6",
