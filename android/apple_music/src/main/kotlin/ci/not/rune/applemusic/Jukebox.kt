@@ -60,12 +60,15 @@ internal class Jukebox(
         /**
          * How long an entry told to play may make no progress before it fails. The player reports
          * a song as playing while it buffers, which takes seconds on a slow network, and the
-         * host keeps reporting it as playing meanwhile.
+         * host keeps reporting it as playing meanwhile, and as buffering.
          */
         const val PROGRESS_LIMIT_MS = 30_000L
 
         /** How far the position has to move for an entry to count as heard playing. */
         const val PROGRESS_STEP_MS = 100L
+
+        /** How long an entry that plays may stand still before it counts as buffering again. */
+        const val STALL_AFTER_MS = 2_000L
 
         /** How short of its end an entry that ends counts as played out. */
         const val END_TOLERANCE_MS = 1_000L
@@ -778,6 +781,15 @@ internal class Jukebox(
             player.state == PlayerState.PLAYING
     }
 
+    /**
+     * Whether the current entry is told to play but does not move on yet, as while the platform
+     * player loads its audio. Rune then keeps the entry where the status puts it.
+     */
+    private fun buffers(): Boolean {
+        if (!reportsPlaying() || playedOut) return false
+        return loading || waitingSeek != null || !heard || clock() - progressAt >= STALL_AFTER_MS
+    }
+
     private fun position(): Long {
         val entry = currentEntry ?: return 0
         if (entry.failure != null) return 0
@@ -792,7 +804,7 @@ internal class Jukebox(
     }
 
     private fun signature() =
-        "$current|$ended|${reportsPlaying()}|${currentEntry?.failure}"
+        "$current|$ended|${reportsPlaying()}|${buffers()}|${currentEntry?.failure}"
 
     /** Reports a change that Rune did not cause, and, while an entry plays, every few seconds. */
     private fun report(periodic: Boolean) {
@@ -804,7 +816,15 @@ internal class Jukebox(
     private fun sendStatus() {
         reportedSignature = signature()
         reportedAt = clock()
-        send(HostEvent.Status(revision, current, currentEntry?.id, reportsPlaying(), position()))
+        val status = HostEvent.Status(
+            revision,
+            current,
+            currentEntry?.id,
+            reportsPlaying(),
+            position(),
+            buffers(),
+        )
+        send(status)
     }
 
     /** Reports the end at the entry that ended. */

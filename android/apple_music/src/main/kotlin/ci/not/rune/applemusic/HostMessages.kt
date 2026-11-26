@@ -44,6 +44,8 @@ internal sealed interface HostEvent {
         val currentId: String?,
         val playing: Boolean,
         val positionMs: Long,
+        /** Whether it is told to play but does not move on yet. Written only when it is. */
+        val buffering: Boolean = false,
     ) : HostEvent
 
     data class ItemFailed(val revision: Long, val index: Int, val reason: Failure) : HostEvent
@@ -94,6 +96,7 @@ internal object HostMessages {
             .put("currentId", event.currentId ?: JSONObject.NULL)
             .put("playing", event.playing)
             .put("positionMs", event.positionMs)
+            .apply { if (event.buffering) put("buffering", true) }
         is HostEvent.ItemFailed -> JSONObject()
             .put("type", "jukeboxItemFailed")
             .put("host", HOST_FAMILY)

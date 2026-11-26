@@ -62,7 +62,7 @@ class JukeboxTest {
     fun `a hand-over plays the first entry alone and then queues the rest in order, a run at a time`() {
         handOver("catalog:1", "catalog:2", "catalog:3", "i.lib4", "catalog:5")
         assertEquals(
-            HostEvent.Status(1, currentIndex = 0, currentId = "catalog:1", playing = true, positionMs = 0),
+            HostEvent.Status(1, 0, "catalog:1", playing = true, positionMs = 0, buffering = true),
             statuses.last(),
         )
         answerAll()
@@ -85,7 +85,7 @@ class JukeboxTest {
         player.playOut()
         player.flush()
         assertEquals(
-            HostEvent.Status(1, currentIndex = 1, currentId = "catalog:b", playing = true, positionMs = 0),
+            HostEvent.Status(1, 1, "catalog:b", playing = true, positionMs = 0, buffering = true),
             statuses.single(),
         )
 
@@ -303,7 +303,7 @@ class JukeboxTest {
 
         batch(HostAction.Skip(0, 50_000))
         assertEquals("pause", player.calls.last())
-        assertEquals(HostEvent.Status(2, 0, "catalog:a", true, 50_000), statuses.last())
+        assertEquals(HostEvent.Status(2, 0, "catalog:a", true, 50_000, buffering = true), statuses.last())
 
         player.dataArrives()
         player.flush()
@@ -335,7 +335,7 @@ class JukeboxTest {
 
         advance(Jukebox.PROGRESS_LIMIT_MS - Jukebox.TICK_MS)
         assertTrue(statuses.size >= (Jukebox.PROGRESS_LIMIT_MS / Jukebox.REPORT_EVERY_MS - 1).toInt())
-        assertTrue(statuses.all { it.playing && it.positionMs == 30_000L })
+        assertTrue(statuses.all { it.playing && it.buffering && it.positionMs == 30_000L })
         assertTrue(failures.isEmpty())
 
         advance(Jukebox.TICK_MS)
@@ -354,6 +354,34 @@ class JukeboxTest {
         assertTrue(failures.isEmpty())
         assertTrue(statuses.last().playing)
         assertTrue(statuses.last().positionMs > 0)
+    }
+
+    @Test
+    fun `an entry says that it buffers until it moves on, and again when it stands still`() {
+        player.buffering = true
+        handOver("catalog:a")
+        answerAll()
+        advance(10_000)
+        assertTrue(statuses.all { it.playing && it.buffering && it.positionMs == 0L })
+        events.clear()
+
+        // The first status that says otherwise comes as soon as the entry moves on.
+        player.buffering = false
+        advance(Jukebox.TICK_MS * 2)
+        val moving = statuses.single()
+        assertTrue(moving.playing && !moving.buffering && moving.positionMs > 0)
+
+        advance(10_000)
+        assertTrue(statuses.none { it.buffering })
+        events.clear()
+        player.buffering = true
+        advance(Jukebox.STALL_AFTER_MS + Jukebox.TICK_MS)
+        assertTrue(statuses.last().playing && statuses.last().buffering)
+        val stoodAt = statuses.last().positionMs
+        player.buffering = false
+        advance(Jukebox.TICK_MS * 2)
+        assertTrue(!statuses.last().buffering && statuses.last().positionMs > stoodAt)
+        assertTrue(failures.isEmpty())
     }
 
     @Test
@@ -433,7 +461,10 @@ class JukeboxTest {
         player.flush()
         batch(HostAction.Remove(1))
         assertEquals(listOf("a", "b"), player.items.map { it.storeId })
-        assertEquals(HostEvent.Status(3, 1, "catalog:b", true, 0), statuses.last().copy(revision = 3))
+        assertEquals(
+            HostEvent.Status(3, 1, "catalog:b", true, 0, buffering = true),
+            statuses.last().copy(revision = 3),
+        )
     }
 
     @Test

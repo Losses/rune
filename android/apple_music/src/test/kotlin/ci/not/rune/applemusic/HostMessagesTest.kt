@@ -57,6 +57,10 @@ class HostMessagesTest {
             """{"type":"jukeboxStatus","host":"appleMusic","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":1500}""",
             HostMessages.encode(HostEvent.Status(3, 0, "track-1", true, 1500)),
         )
+        assertJson(
+            """{"type":"jukeboxStatus","host":"appleMusic","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":0,"buffering":true}""",
+            HostMessages.encode(HostEvent.Status(3, 0, "track-1", true, 0, buffering = true)),
+        )
         val idle = JSONObject(HostMessages.encode(HostEvent.Status(3, null, null, false, 0)))
         assertTrue(idle.isNull("currentIndex") && idle.has("currentIndex"))
         assertTrue(idle.isNull("currentId") && idle.has("currentId"))
