@@ -527,7 +527,7 @@ impl ServiceBinding for NamedService {
 async fn a_track_named_late_goes_to_runes_scrobblers_unless_its_service_counts_its_plays()
 -> Result<()> {
     let dir = tempfile::tempdir()?;
-    crate::test_node::disable_sync_listener(dir.path())?;
+    crate::test_node::disable_media_server(dir.path())?;
     let path = dir.path().to_string_lossy();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
     let node = NodeContext::new(
@@ -1228,7 +1228,7 @@ struct ReportingPlayback {
 impl ReportingPlayback {
     async fn start(tracks: &[&str]) -> Result<Self> {
         let dir = tempfile::tempdir()?;
-        crate::test_node::disable_sync_listener(dir.path())?;
+        crate::test_node::disable_media_server(dir.path())?;
         let path = dir.path().to_string_lossy();
         let node = NodeContext::new(
             &path,
