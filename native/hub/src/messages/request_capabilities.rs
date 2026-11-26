@@ -62,7 +62,6 @@ pub struct RequestCapabilities {
     pub load_request: RequestCapability,
     pub play_request: RequestCapability,
     pub pause_request: RequestCapability,
-    pub pause_reporting_request: RequestCapability,
     pub next_request: RequestCapability,
     pub previous_request: RequestCapability,
     pub switch_request: RequestCapability,
@@ -192,6 +191,7 @@ pub struct RequestCapabilities {
     pub rename_file_dialog_entry_request: RequestCapability,
     pub fetch_artist_page_request: RequestCapability,
     pub fetch_artist_section_albums_request: RequestCapability,
+    pub pause_reporting_request: RequestCapability,
     pub register_service_library_request: RequestCapability,
     pub sign_in_service_library_request: RequestCapability,
     pub sign_out_service_library_request: RequestCapability,
@@ -200,10 +200,10 @@ pub struct RequestCapabilities {
 
 impl RequestCapabilities {
     /// How many fields at the end of a snapshot a paired device of an older build may leave
-    /// out: those appended since protocol 2.0, the two artist page requests of 2.1, the three
-    /// service library requests and the one that allows a service library to look lyrics up
-    /// online.
-    const APPENDED_SINCE_2_0: usize = 6;
+    /// out: those appended since protocol 2.0, the two artist page requests of 2.1, the request
+    /// that pauses and reports what it stopped, the three service library requests and the one
+    /// that allows a service library to look lyrics up online.
+    const APPENDED_SINCE_2_0: usize = 7;
 
     /// Reads a snapshot a paired device sent. A device of an older build ends it before the
     /// fields appended since, so those are read as refused for a device too old to answer them.
@@ -278,26 +278,33 @@ mod tests {
         reason: CapabilityReason::PeerTooOld,
     };
 
-    /// A snapshot of this version with every request available, and how it is sent.
+    /// A snapshot of this version, and how it is sent. One request of the fields protocol 2.0
+    /// has is refused, so a field read from the wrong place shows.
     fn current() -> Result<(RequestCapabilities, Vec<u8>)> {
         // More fields than it has, the rest unread.
         let mut payload = rinf::serialize(&(Some("record".to_owned()), 3_u64, None::<String>))?;
         for _ in 0..1000 {
             payload.extend(rinf::serialize(&RequestCapability::Available)?);
         }
-        let current: RequestCapabilities = rinf::deserialize(&payload)?;
+        let current = RequestCapabilities {
+            next_request: RequestCapability::Disabled {
+                reason: CapabilityReason::NotAllowed,
+            },
+            ..rinf::deserialize(&payload)?
+        };
         let full = rinf::serialize(&current)?;
         Ok((current, full))
     }
 
     #[test]
-    fn a_snapshot_from_a_device_of_protocol_2_0_reads_the_artist_requests_as_too_old() -> Result<()>
-    {
+    fn a_snapshot_from_a_device_of_protocol_2_0_reads_the_requests_added_since_as_too_old()
+    -> Result<()> {
         let (current, full) = current()?;
         // A device of 2.0 sends the same snapshot without the fields appended since.
         let appended = rinf::serialize(&(
             current.fetch_artist_page_request,
             current.fetch_artist_section_albums_request,
+            current.pause_reporting_request,
             current.register_service_library_request,
             current.sign_in_service_library_request,
             current.sign_out_service_library_request,
@@ -310,6 +317,7 @@ mod tests {
             RequestCapabilities {
                 fetch_artist_page_request: TOO_OLD,
                 fetch_artist_section_albums_request: TOO_OLD,
+                pause_reporting_request: TOO_OLD,
                 register_service_library_request: TOO_OLD,
                 sign_in_service_library_request: TOO_OLD,
                 sign_out_service_library_request: TOO_OLD,
@@ -349,6 +357,55 @@ mod tests {
                 ..current.clone()
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn the_requests_added_since_protocol_2_0_are_the_last_of_a_snapshot() -> Result<()> {
+        // Paired devices read a snapshot by position, so a request in the middle would move
+        // every later one for a device of 2.0, in both directions.
+        let (current, full) = current()?;
+        let refused = RequestCapability::Disabled {
+            reason: CapabilityReason::AccountRoleMissing,
+        };
+        let appended = [
+            RequestCapabilities {
+                fetch_artist_page_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                fetch_artist_section_albums_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                pause_reporting_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                register_service_library_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                sign_in_service_library_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                sign_out_service_library_request: refused,
+                ..current.clone()
+            },
+            RequestCapabilities {
+                set_online_lyrics_request: refused,
+                ..current.clone()
+            },
+        ];
+        assert_eq!(appended.len(), RequestCapabilities::APPENDED_SINCE_2_0);
+        let one = rinf::serialize(&RequestCapability::Available)?.len();
+        let of_2_0 = full.len() - appended.len() * one;
+        for (place, snapshot) in appended.iter().enumerate() {
+            let sent = rinf::serialize(snapshot)?;
+            let differs = full.iter().zip(&sent).position(|(a, b)| a != b);
+            assert_eq!(differs, Some(of_2_0 + place * one));
+        }
         Ok(())
     }
 }
