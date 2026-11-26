@@ -66,7 +66,7 @@ fsio = { path = "../fsio", features = ["test-fixtures"] }
 tokio = { version = "1.40.0", features = ["test-util"] }
 
 [target.'cfg(not(any(target_os = "android")))'.dependencies]
-souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "65b9e54629ffac6ae7a1300f6b851d293b00daf2", default-features = false, features = [
+souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "2cc6d3378b008c950a0996a687f0b7161973654b", default-features = false, features = [
     "use_zbus",
 ] }
 
