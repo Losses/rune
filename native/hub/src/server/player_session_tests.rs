@@ -2774,7 +2774,7 @@ async fn the_lyrics_of_a_playing_track_are_read_while_browsing_another_library()
     let playing = fixture(node_dir.path()).await?;
     let audio = session_audio(&playing, "playing-lyrics.ogg").await?;
     let library_item = library_track_for_id(&playing, audio).await?;
-    let item = PlayingItem::from(library_item.clone());
+    let item = PlayingItem::from(library_item);
     let request = GetLyricByTrackIdRequest {
         call_id: None,
         item: Some(PlayingItemRef::from(library_item)),
