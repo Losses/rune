@@ -1527,10 +1527,15 @@ impl NodeContext {
 
     /// Verify that a remote session is an approved device, as this node knows it.
     async fn verified_peer(&self, session: &Session) -> Result<PeerIdentity> {
-        let user = self
-            .permission_manager
-            .read()
-            .await
+        Self::approved_peer(&*self.permission_manager.read().await, session).await
+    }
+
+    /// The device a remote session authenticates, if `permissions` approves it with that key.
+    async fn approved_peer(
+        permissions: &PermissionManager,
+        session: &Session,
+    ) -> Result<PeerIdentity> {
+        let user = permissions
             .verify_by_fingerprint(&session.fingerprint)
             .await
             .filter(|user| {
@@ -1568,7 +1573,21 @@ impl NodeContext {
         params: Option<&GlobalParams>,
         addressed_library_id: Option<Uuid>,
     ) -> Result<()> {
-        let peer = self.verified_peer(session).await?;
+        let permissions = self.permission_manager.read().await;
+        self.authorize_request_in(&permissions, session, name, params, addressed_library_id)
+            .await
+    }
+
+    /// [`Self::authorize_request`] while the caller holds the permission manager for reading.
+    pub(crate) async fn authorize_request_in(
+        &self,
+        permissions: &PermissionManager,
+        session: &Session,
+        name: &str,
+        params: Option<&GlobalParams>,
+        addressed_library_id: Option<Uuid>,
+    ) -> Result<()> {
+        let peer = Self::approved_peer(permissions, session).await?;
         let access = request_access(name).ok_or(Denial::NodeLocal)?;
         if access == RequestAccess::NodeLocal {
             return Err(Denial::NodeLocal.into());

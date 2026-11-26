@@ -415,6 +415,14 @@ impl LibrarySyncStore {
     pub fn record_store(&self) -> SeaOrmSyncStore {
         self.inner.clone()
     }
+    /// This store for writes that need `permit`: each write through [`Self::record_store`]
+    /// confirms it once it holds the library's write lock.
+    pub fn with_commit_permit(&self, permit: Arc<dyn causal_store::CommitPermit>) -> Self {
+        Self {
+            inner: self.inner.with_commit_permit(permit),
+            ..self.clone()
+        }
+    }
     /// Persist the writer counter before the owning library database is closed.
     pub async fn clean_close(&self) -> Result<()> {
         self.inner.clean_close().await

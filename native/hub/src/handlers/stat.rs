@@ -33,14 +33,23 @@ fn liked_params(all_params: &GlobalParams) -> LikedParams {
     )
 }
 
-async fn item_library(pool: &Arc<LibraryPool>, item: &PlayingItemRef) -> Result<LibraryHandle> {
+/// The library of a library track. A request's own library is used when it is the track's,
+/// so that a like from another device keeps the commit permit of the library it addressed.
+async fn item_library(
+    pool: &Arc<LibraryPool>,
+    request_library: Option<&LibraryHandle>,
+    item: &PlayingItemRef,
+) -> Result<LibraryHandle> {
     let PlayingItemRef::LibraryTrack { library_id, .. } = item else {
         anyhow::bail!("Liked state requires a library track");
     };
     let library_id = Uuid::parse_str(library_id).map_err(|error| {
         ExpectedRequestError::invalid_input(format!("Invalid library id: {error}"))
     })?;
-    pool.acquire_for_request(library_id).await
+    match request_library.filter(|library| library.library_id == library_id) {
+        Some(library) => Ok(library.clone()),
+        None => pool.acquire_for_request(library_id).await,
+    }
 }
 
 impl ParamsExtractor for SetLikedRequest {
@@ -68,7 +77,9 @@ impl Signal for SetLikedRequest {
                 return binding.translate_set_liked_request(request).await;
             }
             let library = match item {
-                PlayingItemRef::LibraryTrack { .. } => item_library(&pool, item).await?,
+                PlayingItemRef::LibraryTrack { .. } => {
+                    item_library(&pool, ui_library.as_ref(), item).await?
+                }
                 PlayingItemRef::IndependentFile { .. } => require_library(ui_library)?,
             };
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;
@@ -151,7 +162,9 @@ impl Signal for GetLikedRequest {
                 return binding.translate_get_liked_request(request).await;
             }
             let library = match item {
-                PlayingItemRef::LibraryTrack { .. } => item_library(&pool, item).await?,
+                PlayingItemRef::LibraryTrack { .. } => {
+                    item_library(&pool, ui_library.as_ref(), item).await?
+                }
                 PlayingItemRef::IndependentFile { .. } => require_library(ui_library)?,
             };
             let parsed_item = playing_item_from_request(item.clone(), Some(&library)).await?;

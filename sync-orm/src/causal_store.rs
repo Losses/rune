@@ -225,11 +225,23 @@ pub async fn namespace_model_on<C: ConnectionTrait>(
         schema: row.try_get_by_index(1)?,
     }))
 }
+/// What a writer must still be allowed once its write holds the namespace lock.
+///
+/// A replica made with [`CausalReplica::with_commit_permit`] confirms its permit in
+/// [`CausalReplica::lock`], after the lock is taken and before the write changes anything, so
+/// the permit decides after whatever the write waited for. A refusal fails the write. What the
+/// permit confirmed must hold until the writer's transaction has ended.
+#[async_trait::async_trait]
+pub trait CommitPermit: Send + Sync {
+    async fn confirm(&self) -> Result<()>;
+}
+
 #[derive(Clone)]
 pub struct CausalReplica<M: SyncModel> {
     db: DatabaseConnection,
     namespace: Uuid,
     writer: Arc<WriterIncarnation>,
+    permit: Option<Arc<dyn CommitPermit>>,
     model: PhantomData<M>,
 }
 
@@ -394,6 +406,7 @@ impl<M: SyncModel> CausalReplica<M> {
             db,
             namespace,
             writer,
+            permit: None,
             model: PhantomData,
         })
     }
@@ -420,11 +433,19 @@ impl<M: SyncModel> CausalReplica<M> {
             db,
             namespace,
             writer,
+            permit: None,
             model: PhantomData,
         };
         replica.meta_on(&tx).await?;
         tx.commit().await?;
         Ok(replica)
+    }
+    /// This replica for writes that need `permit`, which [`Self::lock`] confirms.
+    pub fn with_commit_permit(&self, permit: Arc<dyn CommitPermit>) -> Self {
+        Self {
+            permit: Some(permit),
+            ..self.clone()
+        }
     }
     pub(crate) async fn state_seq_on(&self, tx: &DatabaseTransaction) -> Result<i64> {
         Ok(self.meta_on(tx).await?.1.state_seq)
@@ -432,10 +453,14 @@ impl<M: SyncModel> CausalReplica<M> {
     pub fn namespace(&self) -> Uuid {
         self.namespace
     }
-    /// Serialize a caller-owned mutation and verify this namespace's model.
+    /// Serialize a caller-owned mutation and verify this namespace's model. Once the mutation
+    /// holds the lock, the replica's commit permit, if it has one, must allow it.
     pub async fn lock(&self, tx: &DatabaseTransaction) -> Result<()> {
         lock_on(tx, self.namespace).await?;
         self.meta_on(tx).await?;
+        if let Some(permit) = &self.permit {
+            permit.confirm().await?;
+        }
         Ok(())
     }
     pub(crate) fn connection(&self) -> &DatabaseConnection {
