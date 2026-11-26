@@ -52,6 +52,7 @@ const recommended = Mix(id: 8, name: 'For You', group: 'Rune', locked: true);
 
 /// A replica the owner shares for reading only.
 const readOnlyReplica = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'record',
   alias: 'Library',
   kind: LibraryRecordKindSummaryReplica(
@@ -567,6 +568,7 @@ class _Library extends ChangeNotifier implements LibraryOpenStateProvider {
   LibraryRecordSummary? get openRecord => replica
       ? readOnlyReplica
       : const LibraryRecordSummary(
+          shareSync: false,
           recordId: 'record',
           alias: 'Library',
           kind: LibraryRecordKindSummaryLocal(

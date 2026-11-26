@@ -1144,10 +1144,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "明確「區域網路」無等於公共網際網路（譬如區域網路中的 IP/埠號）。「連線」意思是建立直接連結，毋是干焦顯示看會著。"
   },
-  "stop": "停止",
-  "@stop": {
-    "description": "用來結束目前活動的動作按鈕。"
-  },
   "deviceFingerprint": "設備指紋",
   "@deviceFingerprint": {
     "description": "用來安全識別佮連線的設備唯一識別碼。"
@@ -1693,6 +1689,14 @@
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
+  "autoDeviceSync": "自動佮裝置同步",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "予無開的媒體庫佮配對的裝置保持同步。開咧的媒體庫攏會同步。",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
+  },
   "offlineCleanupDefault": "刪除不需要的下載",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
@@ -1709,8 +1713,22 @@
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "turnOnBackgroundSync": "開啟背景同步",
-  "turnOffBackgroundSync": "關掉背景同步",
+  "autoShareSync": "自動同步共享媒體庫",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "予囥佇共享資料夾的媒體庫，無開的時嘛保持同步。開咧的媒體庫攏會同步。",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "這馬同步",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "當咧同步",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Rune 欲共你的媒體索引囥佇佗位？",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

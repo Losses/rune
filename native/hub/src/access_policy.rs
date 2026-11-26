@@ -266,6 +266,17 @@ impl RuneAccessPolicy {
             devices.insert(fingerprint.to_owned(), grants);
         })
     }
+    /// Refuse every device synchronization of `library_ids`, whatever its wildcard grants.
+    /// Connection grants are not touched.
+    pub fn deny_sync(&self, library_ids: &[Uuid]) -> Result<()> {
+        self.update(|devices| {
+            for grants in devices.values_mut() {
+                for library_id in library_ids {
+                    grants.sync.libraries.insert(*library_id, SyncLevel::None);
+                }
+            }
+        })
+    }
     /// Returns whether `peer` can see `library_id` via connection view or sync pull access.
     pub fn library_visible(&self, peer: &PeerIdentity, library_id: Uuid) -> bool {
         self.check(peer, &Action::ConnectionView { library_id })
@@ -565,7 +576,8 @@ mod device_only_tests {
 
 #[cfg(test)]
 mod change_tests {
-    use super::{DeviceGrants, RuneAccessPolicy};
+    use super::{ConnectionLevel, DeviceGrants, RuneAccessPolicy, SyncLevel};
+    use uuid::Uuid;
 
     #[test]
     fn unchanged_grants_do_not_notify() -> anyhow::Result<()> {
@@ -582,6 +594,47 @@ mod change_tests {
         );
         policy.set("a", DeviceGrants::my_device())?;
         assert!(changes.has_changed()?);
+        Ok(())
+    }
+
+    #[test]
+    fn denying_sync_overrides_the_wildcard_of_every_device_and_nothing_else() -> anyhow::Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let policy = RuneAccessPolicy::load(dir.path(), &[])?;
+        policy.set("full", DeviceGrants::my_device())?;
+        policy.set("guest", DeviceGrants::guest())?;
+        let (denied, other) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut changes = policy.changes.subscribe();
+
+        policy.deny_sync(&[denied])?;
+        assert!(changes.has_changed()?);
+        changes.borrow_and_update();
+        for fingerprint in ["full", "guest"] {
+            assert_eq!(
+                policy.grants(fingerprint)?.sync_level(denied),
+                SyncLevel::None
+            );
+        }
+        let mut expected = DeviceGrants::my_device();
+        expected.sync.libraries.insert(denied, SyncLevel::None);
+        assert_eq!(policy.grants("full")?, expected);
+        assert_eq!(
+            policy.grants("full")?.sync_level(other),
+            SyncLevel::PullPush
+        );
+        assert_eq!(
+            policy.grants("full")?.connection_level(denied),
+            ConnectionLevel::ViewEdit
+        );
+
+        // Repeating the step after a crash is not a grant change.
+        policy.deny_sync(&[denied])?;
+        assert!(!changes.has_changed()?);
+        assert!(
+            std::fs::read_to_string(dir.path().join("grants.json"))?.contains(&denied.to_string()),
+            "the denial was not saved"
+        );
         Ok(())
     }
 }

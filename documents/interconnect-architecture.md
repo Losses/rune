@@ -47,6 +47,19 @@ A node has one server, the Media Server, and one way of starting it. It serves p
 - These settings are permissions under the server, checked before the grants of the asking device. They do not replace grants: a device still needs Control to drive playback and a sync grant on the library it asks for.
 - Every writer of the settings (the Devices page and the panel's broadcast switch) goes through one function. It brings the server to the requested state first and saves afterwards, so a failed change leaves the saved and shown settings equal to what is actually served; when the save itself fails, the server is put back.
 - The sync worker, which reaches out to paired devices, does not depend on the server and keeps running while it is off.
+
+Two more settings in the same file say what this device does on its own. They have nothing to do with the server and are never disabled by it:
+
+| Setting (`sync_settings.json`) | Default | Meaning |
+|---|---|---|
+| `auto_device_sync` | on | Sync libraries that are not open in the UI with paired devices. |
+| `auto_share_sync` | on | Sync libraries stored in a shared folder that are not open in the UI with that folder. |
+
+- The library open in the UI always syncs, whatever the two switches say.
+- The switches are about work this device starts. A paired device with a sync grant can still sync any library this device holds, open or not; that is decided by `accept_sync` and the grants.
+- A library stored in a shared folder can also be synced on request (Sync Now). The request runs one pass that pulls and pushes, in the share worker's own loop so it never overlaps a scheduled pass, ignores a retry backoff, works for a library that is closed and with `auto_share_sync` off, and answers when the pass has ended. A failure is the answer of the request and is not also reported as the library's sync state. A library that is not stored in a shared folder is refused.
+- The worker reads both switches on every pass. Switching one off stops the passes of the libraries it no longer covers; the share worker keeps its store sessions.
+- Earlier versions had a background sync switch on every library, and a library with it off was also refused to devices that asked to sync it. On the first start after the upgrade such a library gets a sync grant of None for every paired device, so it is still not served to them. The registry keeps writing a `background_sync` value on every record, true for a record with a catalog, because those versions cannot read a record without it.
 - The headless server exists to serve: it runs with the server, remote control and sync accepted whatever the saved settings say, and keeps the saved `broadcast`.
 
 ### Requests
@@ -304,7 +317,7 @@ The registry holds one record per library, as independent fields:
 - Protocol: `Native` (this device owns the library), `RuneForward` (another Rune device owns it, as a replica or in remote control), or `SubsonicTranslate`.
 - FS adapters: where audio bytes are read from: local folder, Android SAF, WebDAV, S3, or fetching from the owning Rune device.
 - Catalog placement: where the catalog DB lives.
-- Background sync, and a credential reference (never the secret).
+- A credential reference (never the secret).
 
 One function validates a record when it is registered and when the registry is loaded, and returns a typed error that the UI shows. The add-library guide offers only legal combinations. Examples of illegal records: remote control with an FS adapter; a native record without one; a replica reading through WebDAV. A replica syncs the owner's database and fetches songs from the owner on demand; it never knows or uses the owner's storage.
 
@@ -329,7 +342,9 @@ An OpenDAL library never keeps its live DB in the bucket.
 
 ### Library pool
 
-Each library DB is opened once and shared by the UI, sync and background work. A library nobody uses is closed after an idle timeout. Background work holds a library for its pass without counting as use, so a library that only background work touches is released and reopened by the next pass.
+Each library DB is opened once and shared by the UI, sync and background work. A library nobody uses is closed after an idle timeout. Background work holds a library for its pass without counting as use. A sync pass, with a paired device or with a shared folder, opens the library it needs, so a library that only such passes touch is released and reopened by the next one. Metadata maintenance and audio verification never open a library: they work on the libraries that are open and skip the others, and keep their progress for a library across its closing.
+
+This device serves every library in its registry that has a catalog, and the library open in the UI.
 
 Sync addresses a library by its `library_id`. A device answers "not served" for a library it does not hold, and lists to another device only the libraries that device may read.
 
@@ -424,7 +439,7 @@ One guide:
     - a WebDAV or S3 folder: a folder that already holds a library's data is joined; a writable empty folder asks whether the library's data is kept in the shared folder or on this device, as two choices with no default; a read-only folder keeps the data on this device;
     - another Rune device or a Subsonic server: play on this device, or control that device.
 
-The library list marks replicas with the device they come from and "Read only", and has a background-sync switch per library. On a read-only replica the like button and playlist and mix editing are hidden.
+The library list marks replicas with the device they come from and "Read only". A library stored in a shared folder has a Sync Now action, and when there is such a library the page has one switch for syncing shared libraries automatically; the switch for syncing with paired devices automatically is on the Devices page. On a read-only replica the like button and playlist and mix editing are hidden.
 
 ### Choosing where to play
 

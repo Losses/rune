@@ -15,7 +15,6 @@ pub struct LocalLibrary {
     pub alias: String,
     pub path: String,
     pub owner_fingerprint: Option<String>,
-    pub background_sync: bool,
     pub connection_access: Option<DeviceConnectionLevel>,
     pub sync_access: Option<DeviceSyncLevel>,
 }
@@ -23,20 +22,6 @@ pub struct LocalLibrary {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct ListLocalLibrariesResponse {
     pub libraries: Vec<LocalLibrary>,
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct SetLibraryBackgroundSyncRequest {
-    pub library_id: String,
-    pub enabled: bool,
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, RustSignal)]
-pub struct SetLibraryBackgroundSyncResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }

@@ -13,6 +13,7 @@ import '../../utils/api/request_failure.dart';
 
 /// A Subsonic library, which keeps no mixes.
 const subsonicRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'subsonic-record',
   alias: 'Server',
   kind: LibraryRecordKindSummarySubsonic(
@@ -23,6 +24,7 @@ const subsonicRecord = LibraryRecordSummary(
 
 /// A folder library, which keeps mixes.
 const folderRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'folder-record',
   alias: 'Music',
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),

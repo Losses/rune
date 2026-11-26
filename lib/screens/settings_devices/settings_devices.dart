@@ -233,8 +233,23 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _sectionTitle(context, S.of(context).thisDevice),
-                  if (syncSettings case final settings?)
+                  if (syncSettings case final settings?) ...[
                     ..._mediaServerSettings(context, settings),
+                    // Not a Media Server permission: it is about this device
+                    // reaching out, which needs no server.
+                    SettingsBoxToggle(
+                      title: S.of(context).autoDeviceSync,
+                      subtitle: S.of(context).autoDeviceSyncDescription,
+                      value: settings.autoDeviceSync,
+                      onChanged: savingSyncSettings
+                          ? null
+                          : (value) => _saveSyncSettings(
+                              S.of(context).autoDeviceSync,
+                              (current) =>
+                                  current.copyWith(autoDeviceSync: value),
+                            ),
+                    ),
+                  ],
                   const EditDeviceInformationSettingButton(),
                   SettingsBoxToggle(
                     title: S.of(context).offlineCleanupDefault,

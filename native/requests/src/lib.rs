@@ -187,8 +187,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
-            request: "SetLibraryBackgroundSyncRequest".to_string(),
-            response: Some("SetLibraryBackgroundSyncResponse".to_string()),
+            request: "SyncShareLibraryRequest".to_string(),
+            response: Some("SyncShareLibraryResponse".to_string()),
             scope: RequestScope::Node,
             access: RequestAccess::NodeLocal,
             body_libraries: BodyLibraries::NoLibrary,

@@ -32,7 +32,6 @@ pub struct LibraryRecord {
     pub protocol: ProtocolAdapter,
     pub fs: Vec<FsAdapter>,
     pub catalog: CatalogPlacement,
-    pub background_sync: bool,
 }
 
 /// How this node talks to the library owner.
@@ -237,10 +236,6 @@ impl LibraryRecord {
         }
     }
 
-    pub fn background_sync(&self) -> bool {
-        self.background_sync
-    }
-
     pub fn owner_fingerprint(&self) -> Option<&str> {
         match &self.protocol {
             ProtocolAdapter::RuneForward {
@@ -361,7 +356,6 @@ impl LibraryRecord {
                 if self.library_id.is_some()
                     || !self.fs.is_empty()
                     || self.catalog != CatalogPlacement::None
-                    || self.background_sync
                 {
                     return Err(InvalidRecord::RemoteControlInvalid);
                 }
@@ -383,9 +377,6 @@ impl LibraryRecord {
                 }
             }
         }
-        if self.background_sync && self.catalog == CatalogPlacement::None {
-            return Err(InvalidRecord::BackgroundSyncWithoutCatalog);
-        }
         Ok(())
     }
 }
@@ -400,8 +391,6 @@ pub enum InvalidRecord {
     RemoteControlInvalid,
     #[error("Subsonic record fields are invalid")]
     SubsonicInvalid,
-    #[error("Background sync requires a catalog")]
-    BackgroundSyncWithoutCatalog,
     #[error("OpenDAL libraries require a redirected catalog and a single filesystem adapter")]
     OpenDalInvalid,
     #[error("Two records share a catalog library id")]
@@ -417,14 +406,6 @@ pub enum DbPlacement {
     Redirected { storage_key: Uuid },
 }
 
-#[derive(Serialize, Deserialize)]
-struct RegistryFile {
-    version: u32,
-    libraries: Vec<LibraryRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_open_record: Option<LibraryRecordId>,
-}
-
 /// The current registry format as read from disk. Records stay raw JSON so that one
 /// record this build cannot parse does not fail the whole file.
 #[derive(Deserialize)]
@@ -434,7 +415,7 @@ struct RawRegistryFile {
     last_open_record: Option<LibraryRecordId>,
 }
 
-/// The shape `RegistryFile` has on disk, with hidden records mixed in untouched.
+/// The registry file as written, with hidden records mixed in untouched.
 /// Serializing borrowed records keeps the key order of known records unchanged.
 #[derive(Serialize)]
 struct SavedRegistryFile<'a> {
@@ -447,8 +428,52 @@ struct SavedRegistryFile<'a> {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum SavedRecord<'a> {
-    Known(&'a LibraryRecord),
+    Known(SavedLibraryRecord<'a>),
     Hidden(&'a serde_json::Value),
+}
+
+/// A record this build understands, as written to disk.
+#[derive(Serialize)]
+struct SavedLibraryRecord<'a> {
+    #[serde(flatten)]
+    record: &'a LibraryRecord,
+    // Builds from before the automatic sync switches became global read this file too. They
+    // require this key on every record, treat a record without it as unreadable, and reject
+    // `true` on a record that has no catalog. This build ignores the key when reading.
+    background_sync: bool,
+}
+
+impl<'a> SavedLibraryRecord<'a> {
+    fn new(record: &'a LibraryRecord) -> Self {
+        Self {
+            record,
+            background_sync: record.catalog != CatalogPlacement::None,
+        }
+    }
+}
+
+/// The library of a record whose per-library background sync switch is off, in a file written
+/// before the automatic sync switches became global. Version 3 keeps the switch and the library
+/// id at the top of the record and version 2 inside its `kind`.
+fn legacy_background_sync_disabled_library(
+    version: u64,
+    record: &serde_json::Value,
+) -> Option<Uuid> {
+    let holder = match version {
+        2 => record.get("kind")?,
+        3 => {
+            // Only a record that is written back with a flag derived from its catalog stops
+            // being reported after the rewrite. A hidden record keeps the flag it has.
+            LibraryRecord::deserialize(record)
+                .ok()
+                .filter(|record| record.catalog != CatalogPlacement::None)?;
+            record
+        }
+        _ => return None,
+    };
+    let enabled = holder.get("background_sync")?.as_bool()?;
+    let library_id = Uuid::deserialize(holder.get("library_id")?).ok()?;
+    (!enabled).then_some(library_id)
 }
 
 fn hidden_record_id(value: &serde_json::Value) -> Option<LibraryRecordId> {
@@ -484,8 +509,6 @@ mod v2 {
         Owned {
             library_id: Uuid,
             storage: OwnedStorage,
-            #[serde(default = "background_sync_default")]
-            background_sync: bool,
         },
         RuneReplica {
             library_id: Uuid,
@@ -494,8 +517,6 @@ mod v2 {
             access_level: Option<LibraryAccess>,
             #[serde(default)]
             connection_access: Option<LibraryConnectionAccess>,
-            #[serde(default = "background_sync_default")]
-            background_sync: bool,
             storage: ReplicaStorage,
         },
         RuneRemoteControl {
@@ -527,10 +548,6 @@ mod v2 {
         Replica,
     }
 
-    fn background_sync_default() -> bool {
-        true
-    }
-
     pub(super) struct ConvertedRegistry {
         pub libraries: Vec<super::LibraryRecord>,
         pub last_open_record: Option<LibraryRecordId>,
@@ -552,24 +569,21 @@ mod v2 {
             .libraries
             .into_iter()
             .map(|record| {
-                let (library_id, protocol, fs, catalog, background_sync) = match record.kind {
+                let (library_id, protocol, fs, catalog) = match record.kind {
                     Kind::Owned {
                         library_id,
                         storage: OwnedStorage::Local { path, placement },
-                        background_sync,
                     } => (
                         Some(library_id),
                         ProtocolAdapter::Native,
                         vec![FsAdapter::Local { path }],
                         catalog(placement),
-                        background_sync,
                     ),
                     Kind::RuneReplica {
                         library_id,
                         owner_fingerprint,
                         access_level,
                         connection_access,
-                        background_sync,
                         storage,
                     } => {
                         let (fs, catalog) = match storage {
@@ -600,7 +614,6 @@ mod v2 {
                             },
                             fs,
                             catalog,
-                            background_sync,
                         )
                     }
                     Kind::RuneRemoteControl { fingerprint } => (
@@ -611,7 +624,6 @@ mod v2 {
                         },
                         Vec::new(),
                         CatalogPlacement::None,
-                        false,
                     ),
                     Kind::Subsonic {
                         endpoint,
@@ -626,7 +638,6 @@ mod v2 {
                         },
                         Vec::new(),
                         CatalogPlacement::None,
-                        false,
                     ),
                 };
                 LibraryRecord {
@@ -636,7 +647,6 @@ mod v2 {
                     protocol,
                     fs,
                     catalog,
-                    background_sync,
                 }
             })
             .collect();
@@ -666,9 +676,13 @@ fn write_v2_conversion(path: &Path, original: &[u8], file: &v2::ConvertedRegistr
         Err(error) => return Err(error).context("Failed to create v2 registry backup"),
     }
     let temp = dir.join(format!(".libraries-{}.tmp", Uuid::new_v4()));
-    let data = serde_json::to_vec_pretty(&RegistryFile {
+    let data = serde_json::to_vec_pretty(&SavedRegistryFile {
         version: 3,
-        libraries: file.libraries.clone(),
+        libraries: file
+            .libraries
+            .iter()
+            .map(|record| SavedRecord::Known(SavedLibraryRecord::new(record)))
+            .collect(),
         last_open_record: file.last_open_record,
     })?;
     let result = (|| -> Result<()> {
@@ -904,13 +918,6 @@ impl LibraryRegistry {
         Ok(())
     }
 
-    fn catalog_mut(&mut self, library_id: Uuid) -> Result<&mut LibraryRecord> {
-        self.libraries
-            .iter_mut()
-            .find(|record| record.catalog_library_id() == Some(library_id))
-            .context("Library is not registered on this node")
-    }
-
     /// Resolve a config-local replica by its catalog identity.
     pub fn replica(&self, library_id: Uuid) -> Result<&LibraryRecord> {
         let record = self.catalog(library_id)?;
@@ -961,18 +968,37 @@ impl LibraryRegistry {
         Ok(result)
     }
 
-    /// Persist a library's device-local background sync preference.
-    pub async fn set_background_sync(
-        config_dir: &Path,
-        library_id: Uuid,
-        enabled: bool,
-    ) -> Result<()> {
-        Self::update(config_dir, |registry| {
-            let record = registry.catalog_mut(library_id)?;
-            record.background_sync = enabled;
-            Ok(())
-        })
-        .await
+    /// The libraries whose per-library background sync switch was off in a file written before
+    /// the automatic sync switches became global. Such a library was also refused to other
+    /// devices, so the caller has to keep refusing it by other means and then call `rewrite`,
+    /// after which the library is no longer reported. Call this before the first registry
+    /// write: a write converts a version 2 file, which drops the switches.
+    ///
+    /// This reads the file without the writer lock and changes nothing.
+    pub fn legacy_background_sync_disabled(config_dir: &Path) -> Result<Vec<Uuid>> {
+        let data = match fs::read(config_dir.join("libraries.json")) {
+            Ok(data) => data,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error).context("Failed to read library registry"),
+        };
+        let file: serde_json::Value =
+            serde_json::from_slice(&data).context("Invalid library registry")?;
+        let Some(version) = file.get("version").and_then(serde_json::Value::as_u64) else {
+            return Ok(Vec::new());
+        };
+        let Some(records) = file.get("libraries").and_then(serde_json::Value::as_array) else {
+            return Ok(Vec::new());
+        };
+        Ok(records
+            .iter()
+            .filter_map(|record| legacy_background_sync_disabled_library(version, record))
+            .collect())
+    }
+
+    /// Write the registry back in this build's format without changing a record.
+    pub async fn rewrite(config_dir: &Path) -> Result<()> {
+        let _guard = REGISTRY_WRITE.lock().await;
+        Self::load_locked(config_dir)?.save()
     }
 
     /// Remove one node-local record without changing its catalog or storage files.
@@ -1075,7 +1101,7 @@ impl LibraryRegistry {
                 alias: alias.to_owned(),
                 library_id: None,
                 protocol: ProtocolAdapter::RuneForward { owner_fingerprint: fingerprint.to_owned(), mode: RuneForwardMode::RemoteControl },
-                fs: Vec::new(), catalog: CatalogPlacement::None, background_sync: false,
+                fs: Vec::new(), catalog: CatalogPlacement::None,
             };
             record.validate()?;
             registry.libraries.push(record.clone());
@@ -1122,7 +1148,7 @@ impl LibraryRegistry {
             .libraries
             .iter()
             .chain(self.invalid_records.iter())
-            .map(SavedRecord::Known)
+            .map(|record| SavedRecord::Known(SavedLibraryRecord::new(record)))
             .collect();
         // Put each hidden record back after the same number of understood records
         // that preceded it when loaded, or at the end if some were removed since.
@@ -1254,7 +1280,6 @@ pub async fn resolve_library(
         existing.map(|record| &record.catalog),
         Some(CatalogPlacement::ConfigReplica)
     );
-    let background_sync = existing.is_none_or(LibraryRecord::background_sync);
     let record_id = existing
         .map(|record| record.record_id)
         .unwrap_or(LibraryRecordId(Uuid::new_v4()));
@@ -1306,7 +1331,6 @@ pub async fn resolve_library(
         protocol,
         fs,
         catalog,
-        background_sync,
     };
     record.validate().map_err(Error::new)?;
     if registry
@@ -1410,7 +1434,6 @@ pub async fn create_replica(
             fingerprint: authority_fingerprint.to_owned(),
         }],
         catalog: CatalogPlacement::ConfigReplica,
-        background_sync: true,
     };
     record.validate().map_err(Error::new)?;
     registry.libraries.push(record.clone());
@@ -1466,7 +1489,6 @@ mod tests {
             protocol: ProtocolAdapter::Native,
             fs: vec![FsAdapter::Local { path: path.into() }],
             catalog: CatalogPlacement::InMediaRoot,
-            background_sync: true,
         }
     }
 
@@ -1486,7 +1508,6 @@ mod tests {
                 fingerprint: fingerprint.into(),
             }],
             catalog: CatalogPlacement::ConfigReplica,
-            background_sync: true,
         }
     }
 
@@ -1501,7 +1522,6 @@ mod tests {
             },
             fs: Vec::new(),
             catalog: CatalogPlacement::None,
-            background_sync: false,
         }
     }
 
@@ -1517,7 +1537,6 @@ mod tests {
             },
             fs: Vec::new(),
             catalog: CatalogPlacement::None,
-            background_sync: false,
         }
     }
 
@@ -1529,7 +1548,6 @@ mod tests {
             protocol: ProtocolAdapter::AppleMusic,
             fs: Vec::new(),
             catalog: CatalogPlacement::None,
-            background_sync: false,
         }
     }
 
@@ -1582,14 +1600,12 @@ mod tests {
             }]
         );
         assert_eq!(registry.libraries[0].catalog, CatalogPlacement::InMediaRoot);
-        assert!(registry.libraries[0].background_sync);
         assert_eq!(
             registry.libraries[1].catalog,
             CatalogPlacement::Redirected(
                 Uuid::parse_str("20000000-0000-0000-0000-000000000002").unwrap()
             )
         );
-        assert!(!registry.libraries[1].background_sync);
         assert_eq!(
             registry.libraries[2].fs,
             vec![FsAdapter::RunePeer {
@@ -1633,7 +1649,6 @@ mod tests {
             }
         ));
         assert_eq!(registry.libraries[4].catalog, CatalogPlacement::None);
-        assert!(!registry.libraries[4].background_sync);
         assert!(
             matches!(&registry.libraries[5].protocol, ProtocolAdapter::SubsonicTranslate { endpoint, mode: SubsonicOpenMode::PlayOnThisDevice, .. } if endpoint == "https://music.example")
         );
@@ -1739,7 +1754,7 @@ mod tests {
                 let library = create_replica(&config, &mut registry, id, "Replica", "owner")
                     .await
                     .unwrap();
-                LibraryRegistry::set_background_sync(&config, id, false)
+                LibraryRegistry::set_access_level(&config, id, "owner", LibraryAccess::Read)
                     .await
                     .unwrap();
                 let path = library.root(&config).unwrap().to_str().unwrap().to_owned();
@@ -1767,7 +1782,7 @@ mod tests {
                     .libraries
                     .iter()
                     .any(|library| library.catalog_library_id() == Some(id)
-                        && !library.background_sync())
+                        && library.access_level() == Some(LibraryAccess::Read))
             );
         }
     }
@@ -2150,7 +2165,6 @@ mod tests {
                 credential: CredentialRef(Uuid::new_v4()),
             }],
             catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
-            background_sync: true,
         };
         assert_eq!(opendal.validate(), Ok(()));
         assert_eq!(opendal.root(Path::new("/config")), Some(PathBuf::new()));
@@ -2188,13 +2202,6 @@ mod tests {
         assert_eq!(
             replica_with_opendal.validate(),
             Err(InvalidRecord::OpenDalInvalid)
-        );
-
-        let mut invalid_background = subsonic;
-        invalid_background.background_sync = true;
-        assert_eq!(
-            invalid_background.validate(),
-            Err(InvalidRecord::BackgroundSyncWithoutCatalog)
         );
 
         let mut duplicate = LibraryRegistry::load(Path::new("/unused")).unwrap();
@@ -2254,7 +2261,6 @@ mod tests {
                 credential,
             }],
             catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
-            background_sync: true,
         };
         LibraryRegistry::update(dir.path(), |registry| {
             registry.libraries.push(record.clone());
@@ -2284,12 +2290,7 @@ mod tests {
         invalid.alias = "Invalid".into();
         fs::write(
             dir.path().join("libraries.json"),
-            serde_json::to_vec(&RegistryFile {
-                version: 3,
-                libraries: vec![valid.clone(), invalid.clone()],
-                last_open_record: None,
-            })
-            .unwrap(),
+            serde_json::to_vec(&saved_registry(&[valid.clone(), invalid.clone()])).unwrap(),
         )
         .unwrap();
         let loaded = LibraryRegistry::load(dir.path()).unwrap();
@@ -2375,8 +2376,254 @@ mod tests {
         })
     }
 
+    /// A record as this build writes it to the registry file.
     fn to_value(record: &LibraryRecord) -> serde_json::Value {
-        serde_json::to_value(record).unwrap()
+        serde_json::to_value(SavedLibraryRecord::new(record)).unwrap()
+    }
+
+    fn saved_registry(libraries: &[LibraryRecord]) -> SavedRegistryFile<'_> {
+        SavedRegistryFile {
+            version: 3,
+            libraries: libraries
+                .iter()
+                .map(|record| SavedRecord::Known(SavedLibraryRecord::new(record)))
+                .collect(),
+            last_open_record: None,
+        }
+    }
+
+    /// `LibraryRecord` as builds from before the automatic sync switches became global
+    /// declared it: `background_sync` is a required key.
+    #[derive(Deserialize)]
+    struct OldLibraryRecord {
+        record_id: LibraryRecordId,
+        alias: String,
+        library_id: Option<Uuid>,
+        protocol: ProtocolAdapter,
+        fs: Vec<FsAdapter>,
+        catalog: CatalogPlacement,
+        background_sync: bool,
+    }
+
+    /// What such a build makes of one record of the file: `None` when it cannot parse the
+    /// record, which it then hides, and otherwise the result of its validation. Its rules were
+    /// today's plus two on the flag: a remote-control record must not have it, and no record
+    /// without a catalog may have it.
+    fn old_build_reads(record: &serde_json::Value) -> Option<Result<(), String>> {
+        let old = OldLibraryRecord::deserialize(record).ok()?;
+        let flag_without_catalog = old.background_sync && old.catalog == CatalogPlacement::None;
+        let record = LibraryRecord {
+            record_id: old.record_id,
+            alias: old.alias,
+            library_id: old.library_id,
+            protocol: old.protocol,
+            fs: old.fs,
+            catalog: old.catalog,
+        };
+        Some(match record.validate() {
+            Err(error) => Err(error.to_string()),
+            Ok(()) if flag_without_catalog => Err("background sync without a catalog".into()),
+            Ok(()) => Ok(()),
+        })
+    }
+
+    fn in_share_record(credential: CredentialRef) -> LibraryRecord {
+        LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "Share".into(),
+            library_id: Some(Uuid::new_v4()),
+            protocol: ProtocolAdapter::Native,
+            fs: vec![FsAdapter::WebDav {
+                endpoint: "http://example.test".into(),
+                root: "/music/".into(),
+                username: "user".into(),
+                credential,
+            }],
+            catalog: CatalogPlacement::InShare(Uuid::new_v4()),
+        }
+    }
+
+    #[test]
+    fn record_without_the_background_sync_key_parses() {
+        let record = native_record(Uuid::new_v4(), "/music");
+        let value = serde_json::to_value(&record).unwrap();
+        assert!(value.get("background_sync").is_none());
+        assert_eq!(LibraryRecord::deserialize(&value).unwrap(), record);
+
+        let dir = TempDir::new().unwrap();
+        write_registry_values(dir.path(), vec![value], None);
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert!(loaded.invalid.is_empty());
+        assert_eq!(loaded.libraries, vec![record]);
+    }
+
+    #[tokio::test]
+    async fn saved_file_is_readable_by_builds_that_require_the_background_sync_key() {
+        let dir = TempDir::new().unwrap();
+        let credential = CredentialRef(Uuid::new_v4());
+        let records = vec![
+            native_record(Uuid::new_v4(), "/music"),
+            replica_record(Uuid::new_v4(), "owner"),
+            in_share_record(credential),
+            remote_control_record("peer"),
+            subsonic_record(credential, SubsonicOpenMode::PlayOnThisDevice),
+        ];
+        LibraryRegistry::update(dir.path(), |registry| {
+            registry.libraries.extend(records.iter().cloned());
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+        let saved = registry_libraries(dir.path());
+        assert_eq!(saved.len(), records.len());
+        for (value, record) in saved.iter().zip(&records) {
+            // The exact value matters: an old build hides a record without the key and
+            // rejects `true` on a record without a catalog.
+            assert_eq!(
+                value["background_sync"],
+                serde_json::Value::Bool(record.catalog != CatalogPlacement::None),
+                "{}",
+                record.alias
+            );
+            assert_eq!(old_build_reads(value), Some(Ok(())), "{}", record.alias);
+        }
+        // The old reader is strict about the key, so the loop above is not vacuous.
+        let mut without_key = saved[0].clone();
+        without_key
+            .as_object_mut()
+            .unwrap()
+            .remove("background_sync");
+        assert_eq!(old_build_reads(&without_key), None);
+        let mut flag_on_remote_control = saved[3].clone();
+        flag_on_remote_control["background_sync"] = true.into();
+        assert!(matches!(
+            old_build_reads(&flag_on_remote_control),
+            Some(Err(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn converted_v2_file_is_readable_by_builds_that_require_the_background_sync_key() {
+        let dir = TempDir::new().unwrap();
+        write_v2_registry_fixture(dir.path());
+        LibraryRegistry::rewrite(dir.path()).await.unwrap();
+
+        let file = read_registry_file(dir.path());
+        assert_eq!(file["version"], 3);
+        let saved = registry_libraries(dir.path());
+        assert_eq!(saved.len(), 6);
+        for value in &saved {
+            assert_eq!(old_build_reads(value), Some(Ok(())), "{}", value["alias"]);
+        }
+        let flags: Vec<_> = saved
+            .iter()
+            .map(|value| value["background_sync"].as_bool().unwrap())
+            .collect();
+        assert_eq!(flags, [true, true, true, true, false, false]);
+    }
+
+    #[tokio::test]
+    async fn legacy_scan_reports_disabled_libraries_of_a_v2_file_until_it_is_rewritten() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            Vec::<Uuid>::new()
+        );
+        let original = write_v2_registry_fixture(dir.path());
+        let disabled = vec![
+            Uuid::parse_str("10000000-0000-0000-0000-000000000002").unwrap(),
+            Uuid::parse_str("10000000-0000-0000-0000-000000000004").unwrap(),
+        ];
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            disabled
+        );
+        // The scan reads only.
+        assert_eq!(
+            fs::read(dir.path().join("libraries.json")).unwrap(),
+            original
+        );
+
+        // A write that changes nothing leaves the file alone, so the explicit rewrite exists.
+        LibraryRegistry::rewrite(dir.path()).await.unwrap();
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            Vec::<Uuid>::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn old_v3_file_with_disabled_libraries_loads_valid_and_is_reported_until_rewritten() {
+        let dir = TempDir::new().unwrap();
+        let on = native_record(Uuid::new_v4(), "/on");
+        let off = native_record(Uuid::new_v4(), "/off");
+        let off_replica = replica_record(Uuid::new_v4(), "owner");
+        let control = remote_control_record("peer");
+        let old_value = |record: &LibraryRecord, enabled: bool| {
+            let mut value = serde_json::to_value(record).unwrap();
+            value["background_sync"] = enabled.into();
+            value
+        };
+        let mut hidden = unknown_protocol_record();
+        hidden["library_id"] = serde_json::to_value(Uuid::new_v4()).unwrap();
+        write_registry_values(
+            dir.path(),
+            vec![
+                old_value(&on, true),
+                old_value(&off, false),
+                old_value(&off_replica, false),
+                old_value(&control, false),
+                hidden.clone(),
+            ],
+            None,
+        );
+
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert!(loaded.invalid.is_empty());
+        assert_eq!(
+            loaded.libraries,
+            vec![
+                on.clone(),
+                off.clone(),
+                off_replica.clone(),
+                control.clone()
+            ]
+        );
+        // Neither the record without a library nor the one this build cannot read and
+        // therefore writes back unchanged is reported.
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            vec![off.library_id.unwrap(), off_replica.library_id.unwrap()]
+        );
+
+        // A write that changes nothing does not touch the file.
+        let before = fs::read(dir.path().join("libraries.json")).unwrap();
+        LibraryRegistry::update(dir.path(), |_| Ok(()))
+            .await
+            .unwrap();
+        assert_eq!(fs::read(dir.path().join("libraries.json")).unwrap(), before);
+
+        LibraryRegistry::rewrite(dir.path()).await.unwrap();
+        assert_eq!(
+            registry_libraries(dir.path()),
+            vec![
+                to_value(&on),
+                to_value(&off),
+                to_value(&off_replica),
+                to_value(&control),
+                hidden
+            ]
+        );
+        assert_eq!(to_value(&off)["background_sync"], true);
+        assert_eq!(to_value(&control)["background_sync"], false);
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            Vec::<Uuid>::new()
+        );
+        let reloaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert!(reloaded.invalid.is_empty());
+        assert_eq!(reloaded.libraries, vec![on, off, off_replica, control]);
     }
 
     fn write_registry_values(
@@ -2458,12 +2705,7 @@ mod tests {
         let first = native_record(Uuid::new_v4(), "/first");
         let second = replica_record(Uuid::new_v4(), "owner");
         let write = |libraries: Vec<LibraryRecord>| {
-            serde_json::to_vec_pretty(&RegistryFile {
-                version: 3,
-                libraries,
-                last_open_record: None,
-            })
-            .unwrap()
+            serde_json::to_vec_pretty(&saved_registry(&libraries)).unwrap()
         };
         fs::write(
             dir.path().join("libraries.json"),

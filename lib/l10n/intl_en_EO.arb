@@ -1144,10 +1144,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Klarigas 'loka reto' ≠ publika interreto (ekz. IP/pordo ene de LAN). 'konektiĝi' implicas establi rektan ligon, ne nur videblecon."
   },
-  "stop": "Halti",
-  "@stop": {
-    "description": "Ago-butono por ĉesigi aktivan agon."
-  },
   "deviceFingerprint": "Aparat-fingropremo",
   "@deviceFingerprint": {
     "description": "Unika identigilo por la aparato, uzata por sekura identigo kaj konekto."
@@ -1693,6 +1689,14 @@
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
+  "autoDeviceSync": "Aŭtomate sinkronigi kun aparatoj",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "Teni nemalfermitajn bibliotekojn sinkronigitaj kun parigitaj aparatoj. La malfermita biblioteko ĉiam sinkroniĝas.",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
+  },
   "offlineCleanupDefault": "Forigi nebezonatajn elŝutojn",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
@@ -1709,8 +1713,22 @@
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "turnOnBackgroundSync": "Ŝalti Sinkronigon en la Fono",
-  "turnOffBackgroundSync": "Malŝalti Sinkronigon en la Fono",
+  "autoShareSync": "Aŭtomate sinkronigi komunajn bibliotekojn",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "Teni bibliotekojn konservatajn en komuna dosierujo sinkronigitaj dum ili ne estas malfermitaj. La malfermita biblioteko ĉiam sinkroniĝas.",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "Sinkronigi nun",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "Sinkronigado",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Kie Rune konservu vian mediindekson?",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

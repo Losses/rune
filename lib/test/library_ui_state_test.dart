@@ -59,16 +59,10 @@ void main() {
         alias: 'Music',
         path: '/one',
         ownerFingerprint: 'peer',
-        backgroundSync: true,
         connectionAccess: DeviceConnectionLevel.view,
         syncAccess: DeviceSyncLevel.pull,
       ),
-      LocalLibrary(
-        libraryId: '2',
-        alias: 'Local',
-        path: '/two',
-        backgroundSync: false,
-      ),
+      LocalLibrary(libraryId: '2', alias: 'Local', path: '/two'),
     ];
     LibraryRowState row(
       String path, [
@@ -82,9 +76,7 @@ void main() {
     );
     expect(row('/one', {'peer': 'Laptop'}).subtitle, 'From Laptop');
     expect(row('/one').subtitle, 'From Music');
-    expect(row('/one').library?.backgroundSync, true);
     expect(row('/two').subtitle, '/two');
-    expect(row('/two').library?.backgroundSync, false);
     expect(row('/missing').library, isNull);
   });
   test('iOS folders are named by where the Files app shows them', () {
@@ -117,14 +109,8 @@ void main() {
         alias: 'Music',
         path: '/one',
         ownerFingerprint: 'peer',
-        backgroundSync: true,
       ),
-      LocalLibrary(
-        libraryId: 'b',
-        alias: 'Local',
-        path: '/two',
-        backgroundSync: false,
-      ),
+      LocalLibrary(libraryId: 'b', alias: 'Local', path: '/two'),
     ];
     LibraryRowState row(String path) => libraryRowState(
       path,

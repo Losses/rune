@@ -20,6 +20,7 @@ const _saved = [
   (
     'Subsonic',
     LibraryRecordSummary(
+      shareSync: false,
       recordId: 'subsonic-1',
       alias: 'music.example',
       kind: LibraryRecordKindSummarySubsonic(
@@ -32,6 +33,7 @@ const _saved = [
   (
     'WebDAV',
     LibraryRecordSummary(
+      shareSync: false,
       recordId: 'webdav-1',
       alias: 'music',
       kind: LibraryRecordKindSummaryOpenDal(
@@ -46,6 +48,7 @@ const _saved = [
   (
     'S3',
     LibraryRecordSummary(
+      shareSync: false,
       recordId: 's3-1',
       alias: 'tunes',
       kind: LibraryRecordKindSummaryOpenDal(
@@ -60,6 +63,7 @@ const _saved = [
 ];
 
 const _replica = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'replica-1',
   alias: 'Shared Music',
   kind: LibraryRecordKindSummaryReplica(
@@ -75,7 +79,6 @@ const _replicaCatalog = LocalLibrary(
   alias: 'Shared Music',
   path: '',
   ownerFingerprint: 'peer-1',
-  backgroundSync: false,
 );
 
 class _Broadcast extends ChangeNotifier implements BroadcastProvider {
@@ -215,8 +218,9 @@ void main() {
         );
         expect(switchTo, findsOneWidget);
         expect(tester.widget<Button>(switchTo).onPressed, isNotNull);
+        // None of these libraries is stored in a shared folder.
         expect(
-          find.descendant(of: row, matching: find.textContaining('Background')),
+          find.descendant(of: row, matching: find.text('Sync Now')),
           findsNothing,
         );
 

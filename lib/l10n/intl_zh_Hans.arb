@@ -1172,10 +1172,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "明确“局域网”不等于公共互联网（例如局域网中的 IP/端口）。“连接”意味着建立直接链接，而非仅仅显示可见。"
   },
-  "stop": "停止",
-  "@stop": {
-    "description": "用于终止当前活动的操作按钮。"
-  },
   "deviceFingerprint": "设备指纹",
   "@deviceFingerprint": {
     "description": "用于安全识别与连接的设备唯一标识符。"
@@ -1507,6 +1503,14 @@
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
+  "autoDeviceSync": "自动与设备同步",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "让未打开的媒体库与配对设备保持同步。已打开的媒体库始终会同步。",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
+  },
   "offlineCleanupDefault": "不再保持离线可用时删除下载的文件",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
@@ -1707,8 +1711,22 @@
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
-  "turnOnBackgroundSync": "开启后台同步",
-  "turnOffBackgroundSync": "关闭后台同步",
+  "autoShareSync": "自动同步共享媒体库",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "让存储在共享文件夹中的媒体库在未打开时保持同步。已打开的媒体库始终会同步。",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "立即同步",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "正在同步",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Rune 会将您的媒体索引存储在哪里？",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

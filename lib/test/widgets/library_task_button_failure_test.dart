@@ -12,6 +12,7 @@ import 'package:rune/widgets/library_task_button.dart';
 class _LibraryPath extends ChangeNotifier implements LibraryOpenStateProvider {
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'library',
     alias: 'Library',
     kind: LibraryRecordKindSummaryLocal(libraryId: 'id', path: '/library'),

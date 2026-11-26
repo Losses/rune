@@ -1144,10 +1144,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "'로컬 네트워크' ≠ 공용 인터넷(예: LAN 내 IP/포트)임을 명확히. '연결'은 단순한 가시성이 아닌 직접 연결 설정을 의미."
   },
-  "stop": "중지",
-  "@stop": {
-    "description": "활성 작업을 종료하는 작업 버튼."
-  },
   "deviceFingerprint": "기기 지문",
   "@deviceFingerprint": {
     "description": "기기의 고유 식별자로, 보안 식별 및 연결에 사용됨."
@@ -1427,6 +1423,14 @@
   "allowPairedSyncDescription": "페어링된 기기가 이 기기와 라이브러리를 동기화할 수 있도록 합니다.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
+  },
+  "autoDeviceSync": "기기와 자동으로 동기화",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "열려 있지 않은 라이브러리를 페어링된 기기와 동기화된 상태로 유지합니다. 열려 있는 라이브러리는 항상 동기화됩니다.",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
   },
   "offlineCleanupDefault": "불필요한 다운로드 삭제",
   "@offlineCleanupDefault": {
@@ -1709,8 +1713,22 @@
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
-  "turnOnBackgroundSync": "백그라운드 동기화 켜기",
-  "turnOffBackgroundSync": "백그라운드 동기화 끄기",
+  "autoShareSync": "공유 라이브러리 자동 동기화",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "공유 폴더에 저장된 라이브러리를 열려 있지 않은 동안에도 동기화된 상태로 유지합니다. 열려 있는 라이브러리는 항상 동기화됩니다.",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "지금 동기화",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "동기화 중",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Rune은 미디어 인덱스를 어디에 저장할까요?",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

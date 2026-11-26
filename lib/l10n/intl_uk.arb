@@ -1142,10 +1142,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Уточнює 'локальна мережа' ≠ публічний інтернет (наприклад, IP/порт у межах LAN). 'підключитися' означає встановлення прямого зв'язку, а не лише видимість."
   },
-  "stop": "Зупинити",
-  "@stop": {
-    "description": "Кнопка дії для припинення активної дії."
-  },
   "deviceFingerprint": "Відбиток пристрою",
   "@deviceFingerprint": {
     "description": "Унікальний ідентифікатор пристрою, використовується для безпечної ідентифікації та підключення."
@@ -1425,6 +1421,14 @@
   "allowPairedSyncDescription": "Дозволити спареним пристроям синхронізувати бібліотеки з цим пристроєм.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
+  },
+  "autoDeviceSync": "Автоматично синхронізувати з пристроями",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "Підтримувати синхронізацію невідкритих бібліотек зі спареними пристроями. Відкрита бібліотека синхронізується завжди.",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
   },
   "offlineCleanupDefault": "Видаляти непотрібні завантаження",
   "@offlineCleanupDefault": {
@@ -1707,8 +1711,22 @@
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
-  "turnOnBackgroundSync": "Увімкнути Фонову Синхронізацію",
-  "turnOffBackgroundSync": "Вимкнути Фонову Синхронізацію",
+  "autoShareSync": "Автоматично синхронізувати спільні бібліотеки",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "Підтримувати синхронізацію бібліотек, що зберігаються у спільній папці, поки вони не відкриті. Відкрита бібліотека синхронізується завжди.",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "Синхронізувати зараз",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "Синхронізація",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Де Rune зберігатиме ваш медіа-індекс?",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

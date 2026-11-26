@@ -1175,10 +1175,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
   },
-  "stop": "Stop",
-  "@stop": {
-    "description": "Action button to terminate active."
-  },
   "deviceFingerprint": "Device Fingerprint",
   "@deviceFingerprint": {
     "description": "A unique identifier for the device, used for secure identification and connection."
@@ -1530,6 +1526,14 @@
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
+  "autoDeviceSync": "Sync with Devices Automatically",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "Keep libraries that are not open in sync with paired devices. The open library always syncs.",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
+  },
   "offlineCleanupDefault": "Delete Unneeded Downloads",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
@@ -1722,8 +1726,22 @@
   "libraryRemoteProtocolFailure": "The device returned an incompatible response.",
   "libraryProtocolIncompatible": "This device uses an incompatible protocol version.",
   "libraryNotSupportedYet": "This library type is not supported yet.",
-  "turnOnBackgroundSync": "Turn On Background Sync",
-  "turnOffBackgroundSync": "Turn Off Background Sync",
+  "autoShareSync": "Sync Shared Libraries Automatically",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "Keep libraries stored in a shared folder in sync while they are not open. The open library always syncs.",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "Sync Now",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "Syncing",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Where should Rune store your index?",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

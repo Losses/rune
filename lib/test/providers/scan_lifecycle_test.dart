@@ -13,6 +13,7 @@ class FakeLibraryPath extends ChangeNotifier
     implements LibraryOpenStateProvider {
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'test-record',
     alias: 'Test',
     kind: LibraryRecordKindSummaryLocal(

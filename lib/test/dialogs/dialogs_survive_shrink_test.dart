@@ -416,6 +416,7 @@ void main() {
       loadRecords: () async => ListLibraryRecordsResponse(
         records: const [
           LibraryRecordSummary(
+            shareSync: false,
             recordId: 'subsonic-record',
             alias: 'Subsonic',
             kind: LibraryRecordKindSummarySubsonic(
@@ -878,6 +879,7 @@ class _LocalLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
 
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'local-record',
     alias: 'Music',
     kind: LibraryRecordKindSummaryLocal(

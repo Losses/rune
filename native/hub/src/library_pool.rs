@@ -282,11 +282,11 @@ impl LibraryPool {
         }
     }
 
-    /// Libraries enabled for background work, including any library registered by the UI.
+    /// The libraries this node serves: every catalog in the registry, and any library
+    /// registered by the UI.
     pub async fn served_library_ids(&self) -> Result<Vec<Uuid>> {
         let mut ids: Vec<_> = LibraryRegistry::load(&self.config_dir)?
             .catalogs()
-            .filter(|library| library.background_sync())
             .filter_map(LibraryRecord::catalog_library_id)
             .collect();
         for (id, entry) in self.entries.lock().await.iter() {
@@ -295,6 +295,30 @@ impl LibraryPool {
             }
         }
         Ok(ids)
+    }
+
+    /// The libraries open in the UI.
+    pub async fn ui_library_ids(&self) -> Vec<Uuid> {
+        self.entries
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, entry)| entry.ui_users > 0)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// A handle for background work on a library that is already open, which does not count
+    /// as user activity. Never opens a library.
+    pub async fn acquire_open_background(
+        self: &Arc<Self>,
+        library_id: Uuid,
+    ) -> Option<LibraryHandle> {
+        self.entries
+            .lock()
+            .await
+            .get(&library_id)
+            .map(|entry| self.handle_with_use(entry, LibraryUse::Background))
     }
 
     /// Resolve the current serving policy before acquiring a connection.
@@ -1004,7 +1028,6 @@ mod tests {
     async fn background_only_activity_does_not_refresh_idle_timeout() -> Result<()> {
         let f = Fixture::new_with_idle_timeout(false, Duration::from_secs(10)).await?;
         let id = f.descriptor.catalog_library_id().unwrap();
-        LibraryRegistry::set_background_sync(f.dir.path(), id, true).await?;
 
         let first = f
             .pool
@@ -1063,10 +1086,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_background_handle_never_opens_a_library_and_ui_ids_follow_registration()
+    -> Result<()> {
+        let f = Fixture::new(false).await?;
+        let id = f.descriptor.catalog_library_id().unwrap();
+        assert_eq!(f.pool.served_library_ids().await?, [id]);
+        assert!(f.pool.acquire_open_background(id).await.is_none());
+        assert!(
+            !f.pool.entries.lock().await.contains_key(&id),
+            "asking for an open library opened it"
+        );
+        assert!(f.pool.ui_library_ids().await.is_empty());
+
+        let request = f.pool.acquire(id).await?;
+        let background = f
+            .pool
+            .acquire_open_background(id)
+            .await
+            .context("open library")?;
+        assert!(Arc::ptr_eq(&request.main_db, &background.main_db));
+        assert!(
+            f.pool.ui_library_ids().await.is_empty(),
+            "a library open for a request counted as open in the UI"
+        );
+        drop((request, background));
+
+        let ui = f.pool.acquire_ui(id).await?;
+        assert_eq!(f.pool.ui_library_ids().await, [id]);
+        f.pool.unregister_ui(id).await;
+        assert!(f.pool.ui_library_ids().await.is_empty());
+        drop(ui);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn background_pass_holds_library_open_when_idle_timeout_fires() -> Result<()> {
         let f = Fixture::new(false).await?;
         let id = f.descriptor.catalog_library_id().unwrap();
-        LibraryRegistry::set_background_sync(f.dir.path(), id, true).await?;
         let pass = f
             .pool
             .acquire_served_background(id)

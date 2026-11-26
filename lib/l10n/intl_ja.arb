@@ -1142,10 +1142,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
   },
-  "stop": "停止",
-  "@stop": {
-    "description": "Action button to terminate active."
-  },
   "deviceFingerprint": "装置識別情報",
   "@deviceFingerprint": {
     "description": "A unique identifier for the device, used for secure identification and connection."
@@ -1425,6 +1421,14 @@
   "allowPairedSyncDescription": "ペアリング済みデバイスがこのデバイスとライブラリを同期できるようにします。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
+  },
+  "autoDeviceSync": "デバイスと自動的に同期",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "開いていないライブラリを、ペアリング済みデバイスと同期した状態に保ちます。開いているライブラリは常に同期されます。",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
   },
   "offlineCleanupDefault": "不要なダウンロードを削除",
   "@offlineCleanupDefault": {
@@ -1707,8 +1711,22 @@
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
-  "turnOnBackgroundSync": "バックグラウンド同期をオンにする",
-  "turnOffBackgroundSync": "バックグラウンド同期をオフにする",
+  "autoShareSync": "共有ライブラリを自動的に同期",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "共有フォルダーに保存されたライブラリを、開いていない間も同期した状態に保ちます。開いているライブラリは常に同期されます。",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "今すぐ同期",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "同期中",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Rune はあなたの資料索引をどこに保存しますか？",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

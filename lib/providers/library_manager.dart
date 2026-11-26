@@ -9,6 +9,7 @@ import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
 import '../utils/api/request_failure.dart';
 import '../utils/api/call_id.dart';
+import '../utils/api/library_registry.dart' as library_api;
 
 enum TaskStatus { working, finished, cancelled, failed }
 
@@ -107,19 +108,24 @@ class LibraryManagerProvider with ChangeNotifier {
   final Map<String, bool> _analysisInitializeIntent = {};
   final Map<String, bool> _scanInitializeUsesLibraryNavigator = {};
   final Map<int, _PendingLibraryTaskCall> _pendingTaskCalls = {};
+  final Map<String, Future<ShareSyncFailure?>> _shareSyncs = {};
+  bool _disposed = false;
 
   final void Function(ScanAudioLibraryRequest)? _sendScanRequest;
   final void Function(String)? _navigate;
+  final Future<ShareSyncFailure?> Function(String libraryId) _syncShareLibrary;
   final Stream<LibraryTaskStateChanged> _libraryTaskStates;
   final Stream<RequestFailedResponse> _requestFailures;
 
   LibraryManagerProvider({
     void Function(ScanAudioLibraryRequest)? sendScanRequest,
     void Function(String)? navigate,
+    Future<ShareSyncFailure?> Function(String libraryId)? syncShareLibrary,
     Stream<LibraryTaskStateChanged>? libraryTaskStates,
     Stream<RequestFailedResponse>? requestFailures,
   }) : _sendScanRequest = sendScanRequest,
        _navigate = navigate,
+       _syncShareLibrary = syncShareLibrary ?? library_api.syncShareLibrary,
        _libraryTaskStates =
            libraryTaskStates ??
            LibraryTaskStateChanged.rustSignalStream.map(
@@ -596,6 +602,27 @@ class LibraryManagerProvider with ChangeNotifier {
     return _deduplicateCompleters[recordId]!.future;
   }
 
+  /// Whether a sync of [libraryId] with its shared folder, started here, has
+  /// not ended yet.
+  bool isShareSyncing(String libraryId) => _shareSyncs.containsKey(libraryId);
+
+  /// Syncs a library stored in a shared folder with that folder now, and
+  /// returns why the pass failed, or null when it succeeded. The sync is
+  /// tracked here and not by the page that started it, so the page still shows
+  /// it as running after being left and opened again. A call for a library
+  /// whose sync has not ended joins that sync.
+  Future<ShareSyncFailure?> syncShareLibrary(String libraryId) {
+    final running = _shareSyncs[libraryId];
+    if (running != null) return running;
+    final sync = _syncShareLibrary(libraryId).whenComplete(() {
+      _shareSyncs.remove(libraryId);
+      if (!_disposed) notifyListeners();
+    });
+    _shareSyncs[libraryId] = sync;
+    notifyListeners();
+    return sync;
+  }
+
   Future<void> cancelTask(String recordId, CancelTaskType type) async {
     CancelTaskRequest(recordId: recordId, rType: type).sendSignalToRust();
   }
@@ -609,6 +636,7 @@ class LibraryManagerProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _settleScanWaiters();
     _libraryContentSubscription?.cancel();
     _libraryTaskSubscription?.cancel();

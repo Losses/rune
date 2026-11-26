@@ -10,6 +10,7 @@ import 'package:rune/providers/library_registry.dart';
 import 'package:rune/utils/api/request_failure.dart';
 
 LibraryRecordSummary _record() => const LibraryRecordSummary(
+  shareSync: false,
   recordId: 'record-1',
   alias: 'Music',
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),

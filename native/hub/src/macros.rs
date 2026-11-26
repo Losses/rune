@@ -113,9 +113,9 @@ mod node_request_loop_tests {
             SetDeviceGrantsResponse
         );
         error_handler!(
-            handle_set_library_background_sync_request,
-            SetLibraryBackgroundSyncRequest,
-            SetLibraryBackgroundSyncResponse
+            handle_sync_share_library_request,
+            SyncShareLibraryRequest,
+            SyncShareLibraryResponse
         );
         error_handler!(
             handle_list_peer_libraries_request,
@@ -425,7 +425,7 @@ mod node_request_loop_tests {
         let (device_grants_tx, device_grants_rx) = signal_channel();
         let (set_device_grants_tx, set_device_grants_rx) = signal_channel();
         let (list_tx, list_rx) = signal_channel();
-        let (background_sync_tx, background_sync_rx) = signal_channel();
+        let (sync_share_library_tx, sync_share_library_rx) = signal_channel();
         let (local_libraries_tx, local_libraries_rx) = signal_channel();
         let (peer_libraries_tx, peer_libraries_rx) = signal_channel();
         let (add_remote_tx, add_remote_rx) = signal_channel();
@@ -489,7 +489,7 @@ mod node_request_loop_tests {
                 get_device_grants_request_receiver: device_grants_rx,
                 set_device_grants_request_receiver: set_device_grants_rx,
                 list_library_records_request_receiver: list_rx,
-                set_library_background_sync_request_receiver: background_sync_rx,
+                sync_share_library_request_receiver: sync_share_library_rx,
                 list_local_libraries_request_receiver: local_libraries_rx,
                 list_peer_libraries_request_receiver: peer_libraries_rx,
                 add_remote_library_request_receiver: add_remote_rx,
@@ -573,10 +573,9 @@ mod node_request_loop_tests {
                 .0,
             "RequestFailedResponse"
         );
-        background_sync_tx.send(DartSignalPack {
-            message: SetLibraryBackgroundSyncRequest {
+        sync_share_library_tx.send(DartSignalPack {
+            message: SyncShareLibraryRequest {
                 library_id: String::new(),
-                enabled: false,
                 call_id: None,
             },
             binary: Vec::new(),
@@ -800,6 +799,8 @@ mod node_request_loop_tests {
                 broadcast: false,
                 accept_remote_control: false,
                 accept_sync: false,
+                auto_device_sync: false,
+                auto_share_sync: false,
                 missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
                 call_id: None,
             },

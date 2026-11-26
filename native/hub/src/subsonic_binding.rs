@@ -2629,7 +2629,6 @@ mod visualizer_feed_tests {
                 },
                 fs: Vec::new(),
                 catalog: CatalogPlacement::None,
-                background_sync: false,
             });
             Ok(())
         })

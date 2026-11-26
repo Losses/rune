@@ -1,4 +1,5 @@
 use super::*;
+use crate::handlers::sync::update_sync_settings;
 use crate::library_pool::{LibraryHandle, LibraryPool, LibraryResources};
 use crate::messages::{
     OpenDalLibraryService, OpenDalShareDataDetection, RegisterOpenDalLibraryRequest,
@@ -143,7 +144,6 @@ fn test_record(library_id: Uuid) -> LibraryRecord {
             credential: CredentialRef(Uuid::new_v4()),
         }],
         catalog: CatalogPlacement::InShare(library_id),
-        background_sync: true,
     }
 }
 
@@ -348,6 +348,7 @@ async fn hubs_on_share(namespace: Uuid, count: usize) -> Vec<support::SqlLibrary
 struct QuietBroadcaster {
     messages: std_sync::Mutex<Vec<String>>,
     share_statuses: std_sync::Mutex<Vec<Option<ShareSyncFailure>>>,
+    share_statuses_by_library: std_sync::Mutex<Vec<(String, Option<ShareSyncFailure>)>>,
     successful_share_passes: AtomicUsize,
     successful_share_pass: Notify,
 }
@@ -359,6 +360,10 @@ impl Broadcaster for QuietBroadcaster {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .push(status.share_failure);
+            self.share_statuses_by_library
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((status.library_id.clone(), status.share_failure));
             if status.share_failure.is_none() {
                 self.successful_share_passes.fetch_add(1, Ordering::SeqCst);
                 self.successful_share_pass.notify_waiters();
@@ -452,6 +457,13 @@ impl WorkerHub {
     }
 }
 
+/// Stops the worker a node starts for itself, so that the share worker a test runs is the only
+/// one: a share worker holds the node's share sync requests for as long as it runs, and the
+/// node's own worker would also work and report on the test's libraries.
+async fn stop_own_worker(node: &NodeContext) -> Result<()> {
+    node.manager()?.stop_worker().await
+}
+
 /// A node generates an RSA device certificate on first start, which takes seconds in a
 /// debug build, and the share worker never uses it. Starting from an elliptic-curve
 /// identity written beforehand, made in milliseconds, avoids that wait.
@@ -485,6 +497,8 @@ async fn register_worker_library(
         Arc::new(Visualizer::new()),
     )
     .await?;
+    // Stopped while it has no library to work on, so nothing of it is cut off half way.
+    stop_own_worker(&node).await?;
     fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
@@ -1242,6 +1256,7 @@ async fn share_worker_skips_redirected_catalog_before_opening_a_store() -> Resul
         Arc::new(Visualizer::new()),
     )
     .await?;
+    stop_own_worker(&node).await?;
     fs::write(
         directory.path().join("libraries.json"),
         serde_json::to_vec(&json!({
@@ -1393,10 +1408,11 @@ async fn share_worker_syncs_webdav_and_s3_shares_through_the_opendal_factory() -
         let mut record = test_record(namespace);
         record.fs =
             vec![share_adapter(config.clone(), &CredentialStore::open(directory.path())).await?];
-        // The node starts its sync worker, whose share worker opens stores through
+        // The node's own sync worker runs here: its share worker opens stores through
         // `OpenDalShareStoreFactory`, as in the app.
         let (node, broadcaster, handle) =
             register_worker_library(&directory, record, &library).await?;
+        node.manager()?.start_worker().await?;
         let first_status = wait_until("the share worker's first pass", || async {
             Ok(broadcaster
                 .share_statuses
@@ -2883,4 +2899,552 @@ pub(in crate::server) async fn test_peer_pass(
     TestPeerSession::default()
         .pass(params, private_key, endpoint, metadata)
         .await
+}
+
+impl QuietBroadcaster {
+    /// The share sync statuses broadcast for one library, in order.
+    fn share_statuses_of(&self, library_id: Uuid) -> Vec<Option<ShareSyncFailure>> {
+        self.share_statuses_by_library
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .filter(|(id, _)| *id == library_id.to_string())
+            .map(|(_, failure)| *failure)
+            .collect()
+    }
+}
+
+/// A node with two libraries stored in shared folders, each with its own store: `ui` is open
+/// in the UI, and `background` is open in the pool only, the way a library is that some
+/// other work holds.
+struct ShareSwitchFixture {
+    _directory: tempfile::TempDir,
+    node: Arc<NodeContext>,
+    broadcaster: Arc<QuietBroadcaster>,
+    ui: Uuid,
+    background: Uuid,
+    background_library: support::SqlLibrary,
+    background_store: Arc<MemoryObjectStore>,
+    /// Another device that keeps `background` in the same shared folder.
+    other_device: support::SqlLibrary,
+    opened: Arc<Mutex<HashMap<Uuid, usize>>>,
+    _handles: Vec<LibraryHandle>,
+    _ui_library: support::SqlLibrary,
+    cancel: CancellationToken,
+    task: task::JoinHandle<()>,
+}
+
+impl ShareSwitchFixture {
+    async fn start(auto_share_sync: bool) -> Result<Self> {
+        let ui = Uuid::new_v4();
+        let background = Uuid::new_v4();
+        let ui_library = support::SqlLibrary::new_persistent(ui, Uuid::new_v4()).await?;
+        let background_library =
+            support::SqlLibrary::new_persistent(background, Uuid::new_v4()).await?;
+        let other_device = support::SqlLibrary::new(background, Uuid::new_v4()).await?;
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().to_string_lossy().into_owned();
+        write_quick_identity(directory.path())?;
+        crate::test_node::disable_media_server(directory.path())?;
+        let broadcaster = Arc::new(QuietBroadcaster::default());
+        let node = NodeContext::new(
+            &path,
+            &path,
+            broadcaster.clone(),
+            false,
+            RunMode::App,
+            Arc::new(Visualizer::new()),
+        )
+        .await?;
+        stop_own_worker(&node).await?;
+        update_sync_settings(&node, |settings| settings.auto_share_sync = auto_share_sync).await?;
+        let records = [test_record(ui), test_record(background)];
+        fs::write(
+            directory.path().join("libraries.json"),
+            serde_json::to_vec(&json!({
+                "version": 3,
+                "libraries": records,
+                "last_open_record": null,
+            }))?,
+        )?;
+        let mut handles = Vec::new();
+        for (library, record) in [&ui_library, &background_library].into_iter().zip(records) {
+            let library_id = record.library_id.context("share test record library id")?;
+            handles.push(
+                node.library_pool
+                    .register_ui(LibraryResources {
+                        library_id,
+                        display_name: record.alias.clone(),
+                        main_db: Arc::new(library.db.clone()),
+                        library_sync: library.sync_store.clone(),
+                        recommend_db: Arc::new(RecommendationDbConnection::new()),
+                        fsio: Arc::new(FsIo::new()),
+                        media_root: library.root.path().to_string_lossy().into_owned(),
+                        descriptor: record,
+                    })
+                    .await?,
+            );
+        }
+        // The held handle keeps `background` open in the pool after the UI lets go of it.
+        node.library_pool.unregister_ui(background).await;
+        anyhow::ensure!(
+            node.library_pool.ui_library_ids().await == [ui],
+            "only one share test library may be open in the UI"
+        );
+
+        let ui_store = Arc::new(MemoryObjectStore::default());
+        let background_store = Arc::new(MemoryObjectStore::default());
+        let opened = Arc::new(Mutex::new(HashMap::new()));
+        let factory: Arc<dyn ShareStoreFactory> = Arc::new(RoutedShareFactory {
+            stores: HashMap::from([(ui, ui_store), (background, background_store.clone())]),
+            opened: opened.clone(),
+        });
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn(run_share_worker(
+            Arc::downgrade(&node),
+            Arc::new(|| {}),
+            cancel.clone(),
+            factory,
+            ShareWorkerTimers {
+                tick: Duration::from_millis(25),
+                foreground_pull: Duration::from_millis(50),
+                background_pull: Duration::from_millis(50),
+                push_debounce: Duration::from_millis(10),
+                statistics_push: Duration::from_millis(50),
+                idle_push: Duration::from_millis(100),
+            },
+        ));
+        Ok(Self {
+            _directory: directory,
+            node,
+            broadcaster,
+            ui,
+            background,
+            background_library,
+            background_store,
+            other_device,
+            opened,
+            _handles: handles,
+            _ui_library: ui_library,
+            cancel,
+            task,
+        })
+    }
+
+    /// How many times the worker opened a store session for `library_id`.
+    fn sessions_opened(&self, library_id: Uuid) -> usize {
+        self.opened
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&library_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// One pull and push by the other device that keeps `background` in the same share.
+    async fn other_device_pass(&self) -> Result<()> {
+        let session = memory_session(&self.background_store).await;
+        sync_pass(&self.other_device.sync_store, self.background, &session)
+            .await
+            .map_err(|failure| anyhow::anyhow!("other device share pass: {failure:?}"))
+    }
+
+    /// Waits until the worker has run `count` more scheduled passes over the UI library, so
+    /// that it has also had that many chances to schedule `background`.
+    async fn scheduled_ui_passes(&self, count: usize) -> Result<()> {
+        let before = self.broadcaster.share_statuses_of(self.ui).len();
+        wait_until("scheduled passes over the UI share library", || async {
+            Ok((self.broadcaster.share_statuses_of(self.ui).len() >= before + count).then_some(()))
+        })
+        .await
+    }
+
+    async fn set_auto_share_sync(&self, enabled: bool) -> Result<()> {
+        update_sync_settings(&self.node, |settings| settings.auto_share_sync = enabled).await
+    }
+
+    async fn request_sync(&self, library_id: String) -> Result<Option<ShareSyncFailure>> {
+        use crate::Signal;
+        use crate::messages::SyncShareLibraryRequest;
+
+        let request = SyncShareLibraryRequest {
+            library_id,
+            call_id: None,
+        };
+        Ok(request
+            .handle(self.node.clone(), None, &request)
+            .await?
+            .context("share sync response")?
+            .share_failure)
+    }
+
+    async fn stop(self) -> Result<()> {
+        self.cancel.cancel();
+        self.task.await?;
+        drop(self._handles);
+        self.node.shutdown().await
+    }
+}
+
+fn new_playlist_key() -> ObjectKey {
+    ObjectKey {
+        collection: Collection::Playlists,
+        id: Uuid::new_v4(),
+    }
+}
+
+#[tokio::test]
+async fn share_library_not_open_in_the_ui_syncs_only_on_request_while_automatic_share_sync_is_off()
+-> Result<()> {
+    let fixture = ShareSwitchFixture::start(false).await?;
+    let background = fixture.background;
+    let from_other = new_playlist_key();
+    fixture
+        .other_device
+        .sync_store
+        .write_local(
+            from_other.clone(),
+            support::playlist("from the other device"),
+        )
+        .await?;
+    fixture.other_device_pass().await?;
+    let from_here = new_playlist_key();
+    fixture
+        .background_library
+        .sync_store
+        .write_local(from_here.clone(), support::playlist("from this device"))
+        .await?;
+
+    // The library open in the UI is scheduled whatever the switch says. The other one is not.
+    fixture.scheduled_ui_passes(3).await?;
+    assert_eq!(fixture.sessions_opened(fixture.ui), 1);
+    assert_eq!(
+        fixture.sessions_opened(background),
+        0,
+        "a library that is not open in the UI was scheduled"
+    );
+    assert!(fixture.broadcaster.share_statuses_of(background).is_empty());
+    assert!(
+        fixture
+            .background_library
+            .sync_store
+            .get(&from_other)
+            .await?
+            .is_none()
+    );
+
+    // A request runs one pass that both pulls and pushes, and is reported like a scheduled one.
+    assert_eq!(
+        fixture.node.share_sync_requests.sync(background).await?,
+        Ok(())
+    );
+    assert_eq!(fixture.sessions_opened(background), 1);
+    assert!(
+        fixture
+            .background_library
+            .sync_store
+            .get(&from_other)
+            .await?
+            .is_some(),
+        "the requested pass did not pull"
+    );
+    fixture.other_device_pass().await?;
+    assert!(
+        fixture
+            .other_device
+            .sync_store
+            .get(&from_here)
+            .await?
+            .is_some(),
+        "the requested pass did not push"
+    );
+    assert_eq!(fixture.broadcaster.share_statuses_of(background), [None]);
+
+    // The request the UI sends gets the same pass, and nothing is scheduled afterwards.
+    assert_eq!(fixture.request_sync(background.to_string()).await?, None);
+    let reported = fixture.broadcaster.share_statuses_of(background).len();
+    fixture.scheduled_ui_passes(3).await?;
+    assert_eq!(
+        fixture.broadcaster.share_statuses_of(background).len(),
+        reported
+    );
+
+    // With the switch on, the same library is scheduled.
+    fixture.set_auto_share_sync(true).await?;
+    let later = new_playlist_key();
+    fixture
+        .other_device
+        .sync_store
+        .write_local(
+            later.clone(),
+            support::playlist("later, from the other device"),
+        )
+        .await?;
+    fixture.other_device_pass().await?;
+    wait_until(
+        "a scheduled pass to pull into the background library",
+        || async {
+            Ok(fixture
+                .background_library
+                .sync_store
+                .get(&later)
+                .await?
+                .map(|_| ()))
+        },
+    )
+    .await?;
+
+    // Switching it off again keeps the store session for the next request.
+    fixture.set_auto_share_sync(false).await?;
+    fixture.scheduled_ui_passes(2).await?;
+    assert_eq!(
+        fixture.node.share_sync_requests.sync(background).await?,
+        Ok(())
+    );
+    assert_eq!(fixture.sessions_opened(background), 1);
+    fixture.stop().await
+}
+
+#[tokio::test]
+async fn manual_share_sync_answers_with_its_failure_and_runs_again_during_backoff() -> Result<()> {
+    let fixture = ShareSwitchFixture::start(false).await?;
+    let background = fixture.background;
+    let from_here = new_playlist_key();
+    fixture
+        .background_library
+        .sync_store
+        .write_local(from_here.clone(), support::playlist("from this device"))
+        .await?;
+    fixture
+        .background_store
+        .inject_error(StoreOperation::Put, StoreError::PermissionDenied);
+
+    // Every failure doubles the wait a scheduled pass would observe: after these four it is
+    // eight seconds. Each request still runs a pass at once, which is how it gets the failure.
+    let started = Instant::now();
+    for _ in 0..3 {
+        assert_eq!(
+            fixture.node.share_sync_requests.sync(background).await?,
+            Err(ShareSyncFailure::ReadOnlyShare)
+        );
+    }
+    assert_eq!(
+        fixture.request_sync(background.to_string()).await?,
+        Some(ShareSyncFailure::ReadOnlyShare)
+    );
+    // The answer is the report. A broadcast as well would show the failure twice.
+    assert!(fixture.broadcaster.share_statuses_of(background).is_empty());
+
+    fixture.background_store.clear_error(StoreOperation::Put);
+    assert_eq!(
+        fixture.node.share_sync_requests.sync(background).await?,
+        Ok(())
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "the requests took longer than the backoff they are meant to ignore"
+    );
+    fixture.other_device_pass().await?;
+    assert!(
+        fixture
+            .other_device
+            .sync_store
+            .get(&from_here)
+            .await?
+            .is_some(),
+        "the pass requested during backoff did not push"
+    );
+    assert_eq!(fixture.broadcaster.share_statuses_of(background), [None]);
+    fixture.stop().await
+}
+
+#[tokio::test]
+async fn manual_share_sync_refuses_a_library_that_is_not_stored_in_a_shared_folder() -> Result<()> {
+    use crate::messages::RequestErrorKind;
+    use crate::request_error::classify;
+
+    let fixture = ShareSwitchFixture::start(false).await?;
+    // The same record as a library whose files are remote and whose catalog is local.
+    let redirected = fixture.background;
+    let config = fixture.node.config_path.clone();
+    LibraryRegistry::update(Path::new(config.as_str()), |registry| {
+        let record = registry
+            .libraries
+            .iter_mut()
+            .find(|record| record.library_id == Some(redirected))
+            .context("background share record")?;
+        record.catalog = CatalogPlacement::Redirected(Uuid::new_v4());
+        Ok(())
+    })
+    .await?;
+
+    for library_id in [redirected, Uuid::new_v4()] {
+        let error = fixture
+            .node
+            .share_sync_requests
+            .sync(library_id)
+            .await
+            .expect_err("a library outside a shared folder was synced with one");
+        assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+    }
+    let error = fixture
+        .request_sync(redirected.to_string())
+        .await
+        .expect_err("the request for a library outside a shared folder was answered");
+    assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+    let error = fixture
+        .request_sync("not a library id".into())
+        .await
+        .expect_err("a library id that is not a UUID was accepted");
+    assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
+    assert_eq!(
+        fixture.sessions_opened(redirected),
+        0,
+        "a store was opened for a library that is not kept in one"
+    );
+    assert!(fixture.broadcaster.share_statuses_of(redirected).is_empty());
+    fixture.stop().await
+}
+
+#[test]
+fn record_summary_marks_libraries_stored_in_a_shared_folder() {
+    use crate::messages::LibraryRecordSummary;
+
+    let in_share = test_record(Uuid::new_v4());
+    assert!(LibraryRecordSummary::from(&in_share).share_sync);
+    let mut redirected = test_record(Uuid::new_v4());
+    redirected.catalog = CatalogPlacement::Redirected(Uuid::new_v4());
+    assert!(!LibraryRecordSummary::from(&redirected).share_sync);
+}
+
+/// Adds an analysis row whose file is gone, which metadata maintenance removes.
+async fn insert_orphan_analysis(library: &LibraryHandle) -> Result<()> {
+    use database::entities::media_analysis;
+    use sea_orm::{EntityTrait, Set};
+
+    media_analysis::Entity::insert(media_analysis::ActiveModel {
+        file_id: Set(i32::MAX),
+        analysis_version: Set(1),
+        source_uuid: Set(Uuid::new_v4().to_string()),
+        ..Default::default()
+    })
+    .exec(&*library.main_db)
+    .await?;
+    Ok(())
+}
+
+async fn wait_for_maintenance_pass(library: &LibraryHandle) -> Result<()> {
+    use database::entities::media_analysis;
+    use sea_orm::{EntityTrait, PaginatorTrait};
+
+    insert_orphan_analysis(library).await?;
+    wait_until("metadata maintenance to clean the library", || async {
+        Ok((media_analysis::Entity::find()
+            .count(&*library.main_db)
+            .await?
+            == 0)
+            .then_some(()))
+    })
+    .await
+}
+
+/// Metadata maintenance and audio verification work on the libraries that are open. With
+/// the whole worker running on a node that has no paired device and no library in a shared
+/// folder, they are the only work that looks at a library that is not open in the UI.
+#[tokio::test]
+async fn maintenance_and_audio_verification_never_open_a_library_or_keep_one_open() -> Result<()> {
+    use crate::library_pool::LibraryPool;
+    use crate::utils::nid::get_or_create_node_id;
+    use database::connection::StorageMode;
+    use database::library_registry::resolve_library;
+
+    let directory = tempfile::tempdir()?;
+    let config = directory.path();
+    let path = config.to_string_lossy().into_owned();
+    write_quick_identity(config)?;
+    crate::test_node::disable_media_server(config)?;
+    let node_id = get_or_create_node_id(&path).await?.to_string();
+    let _ = migration::initialize_node_id(node_id.clone());
+    // The node takes this pool over, and with it the short idle timeout.
+    let pool = LibraryPool::with_idle_timeout_and_credentials(
+        config,
+        config,
+        &node_id,
+        Duration::from_millis(100),
+        Arc::new(CredentialStore::open(config)),
+    )?;
+    let mut registry = LibraryRegistry::load(config)?;
+    let mut ids = Vec::new();
+    for name in ["ui", "held"] {
+        let root = config.join(name);
+        fs::create_dir_all(&root)?;
+        let record = resolve_library(
+            &FsIo::new(),
+            &mut registry,
+            &root.to_string_lossy(),
+            name,
+            StorageMode::Portable,
+        )
+        .await?;
+        ids.push(record.catalog_library_id().context("library id")?);
+    }
+    let (ui_id, held_id) = (ids[0], ids[1]);
+    let held_database = config.join("held/.rune/.0.db");
+    let node = NodeContext::new(
+        &path,
+        &path,
+        Arc::new(QuietBroadcaster::default()),
+        false,
+        RunMode::App,
+        Arc::new(Visualizer::new()),
+    )
+    .await?;
+    anyhow::ensure!(
+        Arc::ptr_eq(&node.library_pool, &pool),
+        "the node did not take over the test pool"
+    );
+    let ui = pool.acquire_ui(ui_id).await?;
+    let mut served = pool.served_library_ids().await?;
+    served.sort();
+    let mut registered = vec![ui_id, held_id];
+    registered.sort();
+    assert_eq!(served, registered);
+
+    // Maintenance goes through every served library on each pass, so after two passes over
+    // the UI library it has gone past the closed one. Verification runs five times as often.
+    wait_for_maintenance_pass(&ui).await?;
+    wait_for_maintenance_pass(&ui).await?;
+    assert!(
+        pool.acquire_open_background(held_id).await.is_none(),
+        "background work opened a library"
+    );
+    assert!(
+        !held_database.exists(),
+        "background work created the database of a library nobody opened"
+    );
+
+    // Once something else has the library open, maintenance works on it too.
+    let held = pool.acquire(held_id).await?;
+    assert!(held_database.exists());
+    wait_for_maintenance_pass(&held).await?;
+    // It still closes when that user is gone, although maintenance and verification keep
+    // taking it while it is open.
+    drop(held);
+    wait_until("the held library to idle close", || async {
+        Ok(pool
+            .acquire_open_background(held_id)
+            .await
+            .is_none()
+            .then_some(()))
+    })
+    .await?;
+    wait_for_maintenance_pass(&ui).await?;
+    wait_for_maintenance_pass(&ui).await?;
+    assert!(
+        pool.acquire_open_background(held_id).await.is_none(),
+        "background work reopened a library that had idle closed"
+    );
+
+    drop(ui);
+    node.shutdown().await
 }

@@ -19,6 +19,10 @@ pub struct SyncSettings {
     pub accept_remote_control: bool,
     /// While the server runs, accept library sync requests from other devices.
     pub accept_sync: bool,
+    /// Sync libraries that are not open in the UI with paired devices.
+    pub auto_device_sync: bool,
+    /// Sync share libraries that are not open in the UI with their shared folder.
+    pub auto_share_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
 }
 
@@ -29,6 +33,8 @@ impl Default for SyncSettings {
             broadcast: true,
             accept_remote_control: false,
             accept_sync: true,
+            auto_device_sync: true,
+            auto_share_sync: true,
             missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
         }
     }
@@ -77,12 +83,16 @@ mod tests {
         assert!(defaults.broadcast);
         assert!(!defaults.accept_remote_control);
         assert!(defaults.accept_sync);
+        assert!(defaults.auto_device_sync);
+        assert!(defaults.auto_share_sync);
         fs::write(dir.path().join("sync_settings.json"), b"{\"listen\":false}")?;
         let partial = SyncSettings::load(dir.path());
         assert!(!partial.media_server);
         assert!(partial.broadcast);
         assert!(!partial.accept_remote_control);
         assert!(partial.accept_sync);
+        assert!(partial.auto_device_sync);
+        assert!(partial.auto_share_sync);
         assert_eq!(
             partial.missing_host_file,
             MissingHostFilePolicy::RemoveEverywhere
@@ -92,6 +102,8 @@ mod tests {
             broadcast: false,
             accept_remote_control: true,
             accept_sync: false,
+            auto_device_sync: false,
+            auto_share_sync: false,
             missing_host_file: MissingHostFilePolicy::KeepAsRemote,
         };
         updated.save(dir.path())?;
@@ -100,6 +112,8 @@ mod tests {
         assert!(!loaded.broadcast);
         assert!(loaded.accept_remote_control);
         assert!(!loaded.accept_sync);
+        assert!(!loaded.auto_device_sync);
+        assert!(!loaded.auto_share_sync);
         assert_eq!(
             loaded.missing_host_file,
             MissingHostFilePolicy::KeepAsRemote

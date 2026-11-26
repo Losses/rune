@@ -1142,10 +1142,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
   },
-  "stop": "停止",
-  "@stop": {
-    "description": "Action button to terminate active."
-  },
   "deviceFingerprint": "装置識別情報",
   "@deviceFingerprint": {
     "description": "A unique identifier for the device, used for secure identification and connection."
@@ -1691,6 +1687,14 @@
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
+  "autoDeviceSync": "自動裝置同步",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "未開資料集、配對器同步維持。開中資料集常時同步。",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
+  },
   "offlineCleanupDefault": "刪除不需要的下載",
   "@offlineCleanupDefault": {
     "description": "Default option to clean up unneeded offline downloads."
@@ -1707,8 +1711,22 @@
   "@offlineSelectionCleaned": {
     "description": "Confirmation after attempting to clean up offline downloads."
   },
-  "turnOnBackgroundSync": "背景同步起動",
-  "turnOffBackgroundSync": "背景同步停止",
+  "autoShareSync": "共有資料集自動同步",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "共有格納場所保存資料集、未開時同步維持。開中資料集常時同步。",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "即時同步",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "同步中",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "allowAccess": "接続許可",
   "allowAccessSubtitle": "此装置再生制御共楽曲保存接続許可。",
   "shareLibraryModeSubtitle": "貴方資料索引、Rune 何処保存了承？",

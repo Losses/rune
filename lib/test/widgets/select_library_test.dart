@@ -18,6 +18,7 @@ class _Libraries extends ChangeNotifier implements LibraryRegistryProvider {
   @override
   final records = [
     LibraryRecordSummary(
+      shareSync: false,
       recordId: 'record-1',
       alias: 'music',
       kind: const LibraryRecordKindSummaryLocal(

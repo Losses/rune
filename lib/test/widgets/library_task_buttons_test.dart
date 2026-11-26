@@ -114,6 +114,7 @@ Future<(LibraryOpenStateProvider, LibraryRegistryProvider)> _openState(
 }
 
 const _replica = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'replica-record',
   alias: 'Replica',
   kind: LibraryRecordKindSummaryReplica(
@@ -284,6 +285,7 @@ void main() {
     await _pumpTaskButtons(
       tester,
       record: const LibraryRecordSummary(
+        shareSync: false,
         recordId: 'remote-record',
         alias: 'Remote control',
         kind: LibraryRecordKindSummaryRemoteControl(fingerprint: 'renderer'),
@@ -299,6 +301,7 @@ void main() {
       'catalog task buttons start tasks for a ${service.name} library',
       (tester) async {
         final record = LibraryRecordSummary(
+          shareSync: false,
           recordId: '${service.name}-record',
           alias: 'music',
           kind: LibraryRecordKindSummaryOpenDal(

@@ -7,6 +7,7 @@ import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 
 LibraryRecordSummary _record() => const LibraryRecordSummary(
+  shareSync: false,
   recordId: 'subsonic-record',
   alias: 'Subsonic',
   kind: LibraryRecordKindSummarySubsonic(

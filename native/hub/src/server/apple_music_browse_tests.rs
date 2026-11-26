@@ -3092,7 +3092,6 @@ async fn write_subsonic_record(
         },
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     let record_id = record.record_id;
     LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
@@ -4331,7 +4330,6 @@ async fn an_apple_record_that_kept_nothing_opens_empty_and_its_reads_are_typed()
         protocol: ProtocolAdapter::AppleMusic,
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     let unsigned_id = unsigned.record_id;
     LibraryRegistry::update(Path::new(&*apple.node.config_path), |registry| {
@@ -4423,7 +4421,6 @@ async fn an_unreachable_library_gives_no_color_and_an_unsigned_apple_item_waits_
         protocol,
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     let subsonic = record(ProtocolAdapter::SubsonicTranslate {
         endpoint,
@@ -4502,7 +4499,6 @@ async fn a_like_of_an_item_whose_library_cannot_answer_fails_as_a_typed_failure(
         protocol: ProtocolAdapter::AppleMusic,
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     let unsigned_id = unsigned.record_id;
     LibraryRegistry::update(Path::new(&*apple.node.config_path), |registry| {

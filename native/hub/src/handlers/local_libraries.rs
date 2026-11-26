@@ -15,8 +15,7 @@ use crate::{
         LibraryRecordSummary, LibraryRecordsChanged, ListLibraryRecordsRequest,
         ListLibraryRecordsResponse, ListLocalLibrariesRequest, ListLocalLibrariesResponse,
         LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
-        RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
-        SetLibraryBackgroundSyncResponse, SetOnlineLyricsRequest, SetOnlineLyricsResponse,
+        RemoveLibraryRecordResponse, SetOnlineLyricsRequest, SetOnlineLyricsResponse,
     },
     node::NodeContext,
     service::{
@@ -336,7 +335,6 @@ impl Signal for ListLocalLibrariesRequest {
                     path: library.local_folder_path().unwrap_or_default().to_owned(),
                     alias: library.alias.clone(),
                     owner_fingerprint: library.owner_fingerprint().map(str::to_owned),
-                    background_sync: library.background_sync(),
                     connection_access: library.connection_access().map(Into::into),
                     sync_access: library.access_level().map(Into::into),
                 })
@@ -346,38 +344,6 @@ impl Signal for ListLocalLibrariesRequest {
             call_id: None,
             libraries,
         }))
-    }
-}
-
-impl ParamsExtractor for SetLibraryBackgroundSyncRequest {
-    type Params = Arc<NodeContext>;
-
-    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
-        params.node.clone()
-    }
-}
-
-impl Signal for SetLibraryBackgroundSyncRequest {
-    type Params = Arc<NodeContext>;
-    type Response = SetLibraryBackgroundSyncResponse;
-
-    async fn handle(
-        &self,
-        node: Self::Params,
-        _: Option<Session>,
-        request: &Self,
-    ) -> Result<Option<Self::Response>> {
-        let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
-            ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
-        })?;
-        LibraryRegistry::set_background_sync(
-            Path::new(&*node.config_path),
-            library_id,
-            request.enabled,
-        )
-        .await?;
-        publish_library_records_changed(&node).await?;
-        Ok(Some(SetLibraryBackgroundSyncResponse { call_id: None }))
     }
 }
 
@@ -437,14 +403,11 @@ impl Signal for SetOnlineLyricsRequest {
 #[cfg(all(test, not(target_os = "android")))]
 mod tests {
     use super::*;
-    use crate::server::utils::device::RunMode;
-    use crate::utils::LocalGuiBroadcaster;
     use database::{
         connection::StorageMode,
         library_registry::{LibraryRecord, create_replica, resolve_library},
     };
     use fsio::FsIo;
-    use visualizer::Visualizer;
 
     async fn list(config: &Arc<String>) -> Result<Vec<LocalLibrary>> {
         let request = ListLocalLibrariesRequest { call_id: None };
@@ -453,19 +416,6 @@ mod tests {
             .await?
             .unwrap()
             .libraries)
-    }
-
-    async fn set(
-        node: &Arc<NodeContext>,
-        library_id: String,
-        enabled: bool,
-    ) -> Result<Option<anyhow::Error>> {
-        let request = SetLibraryBackgroundSyncRequest {
-            call_id: None,
-            library_id,
-            enabled,
-        };
-        Ok(request.handle(node.clone(), None, &request).await.err())
     }
 
     async fn register(config: &Path, replica_id: Uuid) -> Result<(LibraryRecord, LibraryRecord)> {
@@ -484,19 +434,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_and_set_local_library_options() -> Result<()> {
+    async fn lists_every_catalog_library_once_across_repeated_registration() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let config = Arc::new(dir.path().to_string_lossy().into_owned());
-        crate::test_node::disable_media_server(dir.path())?;
-        let node = NodeContext::new(
-            &config,
-            &config,
-            Arc::new(LocalGuiBroadcaster),
-            false,
-            RunMode::App,
-            Arc::new(Visualizer::new()),
-        )
-        .await?;
         assert!(list(&config).await?.is_empty());
         let (owned, replica) = register(dir.path(), Uuid::new_v4()).await?;
         let libraries = list(&config).await?;
@@ -508,7 +448,6 @@ mod tests {
         assert_eq!(local.alias, "Owned");
         assert_eq!(local.path, owned.display_name().unwrap());
         assert_eq!(local.owner_fingerprint, None);
-        assert!(local.background_sync);
         let remote = libraries
             .iter()
             .find(|library| library.library_id == replica.catalog_library_id().unwrap().to_string())
@@ -516,48 +455,20 @@ mod tests {
         assert_eq!(remote.alias, "Replica");
         assert_eq!(remote.path, "");
         assert_eq!(remote.owner_fingerprint.as_deref(), Some("owner"));
-        assert!(remote.background_sync);
-        for id in [
-            owned.catalog_library_id().unwrap(),
-            replica.catalog_library_id().unwrap(),
-        ] {
-            assert!(set(&node, id.to_string(), false).await?.is_none());
-        }
-        // Resolving and adding again must retain this node's disabled preference.
+        // Resolving and adding again keeps one entry per library.
         register(dir.path(), replica.catalog_library_id().unwrap()).await?;
-        assert!(
-            list(&config)
-                .await?
-                .iter()
-                .all(|library| !library.background_sync)
-        );
-        assert!(
-            set(
-                &node,
-                replica.catalog_library_id().unwrap().to_string(),
-                true
-            )
+        let mut again: Vec<_> = list(&config)
             .await?
-            .is_none()
-        );
-        let libraries = list(&config).await?;
-        assert_eq!(
-            libraries
-                .iter()
-                .filter(|library| library.background_sync)
-                .count(),
-            1
-        );
-        let invalid = set(&node, "invalid".into(), false).await?;
-        assert_eq!(
-            crate::request_error::classify(&invalid.expect("a library id that is not a UUID")),
-            crate::messages::RequestErrorKind::InvalidInput
-        );
-        assert!(
-            set(&node, Uuid::new_v4().to_string(), false)
-                .await?
-                .is_some()
-        );
+            .into_iter()
+            .map(|library| library.library_id)
+            .collect();
+        again.sort();
+        let mut expected = vec![
+            owned.catalog_library_id().unwrap().to_string(),
+            replica.catalog_library_id().unwrap().to_string(),
+        ];
+        expected.sort();
+        assert_eq!(again, expected);
         assert_eq!(LibraryRegistry::load(dir.path())?.libraries.len(), 2);
         Ok(())
     }

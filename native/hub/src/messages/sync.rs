@@ -94,6 +94,8 @@ pub struct GetSyncSettingsResponse {
     pub broadcast: bool,
     pub accept_remote_control: bool,
     pub accept_sync: bool,
+    pub auto_device_sync: bool,
+    pub auto_share_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -105,6 +107,8 @@ pub struct SetSyncSettingsRequest {
     pub broadcast: bool,
     pub accept_remote_control: bool,
     pub accept_sync: bool,
+    pub auto_device_sync: bool,
+    pub auto_share_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -112,6 +116,21 @@ pub struct SetSyncSettingsRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct SetSyncSettingsResponse {
     pub request_id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Sync one library stored in a shared folder with that folder now. The answer comes when the
+/// pass has ended.
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct SyncShareLibraryRequest {
+    pub library_id: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct SyncShareLibraryResponse {
+    pub share_failure: Option<ShareSyncFailure>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

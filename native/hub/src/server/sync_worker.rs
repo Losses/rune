@@ -9,6 +9,7 @@ use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
+use crate::request_error::ExpectedRequestError;
 use crate::service::playback_source_without_binding;
 #[cfg(test)]
 use crate::utils::GlobalParams;
@@ -77,6 +78,7 @@ use sync::protocol::SyncError;
 use sync::share::{ObjectStore, StoreError};
 use tokio::sync as tokio_sync;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 use tokio::time as tokio_time;
 use tokio::time::{Instant, MissedTickBehavior};
@@ -522,6 +524,197 @@ pub async fn run(
     );
 }
 
+/// A request to sync one share library now, with where its answer goes. The outer error is a
+/// request that could not be run at all; the inner one is the pass failing.
+type ShareSyncRequest = (Uuid, oneshot::Sender<Result<Result<(), ShareSyncFailure>>>);
+
+/// Requests for a manual share sync. They are queued on the node and not on the worker, so a
+/// request made while the worker restarts is run by the next worker.
+pub struct ShareSyncRequests {
+    sender: mpsc::UnboundedSender<ShareSyncRequest>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<ShareSyncRequest>>>,
+}
+
+impl Default for ShareSyncRequests {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        Self {
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+        }
+    }
+}
+
+impl ShareSyncRequests {
+    /// Sync a library with its shared folder and wait for the pass to end.
+    pub async fn sync(&self, library_id: Uuid) -> Result<Result<(), ShareSyncFailure>> {
+        let (reply, answer) = oneshot::channel();
+        self.sender
+            .send((library_id, reply))
+            .map_err(|_| anyhow::anyhow!("The share sync request queue is closed"))?;
+        answer
+            .await
+            .context("The sync worker stopped before the share sync ended")?
+    }
+}
+
+#[derive(Default)]
+struct ShareWorkerState {
+    sessions: HashMap<Uuid, ShareStoreSession>,
+    retry: HashMap<Uuid, (Duration, Instant)>,
+    schedules: HashMap<Uuid, ShareSchedule>,
+}
+
+impl ShareWorkerState {
+    fn forget(&mut self, id: Uuid) {
+        self.sessions.remove(&id);
+        self.retry.remove(&id);
+        self.schedules.remove(&id);
+    }
+
+    fn retain(&mut self, ids: &[Uuid]) {
+        self.sessions.retain(|id, _| ids.contains(id));
+        self.retry.retain(|id, _| ids.contains(id));
+        self.schedules.retain(|id, _| ids.contains(id));
+    }
+
+    fn in_backoff(&self, id: Uuid) -> bool {
+        self.retry
+            .get(&id)
+            .is_some_and(|(_, due)| *due > Instant::now())
+    }
+
+    fn record_failure(&mut self, id: Uuid) {
+        let previous = self.retry.get(&id).map(|(delay, _)| *delay);
+        let (wait, next_delay) = next_share_backoff(previous);
+        self.retry.insert(id, (next_delay, Instant::now() + wait));
+    }
+}
+
+/// One pass over one library. `None` means it is not a library stored in a shared folder on
+/// this node; otherwise whether the pass pulled or pushed anything.
+///
+/// With `force`, the pass pulls and pushes whatever the schedule says. The caller decides
+/// whether a backoff holds the pass back.
+async fn share_library_pass(
+    global: &Arc<NodeContext>,
+    id: Uuid,
+    state: &mut ShareWorkerState,
+    factory: &dyn ShareStoreFactory,
+    timers: &ShareWorkerTimers,
+    notify: &Arc<dyn Fn() + Send + Sync>,
+    force: bool,
+) -> Result<Option<bool>, ShareSyncFailure> {
+    // Asked of the registry before acquiring, so that this worker never opens a library that
+    // is not stored in a shared folder.
+    let in_share = LibraryRegistry::load(Path::new(global.config_path.as_str()))
+        .map_err(|_| ShareSyncFailure::StoreUnavailable)?
+        .catalog(id)
+        .is_ok_and(|record| matches!(record.catalog, CatalogPlacement::InShare(_)));
+    if !in_share {
+        state.forget(id);
+        return Ok(None);
+    }
+    let Some(library) = global
+        .library_pool
+        .acquire_served_background(id)
+        .await
+        .map_err(|_| ShareSyncFailure::StoreUnavailable)?
+    else {
+        state.forget(id);
+        return Ok(None);
+    };
+    let cache_path = PathBuf::from(global.config_path.as_str())
+        .join("share-cache")
+        .join(id.to_string());
+    let prefix = library
+        .library_sync
+        .share_prefix(cache_path.clone())
+        .await
+        .map_err(|_| ShareSyncFailure::ProbeFailed)?;
+    if let Entry::Vacant(entry) = state.sessions.entry(id) {
+        let session = factory
+            .open(&library.descriptor, &prefix, &global.credentials)
+            .await?;
+        entry.insert(session);
+    }
+    let session = state
+        .sessions
+        .get(&id)
+        .cloned()
+        .ok_or(ShareSyncFailure::ProbeFailed)?;
+    let pending = library
+        .library_sync
+        .share_pending_changes(cache_path.clone())
+        .await
+        .map_err(|_| ShareSyncFailure::StoreUnavailable)?;
+    let schedule = state.schedules.entry(id).or_default();
+    let now = Instant::now();
+    if let Some(pending) = pending {
+        if schedule.observed_head != Some(pending.journal_head) {
+            schedule.observed_head = Some(pending.journal_head);
+            schedule.last_change = Some(now);
+        }
+        schedule.pending_change = Some(pending.change);
+    }
+    let foreground = global
+        .current_ui()
+        .await
+        .ok()
+        .and_then(|params| params.library_id)
+        == Some(id);
+    let poll_interval = if foreground {
+        timers.foreground_pull
+    } else {
+        timers.background_pull
+    };
+    let pull_due = force
+        || schedule
+            .last_pull
+            .is_none_or(|last| last.elapsed() >= poll_interval);
+    let push_due = force
+        || schedule.last_pull.is_none()
+        || schedule.last_push.elapsed() >= timers.idle_push
+        || pending.is_some_and(|_| match schedule.pending_change {
+            Some(PendingShareChange::StatisticsOnly) => {
+                schedule.last_push.elapsed() >= timers.statistics_push
+            }
+            Some(PendingShareChange::Content) => schedule
+                .last_change
+                .is_some_and(|last| last.elapsed() >= timers.push_debounce),
+            None => false,
+        });
+    if !pull_due && !push_due {
+        return Ok(Some(false));
+    }
+    let pass_notify = pass_notification(global, &library, notify).await;
+    let pulled = share_sync_pass(
+        &library.library_sync,
+        library.library_id,
+        cache_path,
+        &session,
+        if push_due {
+            SharePass::PullAndPush
+        } else {
+            SharePass::PullOnly
+        },
+        || pass_notify(),
+    )
+    .await?;
+    schedule.last_pull = Some(now);
+    if push_due {
+        schedule.last_push = now;
+    }
+    Ok(Some(pulled || push_due))
+}
+
+fn report_share_sync_success(global: &NodeContext, id: Uuid) {
+    global.gui_broadcaster.broadcast(&LibrarySyncStatusUpdated {
+        library_id: id.to_string(),
+        share_failure: None,
+    });
+}
+
 async fn run_share_worker(
     global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
@@ -529,151 +722,97 @@ async fn run_share_worker(
     factory: Arc<dyn ShareStoreFactory>,
     timers: ShareWorkerTimers,
 ) {
-    let mut sessions = HashMap::<Uuid, ShareStoreSession>::new();
-    let mut retry = HashMap::<Uuid, (Duration, Instant)>::new();
-    let mut schedules = HashMap::<Uuid, ShareSchedule>::new();
+    let Some(requests) = global
+        .upgrade()
+        .map(|global| global.share_sync_requests.receiver.clone())
+    else {
+        return;
+    };
+    // Held for as long as this worker runs: a restarted worker takes the queue over only when
+    // this one has ended.
+    let mut requests = tokio::select! {
+        _ = cancel.cancelled() => return,
+        requests = requests.lock_owned() => requests,
+    };
+    let mut state = ShareWorkerState::default();
     let mut interval = tokio_time::interval(timers.tick);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
-        tokio::select! {
+        // Manual and scheduled passes are both run from this loop, one at a time, so they
+        // never work on the same library at once.
+        let request = tokio::select! {
             _ = cancel.cancelled() => {
-                flush_share_worker(&global, &sessions, &notify).await;
+                flush_share_worker(&global, &state.sessions, &notify).await;
                 return;
             },
-            _ = interval.tick() => (),
-        }
+            _ = interval.tick() => None,
+            Some(request) = requests.recv() => Some(request),
+        };
         let Some(global) = global.upgrade() else {
             return;
         };
-        let ids = match global.library_pool.served_library_ids().await {
+        if let Some((id, reply)) = request {
+            let operation =
+                share_library_pass(&global, id, &mut state, &*factory, &timers, &notify, true);
+            let Some(result) = select_share_cancellation(cancel.clone(), operation).await else {
+                return;
+            };
+            let answer = match result {
+                Ok(Some(did_work)) => {
+                    state.retry.remove(&id);
+                    if did_work {
+                        report_share_sync_success(&global, id);
+                    }
+                    Ok(Ok(()))
+                }
+                Ok(None) => Err(ExpectedRequestError::invalid_input(
+                    "the library is not stored in a shared folder",
+                )
+                .into()),
+                // The answer is the report, so the failure is not broadcast as well: the UI
+                // would show it twice.
+                Err(failure) => {
+                    state.record_failure(id);
+                    Ok(Err(failure))
+                }
+            };
+            // The requester may have stopped waiting.
+            let _ = reply.send(answer);
+            continue;
+        }
+        let served = match global.library_pool.served_library_ids().await {
             Ok(ids) => ids,
             Err(error) => {
                 log::warn!("Could not discover share libraries: {error:#}");
                 continue;
             }
         };
-        sessions.retain(|id, _| ids.contains(id));
-        retry.retain(|id, _| ids.contains(id));
-        schedules.retain(|id, _| ids.contains(id));
-        for id in ids {
-            if retry.get(&id).is_some_and(|(_, due)| *due > Instant::now()) {
+        // State is kept for every served library, not only the scheduled ones, so that
+        // switching automatic sync off does not drop open store sessions.
+        state.retain(&served);
+        let scheduled = if global.sync_settings.read().await.auto_share_sync {
+            served
+        } else {
+            global.library_pool.ui_library_ids().await
+        };
+        for id in scheduled {
+            if state.in_backoff(id) {
                 continue;
             }
-            let operation = async {
-                let Some(library) = global
-                    .library_pool
-                    .acquire_served_background(id)
-                    .await
-                    .map_err(|_| ShareSyncFailure::StoreUnavailable)?
-                else {
-                    sessions.remove(&id);
-                    retry.remove(&id);
-                    schedules.remove(&id);
-                    return Ok::<_, ShareSyncFailure>(false);
-                };
-                if !matches!(library.descriptor.catalog, CatalogPlacement::InShare(_)) {
-                    sessions.remove(&id);
-                    retry.remove(&id);
-                    schedules.remove(&id);
-                    return Ok(false);
-                }
-                let cache_path = PathBuf::from(global.config_path.as_str())
-                    .join("share-cache")
-                    .join(id.to_string());
-                let prefix = library
-                    .library_sync
-                    .share_prefix(cache_path.clone())
-                    .await
-                    .map_err(|_| ShareSyncFailure::ProbeFailed)?;
-                if let Entry::Vacant(entry) = sessions.entry(id) {
-                    let session = factory
-                        .open(&library.descriptor, &prefix, &global.credentials)
-                        .await?;
-                    entry.insert(session);
-                }
-                let session = sessions
-                    .get(&id)
-                    .cloned()
-                    .ok_or(ShareSyncFailure::ProbeFailed)?;
-                let pending = library
-                    .library_sync
-                    .share_pending_changes(cache_path.clone())
-                    .await
-                    .map_err(|_| ShareSyncFailure::StoreUnavailable)?;
-                let schedule = schedules.entry(id).or_default();
-                let now = Instant::now();
-                if let Some(pending) = pending {
-                    if schedule.observed_head != Some(pending.journal_head) {
-                        schedule.observed_head = Some(pending.journal_head);
-                        schedule.last_change = Some(now);
-                    }
-                    schedule.pending_change = Some(pending.change);
-                }
-                let foreground = global
-                    .current_ui()
-                    .await
-                    .ok()
-                    .and_then(|params| params.library_id)
-                    == Some(id);
-                let poll_interval = if foreground {
-                    timers.foreground_pull
-                } else {
-                    timers.background_pull
-                };
-                let pull_due = schedule
-                    .last_pull
-                    .is_none_or(|last| last.elapsed() >= poll_interval);
-                let push_due = schedule.last_pull.is_none()
-                    || schedule.last_push.elapsed() >= timers.idle_push
-                    || pending.is_some_and(|_| match schedule.pending_change {
-                        Some(PendingShareChange::StatisticsOnly) => {
-                            schedule.last_push.elapsed() >= timers.statistics_push
-                        }
-                        Some(PendingShareChange::Content) => schedule
-                            .last_change
-                            .is_some_and(|last| last.elapsed() >= timers.push_debounce),
-                        None => false,
-                    });
-                if !pull_due && !push_due {
-                    return Ok(false);
-                }
-                let pass_notify = pass_notification(&global, &library, &notify).await;
-                let pulled = share_sync_pass(
-                    &library.library_sync,
-                    library.library_id,
-                    cache_path,
-                    &session,
-                    if push_due {
-                        SharePass::PullAndPush
-                    } else {
-                        SharePass::PullOnly
-                    },
-                    || pass_notify(),
-                )
-                .await?;
-                schedule.last_pull = Some(now);
-                if push_due {
-                    schedule.last_push = now;
-                }
-                Ok(pulled || push_due)
-            };
+            let operation =
+                share_library_pass(&global, id, &mut state, &*factory, &timers, &notify, false);
             let Some(result) = select_share_cancellation(cancel.clone(), operation).await else {
                 return;
             };
             match result {
                 Ok(did_work) => {
-                    retry.remove(&id);
-                    if did_work {
-                        global.gui_broadcaster.broadcast(&LibrarySyncStatusUpdated {
-                            library_id: id.to_string(),
-                            share_failure: None,
-                        });
+                    state.retry.remove(&id);
+                    if did_work == Some(true) {
+                        report_share_sync_success(&global, id);
                     }
                 }
                 Err(failure) => {
-                    let previous = retry.get(&id).map(|(delay, _)| *delay);
-                    let (wait, next_delay) = next_share_backoff(previous);
-                    retry.insert(id, (next_delay, Instant::now() + wait));
+                    state.record_failure(id);
                     global.gui_broadcaster.broadcast(&LibrarySyncStatusUpdated {
                         library_id: id.to_string(),
                         share_failure: Some(failure),
@@ -753,13 +892,23 @@ fn share_push_failure(error: SharePushError) -> ShareSyncFailure {
 #[path = "sync_worker_tests.rs"]
 pub(super) mod share_worker_tests;
 
-async fn eligible_libraries(global: &NodeContext) -> Option<Vec<Uuid>> {
+async fn served_libraries(global: &NodeContext) -> Option<Vec<Uuid>> {
     match global.library_pool.served_library_ids().await {
         Ok(ids) => Some(ids),
         Err(error) => {
-            log::warn!("Could not load background libraries: {error:#}");
+            log::warn!("Could not load the served libraries: {error:#}");
             None
         }
+    }
+}
+
+/// The libraries this node syncs with paired devices on its own: every served library, or
+/// only the ones open in the UI while automatic device sync is off.
+async fn device_sync_libraries(global: &NodeContext) -> Option<Vec<Uuid>> {
+    if global.sync_settings.read().await.auto_device_sync {
+        served_libraries(global).await
+    } else {
+        Some(global.library_pool.ui_library_ids().await)
     }
 }
 
@@ -772,22 +921,15 @@ async fn maintain_metadata(global: Weak<NodeContext>, cancel: tokio_util_sync::C
         let Some(global) = global.upgrade() else {
             return;
         };
-        let Some(ids) = eligible_libraries(&global).await else {
+        let Some(ids) = served_libraries(&global).await else {
             continue;
         };
+        // Kept for every served library, so that a library closing does not reset its pass.
         maintenance.retain(|id, _| ids.contains(id));
         for id in ids {
-            let library = tokio::select! {
-                _ = cancel.cancelled() => return,
-                library = global.library_pool.acquire_served_background(id) => library,
-            };
-            let library = match library {
-                Ok(Some(library)) => library,
-                Ok(None) => continue,
-                Err(error) => {
-                    log::warn!("Could not acquire library for maintenance: {error:#}");
-                    continue;
-                }
+            // Maintenance alone is no reason to open a library, or to keep one open.
+            let Some(library) = global.library_pool.acquire_open_background(id).await else {
+                continue;
             };
             let state = maintenance.entry(id).or_default();
             for _ in 0..32 {
@@ -840,13 +982,15 @@ async fn verify_managed_audio(
         let Some(global) = global.upgrade() else {
             return;
         };
-        let Some(ids) = eligible_libraries(&global).await else {
+        let Some(ids) = served_libraries(&global).await else {
             continue;
         };
+        // Kept for every served library, so that a library closing does not reset its pass.
         verifiers.retain(|id, _| ids.contains(id));
         for id in ids {
             let result = async {
-                let Some(library) = global.library_pool.acquire_served_background(id).await? else {
+                // Verification alone is no reason to open a library, or to keep one open.
+                let Some(library) = global.library_pool.acquire_open_background(id).await else {
                     return Ok(());
                 };
                 let step = verifiers
@@ -899,7 +1043,7 @@ async fn run_loop(
         let Some(global) = global.upgrade() else {
             return Some(Vec::new());
         };
-        let ids = eligible_libraries(&global).await?;
+        let ids = device_sync_libraries(&global).await?;
         let peers = peer_endpoints(&global, &credentials.fingerprint).await;
         if !metadata {
             let fingerprints: HashSet<_> =
@@ -1012,7 +1156,7 @@ async fn run_loop(
                 let Some(global) = global.upgrade() else {
                     return;
                 };
-                let Some(ids) = eligible_libraries(&global).await else {
+                let Some(ids) = device_sync_libraries(&global).await else {
                     return;
                 };
                 locks.lock().await.retain(|(_, id), entry| {

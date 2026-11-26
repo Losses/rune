@@ -21,6 +21,7 @@ import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 LibraryRecordSummary _record() => const LibraryRecordSummary(
+  shareSync: false,
   recordId: 'record-1',
   alias: 'music',
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),
@@ -1421,6 +1422,7 @@ void main() {
       addTearDown(manager.dispose);
 
       const subsonicRecord = LibraryRecordSummary(
+        shareSync: false,
         recordId: 'subsonic-1',
         alias: '127.0.0.1',
         kind: LibraryRecordKindSummarySubsonic(
@@ -1546,6 +1548,7 @@ void main() {
       addTearDown(manager.dispose);
 
       const subsonicRecord = LibraryRecordSummary(
+        shareSync: false,
         recordId: 'subsonic-2',
         alias: '127.0.0.1',
         kind: LibraryRecordKindSummarySubsonic(
@@ -1781,6 +1784,7 @@ void main() {
       addTearDown(manager.dispose);
 
       const subsonicRecord = LibraryRecordSummary(
+        shareSync: false,
         recordId: 'subsonic-3',
         alias: '127.0.0.1',
         kind: LibraryRecordKindSummarySubsonic(
