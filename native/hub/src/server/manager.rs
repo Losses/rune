@@ -168,7 +168,7 @@ fn coalesce_worker_notify(
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct JwtClaims {
+struct JwtClaims {
     /// Expiration time (UNIX timestamp)
     exp: usize,
     /// Issued at time (UNIX timestamp)
@@ -206,7 +206,7 @@ pub struct ServerManager {
     watch_handle: Mutex<Option<JoinHandle<()>>>,
     certificate: String,
     private_key: String,
-    pub jwt_secret: Vec<u8>,
+    jwt_secret: Vec<u8>,
 }
 
 impl ServerManager {
@@ -770,17 +770,25 @@ impl ServerManager {
         )?)
     }
 
+    /// Whether `token` is a panel token this device issued and that has not expired.
     pub fn verify_jwt_token(&self, token: &str) -> bool {
         let mut validation = Validation::new(Algorithm::HS256);
-        validation.validate_exp = true;
+        // The device that issues a token is the one that checks it, so there is no clock
+        // difference to tolerate after the expiry.
         validation.leeway = 0;
 
-        decode::<JwtClaims>(
+        let Ok(token) = decode::<JwtClaims>(
             token,
             &DecodingKey::from_secret(&self.jwt_secret),
             &validation,
-        )
-        .is_ok()
+        ) else {
+            return false;
+        };
+        // The library still accepts a token during the second its `exp` names. A token is
+        // expired from that second on.
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .is_ok_and(|now| token.claims.exp as u64 > now.as_secs())
     }
 }
 
@@ -911,6 +919,7 @@ mod lifecycle_tests {
     use crate::utils::{ParamsExtractor, register_local_library_on_node};
     use ::discovery::client::CertValidator;
     use anyhow::Error;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use discovery::capabilities;
     use discovery::endpoint;
     use discovery::protocol_version;
@@ -6569,6 +6578,107 @@ mod lifecycle_tests {
         let file_uuid = Uuid::parse_str(&file.source_uuid)?;
         assert_eq!(resolver.resolve_id(file_uuid).await?, Some(current.id));
         params.main_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn panel_token_is_accepted_until_it_is_tampered_with_or_expires() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+
+        let token = manager.generate_jwt_token(None)?;
+        assert!(manager.verify_jwt_token(&token));
+
+        let (signed, signature) = token.rsplit_once('.').context("token signature")?;
+        let (header, claims) = signed.split_once('.').context("token claims")?;
+        let forged_claims = URL_SAFE_NO_PAD.encode(br#"{"exp":99999999999,"iat":0}"#);
+        assert_ne!(forged_claims, claims);
+        assert!(!manager.verify_jwt_token(&format!("{header}.{forged_claims}.{signature}")));
+
+        // The second named by `exp` is already past the token's life.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize;
+        let expiring_now = encode(
+            &Header::new(Algorithm::HS256),
+            &JwtClaims {
+                exp: now,
+                iat: now - 60,
+            },
+            &EncodingKey::from_secret(&manager.jwt_secret),
+        )?;
+        assert!(
+            !manager.verify_jwt_token(&expiring_now),
+            "token was accepted when exp == now"
+        );
+
+        // A validity cannot be negative, so the expired token is signed here with the
+        // manager's own secret: only its expiry can be what gets it rejected.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize;
+        let expired = encode(
+            &Header::new(Algorithm::HS256),
+            &JwtClaims {
+                exp: now - 3600,
+                iat: now - 7200,
+            },
+            &EncodingKey::from_secret(&manager.jwt_secret),
+        )?;
+        assert!(!manager.verify_jwt_token(&expired));
+
+        manager.global_params.main_token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn panel_middleware_admits_only_requests_with_a_generated_token() -> Result<()> {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir()?;
+        let manager = fixture(dir.path()).await?;
+        let router = Router::new()
+            .route("/panel/probe", get(|| async { "handler ran" }))
+            .layer(middleware::from_fn(auth_middleware))
+            .layer(Extension(manager.manager.clone()));
+        let status_for = |authorization: Option<String>| {
+            let router = router.clone();
+            async move {
+                let mut request = Request::builder().uri("/panel/probe");
+                if let Some(value) = authorization {
+                    request = request.header(header::AUTHORIZATION, value);
+                }
+                let response = router.oneshot(request.body(Body::empty())?).await?;
+                anyhow::Ok(response.status())
+            }
+        };
+
+        let token = manager.generate_jwt_token(None)?;
+        assert_eq!(
+            status_for(Some(format!("Bearer {token}"))).await?,
+            StatusCode::OK
+        );
+        assert_eq!(status_for(None).await?, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            status_for(Some("Bearer not-a-token".to_owned())).await?,
+            StatusCode::UNAUTHORIZED
+        );
+
+        // The panel's tokens are issued and checked by this one device, so there is no
+        // clock difference to allow for: a token is refused from the second it expires.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize;
+        let just_expired = encode(
+            &Header::new(Algorithm::HS256),
+            &JwtClaims {
+                exp: now - 10,
+                iat: now - 20,
+            },
+            &EncodingKey::from_secret(&manager.jwt_secret),
+        )?;
+        assert_eq!(
+            status_for(Some(format!("Bearer {just_expired}"))).await?,
+            StatusCode::UNAUTHORIZED
+        );
+
+        manager.global_params.main_token.cancel();
         Ok(())
     }
 }
