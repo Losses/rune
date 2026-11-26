@@ -2101,34 +2101,42 @@ pub(crate) mod tests {
     }
 
     /// The RGB bytes of the center pixel in each frame drawn at `times`, in order.
+    ///
+    /// A read-back frame comes out of the call that drew it or is still on its way then, as the
+    /// GPU has it (on Metal it is on its way). A frame on its way is waited for and taken from
+    /// the target without another draw, so each frame here is the one its own call drew, and
+    /// nothing is on its way when the next one is drawn.
     fn center_pixels(pipeline: &mut Pipeline, times: &[f64]) -> Vec<[u8; 3]> {
         const MAX_READBACK_POLLS: usize = 50;
-        let render = |pipeline: &mut Pipeline, time: f64| -> Option<[u8; 3]> {
-            let pixel = if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
-                let (w, h) = pipeline.size();
-                let at = (h as usize / 2) * frame.stride() + (w as usize / 2) * 4;
-                let mut rgb: [u8; 3] = frame.bytes()[at..at + 3].try_into().unwrap();
-                if pipeline.format == TextureFormat::Bgra8Unorm {
-                    rgb.swap(0, 2);
-                }
-                Some(rgb)
-            } else {
-                None
-            };
-            // Finish the frame, so that at most one comes out per call and none is passed over.
-            pipeline
-                .device
-                .poll(PollType::Wait {
-                    submission_index: None,
-                    timeout: None,
-                })
-                .unwrap();
-            pixel
+        let center = |pipeline: &Pipeline, frame: &MappedFrame| -> [u8; 3] {
+            let (w, h) = pipeline.size();
+            let at = (h as usize / 2) * frame.stride() + (w as usize / 2) * 4;
+            let mut rgb: [u8; 3] = frame.bytes()[at..at + 3].try_into().unwrap();
+            if pipeline.format == TextureFormat::Bgra8Unorm {
+                rgb.swap(0, 2);
+            }
+            rgb
         };
-        let frame_at = |pipeline: &mut Pipeline, time: f64| {
-            (0..MAX_READBACK_POLLS)
-                .find_map(|_| render(pipeline, time))
-                .unwrap_or_else(|| panic!("no readback frame became available at {time:.3}s"))
+        let frame_at = |pipeline: &mut Pipeline, time: f64| -> [u8; 3] {
+            if let Rendered::Mapped(frame) = pipeline.render(time).unwrap() {
+                return center(pipeline, &frame);
+            }
+            for _ in 0..MAX_READBACK_POLLS {
+                pipeline
+                    .device
+                    .poll(PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    })
+                    .unwrap();
+                let Output::Readback(target) = &mut pipeline.output else {
+                    panic!("the frames of this pipeline are not read back");
+                };
+                if let Some(frame) = target.finished(&pipeline.device).unwrap() {
+                    return center(pipeline, &frame);
+                }
+            }
+            panic!("the frame drawn at {time:.3}s was not read back");
         };
         let mut pixels = Vec::new();
         if let Some(&first_time) = times.first()
