@@ -38,8 +38,7 @@ class SettingsDevicesPage extends StatefulWidget {
   });
 
   final Future<GetSyncSettingsResponse> Function() loadSyncSettings;
-  final Future<void> Function(GetSyncSettingsResponse settings)
-  saveSyncSettings;
+  final Future<void> Function(SyncSettingsChange change) saveSyncSettings;
 
   @override
   State<SettingsDevicesPage> createState() => _SettingsDevicesPageState();
@@ -131,23 +130,23 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
         });
   }
 
-  /// Applies [change] to the settings the hub holds, saves the result and shows
-  /// it. A failed load or save throws, so what is shown after a success is what
-  /// the hub holds, and a failure leaves the switches at the values still in
-  /// effect. The switches stay disabled until this finishes, so that edits are
-  /// made one at a time.
+  /// Saves [change] and shows it applied to the settings shown here. Only the
+  /// changed fields are sent, so a setting changed elsewhere since this page
+  /// loaded is not written back. A failed save throws, which leaves the
+  /// switches at the values still in effect. The switches stay disabled until
+  /// this finishes, so that edits are made one at a time.
   Future<void> _saveSyncSettings(
     String title,
-    GetSyncSettingsResponse Function(GetSyncSettingsResponse current) change,
+    SyncSettingsChange change,
   ) async {
     setState(() => savingSyncSettings = true);
     try {
       try {
-        // A save replaces every setting, so the change is applied to the
-        // settings as they are now, not as this page last showed them.
-        final changed = change(await widget.loadSyncSettings());
-        await widget.saveSyncSettings(changed);
-        if (mounted) setState(() => syncSettings = changed);
+        await widget.saveSyncSettings(change);
+        final shown = syncSettings;
+        if (mounted && shown != null) {
+          setState(() => syncSettings = change.applyTo(shown));
+        }
       } finally {
         if (mounted) setState(() => savingSyncSettings = false);
       }
@@ -170,18 +169,13 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
       String title,
       String subtitle,
       bool value,
-      GetSyncSettingsResponse Function(
-        GetSyncSettingsResponse current,
-        bool value,
-      )
-      change,
+      SyncSettingsChange Function(bool value) change,
     ) => SettingsBoxToggle(
       title: title,
       subtitle: subtitle,
       value: value,
       onChanged: settings.mediaServer && !savingSyncSettings
-          ? (value) =>
-                _saveSyncSettings(title, (current) => change(current, value))
+          ? (value) => _saveSyncSettings(title, change(value))
           : null,
     );
 
@@ -194,26 +188,26 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
             ? null
             : (value) => _saveSyncSettings(
                 s.mediaServer,
-                (current) => current.copyWith(mediaServer: value),
+                SyncSettingsChange(mediaServer: value),
               ),
       ),
       permission(
         s.enableBroadcast,
         s.enableBroadcastSubtitle,
         settings.broadcast,
-        (current, value) => current.copyWith(broadcast: value),
+        (value) => SyncSettingsChange(broadcast: value),
       ),
       permission(
         s.allowRemoteControl,
         s.allowRemoteControlDescription,
         settings.acceptRemoteControl,
-        (current, value) => current.copyWith(acceptRemoteControl: value),
+        (value) => SyncSettingsChange(acceptRemoteControl: value),
       ),
       permission(
         s.allowPairedSync,
         s.allowPairedSyncDescription,
         settings.acceptSync,
-        (current, value) => current.copyWith(acceptSync: value),
+        (value) => SyncSettingsChange(acceptSync: value),
       ),
     ];
   }
@@ -245,8 +239,7 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                           ? null
                           : (value) => _saveSyncSettings(
                               S.of(context).autoDeviceSync,
-                              (current) =>
-                                  current.copyWith(autoDeviceSync: value),
+                              SyncSettingsChange(autoDeviceSync: value),
                             ),
                     ),
                   ],

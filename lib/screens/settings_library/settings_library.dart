@@ -44,8 +44,7 @@ class SettingsLibraryPage extends StatefulWidget {
 
   final Future<ListLocalLibrariesResponse> Function()? loadLibraries;
   final Future<GetSyncSettingsResponse> Function() loadSyncSettings;
-  final Future<void> Function(GetSyncSettingsResponse settings)
-  saveSyncSettings;
+  final Future<void> Function(SyncSettingsChange change) saveSyncSettings;
 
   @override
   State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
@@ -119,13 +118,14 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
   Future<void> _setAutoShareSync(bool enabled) async {
     try {
-      // The other settings are changed on the Devices page, which may have
-      // happened since this page loaded them, so only this one is replaced
-      // in what the hub holds now.
-      final current = await widget.loadSyncSettings();
-      await widget.saveSyncSettings(current.copyWith(autoShareSync: enabled));
-      final updated = await widget.loadSyncSettings();
-      if (mounted) setState(() => syncSettings = updated);
+      // The other settings are changed on the Devices page, so only this one
+      // is sent and only this one is replaced in what is shown.
+      final change = SyncSettingsChange(autoShareSync: enabled);
+      await widget.saveSyncSettings(change);
+      final shown = syncSettings;
+      if (mounted && shown != null) {
+        setState(() => syncSettings = change.applyTo(shown));
+      }
     } catch (error) {
       if (!mounted) return;
       await showErrorDialog(

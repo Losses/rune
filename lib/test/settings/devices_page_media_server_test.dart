@@ -11,6 +11,7 @@ import 'package:rune/providers/broadcast.dart';
 import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/settings_devices/settings_devices.dart';
+import 'package:rune/utils/api/set_sync_settings.dart';
 import 'package:rune/utils/settings_manager.dart';
 import 'package:rune/utils/storage_key_manager.dart';
 import 'package:rune/widgets/settings/settings_box_toggle.dart';
@@ -49,17 +50,23 @@ GetSyncSettingsResponse _settings({
   missingHostFile: MissingHostFilePolicy.keepAsRemote,
 );
 
-/// Every value a settings message carries: first the Media Server group in
-/// the order the page shows it, then the settings outside that group.
-List<Object> _values(GetSyncSettingsResponse settings) => [
-  settings.mediaServer,
-  settings.broadcast,
-  settings.acceptRemoteControl,
-  settings.acceptSync,
-  settings.missingHostFile,
-  settings.autoDeviceSync,
-  settings.autoShareSync,
-];
+/// Every field a change can carry, by name. A null value is a field the save
+/// leaves as the hub holds it.
+Map<String, Object?> _fields(SyncSettingsChange change) => {
+  'mediaServer': change.mediaServer,
+  'broadcast': change.broadcast,
+  'acceptRemoteControl': change.acceptRemoteControl,
+  'acceptSync': change.acceptSync,
+  'autoDeviceSync': change.autoDeviceSync,
+  'autoShareSync': change.autoShareSync,
+  'missingHostFile': change.missingHostFile,
+};
+
+/// The fields of a change that sets [field] to [value] and nothing else.
+Map<String, Object?> _only(String field, Object value) => {
+  for (final name in _fields(const SyncSettingsChange()).keys)
+    name: name == field ? value : null,
+};
 
 const _titles = [_mediaServer, _broadcast, _remoteControl, _sync];
 
@@ -83,7 +90,7 @@ Finder _switchFinder(String title) => find.descendant(
 Future<void> _pumpPage(
   WidgetTester tester, {
   required Future<GetSyncSettingsResponse> Function() load,
-  required Future<void> Function(GetSyncSettingsResponse) save,
+  required Future<void> Function(SyncSettingsChange) save,
 }) async {
   final registry = LibraryRegistryProvider(
     loadRecords: () async => const ListLibraryRecordsResponse(
@@ -166,12 +173,12 @@ void main() {
   testWidgets('the permissions are disabled while the Media Server is off', (
     tester,
   ) async {
-    final saved = <GetSyncSettingsResponse>[];
+    final saved = <SyncSettingsChange>[];
     await _pumpPage(
       tester,
       load: () async =>
           _settings(mediaServer: false, acceptRemoteControl: true),
-      save: (settings) async => saved.add(settings),
+      save: (change) async => saved.add(change),
     );
 
     expect(_switch(tester, _mediaServer).checked, isFalse);
@@ -193,27 +200,32 @@ void main() {
   testWidgets('each switch saves its own field and leaves the others', (
     tester,
   ) async {
-    final loaded = _settings();
+    // For each switch: the change it sends, and what the four switches show
+    // once it is saved.
     final changes = {
-      _mediaServer: loaded.copyWith(mediaServer: false),
-      _broadcast: loaded.copyWith(broadcast: false),
-      _remoteControl: loaded.copyWith(acceptRemoteControl: true),
-      _sync: loaded.copyWith(acceptSync: false),
+      _mediaServer: (_only('mediaServer', false), [false, true, false, true]),
+      _broadcast: (_only('broadcast', false), [true, false, false, true]),
+      _remoteControl: (
+        _only('acceptRemoteControl', true),
+        [true, true, true, true],
+      ),
+      _sync: (_only('acceptSync', false), [true, true, false, false]),
     };
 
-    for (final MapEntry(key: title, value: expected) in changes.entries) {
+    for (final MapEntry(key: title, value: (expected, shown))
+        in changes.entries) {
       // What happens between the page and the hub, in order.
       final calls = <String>[];
-      final saved = <GetSyncSettingsResponse>[];
+      final saved = <SyncSettingsChange>[];
       await _pumpPage(
         tester,
         load: () async {
           calls.add('load');
-          return loaded;
+          return _settings();
         },
-        save: (settings) async {
+        save: (change) async {
           calls.add('save');
-          saved.add(settings);
+          saved.add(change);
         },
       );
       expect(calls, ['load'], reason: title);
@@ -221,10 +233,10 @@ void main() {
       await _tap(tester, title);
       await tester.pumpAndSettle();
 
-      // The page shows what it saved without asking the hub again.
-      expect(calls, ['load', 'load', 'save'], reason: title);
-      expect(saved.map(_values), [_values(expected)], reason: title);
-      expect(_shown(tester), _values(expected).take(4), reason: title);
+      // The page shows what it saved without asking the hub before or after.
+      expect(calls, ['load', 'save'], reason: title);
+      expect(saved.map(_fields), [expected], reason: title);
+      expect(_shown(tester), shown, reason: title);
 
       // The next round starts from a new page with the loaded settings.
       await tester.pumpWidget(const SizedBox());
@@ -235,12 +247,12 @@ void main() {
     tester,
   ) async {
     final pending = Completer<void>();
-    final saved = <GetSyncSettingsResponse>[];
+    final saved = <SyncSettingsChange>[];
     await _pumpPage(
       tester,
       load: () async => _settings(),
-      save: (settings) {
-        saved.add(settings);
+      save: (change) {
+        saved.add(change);
         return pending.future;
       },
     );
@@ -264,36 +276,49 @@ void main() {
     for (final title in _titles) {
       expect(_switch(tester, title).onChanged, isNotNull, reason: title);
     }
-    expect(
-      _values(saved.single),
-      _values(_settings(acceptRemoteControl: true)),
-    );
+    expect(_fields(saved.single), _only('acceptRemoteControl', true));
     expect(_shown(tester), [true, true, true, true]);
   });
 
   testWidgets(
-    'a save keeps a setting changed in the hub after the page loaded',
+    'tapping one switch sends a change in which every other field is null',
     (tester) async {
+      // What the hub holds. It applies a save the way the hub does: only the
+      // fields the change carries are replaced.
       var stored = _settings();
-      final saved = <GetSyncSettingsResponse>[];
+      final saved = <SyncSettingsChange>[];
       await _pumpPage(
         tester,
         load: () async => stored,
-        save: (settings) async {
-          saved.add(settings);
-          stored = settings;
+        save: (change) async {
+          saved.add(change);
+          stored = change.applyTo(stored);
         },
       );
-      expect(_switch(tester, _sync).checked, isTrue);
 
-      stored = stored.copyWith(acceptSync: false);
+      // Another writer changes every other setting after this page loaded.
+      stored = GetSyncSettingsResponse(
+        requestId: 'changed elsewhere',
+        mediaServer: !stored.mediaServer,
+        broadcast: !stored.broadcast,
+        acceptRemoteControl: stored.acceptRemoteControl,
+        acceptSync: !stored.acceptSync,
+        autoDeviceSync: !stored.autoDeviceSync,
+        autoShareSync: !stored.autoShareSync,
+        missingHostFile: MissingHostFilePolicy.removeEverywhere,
+      );
+      final changedElsewhere = stored;
       await _tap(tester, _remoteControl);
       await tester.pumpAndSettle();
 
-      expect(saved.map(_values), [
-        _values(_settings(acceptRemoteControl: true, acceptSync: false)),
-      ]);
-      expect(_shown(tester), [true, true, true, false]);
+      expect(saved.map(_fields), [_only('acceptRemoteControl', true)]);
+      expect(stored.acceptRemoteControl, isTrue);
+      expect(stored.mediaServer, changedElsewhere.mediaServer);
+      expect(stored.broadcast, changedElsewhere.broadcast);
+      expect(stored.acceptSync, changedElsewhere.acceptSync);
+      expect(stored.autoDeviceSync, changedElsewhere.autoDeviceSync);
+      expect(stored.autoShareSync, changedElsewhere.autoShareSync);
+      expect(stored.missingHostFile, changedElsewhere.missingHostFile);
     },
   );
 
@@ -326,53 +351,17 @@ void main() {
     for (final title in _titles) {
       expect(_switch(tester, title).onChanged, isNotNull, reason: title);
     }
-    expect(loads, 2);
-  });
-
-  testWidgets('a failed load before a save shows the error and saves nothing', (
-    tester,
-  ) async {
-    var loads = 0;
-    final saved = <GetSyncSettingsResponse>[];
-    await _pumpPage(
-      tester,
-      load: () async {
-        if (++loads > 1) throw Exception('hub is not answering');
-        return _settings();
-      },
-      save: (settings) async => saved.add(settings),
-    );
-
-    await _tap(tester, _remoteControl);
-    await tester.pumpAndSettle();
-
-    expect(
-      find.descendant(
-        of: find.byType(ContentDialog),
-        matching: find.text(_remoteControl),
-      ),
-      findsOneWidget,
-    );
-    expect(find.textContaining('hub is not answering'), findsOneWidget);
-    expect(saved, isEmpty);
-    expect(_shown(tester), [true, true, false, true]);
-    for (final title in _titles) {
-      expect(_switch(tester, title).onChanged, isNotNull, reason: title);
-    }
+    expect(loads, 1, reason: 'a save loaded the settings');
   });
 
   testWidgets('automatic device sync does not depend on the Media Server', (
     tester,
   ) async {
-    var stored = _settings(mediaServer: false);
-    final saved = <GetSyncSettingsResponse>[];
+    final saved = <SyncSettingsChange>[];
     await _pumpPage(
       tester,
-      load: () async => stored,
-      save: (settings) async {
-        saved.add(settings);
-        stored = settings;
-      },
+      load: () async => _settings(mediaServer: false),
+      save: (change) async => saved.add(change),
     );
     expect(_switch(tester, _sync).onChanged, isNull);
     expect(_switch(tester, _autoDeviceSync).checked, isTrue);
@@ -381,9 +370,7 @@ void main() {
     await _tap(tester, _autoDeviceSync);
     await tester.pumpAndSettle();
 
-    expect(saved.map(_values), [
-      _values(_settings(mediaServer: false, autoDeviceSync: false)),
-    ]);
+    expect(saved.map(_fields), [_only('autoDeviceSync', false)]);
     expect(_switch(tester, _autoDeviceSync).checked, isFalse);
   });
 }
