@@ -264,17 +264,17 @@ async fn serve_at(
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }),
     ))
 }
+// No read or connect timeout: one could expire while the test process is paused and fail a
+// request that the server, in the same process, answers right after. A request ends on its
+// reply, a closed or refused connection, or the production request timeouts (30 s).
 fn client() -> reqwest::Client {
-    client_with_read_timeout(Duration::from_millis(300))
+    client_builder().build().unwrap()
 }
 fn client_with_read_timeout(read_timeout: Duration) -> reqwest::Client {
-    Client::builder()
-        .no_proxy()
-        .pool_max_idle_per_host(0)
-        .connect_timeout(Duration::from_millis(500))
-        .read_timeout(read_timeout)
-        .build()
-        .unwrap()
+    client_builder().read_timeout(read_timeout).build().unwrap()
+}
+fn client_builder() -> reqwest::ClientBuilder {
+    Client::builder().no_proxy().pool_max_idle_per_host(0)
 }
 fn url(address: net::SocketAddr) -> String {
     format!("http://{address}")
@@ -576,6 +576,8 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
     .await?;
     let counter = sync_download_jobs::Entity::find().count(&target.db).await?;
     assert_eq!(counter, 0);
+    // The audio-stall deadline: shorter than the 800 ms for which `AUDIO_STALL` holds the body.
+    let stall_client = client_with_read_timeout(Duration::from_millis(300));
     for mode in [AUDIO_RESET, AUDIO_STALL] {
         // Advance the persisted retry deadline between independently injected faults.
         sync_download_jobs::Entity::update_many()
@@ -590,7 +592,7 @@ async fn lost_commit_ack_and_audio_interruptions_retry_without_duplicates() -> R
             target.fsio.clone(),
             target.root(),
             target.node,
-            &http_request_sync::MetadataPeer::new(&base, client()),
+            &http_request_sync::MetadataPeer::new(&base, stall_client.clone()),
             Arc::new(|| {}),
         )
         .await;
