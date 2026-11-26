@@ -869,6 +869,66 @@ async fn a_failed_page_of_a_view_or_the_top_songs_leaves_the_list_to_be_read_aga
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_page_of_a_view_that_names_itself_as_the_next_ends_the_view() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    // The last page of the albums and of the top songs names itself as the next one.
+    apple.fake.looping_views.store(true, Ordering::SeqCst);
+    let artist = viewed_artist(&apple)?;
+    apple.run(&artist_page_request(artist)).await?;
+    let numbered = |id: &str| apple.binding.intern(AppleIdKind::Album, id);
+
+    // Each view ends with that page, read once, and lists what it holds once.
+    assert_eq!(
+        section_albums(&apple, artist, "albums", 0, 10).await?,
+        [
+            numbered("catalog:2002")?,
+            numbered("catalog:2001")?,
+            numbered("catalog:2003")?
+        ]
+    );
+    assert_eq!(
+        page_keys(
+            &apple,
+            "lib::artist_section",
+            &format!("{artist}:albums"),
+            0,
+            10
+        )
+        .await?,
+        [
+            "catalog:2101",
+            "catalog:2102",
+            "catalog:2103",
+            "catalog:2104"
+        ]
+    );
+    assert_eq!(
+        apple
+            .fake
+            .count("/v1/catalog/it/artists/310/view/full-albums"),
+        1
+    );
+    assert_eq!(
+        page_keys(&apple, "lib::artist_tracks", &artist.to_string(), 0, 10).await?,
+        [
+            "i.s1",
+            "catalog:3001",
+            "catalog:3002",
+            "catalog:3003",
+            "catalog:3004"
+        ]
+    );
+    assert_eq!(
+        apple
+            .fake
+            .count("/v1/catalog/it/artists/310/view/top-songs"),
+        2
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_artist_page_needs_the_sign_in_like_any_other_read_and_no_mix_keeps_its_lists()
 -> Result<()> {
     let dir = tempfile::tempdir()?;

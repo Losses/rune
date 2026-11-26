@@ -124,6 +124,9 @@ struct AppleFake {
     /// Lists "Twin Third" among the albums of "Twin Artist" too, as a release that came out
     /// later.
     twin_new_album: AtomicBool,
+    /// Gives the last page of the albums and of the top songs of "Viewed Artist" its own
+    /// address as the next page, as a server that does not move on would.
+    looping_views: AtomicBool,
 }
 
 /// The id another account's library has for `id`, when `id` is a library id: "i.s1" is
@@ -639,6 +642,8 @@ impl AppleFake {
         let offset = url::form_urlencoded::parse(query.as_bytes())
             .find(|(name, _)| name == "offset")
             .and_then(|(_, offset)| offset.parse::<u32>().ok());
+        // The last pages name themselves as the next one when the views loop.
+        let looping = self.looping_views.load(Ordering::SeqCst);
         match rest {
             "310" if query.contains("views=") => Some(json!({"data": [{
                 "id": "310",
@@ -654,11 +659,16 @@ impl AppleFake {
                     "top-songs": page("top-songs", &["ci.s1", "3001"], true, Some(2)),
                 },
             }]})),
-            "310/view/full-albums" => Some(page("full-albums", &["2003"], false, None)),
+            "310/view/full-albums" => Some(page(
+                "full-albums",
+                &["2003"],
+                false,
+                looping.then_some(2),
+            )),
             "310/view/top-songs" if offset == Some(2) => {
                 Some(page("top-songs", &["3002", "3003"], true, Some(4)))
             }
-            "310/view/top-songs" => Some(page("top-songs", &["3004"], true, None)),
+            "310/view/top-songs" => Some(page("top-songs", &["3004"], true, looping.then_some(4))),
             _ => None,
         }
     }
@@ -1555,6 +1565,7 @@ async fn open_apple_with(dir: &Path, options: AppleOptions) -> Result<OpenApple>
         many_albums: options.many_albums,
         twin: options.twin,
         twin_new_album: AtomicBool::new(false),
+        looping_views: AtomicBool::new(false),
     });
     let app = Router::new().fallback(apple_fake).with_state(fake.clone());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

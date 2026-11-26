@@ -1818,11 +1818,20 @@ impl AppleMusicBinding {
     }
 
     /// The page of a view of the catalog that `next`, the `next` of an earlier page of it, names,
-    /// read from Apple.
+    /// read from Apple. A page that names itself as the next one is the last, as reading it again
+    /// would only repeat it.
     pub(crate) async fn read_catalog_view_page(&self, next: &str) -> Result<View> {
-        self.call(self.client.catalog_view_page(next))
+        let mut page = self
+            .call(self.client.catalog_view_page(next))
             .await
-            .map_err(|error| self.request_error(error, "Apple Music artist"))
+            .map_err(|error| self.request_error(error, "Apple Music artist"))?;
+        if page.next.as_deref() == Some(next) {
+            log::warn!(
+                "A page of an Apple Music view names itself as the next one, so the view ends there"
+            );
+            page.next = None;
+        }
+        Ok(page)
     }
 
     /// The catalog albums `ids` with their artists, read from Apple as many at once as it takes.
