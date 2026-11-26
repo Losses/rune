@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "Il titolo del pulsante nella pagina delle impostazioni che attiva l'azione 'Resetta cronologia libreria'."
   },
-  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria.",
+  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria, insieme alle playlist, ai mix e ai brani piaciuti che Rune conserva su questo dispositivo per le librerie di streaming.",
   "@factoryResetSubtitle": {
     "description": "Il testo descrittivo per il pulsante 'Ripristino di fabbrica' nell'interfaccia delle impostazioni."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Titolo del modale che chiede agli utenti se vogliono reimpostare la libreria."
   },
-  "resetLibrarySubtitle": "Reimpostare la libreria cancellerà la cronologia di apertura dei file. La tua libreria multimediale esistente rimarrà invariata. Vuoi procedere?",
+  "resetLibrarySubtitle": "Reimpostare la libreria cancellerà la cronologia di apertura dei file ed eliminerà definitivamente le playlist, i mix e i brani piaciuti che Rune conserva su questo dispositivo per le librerie di streaming. La tua libreria multimediale esistente rimarrà invariata. Vuoi procedere?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Non Disponibile",
   "@unavailable": {

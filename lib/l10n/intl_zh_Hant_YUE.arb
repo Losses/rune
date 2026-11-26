@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "刪除所有音樂庫嘅項目。",
+  "factoryResetSubtitle": "刪除所有音樂庫嘅項目，同埋 Rune 喺呢部裝置為串流音樂庫保存嘅播放清單、混音同鍾愛。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "詢問用戶系咪要重置音樂庫嘅模態框標題。"
   },
-  "resetLibrarySubtitle": "重置音樂庫會清除你嘅文件打開記錄。你現有嘅媒體庫唔會改變。你要繼續嗎？",
+  "resetLibrarySubtitle": "重置音樂庫會清除你嘅文件打開記錄，並且永久刪除 Rune 喺呢部裝置為串流音樂庫保存嘅播放清單、混音同鍾愛。你現有嘅媒體庫唔會改變。你要繼續嗎？",
   "@resetLibrarySubtitle": {},
   "unavailable": "無法使用",
   "@unavailable": {

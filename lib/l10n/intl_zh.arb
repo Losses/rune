@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "設置頁面中觸發“重設媒體庫歷史記錄”操作的按鈕的標題。"
   },
-  "factoryResetSubtitle": "從媒體庫列表中刪除所有項目。",
+  "factoryResetSubtitle": "從媒體庫列表中刪除所有項目，以及 Rune 在這台裝置上為串流媒體庫保存的播放列表、Mix 和收藏。",
   "@factoryResetSubtitle": {
     "description": "設置界面中“恢復出廠設置”按鈕的說明文字。"
   },
@@ -625,7 +625,7 @@
   "@resetLibraryQuestion": {
     "description": "詢問用戶是否要重設媒體庫的模態框標題。"
   },
-  "resetLibrarySubtitle": "重設媒體庫將清除您的文件開啟記錄。不會改動您現有的媒體庫。您想要繼續嗎？",
+  "resetLibrarySubtitle": "重設媒體庫將清除您的文件開啟記錄，並永久刪除 Rune 在這台裝置上為串流媒體庫保存的播放列表、Mix 和收藏。不會改動您現有的媒體庫。您想要繼續嗎？",
   "@resetLibrarySubtitle": {},
   "unavailable": "不可用",
   "@unavailable": {

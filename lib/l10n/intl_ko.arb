@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "설정 페이지에서 '라이브러리 기록 초기화' 작업을 트리거하는 버튼의 제목입니다."
   },
-  "factoryResetSubtitle": "라이브러리 목록에서 모든 항목 제거",
+  "factoryResetSubtitle": "라이브러리 목록에서 모든 항목 제거 및 스트리밍 라이브러리를 위해 Rune이 이 기기에 보관하는 재생 목록, 믹스, 좋아요 제거",
   "@factoryResetSubtitle": {
     "description": "설정 인터페이스의 '공장 초기화' 버튼에 대한 설명 텍스트입니다."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "사용자에게 라이브러리를 재설정할 것인지 묻는 모달 제목입니다."
   },
-  "resetLibrarySubtitle": "라이브러리를 재설정하면 파일 열기 기록이 지워집니다. 기존 미디어 라이브러리는 변경되지 않습니다. 계속하시겠습니까?",
+  "resetLibrarySubtitle": "라이브러리를 재설정하면 파일 열기 기록이 지워지고, 스트리밍 라이브러리를 위해 Rune이 이 기기에 보관하는 재생 목록, 믹스, 좋아요가 영구적으로 삭제됩니다. 기존 미디어 라이브러리는 변경되지 않습니다. 계속하시겠습니까?",
   "@resetLibrarySubtitle": {},
   "unavailable": "사용 불가",
   "@unavailable": {

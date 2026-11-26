@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "音楽集からすべての項目を削除する。",
+  "factoryResetSubtitle": "音楽集からすべての項目を削除する。ストリーミング用の音楽集のために Rune がこの端末に保存している再生一覧表、調和構成、良も削除する。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "資料集を初期化すると、履歴が消去されます。既存の資料には影響はありません。実行しますか？",
+  "resetLibrarySubtitle": "資料集を初期化すると、履歴が消去され、ストリーミング用の資料集のために Rune がこの端末に保存している再生一覧表、調和構成、良も完全に削除されます。既存の資料には影響はありません。実行しますか？",
   "@resetLibrarySubtitle": {},
   "unavailable": "利用不可",
   "@unavailable": {

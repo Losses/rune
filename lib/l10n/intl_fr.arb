@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "Le titre du bouton dans la page des paramètres qui déclenche l'action 'Réinitialiser l'historique de la bibliothèque'."
   },
-  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque.",
+  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque, ainsi que les listes de lecture, les mixes et les mentions « Aimé » que Rune conserve sur cet appareil pour les bibliothèques de streaming.",
   "@factoryResetSubtitle": {
     "description": "Le texte descriptif pour le bouton 'Réinitialisation d'usine' dans l'interface des paramètres."
   },
@@ -613,7 +613,7 @@
   "@resetLibraryQuestion": {
     "description": "Titre du modal demandant aux utilisateurs s'ils souhaitent réinitialiser la bibliothèque."
   },
-  "resetLibrarySubtitle": "La réinitialisation de la bibliothèque effacera votre historique d'ouverture de fichiers. Votre bibliothèque multimédia existante restera inchangée. Voulez-vous continuer ?",
+  "resetLibrarySubtitle": "La réinitialisation de la bibliothèque effacera votre historique d'ouverture de fichiers et supprimera définitivement les listes de lecture, les mixes et les mentions « Aimé » que Rune conserve sur cet appareil pour les bibliothèques de streaming. Votre bibliothèque multimédia existante restera inchangée. Voulez-vous continuer ?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Indisponible",
   "@unavailable": {

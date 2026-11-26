@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "设置页面中触发“重置媒体库历史记录”操作的按钮的标题。"
   },
-  "factoryResetSubtitle": "从媒体库列表中删除所有项目。",
+  "factoryResetSubtitle": "从媒体库列表中删除所有项目，以及 Rune 在这台设备上为流媒体媒体库保存的播放列表、Mix 和收藏。",
   "@factoryResetSubtitle": {
     "description": "设置界面中“恢复出厂设置”按钮的说明文字。"
   },
@@ -635,7 +635,7 @@
   "@resetLibraryQuestion": {
     "description": "询问用户是否要重置媒体库的模态框标题。"
   },
-  "resetLibrarySubtitle": "重置媒体库将清除您的文件开启记录。不会改动您现有的媒体库。您想要继续吗？",
+  "resetLibrarySubtitle": "重置媒体库将清除您的文件开启记录，并永久删除 Rune 在这台设备上为流媒体媒体库保存的播放列表、Mix 和收藏。不会改动您现有的媒体库。您想要继续吗？",
   "@resetLibrarySubtitle": {},
   "unavailable": "不可用",
   "@unavailable": {
