@@ -835,6 +835,7 @@ impl Visualizer {
         });
         let track_changed = !playback.source.same_item(&source);
         if track_changed {
+            playback.generation += 1;
             *lock(&self.shared.feed_spectrum) = None;
         }
         playback.source = source;
@@ -2777,6 +2778,38 @@ target = "out"
         // The old song's bucket at 4:00 is still open when the next song's first frame comes.
         lock(&shared.lab).record(240.0, &Inspect::default(), Level::A);
         play("/music/b.flac");
+        assert_ne!(song(), a);
+        let mut lab = lock(&shared.lab);
+        lab.follow(key(song()), scene::fixtures::lab_scene);
+        lab.record(0.0, &Inspect::default(), Level::A);
+        lab.record(0.5, &Inspect::default(), Level::A);
+        let new = lab.columns().unwrap().version;
+        assert_ne!(new, old);
+        let samples = lab.drain();
+        let [last, first] = &samples[..] else {
+            panic!("two buckets: {}", samples.len())
+        };
+        assert_eq!((last.bucket, last.columns_version), (4800, old));
+        assert_eq!((first.bucket, first.columns_version), (0, new));
+    }
+
+    #[test]
+    fn a_new_feed_item_is_a_new_catalogue_and_a_repeated_report_keeps_the_old_one() {
+        let visualizer = Visualizer::new();
+        let shared = &visualizer.shared;
+        let song = || lock(&shared.playback).generation;
+        let key = |song| (1, 1, 0, song);
+        let (first, next) = (feed_item("first"), feed_item("next"));
+        visualizer.set_feed_playback(Some(first.clone()), Duration::ZERO, true);
+        let a = song();
+        // Another report of the same item keeps the song, and with it the catalogue.
+        visualizer.set_feed_playback(Some(first.clone()), Duration::from_secs(1), true);
+        assert_eq!(song(), a);
+        lock(&shared.lab).follow(key(a), scene::fixtures::lab_scene);
+        let old = lock(&shared.lab).columns().unwrap().version;
+        // The first item's bucket at 4:00 is still open when the next item's first frame comes.
+        lock(&shared.lab).record(240.0, &Inspect::default(), Level::A);
+        visualizer.set_feed_playback(Some(next), Duration::ZERO, true);
         assert_ne!(song(), a);
         let mut lab = lock(&shared.lab);
         lab.follow(key(song()), scene::fixtures::lab_scene);
