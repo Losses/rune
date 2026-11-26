@@ -2762,6 +2762,67 @@ async fn the_lyrics_of_a_track_of_another_local_library_are_read_from_that_libra
     Ok(())
 }
 
+// Regression for Losses/rune#404: a track keeps playing while the user browses
+// another library, and a lyric request for the playing track must read the
+// library the track belongs to, not the library the request was made with.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lyrics_of_a_playing_track_are_read_while_browsing_another_library() -> Result<()> {
+    use crate::messages::PlayRequest;
+
+    let node_dir = tempfile::tempdir()?;
+    let second_library_dir = tempfile::tempdir()?;
+    let playing = fixture(node_dir.path()).await?;
+    let audio = session_audio(&playing, "playing-lyrics.ogg").await?;
+    let library_item = library_track_for_id(&playing, audio).await?;
+    let item = PlayingItem::from(library_item.clone());
+    let request = GetLyricByTrackIdRequest {
+        call_id: None,
+        item: Some(PlayingItemRef::from(library_item)),
+    };
+    // The playing library holds a track with two lyric lines, readable before any change.
+    let library = playing.global_params.test_library();
+    let media_root = Path::new(&library.media_root).to_path_buf();
+    fs::write(
+        media_root.join("playing-lyrics.lrc"),
+        "[00:00.00]Lyrics of the playing library\n[00:02.00]Second line\n",
+    )?;
+    let before = dispatch_gui_request(&playing.global_params, &request)
+        .await?
+        .context("same-library response")?;
+    assert_eq!(before.lines.len(), 2);
+
+    queue_session(&playing, &[audio]).await?;
+    dispatch_gui_request(&playing.global_params, &PlayRequest { call_id: None }).await?;
+    wait_player(&playing, |status| {
+        status.item == Some(item.clone()) && status.state == PlayerPlaybackState::Playing
+    })
+    .await?;
+
+    // Browsing another library: the playing track still plays, and its lyrics still load.
+    let browsing = fixture_open_local_library(&playing, second_library_dir.path()).await?;
+    assert_ne!(
+        playing.global_params.library_id, browsing.global_params.library_id,
+        "the browsed library is not the playing one"
+    );
+    assert_eq!(
+        playing.global_params.player.lock().await.get_status().item,
+        Some(item)
+    );
+    let after = dispatch_gui_request(&browsing.global_params, &request)
+        .await?
+        .context("other-library response")?;
+    assert_eq!(after.lines.len(), 2);
+    assert_eq!(after.item, before.item);
+    let contents = after
+        .lines
+        .iter()
+        .flat_map(|line| line.sections.iter().map(|section| section.content.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(contents, ["Lyrics of the playing library", "Second line"]);
+    playing.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 // Regression probe for Losses/rune#403: lyric requests for WebDAV tracks must not
 // panic inside the async runtime. Registers and scans a read-only WebDAV library,
 // then dispatches two lyric requests; the first proves the blocking filesystem work
