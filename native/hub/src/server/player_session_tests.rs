@@ -19029,6 +19029,98 @@ async fn the_volume_control_leaves_the_host_while_another_player_is_current() ->
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_host_with_a_volume_of_its_own_keeps_rune_s_volume_control() -> Result<()> {
+    use crate::messages::{PlayerHostChanged, VolumeRequest};
+    use playback::hosted::HostAction;
+
+    let dir = tempfile::tempdir()?;
+    let (f, signals, host, library_id) = hosted_fixture(dir.path()).await?;
+    let node = f.global_params.node.clone();
+    // The host says so when it starts, before it plays anything.
+    node.note_host_volume("host", true)?;
+    let hosted = PlayingItem::LibraryTrack {
+        library_id,
+        track: "1440".to_owned(),
+    };
+    f.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(hosted, PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&f, |status| status.playlist.len() == 1).await?;
+    dispatch_gui_request(
+        &f.global_params,
+        &VolumeRequest {
+            volume: 0.4,
+            call_id: None,
+        },
+    )
+    .await?;
+
+    // The hand-over gives the host Rune's volume, and the UI keeps that volume.
+    f.global_params.player.lock().await.switch(0);
+    host.sent(|actions| {
+        actions.contains(&HostAction::SetGain { gain: 0.4 })
+            && actions.last() == Some(&HostAction::Start)
+    })
+    .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && changed.own_volume,
+    )
+    .await?;
+
+    // A change of the volume goes to the host.
+    dispatch_gui_request(
+        &f.global_params,
+        &VolumeRequest {
+            volume: 0.25,
+            call_id: None,
+        },
+    )
+    .await?;
+    host.sent(|actions| actions == [HostAction::SetGain { gain: 0.25 }])
+        .await?;
+
+    // The host starts again without one, and the volume control is the system's.
+    node.note_host_volume("host", false)?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && !changed.own_volume,
+    )
+    .await?;
+    node.note_host_volume("host", true)?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && changed.own_volume,
+    )
+    .await?;
+
+    // Another player takes over, and no host plays what the UI shows.
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away)
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| !changed.hosted && !changed.own_volume,
+    )
+    .await?;
+
+    node.shutdown().await?;
+    Ok(())
+}
+
 // Test for issue #424: A stale queue can remove the wrong track even with the current revision.
 // A tracking broadcaster keeps the items every published playlist revision described and fails
 // any update whose items do not match its revision: the revision a snapshot goes out with must

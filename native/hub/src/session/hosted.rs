@@ -82,11 +82,42 @@ fn reachability(payload: &str) -> Option<(String, Reach)> {
     Some((host, reach))
 }
 
-/// Passes the app's host events to the local session's player, and what a host reports of the
-/// network to the libraries of the service on it.
+/// What a platform host's `hostReady` says of its volume. It is for the UI here rather than the
+/// player, which sends the gain either way.
+#[derive(serde::Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum HostVolumeEvent {
+    HostReady {
+        host: String,
+        /// Whether `setGain` sets a volume of the host's own. A host that leaves it out has none.
+        #[serde(default)]
+        own_volume: bool,
+    },
+}
+
+/// The host and whether it has a volume of its own, as a `hostReady` event says. None for any
+/// other payload.
+fn host_volume(payload: &str) -> Option<(String, bool)> {
+    let HostVolumeEvent::HostReady { host, own_volume } = serde_json::from_str(payload).ok()?;
+    Some((host, own_volume))
+}
+
+/// Passes the app's host events to the local session's player, what a host reports of the
+/// network to the libraries of the service on it, and whether a host has a volume of its own to
+/// the node, for the UI.
 pub async fn receive_hosted_player_events(node: &'static NodeSlot) {
     let receiver = HostedPlayerEvent::get_dart_signal_receiver();
     while let Some(signal) = receiver.recv().await {
+        if let Some((host, own_volume)) = host_volume(&signal.message.payload)
+            && let Ok(node) = node.current().await
+            && let Err(error) = node.note_host_volume(&host, own_volume)
+        {
+            warn!("Could not note the volume of host {host}: {error:#}");
+        }
         if let Some((host, reach)) = reachability(&signal.message.payload) {
             match node.current().await {
                 // A report from a host no service plays through is the player's to ignore.
@@ -167,6 +198,48 @@ mod tests {
         assert_eq!(
             HostEvent::parse(r#"{"type":"networkState","host":"platformHost","online":false}"#),
             None
+        );
+    }
+
+    #[test]
+    fn a_ready_host_says_whether_it_has_a_volume_of_its_own() {
+        assert_eq!(
+            host_volume(
+                r#"{"type":"hostReady","host":"platformHost","authorized":true,"canPlay":true,"ownVolume":true}"#
+            ),
+            Some(("platformHost".to_owned(), true))
+        );
+        assert_eq!(
+            host_volume(
+                r#"{"type":"hostReady","host":"platformHost","authorized":true,"canPlay":true,"ownVolume":false}"#
+            ),
+            Some(("platformHost".to_owned(), false))
+        );
+        // A host that leaves it out has none, as hosts did before it was said.
+        assert_eq!(
+            host_volume(
+                r#"{"type":"hostReady","host":"platformHost","authorized":true,"canPlay":true}"#
+            ),
+            Some(("platformHost".to_owned(), false))
+        );
+        for payload in [
+            r#"{"type":"networkState","host":"platformHost","online":true}"#,
+            r#"{"type":"jukeboxEnded","host":"platformHost","revision":1}"#,
+            r#"{"type":"hostReady","authorized":true,"canPlay":true,"ownVolume":true}"#,
+            "not json",
+        ] {
+            assert_eq!(host_volume(payload), None, "{payload}");
+        }
+        // The player takes the same event as it did before.
+        assert_eq!(
+            HostEvent::parse(
+                r#"{"type":"hostReady","host":"platformHost","authorized":true,"canPlay":true,"ownVolume":true}"#
+            ),
+            Some(HostEvent::HostReady {
+                host: "platformHost".into(),
+                authorized: true,
+                can_play: true,
+            })
         );
     }
 

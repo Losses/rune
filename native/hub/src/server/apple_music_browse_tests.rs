@@ -5414,6 +5414,61 @@ async fn the_ui_hears_each_change_of_the_visualizer_inputs_once() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_volume_control_follows_whether_the_host_of_the_track_has_a_volume_of_its_own()
+-> Result<()> {
+    use crate::messages::PlayerHostChanged;
+
+    let dir = tempfile::tempdir()?;
+    let heard = Arc::new(Heard::default());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            heard: Some(heard.clone()),
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let told = || {
+        heard
+            .placed::<PlayerHostChanged>("PlayerHostChanged")
+            .into_iter()
+            .map(|(_, changed)| (changed.hosted, changed.own_volume))
+            .collect::<Vec<_>>()
+    };
+    let before = told().len();
+
+    apple.node.note_host_volume("appleMusic", true)?;
+    let file = Path::new(&apple.fixture.global_params.test_library().media_root).join("a-file.ogg");
+    for path in [
+        Some(Path::new("hosted://appleMusic/i.s1")),
+        None,
+        // A host that said nothing of a volume of its own has none.
+        Some(Path::new("hosted://otherHost/1")),
+        Some(Path::new("hosted://appleMusic/i.s2")),
+        Some(file.as_path()),
+    ] {
+        apple.node.note_local_track(path, true)?;
+    }
+    // A host that starts again without one, while its track is current.
+    apple
+        .node
+        .note_local_track(Some(Path::new("hosted://appleMusic/i.s3")), true)?;
+    apple.node.note_host_volume("appleMusic", false)?;
+    assert_eq!(
+        told()[before..],
+        [
+            (true, true),
+            (true, false),
+            (true, true),
+            (false, false),
+            (true, true),
+            (true, false),
+        ]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn restored_apple_tracks_keep_their_place_before_the_sign_in_and_are_named_after_it()
 -> Result<()> {
     use crate::messages::{
