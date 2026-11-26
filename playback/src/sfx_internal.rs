@@ -75,9 +75,15 @@ impl SfxPlayerInternal {
 
                 debug!("Received command: {cmd:?}");
                 match cmd {
-                    SfxPlayerCommand::Load { path } => self.load(Some(path)),
-                    SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume),
-                }?;
+                    SfxPlayerCommand::Load { path } => {
+                        // An effect that cannot play, as its file cannot be opened or decoded or
+                        // no output opens, is logged, and the player goes on with the next command.
+                        if let Err(e) = self.load(Some(path)) {
+                            error!("Failed to play the sound effect: {e:?}");
+                        }
+                    }
+                    SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume)?,
+                }
             } else {
                 break;
             }
@@ -144,6 +150,7 @@ mod tests {
     use super::*;
     use rodio::Source;
     use rodio::source::SineWave;
+    use std::path::Path;
     use tokio::task;
     use tokio::time as tokio_time;
 
@@ -194,5 +201,29 @@ mod tests {
         run_briefly(&mut internal, &commands_sender).await;
         assert!(internal.sink.is_none());
         assert_eq!(internal.state, InternalSfxPlaybackState::Empty);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn commands_after_an_effect_that_fails_are_still_served() {
+        let (commands_sender, commands) = mpsc::unbounded_channel();
+        let mut internal = SfxPlayerInternal::new(commands, CancellationToken::new());
+        // Effects that fail before an output opens, so no audio device is needed: a file that does
+        // not exist, and this crate's manifest, which is not audio.
+        let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let missing = crate_dir.join("no-such-effect.ogg");
+        let not_audio = crate_dir.join("Cargo.toml");
+        for path in [missing, not_audio] {
+            commands_sender
+                .send(SfxPlayerCommand::Load { path })
+                .unwrap();
+        }
+        commands_sender
+            .send(SfxPlayerCommand::SetVolume(0.5))
+            .unwrap();
+
+        run_briefly(&mut internal, &commands_sender).await;
+
+        // The volume change sent after the failed effects was applied.
+        assert_eq!(internal.volume, 0.5);
     }
 }
