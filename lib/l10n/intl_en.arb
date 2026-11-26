@@ -2149,16 +2149,23 @@
   "@appleMusicSubtitleIOS": {
     "description": "Subtitle for the Apple Music source and its library on an iPhone or iPad."
   },
+  "appleMusicSubtitleAndroid": "Play your Apple Music library on this device.",
+  "@appleMusicSubtitleAndroid": {
+    "description": "Subtitle for the Apple Music source and its library on an Android device."
+  },
   "appleMusicAccessDenied": "Apple Music access was not granted. Allow it for Rune in System Settings, then try again.",
   "appleMusicAccessDeniedIOS": "Apple Music access was not granted. Allow it for Rune in Settings > Privacy & Security > Media & Apple Music, then try again.",
+  "appleMusicAccessDeniedAndroid": "Apple Music access was not granted. Sign in to the Apple Music app and allow Rune, then try again.",
   "appleMusicNoToken": "Apple Music did not give Rune the access it needs. Try again.",
   "appleMusicSignInFailed": "Apple Music did not accept the login. Try again.",
   "appleMusicUnreachable": "Rune could not reach Apple Music. Check the network connection, then try again.",
   "appleMusicUnexpectedResponse": "Apple Music returned an unexpected response. Try again later.",
   "appleMusicNeedsNewerMacOS": "Apple Music needs macOS 14 or later.",
   "appleMusicNeedsNewerIOS": "Apple Music needs iOS 16.1 or later.",
+  "appleMusicNeedsAppAndroid": "Apple Music needs the Apple Music app. Install it from Google Play, sign in, then try again.",
   "appleMusicAccountUnavailable": "The Apple Account on this Mac cannot use Apple Music. Check the account in the Music app, then try again.",
   "appleMusicAccountUnavailableIOS": "The Apple Account on this device cannot use Apple Music. Check the account in the Music app, then try again.",
+  "appleMusicAccountUnavailableAndroid": "The Apple Account in the Apple Music app cannot use Apple Music. Check the account in the Apple Music app, then try again.",
   "appleMusicPrivacyNotice": "Open the Music app once and agree to its privacy notice, then try again.",
   "recentlyPlayed": "Recently Played",
   "@recentlyPlayed": {

@@ -102,7 +102,7 @@ void main() {
     expect(find.byIcon(Symbols.music_note), findsNWidgets(2));
     expect(find.byIcon(Symbols.folder), findsOneWidget);
     await tester.pump(const Duration(seconds: 1));
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   for (final (title, recordId) in [
     ('Apple Music', 'apple-1'),

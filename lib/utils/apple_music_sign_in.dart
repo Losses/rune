@@ -11,8 +11,8 @@ import 'hosted_player/hosted_player.dart';
 import 'library_registry_messages.dart';
 import 'platform.dart';
 
-/// How an Apple Music library signs in: through the MusicKit host of the macOS
-/// or iOS runner.
+/// How an Apple Music library signs in: through the MusicKit host of the macOS,
+/// iOS or Android runner.
 const appleMusicSignInMethod = DeviceSignInMethod(
   host: AppleMusicHost.family,
   authorizationMessage: appleMusicAuthorizationMessage,
@@ -24,10 +24,15 @@ const appleMusicSignInMethod = DeviceSignInMethod(
 bool get _onIOS =>
     defaultTargetPlatform == TargetPlatform.iOS && iosDevice != IosDevice.mac;
 
-/// What the Apple Music library says about where it plays: this Mac, or this
-/// iPhone or iPad.
-String appleMusicSubtitleText(AppLocalizations s) =>
-    _onIOS ? s.appleMusicSubtitleIOS : s.appleMusicSubtitle;
+bool get _onAndroid => defaultTargetPlatform == TargetPlatform.android;
+
+/// What the Apple Music library says about where it plays: this Mac, this
+/// iPhone or iPad, or this Android device.
+String appleMusicSubtitleText(AppLocalizations s) => _onAndroid
+    ? s.appleMusicSubtitleAndroid
+    : _onIOS
+    ? s.appleMusicSubtitleIOS
+    : s.appleMusicSubtitle;
 
 /// What to tell the user when the host gave nothing to sign in with.
 String appleMusicAuthorizationMessage(
@@ -35,15 +40,26 @@ String appleMusicAuthorizationMessage(
   HostAuthorizationFailure failure,
 ) => switch (failure) {
   HostAuthorizationFailure.refused =>
-    _onIOS ? s.appleMusicAccessDeniedIOS : s.appleMusicAccessDenied,
+    _onAndroid
+        ? s.appleMusicAccessDeniedAndroid
+        : _onIOS
+        ? s.appleMusicAccessDeniedIOS
+        : s.appleMusicAccessDenied,
   HostAuthorizationFailure.noToken ||
   HostAuthorizationFailure.unavailable => s.appleMusicNoToken,
   HostAuthorizationFailure.account =>
-    _onIOS ? s.appleMusicAccountUnavailableIOS : s.appleMusicAccountUnavailable,
+    _onAndroid
+        ? s.appleMusicAccountUnavailableAndroid
+        : _onIOS
+        ? s.appleMusicAccountUnavailableIOS
+        : s.appleMusicAccountUnavailable,
   HostAuthorizationFailure.privacy => s.appleMusicPrivacyNotice,
-  // The system an iOS build needs is that of iOS, on a Mac too.
+  // The system an iOS build needs is that of iOS, on a Mac too. Android has no
+  // system version to ask for: it lacks the Apple Music app.
   HostAuthorizationFailure.unsupported =>
-    defaultTargetPlatform == TargetPlatform.iOS
+    _onAndroid
+        ? s.appleMusicNeedsAppAndroid
+        : defaultTargetPlatform == TargetPlatform.iOS
         ? s.appleMusicNeedsNewerIOS
         : s.appleMusicNeedsNewerMacOS,
 };
