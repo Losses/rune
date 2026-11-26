@@ -23,3 +23,11 @@ plugins {
 }
 
 include ":app"
+
+// Apple Music plays through Apple's MusicKit for Android, whose AARs may not be redistributed. The
+// module that uses them is only part of a build that is given the folder holding them, as the
+// Gradle property `runeAppleMusicSdkDir` (or the environment variable
+// `ORG_GRADLE_PROJECT_runeAppleMusicSdkDir`). Without it the app has no Apple Music at all.
+if (providers.gradleProperty("runeAppleMusicSdkDir").isPresent()) {
+    include ":apple_music"
+}

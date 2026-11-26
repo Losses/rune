@@ -23,6 +23,11 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0"
 }
 
+// Whether the build includes Apple Music, the optional `apple_music` module (see settings.gradle).
+// The app reaches it through `appleMusicPlugin()`, which one of two source folders defines: the
+// module's plugin when it is included, and none otherwise. The app refers to no class of the SDK.
+def appleMusic = findProject(":apple_music") != null
+
 android {
     namespace = "ci.not.rune"
     compileSdk = flutter.compileSdkVersion
@@ -31,6 +36,20 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/${appleMusic ? "withAppleMusic" : "withoutAppleMusic"}/kotlin"
+    }
+
+    if (appleMusic) {
+        packaging {
+            jniLibs {
+                // MusicKit brings its own libc++_shared.so, as the app does for the hub, for the
+                // ABIs it supports. Either copy serves both.
+                pickFirsts += ["lib/arm64-v8a/libc++_shared.so", "lib/armeabi-v7a/libc++_shared.so"]
+            }
+        }
     }
 
     defaultConfig {
@@ -141,4 +160,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    if (appleMusic) {
+        implementation project(":apple_music")
+    }
 }

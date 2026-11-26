@@ -40,6 +40,8 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Apple Music, in a build that includes it.
+        appleMusicPlugin()?.let { flutterEngine.plugins.add(it) }
         if (!attachFlutter(flutterEngine.renderer)) {
             Log.e("Visualizer", "The hub could not take the texture registry")
         }
