@@ -26,7 +26,7 @@ pub(crate) async fn import(binding: &AppleMusicBinding) {
         return;
     }
     if !binding.rune_playlists.imported().await {
-        match import_playlists(binding, read.take()).await {
+        match import_playlists(binding, changes, read.take()).await {
             Ok((complete, playlists)) => {
                 read = Some(playlists);
                 if complete && let Err(error) = binding.rune_playlists.mark_imported().await {
@@ -41,7 +41,7 @@ pub(crate) async fn import(binding: &AppleMusicBinding) {
         }
     }
     if !binding.rune_likes.imported().await {
-        match import_likes(binding).await {
+        match import_likes(binding, changes).await {
             Ok(true) => {
                 if let Err(error) = binding.rune_likes.mark_imported().await {
                     log::warn!(
@@ -71,12 +71,13 @@ pub(crate) async fn import(binding: &AppleMusicBinding) {
 /// at the next sign-in and nothing twice, and the lists that show the playlists reload. The
 /// playlists are read one after another, so the import adds little to what Apple is asked at
 /// once. One that fails is logged and left for the next sign-in. A change of the sign-in stops
-/// it. Answers whether every playlist is in, and Apple's playlists.
+/// it: `changes` counts the sign-in the import began under, before `read` was read. Answers
+/// whether every playlist is in, and Apple's playlists.
 async fn import_playlists(
     binding: &AppleMusicBinding,
+    changes: u64,
     read: Option<Vec<LibraryPlaylist>>,
 ) -> Result<(bool, Vec<LibraryPlaylist>)> {
-    let changes = binding.token_changes();
     let playlists = match read {
         Some(playlists) => playlists,
         None => binding
@@ -148,12 +149,15 @@ async fn import_playlist(
 /// songs are added once every step was read, in the order the library lists them, which is the
 /// order they were added in, as older than every song Rune's likes know: a song liked or unliked
 /// in Rune meanwhile or before keeps what the user made of it, and one unliked in Rune is not
-/// liked again, under either key of the song. Answers whether the import is finished; it is not
-/// when the sign-in changed meanwhile, which stops it. A step that fails fails it, and the next
-/// sign-in reads everything again.
-async fn import_likes(binding: &AppleMusicBinding) -> Result<bool> {
-    let changes = binding.token_changes();
-    let list = binding.songs().await?;
+/// liked again, under either key of the song. The songs are those Apple lists now, never a list
+/// kept from before, which may lack songs added since. Answers whether the import is finished;
+/// it is not when the sign-in `changes` counts changed meanwhile, which stops it. A step that
+/// fails fails it, and the next sign-in reads everything again.
+async fn import_likes(binding: &AppleMusicBinding, changes: u64) -> Result<bool> {
+    let list = binding.current_songs().await?;
+    if binding.token_changes() != changes {
+        return Ok(false);
+    }
     let tracks: Vec<String> = list
         .entries()
         .filter(|(_, song)| is_library_song(song))

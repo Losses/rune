@@ -1504,6 +1504,9 @@ async fn apple_music_songs_are_listed_fetched_by_id_and_counted() -> Result<()> 
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let record_id = apple.record.0.to_string();
+    // The import of the first sign-in read the song list as Apple has it.
+    let read = apple.fake.count("/v1/me/library/songs");
+    assert!(read >= 1);
 
     let page = apple
         .run(&FetchMediaFilesRequest {
@@ -1547,8 +1550,8 @@ async fn apple_music_songs_are_listed_fetched_by_id_and_counted() -> Result<()> 
             .collect::<Vec<_>>(),
         ["First Light", "Second Wind"]
     );
-    // The song list was read once for all of this.
-    assert_eq!(apple.fake.count("/v1/me/library/songs"), 1);
+    // All of this was answered from the song list kept, which was not read again.
+    assert_eq!(apple.fake.count("/v1/me/library/songs"), read);
 
     // Ids of songs in the list, then one the list lacks and one only the catalog has.
     let by_ids = apple
@@ -1560,7 +1563,7 @@ async fn apple_music_songs_are_listed_fetched_by_id_and_counted() -> Result<()> 
         .await?;
     assert_eq!(by_ids.media_files[0].title, "Third Road");
     assert_eq!(by_ids.media_files[1].title, "Second Wind");
-    assert_eq!(apple.fake.count("/v1/me/library/songs"), 1);
+    assert_eq!(apple.fake.count("/v1/me/library/songs"), read);
 
     let library_miss = apple.binding.intern(AppleIdKind::LibrarySong, "i.s9")?;
     let catalog_miss = apple.binding.intern(AppleIdKind::CatalogSong, "777")?;
@@ -8572,6 +8575,33 @@ async fn the_home_lists_the_likes_kept_in_rune_newest_first_without_asking_for_r
     );
     assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
     assert!(apple.fake.writes.lock().unwrap().is_empty());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_likes_are_imported_from_the_songs_apple_lists_now_not_a_list_kept_before()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // The library's song list was read and kept while the library was empty.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            empty: true,
+            apple_likes: vec!["i.s1"],
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let folder = records_of(&apple, apple.record);
+    // Its likes are not imported yet, and Apple lists its songs now. A sign-in imports them.
+    std::fs::remove_file(folder.join("likes.imported"))?;
+    apple.fake.empty.store(false, Ordering::SeqCst);
+    sign_in_again(&apple, USER_TOKEN).await?;
+    wait_until("the likes to be imported", || async {
+        Ok(folder.join("likes.imported").exists().then_some(()))
+    })
+    .await?;
+    assert!(is_liked(&apple, "i.s1").await?);
     apple.finish().await
 }
 
