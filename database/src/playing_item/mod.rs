@@ -29,6 +29,8 @@ pub struct MediaFileHandle {
     pub directory: String,
     pub extension: String,
     pub last_modified: String,
+    /// Whether the audio is materialized on this replica's storage.
+    pub local_available: bool,
 }
 
 impl From<media_files::Model> for MediaFileHandle {
@@ -41,6 +43,7 @@ impl From<media_files::Model> for MediaFileHandle {
             directory: x.directory,
             extension: x.extension,
             last_modified: x.last_modified,
+            local_available: x.local_available,
         }
     }
 }
@@ -55,6 +58,7 @@ impl From<FileDescription> for MediaFileHandle {
             directory: x.directory,
             extension: x.extension,
             last_modified: x.last_modified,
+            local_available: true,
         }
     }
 }

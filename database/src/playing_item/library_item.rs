@@ -94,6 +94,16 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
             let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
 
             for handle in handles {
+                // A track whose audio is not materialized locally has no usable
+                // host path: its directory and filename may even be empty, which
+                // would collapse the join onto the library root. Skipping it here
+                // keeps consumers, such as lyric lookup, from resolving files the
+                // track does not own. Mirrors the guard in
+                // `crate::actions::file::access::row_path`.
+                if !handle.local_available || handle.file_name.is_empty() {
+                    continue;
+                }
+
                 let file_path = fsio.canonicalize_path(
                     &lib_path
                         .join(handle.directory.clone())
