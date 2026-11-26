@@ -7,6 +7,7 @@ import Network
 #if os(macOS)
   import AppKit
   @preconcurrency import FlutterMacOS
+  import ObjectiveC
 #elseif os(iOS)
   import UIKit
   @preconcurrency import Flutter
@@ -2118,6 +2119,105 @@ extension String {
     hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
   }
 }
+
+#if os(macOS)
+  /// A volume of MusicKit's player of its own, which scales only what that player plays: the
+  /// relative volume of MediaPlayer's application queue player. MediaPlayer declares neither on
+  /// macOS, so nothing of them is linked or declared. Both are looked up by name once, and used
+  /// only when the classes and the methods exist and take and return what is called. `shared` is
+  /// nil otherwise, and the system volume applies.
+  nonisolated final class RelativeVolume: @unchecked Sendable {
+    static let shared: RelativeVolume? = RelativeVolume()
+
+    private let playerClass: NSObjectProtocol
+    private let controllerType: AnyClass
+    private let getter: Selector
+    private let setter: Selector
+    /// Getting the player may wait on a connection to the system's player service, so values
+    /// are set on this queue rather than on the main thread, in the order they came.
+    private let queue = DispatchQueue(label: "ci.not.rune.apple_music.volume")
+    private let lock = NSLock()
+    /// The latest value not applied yet. Of the values that came while one was applied, only the
+    /// latest is applied after it.
+    private var pending: Float?
+
+    private init?() {
+      let getter = NSSelectorFromString("applicationQueuePlayer")
+      let setter = NSSelectorFromString("setRelativeVolume:")
+      guard let playerType = NSClassFromString("MPMusicPlayerController"),
+        let playerClass = playerType as AnyObject as? NSObjectProtocol,
+        let controllerType = NSClassFromString("MPMusicPlayerApplicationController"),
+        let factory = class_getClassMethod(playerType, getter),
+        Self.matches(factory, result: "@", arguments: []),
+        let method = class_getInstanceMethod(controllerType, setter),
+        Self.matches(method, result: "v", arguments: ["f"])
+      else {
+        NSLog("%@", "Apple Music host: no relative volume, so the system volume applies")
+        return nil
+      }
+      self.playerClass = playerClass
+      self.controllerType = controllerType
+      self.getter = getter
+      self.setter = setter
+    }
+
+    /// Whether `method` takes `arguments` after the receiver and the selector, and returns
+    /// `result`, by their type encodings.
+    private static func matches(_ method: Method, result: String, arguments: [String]) -> Bool {
+      guard method_getNumberOfArguments(method) == arguments.count + 2 else {
+        return false
+      }
+      let returnType = method_copyReturnType(method)
+      defer { free(returnType) }
+      guard String(cString: returnType).hasPrefix(result) else {
+        return false
+      }
+      for (index, expected) in arguments.enumerated() {
+        guard let argument = method_copyArgumentType(method, UInt32(index + 2)) else {
+          return false
+        }
+        let actual = String(cString: argument)
+        free(argument)
+        guard actual.hasPrefix(expected) else {
+          return false
+        }
+      }
+      return true
+    }
+
+    /// Sets the volume, from 0 to 1, off the main thread. The latest value set is the last one
+    /// applied.
+    func set(_ value: Float) {
+      lock.lock()
+      pending = min(max(value, 0), 1)
+      lock.unlock()
+      queue.async {
+        guard let value = self.takePending() else { return }
+        self.apply(value)
+      }
+    }
+
+    private func takePending() -> Float? {
+      lock.lock()
+      defer { lock.unlock() }
+      let taken = pending
+      pending = nil
+      return taken
+    }
+
+    private func apply(_ value: Float) {
+      // Only a player of the class whose setter was checked is called.
+      guard let player = playerClass.perform(getter)?.takeUnretainedValue() as? NSObject,
+        player.isKind(of: controllerType)
+      else {
+        return
+      }
+      typealias Setter = @convention(c) (AnyObject, Selector, Float) -> Void
+      let setRelativeVolume = unsafeBitCast(player.method(for: setter), to: Setter.self)
+      setRelativeVolume(player, setter, value)
+    }
+  }
+#endif
 
 /// Whether the device has a network path, as the system reports it. Read from any thread.
 nonisolated final class NetworkReach: @unchecked Sendable {
