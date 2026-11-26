@@ -752,14 +752,16 @@ async fn run_share_worker(
         // never work on the same library at once.
         let request = tokio::select! {
             // A stop wins over a request that is ready at the same moment, so the worker
-            // never starts opening a library for a pass it is about to abandon.
+            // never starts opening a library for a pass it is about to abandon. A request
+            // comes before the tick: when passes take longer than a tick, a tick is always
+            // ready, and a request behind it would never be taken.
             biased;
             _ = cancel.cancelled() => {
                 flush_share_worker(&global, &state.sessions, &notify).await;
                 return;
             },
-            _ = interval.tick() => None,
             Some(request) = requests.recv() => Some(request),
+            _ = interval.tick() => None,
         };
         let Some(global) = global.upgrade() else {
             return;
