@@ -59,6 +59,7 @@ clearscreen = "4.0.1"
 clap = { version = "4.5.27", features = ["derive"] }
 rand = "0.8.5"
 tokio = { version = "1.44.2", features = ["test-util"] }
+tempfile = "3.17"
 
 [lints]
 workspace = true
