@@ -19,6 +19,7 @@ use database::{
 };
 use fsio::{FsIo, OpenDalConfig};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
+use sync_orm::causal_store::CommitPermit;
 use tokio::{runtime::Handle, sync::Mutex, time::Instant};
 use uuid::Uuid;
 
@@ -57,6 +58,7 @@ impl MediaFolderMissing {
 }
 
 /// Connections and storage belonging to one library. Keep a handle alive while using them.
+#[derive(Clone)]
 pub struct LibraryResources {
     pub library_id: Uuid,
     pub display_name: String,
@@ -91,6 +93,9 @@ enum LibraryUse {
 #[derive(Clone)]
 pub struct LibraryHandle {
     resources: Arc<LibraryResources>,
+    /// The pool's own resources when `resources` is one request's copy of them, which keeps
+    /// the library counted as in use.
+    pooled: Option<Arc<LibraryResources>>,
     pool: Arc<LibraryPool>,
     last_released: Arc<StdMutex<Instant>>,
     library_use: LibraryUse,
@@ -100,6 +105,26 @@ impl LibraryHandle {
     /// The node-level pool owning this connection.
     pub fn pool(&self) -> Arc<LibraryPool> {
         self.pool.clone()
+    }
+
+    /// The same library for one request whose writes need `permit`: each write through its
+    /// sync store confirms the permit once it holds the library's write lock. The library
+    /// stays in use while the handle lives, as with the handle it is made from.
+    pub(crate) fn with_commit_permit(&self, permit: Arc<dyn CommitPermit>) -> Self {
+        Self {
+            resources: Arc::new(LibraryResources {
+                library_sync: self.resources.library_sync.with_commit_permit(permit),
+                ..LibraryResources::clone(&self.resources)
+            }),
+            pooled: Some(
+                self.pooled
+                    .clone()
+                    .unwrap_or_else(|| self.resources.clone()),
+            ),
+            pool: self.pool.clone(),
+            last_released: self.last_released.clone(),
+            library_use: self.library_use,
+        }
     }
 }
 
@@ -250,6 +275,7 @@ impl LibraryPool {
     fn handle_with_use(self: &Arc<Self>, entry: &Entry, library_use: LibraryUse) -> LibraryHandle {
         LibraryHandle {
             resources: entry.resources.clone(),
+            pooled: None,
             pool: self.clone(),
             last_released: entry.last_released.clone(),
             library_use,

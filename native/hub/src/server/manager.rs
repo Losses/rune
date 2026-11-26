@@ -4482,6 +4482,17 @@ mod lifecycle_tests {
         payload: &[u8],
         library_id: Uuid,
     ) -> Result<(String, Vec<u8>)> {
+        let id = send_request_for_library(socket, name, payload, library_id).await?;
+        next_socket_response(socket, id).await
+    }
+
+    /// Send a request addressed to `library_id` and return its id, for its answer.
+    async fn send_request_for_library(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        name: &str,
+        payload: &[u8],
+        library_id: Uuid,
+    ) -> Result<Uuid> {
         use crate::backends::remote::encode_request;
         use futures::SinkExt;
         use tokio_tungstenite::tungstenite::Message;
@@ -4492,7 +4503,7 @@ mod lifecycle_tests {
                 encode_request(name, payload, id, library_id).into(),
             ))
             .await?;
-        next_socket_response(socket, id).await
+        Ok(id)
     }
 
     async fn socket_request_for_catalogue_scope(

@@ -1,10 +1,17 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
 
 use anyhow::{Context, Error, Result};
+use async_trait::async_trait;
+use discovery::server::PermissionManager;
 use serde::Serialize;
+use sync_orm::causal_store::CommitPermit;
+use tokio::sync::OwnedRwLockReadGuard;
 use uuid::Uuid;
 
-use crate::macros::{BodyLibraries, RequestScope};
+use crate::macros::{BodyLibraries, RequestAccess, RequestScope};
 use crate::node::NodeContext;
 use crate::request_error::{ExpectedRequestError, FailedCall};
 use crate::rpc::{NamedLibraries, TargetRequest};
@@ -37,6 +44,11 @@ where
                 .await?;
         }
         let library = node.library_pool.acquire_for_request(library_id).await?;
+        let library = match &session {
+            Some(session) if R::ACCESS == RequestAccess::ConnectionEdit => library
+                .with_commit_permit(EditPermit::new(node, session, R::wire_name(), library_id)),
+            _ => library,
+        };
         match node.current_ui().await {
             Ok(ui_params) => Arc::new(ui_params.for_library(library)),
             Err(_) => Arc::new(node.params_for_library(library)?),
@@ -73,6 +85,69 @@ where
             Ok((R::response_name().to_owned(), rinf::serialize(&response)?))
         }
         _ => Ok((String::new(), Vec::new())),
+    }
+}
+
+/// Lets an edit from another device commit only while the device may still make it.
+///
+/// The request's library handle carries the permit, and the library's sync store confirms it
+/// once the edit's transaction holds the library's write lock, after anything the edit waited
+/// for. Confirming repeats the request's authorization and keeps the permission manager
+/// read-locked until the request drops the permit. Approving or blocking a device and setting
+/// its grants take the permission manager for writing, so each such change comes either before
+/// the confirmation, which then checks against it, or after the edit's transaction has ended.
+struct EditPermit {
+    node: Arc<NodeContext>,
+    session: Session,
+    request: &'static str,
+    library_id: Uuid,
+    permissions: Mutex<Option<OwnedRwLockReadGuard<PermissionManager>>>,
+}
+
+impl EditPermit {
+    fn new(
+        node: &Arc<NodeContext>,
+        session: &Session,
+        request: &'static str,
+        library_id: Uuid,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            node: node.clone(),
+            session: session.clone(),
+            request,
+            library_id,
+            permissions: Mutex::new(None),
+        })
+    }
+
+    fn permissions(&self) -> MutexGuard<'_, Option<OwnedRwLockReadGuard<PermissionManager>>> {
+        self.permissions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[async_trait]
+impl CommitPermit for EditPermit {
+    async fn confirm(&self) -> Result<()> {
+        // A second write of the request checks under the lock it already holds: asking for the
+        // lock again would wait behind a queued grant change, which waits for this request.
+        let held = self.permissions().take();
+        let permissions = match held {
+            Some(permissions) => permissions,
+            None => self.node.permission_manager.clone().read_owned().await,
+        };
+        self.node
+            .authorize_request_in(
+                &permissions,
+                &self.session,
+                self.request,
+                None,
+                Some(self.library_id),
+            )
+            .await?;
+        *self.permissions() = Some(permissions);
+        Ok(())
     }
 }
 

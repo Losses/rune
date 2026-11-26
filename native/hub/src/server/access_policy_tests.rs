@@ -47,9 +47,13 @@ mod access_policy_tests {
     use sea_orm::prelude::Decimal;
     use std::fs;
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
     use sync::protocol::SyncError;
     use tempfile::TempDir;
-    use tokio::{sync::Mutex, time::sleep};
+    use tokio::{
+        sync::{Mutex, broadcast},
+        time::sleep,
+    };
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn liked_requests_cannot_act_on_an_ungranted_body_library() -> Result<()> {
@@ -1017,13 +1021,20 @@ mod access_policy_tests {
     }
 
     async fn lock_replica_library(fixture: &Fixture) -> Result<SqliteConnection> {
-        let library = fixture.global_params.test_library();
-        let path = library
+        lock_database(&library_database(fixture.global_params.test_library())).await
+    }
+
+    fn library_database(library: &LibraryHandle) -> PathBuf {
+        library
             .main_db
             .get_sqlite_connection_pool()
             .connect_options()
             .get_filename()
-            .to_path_buf();
+            .to_path_buf()
+    }
+
+    /// Hold the write lock of the database at `path` until the returned connection rolls back.
+    async fn lock_database(path: &Path) -> Result<SqliteConnection> {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(false)
@@ -1047,20 +1058,19 @@ mod access_policy_tests {
         Ok(connection)
     }
 
-    async fn set_sqlite_busy_timeout(fixture: &Fixture) -> Result<()> {
-        let pool = fixture
-            .global_params
-            .test_library()
-            .main_db
-            .get_sqlite_connection_pool();
+    async fn set_sqlite_busy_timeout(library: &LibraryHandle, timeout: Duration) -> Result<()> {
+        let pool = library.main_db.get_sqlite_connection_pool();
         let mut connections = Vec::new();
         for _ in 0..pool.options().get_max_connections() {
             connections.push(pool.acquire().await?);
         }
         for connection in &mut connections {
-            sqlx::query("PRAGMA busy_timeout = 100")
-                .execute(&mut **connection)
-                .await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "PRAGMA busy_timeout = {}",
+                timeout.as_millis()
+            )))
+            .execute(&mut **connection)
+            .await?;
         }
         Ok(())
     }
@@ -1071,7 +1081,11 @@ mod access_policy_tests {
         let host = pair.a.global_params.test_library();
         let key = write_album(host, "busy recovery").await?;
         let mut lock = lock_replica_library(&pair.b).await?;
-        set_sqlite_busy_timeout(&pair.b).await?;
+        set_sqlite_busy_timeout(
+            pair.b.global_params.test_library(),
+            Duration::from_millis(100),
+        )
+        .await?;
 
         let error = pair
             .pass(false)
@@ -1094,7 +1108,11 @@ mod access_policy_tests {
         let host = pair.a.global_params.test_library();
         write_album(host, "busy cap").await?;
         let mut lock = lock_replica_library(&pair.b).await?;
-        set_sqlite_busy_timeout(&pair.b).await?;
+        set_sqlite_busy_timeout(
+            pair.b.global_params.test_library(),
+            Duration::from_millis(100),
+        )
+        .await?;
 
         let result = pair.pass(false).await;
         sqlx::query("ROLLBACK").execute(&mut lock).await?;
@@ -3060,5 +3078,572 @@ mod access_policy_tests {
                 .is_err()
         );
         a.global_params.node.shutdown().await
+    }
+
+    /// Give `device` Control and `connection` access to every library of the pair's owner,
+    /// without sync, through the request the Devices page sends. The request's first wait is
+    /// for the permission manager's write lock.
+    async fn set_connection_access(
+        pair: &PolicyPair,
+        device: &str,
+        connection: DeviceConnectionLevel,
+    ) -> Result<()> {
+        let request = SetDeviceGrantsRequest {
+            call_id: None,
+            fingerprint: device.to_owned(),
+            grants: DeviceGrantsChange::Set(DeviceGrantsInfo {
+                control: true,
+                all_connection: Some(connection),
+                all_sync: Some(DeviceSyncLevel::None),
+                libraries: Vec::new(),
+                administer: false,
+            }),
+        };
+        request
+            .handle(
+                request.extract_params(&pair.a.global_params),
+                None,
+                &request,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// The paired device's session, as the owner's node authenticates it.
+    async fn device_session(pair: &PolicyPair) -> Result<Session> {
+        let user = pair
+            .a
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&info(&pair.b).await?.fingerprint)
+            .await
+            .context("approved device")?;
+        Ok(Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            base_url: Url::parse("https://127.0.0.1:7863/")?,
+        })
+    }
+
+    /// Wait until every connection of the library is back in its pool: a connection returns to
+    /// the pool a moment after its last user lets it go.
+    async fn wait_for_idle_connections(library: &LibraryHandle) -> Result<()> {
+        let pool = library.main_db.get_sqlite_connection_pool();
+        wait_until(
+            "the library's connections to return to its pool",
+            || async { Ok((pool.num_idle() == pool.size() as usize).then_some(())) },
+        )
+        .await
+    }
+
+    /// Wait until a request holds one of the library's connections, as a request waiting for
+    /// the library's write lock does. Nothing else may use the library meanwhile, and all its
+    /// connections must have been idle when the request was sent.
+    async fn wait_for_a_waiting_write(library: &LibraryHandle) -> Result<()> {
+        let pool = library.main_db.get_sqlite_connection_pool();
+        wait_until("a request to wait for the library's write lock", || async {
+            Ok((pool.size() as usize > pool.num_idle()).then_some(()))
+        })
+        .await
+    }
+
+    /// Whether the node told the devices connected to it that a library changed.
+    fn published_library_change(published: &mut broadcast::Receiver<Vec<u8>>) -> bool {
+        let mut changed = false;
+        loop {
+            match published.try_recv() {
+                Ok(message) => {
+                    changed |= decode_message(&message)
+                        .is_some_and(|(name, _, _)| name == "LibraryContentChanged");
+                }
+                Err(broadcast::error::TryRecvError::Lagged(_)) => {}
+                Err(_) => return changed,
+            }
+        }
+    }
+
+    /// Send `name` from the paired device while the test holds the library's write lock,
+    /// revoke only the device's edit access once the request waits for the lock, then release
+    /// the lock and return how the request failed.
+    async fn refused_after_revocation_while_waiting(
+        pair: &PolicyPair,
+        device: &str,
+        name: &'static str,
+        payload: Vec<u8>,
+    ) -> Result<anyhow::Error> {
+        let library = pair.a.global_params.test_library();
+        let mut lock = lock_database(&library_database(library)).await?;
+        let node = pair.a.global_params.node.clone();
+        let session = device_session(pair).await?;
+        let library_id = pair.id;
+        wait_for_idle_connections(library).await?;
+        let request = tokio::spawn(async move {
+            node.websocket_service
+                .handle_addressed_message(name, payload, Some(session), Some(library_id), &node)
+                .await
+        });
+        wait_for_a_waiting_write(library).await?;
+        set_connection_access(pair, device, DeviceConnectionLevel::View).await?;
+        sqlx::query("ROLLBACK").execute(&mut lock).await?;
+        let (_, result) = request.await?.context("edit route")?;
+        result
+            .err()
+            .with_context(|| format!("{name} succeeded after its edit access was revoked"))
+    }
+
+    /// #604. A device that may edit the library and control the player removes a playlist.
+    /// The removal is admitted and waits for the library's write lock, which the test holds,
+    /// while the owner revokes only the device's edit access: its trust and Control stay. Once
+    /// the lock is free, the removal is refused at its write. The playlist stays, no deletion
+    /// is authored and no change is published. The edit the device made before the revocation
+    /// stays, its next edit is refused, and its connection keeps Control.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_admitted_edit_is_refused_at_its_write_after_only_edit_access_is_revoked()
+    -> Result<()> {
+        use crate::messages::{
+            CreatePlaylistRequest, CreatePlaylistResponse, PlaylistRevisionRequest,
+            RemovePlaylistRequest,
+        };
+        use database::actions::playlists::{create_playlist, get_playlist_by_id};
+
+        let pair = PolicyPair::new().await?;
+        let device = info(&pair.b).await?.fingerprint;
+        set_connection_access(&pair, &device, DeviceConnectionLevel::ViewEdit).await?;
+        let library = pair.a.global_params.test_library();
+        let held = create_playlist(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            "held".into(),
+            "test".into(),
+        )
+        .await?;
+        let held_key = ObjectKey {
+            collection: Collection::Playlists,
+            id: held.source_uuid.parse()?,
+        };
+        let create = |name: &str| {
+            rinf::serialize(&CreatePlaylistRequest {
+                name: name.into(),
+                group: "test".into(),
+                call_id: None,
+            })
+        };
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            pair.addr.port(),
+            &pair.b.global_params.config_path,
+            pair.b.global_params.cert_validator.read().await.clone(),
+            &pair.b.global_params.node.sync_tokens,
+        )
+        .await?;
+        let (name, payload) = socket_request_for_library(
+            &mut socket,
+            "CreatePlaylistRequest",
+            &create("before the revocation")?,
+            pair.id,
+        )
+        .await?;
+        assert_eq!(name, "CreatePlaylistResponse");
+        let earlier: CreatePlaylistResponse = rinf::deserialize(&payload)?;
+
+        let record = library.library_sync.get(&held_key).await?;
+        let head = library.library_sync.head().await?;
+        let mut published = pair
+            .a
+            .global_params
+            .node
+            .websocket_service
+            .broadcast_tx
+            .subscribe();
+        // The removal may wait for the lock for as long as the test runs.
+        set_sqlite_busy_timeout(library, TEST_DEADLINE).await?;
+        let mut lock = lock_database(&library_database(library)).await?;
+        wait_for_idle_connections(library).await?;
+        let removal = send_request_for_library(
+            &mut socket,
+            "RemovePlaylistRequest",
+            &rinf::serialize(&RemovePlaylistRequest {
+                playlist_id: held.id,
+                call_id: Some(604),
+            })?,
+            pair.id,
+        )
+        .await?;
+        wait_for_a_waiting_write(library).await?;
+        set_connection_access(&pair, &device, DeviceConnectionLevel::View).await?;
+        sqlx::query("ROLLBACK").execute(&mut lock).await?;
+
+        let (name, payload) = next_socket_response(&mut socket, removal).await?;
+        assert_eq!(name, "RemoteRequestFailed", "the removal answered {name}");
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(
+            failure.kind,
+            RequestErrorKind::PermissionDenied,
+            "{}",
+            failure.detail
+        );
+        assert_eq!(failure.call_id, Some(604));
+        assert!(
+            failure.detail.contains("Removing playlist"),
+            "the removal was not refused at its write: {}",
+            failure.detail
+        );
+        assert!(
+            get_playlist_by_id(&library.main_db, held.id)
+                .await?
+                .is_some(),
+            "the playlist was removed"
+        );
+        assert_eq!(
+            library.library_sync.get(&held_key).await?,
+            record,
+            "a deletion was authored"
+        );
+        assert_eq!(
+            library.library_sync.head().await?,
+            head,
+            "the refused removal wrote to the journal"
+        );
+        assert!(
+            !published_library_change(&mut published),
+            "the refused removal published a change"
+        );
+        assert!(
+            get_playlist_by_id(&library.main_db, earlier.playlist.id)
+                .await?
+                .is_some(),
+            "the edit made before the revocation was undone"
+        );
+
+        let (name, payload) = socket_request_for_library(
+            &mut socket,
+            "CreatePlaylistRequest",
+            &create("after the revocation")?,
+            pair.id,
+        )
+        .await?;
+        assert_eq!(
+            name, "RemoteRequestFailed",
+            "an edit after the revocation answered {name}"
+        );
+        let failure: RemoteRequestFailed = rinf::deserialize(&payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::PermissionDenied);
+        let (name, _) = socket_request(
+            &mut socket,
+            "PlaylistRevisionRequest",
+            &rinf::serialize(&PlaylistRevisionRequest { call_id: None })?,
+        )
+        .await?;
+        assert_eq!(name, "PlaylistRevisionResponse", "the device lost Control");
+        let (name, _) = socket_request_for_library(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?,
+            pair.id,
+        )
+        .await?;
+        assert_eq!(name, "GetMediaFilesCountResponse", "the device lost View");
+        assert_eq!(
+            trust_status(&pair.a, &device).await,
+            Some(UserStatus::Approved)
+        );
+        socket.close(None).await?;
+        pair.close().await
+    }
+
+    /// The rule holds for every kind of edit: an entry added to a playlist, a new mix and a
+    /// like, each admitted and waiting for the library's write lock while edit access is
+    /// revoked, are refused at their write and change nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn edits_of_every_kind_that_wait_for_the_write_lock_are_refused_after_the_revocation()
+    -> Result<()> {
+        use crate::messages::{AddItemToPlaylistRequest, CreateMixRequest};
+        use database::actions::mixes::get_all_mixes;
+        use database::actions::playlists::{create_playlist, list_occurrences};
+
+        let pair = PolicyPair::new().await?;
+        let device = info(&pair.b).await?.fingerprint;
+        let library = pair.a.global_params.test_library();
+        let track = Uuid::new_v4();
+        seed_player_read_track(&pair.a, "edited.ogg", track).await?;
+        let file_id = file_ids_by_uuid(&library.main_db, &[track])
+            .await?
+            .get(&track)
+            .copied()
+            .context("seeded track")?;
+        let playlist = create_playlist(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            "entries".into(),
+            "test".into(),
+        )
+        .await?;
+        set_sqlite_busy_timeout(library, TEST_DEADLINE).await?;
+        let edits = [
+            (
+                "AddItemToPlaylistRequest",
+                rinf::serialize(&AddItemToPlaylistRequest {
+                    playlist_id: playlist.id,
+                    media_file_id: file_id,
+                    position: None,
+                    call_id: None,
+                })?,
+                "Failed to add item to playlist",
+            ),
+            (
+                "CreateMixRequest",
+                rinf::serialize(&CreateMixRequest {
+                    name: "held mix".into(),
+                    group: "test".into(),
+                    mode: None,
+                    queries: Vec::new(),
+                    call_id: None,
+                })?,
+                "Failed to create mix",
+            ),
+            (
+                "SetLikedRequest",
+                rinf::serialize(&SetLikedRequest {
+                    item: Some(PlayingItemRef::LibraryTrack {
+                        library_id: pair.id.to_string(),
+                        track: track.to_string(),
+                    }),
+                    liked: true,
+                    call_id: None,
+                })?,
+                "Failed to set liked",
+            ),
+        ];
+        for (name, payload, write) in edits {
+            set_connection_access(&pair, &device, DeviceConnectionLevel::ViewEdit).await?;
+            let head = library.library_sync.head().await?;
+            let error =
+                refused_after_revocation_while_waiting(&pair, &device, name, payload).await?;
+            assert_eq!(
+                classify(&error),
+                RequestErrorKind::PermissionDenied,
+                "{name}: {error:#}"
+            );
+            assert!(
+                format!("{error:#}").contains(write),
+                "{name} was not refused at its write: {error:#}"
+            );
+            assert_eq!(
+                library.library_sync.head().await?,
+                head,
+                "{name} wrote to the journal"
+            );
+        }
+        assert!(
+            list_occurrences(&library.main_db, playlist.id, None, 10)
+                .await?
+                .entries
+                .is_empty(),
+            "the entry was added"
+        );
+        assert!(
+            get_all_mixes(&library.main_db)
+                .await?
+                .iter()
+                .all(|mix| mix.name != "held mix"),
+            "the mix was created"
+        );
+        assert!(
+            !get_liked(&*library.main_db, file_id).await?,
+            "the track was liked"
+        );
+        pair.close().await
+    }
+
+    /// An edit can also wait for its library to open. Here the library is closed, and opening
+    /// it needs the database write lock, which the test holds while edit access is revoked.
+    /// The edit is refused at its write once the library has opened.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_edit_waiting_for_its_library_to_open_is_refused_after_the_revocation() -> Result<()>
+    {
+        use crate::messages::UpdatePlaylistRequest;
+        use database::actions::playlists::{create_playlist, get_playlist_by_id};
+
+        let pair = PolicyPair::new().await?;
+        let device = info(&pair.b).await?.fingerprint;
+        let node = pair.a.global_params.node.clone();
+        let folder = tempfile::tempdir()?;
+        let record_id = register_local_library_on_node(
+            &RegisterLocalLibraryRequest {
+                call_id: None,
+                path: folder.path().to_str().context("library path")?.to_owned(),
+                alias: "Closed".into(),
+                mode: Some(LibraryInitializeMode::Portable),
+            },
+            &node,
+        )
+        .await?
+        .record
+        .context("registered record")?
+        .record_id;
+        let library_id = LibraryRegistry::load(Path::new(&*node.config_path))?
+            .record(LibraryRecordId(record_id.parse()?))?
+            .library_id
+            .context("catalog id")?;
+        let (playlist, database) = {
+            let library = node.library_pool.acquire(library_id).await?;
+            let playlist = create_playlist(
+                &library.main_db,
+                &library.library_sync.record_store(),
+                "closed".into(),
+                "test".into(),
+            )
+            .await?;
+            (playlist, library_database(&library))
+        };
+        // Nothing holds the library open now: the next request opens it again.
+        node.library_pool.release_background(library_id).await;
+        set_connection_access(&pair, &device, DeviceConnectionLevel::ViewEdit).await?;
+        let mut lock = lock_database(&database).await?;
+        let update = node.websocket_service.handle_addressed_message(
+            "UpdatePlaylistRequest",
+            rinf::serialize(&UpdatePlaylistRequest {
+                playlist_id: playlist.id,
+                name: "renamed".into(),
+                group: "test".into(),
+                call_id: None,
+            })?,
+            Some(device_session(&pair).await?),
+            Some(library_id),
+            &node,
+        );
+        tokio::pin!(update);
+        assert!(
+            futures::poll!(&mut update).is_pending(),
+            "the update did not wait for its library to open"
+        );
+        set_connection_access(&pair, &device, DeviceConnectionLevel::View).await?;
+        sqlx::query("ROLLBACK").execute(&mut lock).await?;
+        let (_, result) = update.await.context("update route")?;
+        let error = result
+            .err()
+            .context("the update succeeded after its edit access was revoked")?;
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::PermissionDenied,
+            "{error:#}"
+        );
+        assert!(
+            format!("{error:#}").contains("Failed to update playlist"),
+            "the update was not refused at its write: {error:#}"
+        );
+        let library = node.library_pool.acquire(library_id).await?;
+        assert_eq!(
+            get_playlist_by_id(&library.main_db, playlist.id)
+                .await?
+                .context("playlist")?
+                .name,
+            "closed"
+        );
+        drop(library);
+        pair.close().await
+    }
+
+    /// Whether a writer waits to commit to the database at `path`. In rollback journal mode it
+    /// then holds the lock that keeps new readers out.
+    async fn commit_pending(path: &Path) -> Result<bool> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .busy_timeout(Duration::ZERO);
+        let mut probe = SqliteConnection::connect_with(&options).await?;
+        let read = sqlx::query("SELECT count(*) FROM playlists")
+            .fetch_one(&mut probe)
+            .await;
+        probe.close().await?;
+        match read {
+            Ok(_) => Ok(false),
+            Err(error)
+                if error
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .is_some_and(|code| code == "5") =>
+            {
+                Ok(true)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// An edit that passed its check at the write lock before a revocation commits, and the
+    /// revocation answers only once it has: which of the two came first is never in doubt.
+    /// The library keeps its database in rollback journal mode, where a commit waits for every
+    /// reader, so a reader the test holds keeps the removal waiting to commit meanwhile.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_revocation_answers_after_an_edit_that_is_already_committing() -> Result<()> {
+        use crate::messages::{RemovePlaylistRequest, RemovePlaylistResponse};
+        use database::actions::playlists::{create_playlist, get_playlist_by_id};
+
+        let pair = PolicyPair::new().await?;
+        let device = info(&pair.b).await?.fingerprint;
+        set_connection_access(&pair, &device, DeviceConnectionLevel::ViewEdit).await?;
+        let library = pair.a.global_params.test_library();
+        let playlist = create_playlist(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            "committing".into(),
+            "test".into(),
+        )
+        .await?;
+        set_sqlite_busy_timeout(library, TEST_DEADLINE).await?;
+        let database = library_database(library);
+        let mut reader =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&database))
+                .await?;
+        sqlx::query("BEGIN").execute(&mut reader).await?;
+        sqlx::query("SELECT count(*) FROM playlists")
+            .fetch_one(&mut reader)
+            .await?;
+        let node = pair.a.global_params.node.clone();
+        let session = device_session(&pair).await?;
+        let library_id = pair.id;
+        let payload = rinf::serialize(&RemovePlaylistRequest {
+            playlist_id: playlist.id,
+            call_id: None,
+        })?;
+        let removal = tokio::spawn(async move {
+            node.websocket_service
+                .handle_addressed_message(
+                    "RemovePlaylistRequest",
+                    payload,
+                    Some(session),
+                    Some(library_id),
+                    &node,
+                )
+                .await
+        });
+        wait_until("the removal to wait for its commit", || async {
+            Ok(commit_pending(&database).await?.then_some(()))
+        })
+        .await?;
+        let mut revocation = Box::pin(set_connection_access(
+            &pair,
+            &device,
+            DeviceConnectionLevel::View,
+        ));
+        assert!(
+            futures::poll!(&mut revocation).is_pending(),
+            "the revocation answered while an edit it allowed was committing"
+        );
+        sqlx::query("ROLLBACK").execute(&mut reader).await?;
+        let (name, result) = removal.await?.context("removal route")?;
+        let payload = result.context("the removal that passed its check before the revocation")?;
+        assert_eq!(name, "RemovePlaylistResponse");
+        let removed: RemovePlaylistResponse = rinf::deserialize(&payload)?;
+        assert_eq!(removed.playlist_id, playlist.id);
+        revocation.await?;
+        assert!(
+            get_playlist_by_id(&library.main_db, playlist.id)
+                .await?
+                .is_none(),
+            "the committed removal was undone"
+        );
+        pair.close().await
     }
 }
