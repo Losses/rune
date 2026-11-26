@@ -393,11 +393,11 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         }
     }
 
-    fn handle_set_library_background_sync_request(
+    fn handle_sync_share_library_request(
         &self,
         node: &NodeSlot,
-        request: &SetLibraryBackgroundSyncRequest,
-    ) -> impl Future<Output = Result<Option<SetLibraryBackgroundSyncResponse>>> + Send {
+        request: &SyncShareLibraryRequest,
+    ) -> impl Future<Output = Result<Option<SyncShareLibraryResponse>>> + Send {
         async move {
             let node = node.current().await?;
             request.handle(node, None, request).await
@@ -1356,7 +1356,6 @@ pub(crate) async fn register_opendal_library_on_node(
             },
         }],
         catalog,
-        background_sync: true,
     };
     let stored = if record.validate().is_err() {
         Err(anyhow::anyhow!("invalid record"))
@@ -1665,7 +1664,6 @@ pub(crate) async fn register_subsonic_library_on_node(
         },
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     if record.validate().is_err() {
         let _ = node.credentials.remove(credential).await;
@@ -1910,7 +1908,6 @@ pub(crate) async fn register_service_library_on_node(
         protocol,
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     // No other device may reach the library, from the moment its record exists.
     if service.signs_in_on_this_device() {
@@ -3146,7 +3143,6 @@ mod moved_node_request_tests {
                 protocol: ProtocolAdapter::Native,
                 fs: vec![FsAdapter::Local { path: path.clone() }],
                 catalog: CatalogPlacement::InMediaRoot,
-                background_sync: true,
             });
             Ok(())
         })

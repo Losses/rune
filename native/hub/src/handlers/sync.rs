@@ -5,7 +5,8 @@ use crate::{
     library_pool::LibraryHandle,
     messages::{
         LibraryContentChanged, RemoveDownloadRuleRequest, RemoveDownloadRuleResponse,
-        SetDownloadRuleRequest, SetDownloadRuleResponse,
+        SetDownloadRuleRequest, SetDownloadRuleResponse, SyncShareLibraryRequest,
+        SyncShareLibraryResponse,
     },
     server::ServerManager,
     utils::{
@@ -21,6 +22,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::sync as tokio_sync;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct DownloadParams {
@@ -143,6 +145,8 @@ impl Signal for crate::messages::GetSyncSettingsRequest {
             broadcast: settings.broadcast,
             accept_remote_control: settings.accept_remote_control,
             accept_sync: settings.accept_sync,
+            auto_device_sync: settings.auto_device_sync,
+            auto_share_sync: settings.auto_share_sync,
             missing_host_file: settings.missing_host_file.into(),
         }))
     }
@@ -287,12 +291,44 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
             settings.broadcast = request.broadcast;
             settings.accept_remote_control = request.accept_remote_control;
             settings.accept_sync = request.accept_sync;
+            settings.auto_device_sync = request.auto_device_sync;
+            settings.auto_share_sync = request.auto_share_sync;
             settings.missing_host_file = request.missing_host_file.into();
         })
         .await?;
         Ok(Some(Self::Response {
             call_id: None,
             request_id: request.request_id.clone(),
+        }))
+    }
+}
+
+impl ParamsExtractor for SyncShareLibraryRequest {
+    type Params = Arc<NodeContext>;
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+impl Signal for SyncShareLibraryRequest {
+    type Params = Arc<NodeContext>;
+    type Response = SyncShareLibraryResponse;
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
+            ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
+        })?;
+        let share_failure = node
+            .share_sync_requests
+            .sync(library_id, &node.token)
+            .await?
+            .err();
+        Ok(Some(Self::Response {
+            share_failure,
+            call_id: None,
         }))
     }
 }
@@ -320,6 +356,8 @@ mod tests {
             broadcast: shown.broadcast,
             accept_remote_control: shown.accept_remote_control,
             accept_sync: shown.accept_sync,
+            auto_device_sync: shown.auto_device_sync,
+            auto_share_sync: shown.auto_share_sync,
             missing_host_file: shown.missing_host_file,
             call_id: None,
         };

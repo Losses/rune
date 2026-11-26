@@ -68,6 +68,7 @@ final _keptHere = _subsonic.copyWith(
 );
 
 const _remoteControl = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'remote-record',
   alias: 'Living Room',
   kind: LibraryRecordKindSummaryRemoteControl(fingerprint: 'renderer'),

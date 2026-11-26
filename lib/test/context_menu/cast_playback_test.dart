@@ -136,6 +136,7 @@ class _TestLibraryOpenStateProvider extends ChangeNotifier
 
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'remote-record',
     alias: 'Renderer',
     kind: LibraryRecordKindSummaryRemoteControl(fingerprint: 'renderer'),

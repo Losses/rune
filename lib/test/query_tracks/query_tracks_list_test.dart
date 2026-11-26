@@ -81,6 +81,7 @@ Widget _playlistList(PlaylistPageLoader loader) => _list(
 class _OpenLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'record',
     alias: 'Music',
     kind: LibraryRecordKindSummaryLocal(libraryId: 'library', path: '/music'),

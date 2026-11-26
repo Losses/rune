@@ -2479,7 +2479,7 @@ mod access_policy_tests {
             "ListLocalLibrariesRequest" => RequestAccess::NodeLocal,
             "ListLibraryRecordsRequest" => RequestAccess::NodeLocal,
             "RemoveLibraryRecordRequest" => RequestAccess::NodeLocal,
-            "SetLibraryBackgroundSyncRequest" => RequestAccess::NodeLocal,
+            "SyncShareLibraryRequest" => RequestAccess::NodeLocal,
             "RegisterLocalLibraryRequest" => RequestAccess::NodeLocal,
             "RegisterRemoteControlRequest" => RequestAccess::NodeLocal,
             "RegisterSubsonicLibraryRequest" => RequestAccess::NodeLocal,

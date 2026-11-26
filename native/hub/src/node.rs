@@ -45,7 +45,7 @@ use crate::macros::{
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
-use crate::server::sync_worker::SyncTokenStore;
+use crate::server::sync_worker::{ShareSyncRequests, SyncTokenStore};
 use crate::service::{
     ServiceBinding,
     covers::ServiceCoverCache,
@@ -75,7 +75,7 @@ use crate::{
     },
 };
 use ::visualizer::{Visualizer, VisualizerInputs};
-use database::library_registry::LibraryRecordId;
+use database::library_registry::{LibraryRecordId, LibraryRegistry};
 use discovery::DiscoveryParams;
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use discovery::endpoint::DEFAULT_DEVICE_PORT;
@@ -282,6 +282,8 @@ pub struct NodeContext {
     visualizer: NodeVisualizer,
     pub token: Arc<CancellationToken>,
     pub(crate) sync_tokens: SyncTokenStore,
+    /// Requests for a manual share sync, taken by whichever sync worker is running.
+    pub(crate) share_sync_requests: ShareSyncRequests,
     pub library_tasks: Arc<StdMutex<LibraryTaskOwner>>,
     sync_library_tokens: Mutex<HashMap<Uuid, CancellationToken>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
@@ -300,6 +302,33 @@ pub struct NodeContext {
     /// Libraries currently being removed. A binding created during removal must not
     /// register a cover cache that can write after the library is deleted.
     removing_libraries: Arc<StdMutex<HashSet<Uuid>>>,
+}
+
+/// Until the automatic sync switches became global, every library had a background sync
+/// switch, and a library with it off was also refused to devices that asked to sync it. The
+/// switch is gone, so such a library is refused through the grants instead, once.
+///
+/// Grants first, registry second: a crash in between repeats the same denial, which changes
+/// nothing, and then rewrites the registry.
+///
+/// A registry that cannot be read does not stop the node from starting: no library can be
+/// served from it either, and the next start looks again.
+async fn deny_sync_of_libraries_with_background_sync_off(
+    config: &Path,
+    access_policy: &RuneAccessPolicy,
+) -> Result<()> {
+    let disabled = match LibraryRegistry::legacy_background_sync_disabled(config) {
+        Ok(disabled) => disabled,
+        Err(error) => {
+            log::warn!("Could not read the background sync switches of the registry: {error:#}");
+            return Ok(());
+        }
+    };
+    if !disabled.is_empty() {
+        access_policy.deny_sync(&disabled)?;
+        LibraryRegistry::rewrite(config).await?;
+    }
+    Ok(())
 }
 
 impl Debug for NodeContext {
@@ -481,6 +510,11 @@ impl NodeContext {
             Path::new(config_path),
             &permission_manager.list_users().await,
         )?);
+        // Before anything of this node can write the registry, serve a request or run a sync
+        // pass: the registry is still the file the previous run left, and no library is
+        // served under the grants as they were.
+        deny_sync_of_libraries_with_background_sync_off(Path::new(config_path), &access_policy)
+            .await?;
         keep_service_records_on_this_device(&access_policy, Path::new(config_path));
         let (handoff_playback_events, _) = broadcast::channel(128);
         let node = Arc::new(Self {
@@ -531,6 +565,7 @@ impl NodeContext {
             visualizer: NodeVisualizer::new(visualizer),
             token: Arc::new(CancellationToken::new()),
             sync_tokens,
+            share_sync_requests: ShareSyncRequests::default(),
             library_tasks: Arc::new(StdMutex::new(LibraryTaskOwner::default())),
             sync_library_tokens: Mutex::new(HashMap::new()),
             server_manager: OnceLock::new(),
@@ -2321,6 +2356,209 @@ mod tests {
             ]
         );
         slot.current().await?.shutdown().await?;
+        Ok(())
+    }
+
+    /// The registry of a node that last ran a build with a background sync switch on every
+    /// library: one owned library per entry, with its switch.
+    fn write_registry_with_background_sync_switches(
+        config: &std_path::Path,
+        libraries: &[(uuid::Uuid, bool)],
+    ) -> anyhow::Result<()> {
+        use database::library_registry::{
+            CatalogPlacement, FsAdapter, LibraryRecord, LibraryRecordId, ProtocolAdapter,
+        };
+
+        let records = libraries
+            .iter()
+            .map(|(library_id, background_sync)| {
+                let mut record = serde_json::to_value(LibraryRecord {
+                    record_id: LibraryRecordId(uuid::Uuid::new_v4()),
+                    alias: "Owned".into(),
+                    library_id: Some(*library_id),
+                    protocol: ProtocolAdapter::Native,
+                    fs: vec![FsAdapter::Local {
+                        path: format!("/music/{library_id}"),
+                    }],
+                    catalog: CatalogPlacement::InMediaRoot,
+                })?;
+                record["background_sync"] = (*background_sync).into();
+                Ok(record)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        std::fs::write(
+            config.join("libraries.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({ "version": 3, "libraries": records }))?,
+        )?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_cannot_be_read_does_not_stop_the_node_from_starting()
+    -> anyhow::Result<()> {
+        use database::library_registry::LibraryRegistry;
+        use std::fs;
+
+        let dir = tempfile::tempdir()?;
+        crate::test_node::disable_media_server(dir.path())?;
+        fs::write(
+            dir.path().join("libraries.json"),
+            br#"{"version":3,"libraries":["#,
+        )?;
+        let path = dir.path().to_string_lossy().into_owned();
+
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(Quiet(None)),
+            false,
+            RunMode::App,
+            Arc::new(VisualizerVisualizer::new()),
+        )
+        .await?;
+
+        // The registry is still unreadable, and says so where it is used.
+        assert!(LibraryRegistry::load(dir.path()).is_err());
+        node.shutdown().await
+    }
+
+    #[tokio::test]
+    async fn libraries_with_background_sync_off_are_denied_to_devices_once_at_node_start()
+    -> anyhow::Result<()> {
+        use crate::access_policy::{DeviceGrants, SyncLevel};
+        use database::library_registry::LibraryRegistry;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::server::PermissionManager;
+
+        let dir = tempfile::tempdir()?;
+        crate::test_node::disable_media_server(dir.path())?;
+        let path = dir.path().to_string_lossy().into_owned();
+        {
+            let devices = PermissionManager::new(&path)?;
+            devices
+                .add_user(
+                    "key".into(),
+                    "fingerprint".into(),
+                    "alias".into(),
+                    "model".into(),
+                    DeviceType::Desktop,
+                    "ip".into(),
+                )
+                .await?;
+            devices
+                .change_user_status("fingerprint", UserStatus::Approved)
+                .await?;
+        }
+        let (off, on) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        write_registry_with_background_sync_switches(dir.path(), &[(off, false), (on, true)])?;
+        let start = || {
+            NodeContext::new(
+                &path,
+                &path,
+                Arc::new(Quiet(None)),
+                false,
+                RunMode::App,
+                Arc::new(VisualizerVisualizer::new()),
+            )
+        };
+
+        let node = start().await?;
+        // Only the sync grant of the one library changed: the wildcard still gives the
+        // device every other library, and its connection grants are as they were.
+        let mut expected = DeviceGrants::my_device();
+        expected.sync.libraries.insert(off, SyncLevel::None);
+        let grants = node.access_policy.grants("fingerprint")?;
+        assert_eq!(grants, expected);
+        assert_eq!(grants.sync_level(off), SyncLevel::None);
+        assert_eq!(grants.sync_level(on), SyncLevel::PullPush);
+        assert_eq!(*node.access_policy.changes().borrow(), 1);
+        let registry_file = dir.path().join("libraries.json");
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&registry_file)?)?;
+        let flags: Vec<_> = saved["libraries"]
+            .as_array()
+            .expect("saved libraries")
+            .iter()
+            .map(|record| record["background_sync"].as_bool())
+            .collect();
+        assert_eq!(flags, [Some(true), Some(true)]);
+        assert!(LibraryRegistry::legacy_background_sync_disabled(dir.path())?.is_empty());
+        let mut served = node.library_pool.served_library_ids().await?;
+        served.sort();
+        let mut registered = vec![off, on];
+        registered.sort();
+        assert_eq!(served, registered);
+        node.shutdown().await?;
+        drop(node);
+
+        // The next start finds nothing to move. A grant the user gives the device for that
+        // library afterwards would otherwise be taken away again.
+        let registry_before = std::fs::read(&registry_file)?;
+        let grants_before = std::fs::read(dir.path().join("grants.json"))?;
+        let node = start().await?;
+        assert_eq!(
+            *node.access_policy.changes().borrow(),
+            0,
+            "the second start changed the grants"
+        );
+        assert_eq!(node.access_policy.grants("fingerprint")?, expected);
+        assert_eq!(std::fs::read(&registry_file)?, registry_before);
+        assert_eq!(
+            std::fs::read(dir.path().join("grants.json"))?,
+            grants_before
+        );
+        node.shutdown().await
+    }
+
+    #[tokio::test]
+    async fn background_sync_switches_of_a_version_2_registry_become_denials_and_a_repeat_is_harmless()
+    -> anyhow::Result<()> {
+        use super::deny_sync_of_libraries_with_background_sync_off;
+        use crate::access_policy::{RuneAccessPolicy, SyncLevel};
+        use database::library_registry::LibraryRegistry;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::server::UserSummary;
+        use std::time::SystemTime;
+
+        let dir = tempfile::tempdir()?;
+        let registry_file = dir.path().join("libraries.json");
+        let version_2 = br#"{
+  "version": 2,
+  "libraries": [
+    {"record_id":"00000000-0000-0000-0000-000000000001","alias":"On","kind":{"type":"owned","library_id":"10000000-0000-0000-0000-000000000001","storage":{"type":"local","path":"/music/on","placement":{"type":"portable"}},"background_sync":true}},
+    {"record_id":"00000000-0000-0000-0000-000000000002","alias":"Off","kind":{"type":"rune_replica","library_id":"10000000-0000-0000-0000-000000000002","owner_fingerprint":"owner","background_sync":false,"storage":{"type":"replica"}}}
+  ]
+}"#;
+        std::fs::write(&registry_file, version_2)?;
+        let off = uuid::Uuid::parse_str("10000000-0000-0000-0000-000000000002")?;
+        let on = uuid::Uuid::parse_str("10000000-0000-0000-0000-000000000001")?;
+        let policy = RuneAccessPolicy::load(
+            dir.path(),
+            &[UserSummary {
+                alias: "device".into(),
+                fingerprint: "device".into(),
+                device_model: String::new(),
+                device_type: DeviceType::Desktop,
+                status: UserStatus::Approved,
+                add_time: SystemTime::UNIX_EPOCH,
+            }],
+        )?;
+
+        deny_sync_of_libraries_with_background_sync_off(dir.path(), &policy).await?;
+        assert_eq!(policy.grants("device")?.sync_level(off), SyncLevel::None);
+        assert_eq!(policy.grants("device")?.sync_level(on), SyncLevel::PullPush);
+        assert_eq!(*policy.changes().borrow(), 1);
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&registry_file)?)?;
+        assert_eq!(saved["version"], 3);
+        assert!(LibraryRegistry::legacy_background_sync_disabled(dir.path())?.is_empty());
+
+        // A crash after the grants were saved and before the registry was rewritten leaves
+        // the old registry behind. The next start repeats the denial, which changes nothing.
+        std::fs::write(&registry_file, version_2)?;
+        deny_sync_of_libraries_with_background_sync_off(dir.path(), &policy).await?;
+        assert_eq!(*policy.changes().borrow(), 1);
+        assert_eq!(policy.grants("device")?.sync_level(off), SyncLevel::None);
+        assert!(LibraryRegistry::legacy_background_sync_disabled(dir.path())?.is_empty());
+        assert_eq!(LibraryRegistry::load(dir.path())?.libraries.len(), 2);
         Ok(())
     }
 

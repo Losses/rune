@@ -18,6 +18,7 @@ const _alias = 'Streaming';
 /// A streaming library whose lyrics come from online, which the user allowed
 /// or not.
 LibraryRecordSummary _lyricsRecord(bool? enabled) => LibraryRecordSummary(
+  shareSync: false,
   recordId: 'streaming-record',
   alias: _alias,
   kind: const LibraryRecordKindSummaryAppleMusic(),

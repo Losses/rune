@@ -87,6 +87,7 @@ class _LocalLibrary extends ChangeNotifier implements LibraryOpenStateProvider {
 
   @override
   LibraryRecordSummary? get openRecord => const LibraryRecordSummary(
+    shareSync: false,
     recordId: 'local-record',
     alias: 'Music',
     kind: LibraryRecordKindSummaryLocal(

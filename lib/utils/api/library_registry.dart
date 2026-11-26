@@ -183,16 +183,20 @@ Future<ListLocalLibrariesResponse> listLocalLibraries() async {
   return (await response).message;
 }
 
-Future<void> setLibraryBackgroundSync(String libraryId, bool enabled) async {
-  await awaitResponse(
-    'SetLibraryBackgroundSyncRequest',
-    SetLibraryBackgroundSyncResponse.rustSignalStream,
-    timeout: _timeout,
+/// Syncs a library stored in a shared folder with that folder now, and
+/// returns why the pass failed, or null when it succeeded.
+Future<ShareSyncFailure?> syncShareLibrary(String libraryId) async {
+  final response = await awaitResponse(
+    'SyncShareLibraryRequest',
+    SyncShareLibraryResponse.rustSignalStream,
+    // The reply only comes when the pass has ended, and the first pull of a
+    // large library takes long.
+    timeout: const Duration(minutes: 30),
     responseCallId: (response) => response.message.callId?.toInt(),
-    send: (callId) => SetLibraryBackgroundSyncRequest(
+    send: (callId) => SyncShareLibraryRequest(
       libraryId: libraryId,
-      enabled: enabled,
       callId: callId,
     ).sendSignalToRust(),
   );
+  return response.message.shareFailure;
 }

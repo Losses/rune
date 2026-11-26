@@ -1144,10 +1144,6 @@
   "@addNeighborManuallySubtitle": {
     "description": "Chiarisce che 'rete locale' ≠ Internet pubblico (es. IP/porta all'interno della LAN). 'connettersi' implica stabilire un collegamento diretto, non solo visibilità."
   },
-  "stop": "Ferma",
-  "@stop": {
-    "description": "Pulsante di azione per terminare un'azione attiva."
-  },
   "deviceFingerprint": "Impronta Digitale Dispositivo",
   "@deviceFingerprint": {
     "description": "Un identificatore unico per il dispositivo, utilizzato per identificazione e connessione sicure."
@@ -1427,6 +1423,14 @@
   "allowPairedSyncDescription": "Consenti ai dispositivi associati di sincronizzare le librerie con questo dispositivo.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
+  },
+  "autoDeviceSync": "Sincronizza automaticamente con i dispositivi",
+  "@autoDeviceSync": {
+    "description": "Label of the switch that lets this device sync libraries that are not open with paired devices on its own"
+  },
+  "autoDeviceSyncDescription": "Mantieni sincronizzate con i dispositivi associati le librerie non aperte. La libreria aperta viene sempre sincronizzata.",
+  "@autoDeviceSyncDescription": {
+    "description": "Explanation of the automatic device sync switch. The library open in the app syncs whatever the switch says."
   },
   "offlineCleanupDefault": "Elimina i download non necessari",
   "@offlineCleanupDefault": {
@@ -1709,8 +1713,22 @@
   "@interfaceScaleFollowTextSize": {
     "description": "Option that sizes the interface to match the system text size."
   },
-  "turnOnBackgroundSync": "Attiva la Sincronizzazione in Background",
-  "turnOffBackgroundSync": "Disattiva la Sincronizzazione in Background",
+  "autoShareSync": "Sincronizza automaticamente le librerie condivise",
+  "@autoShareSync": {
+    "description": "Label of the switch that lets this device sync libraries stored in a shared folder (WebDAV or S3) with that folder on its own"
+  },
+  "autoShareSyncDescription": "Mantieni sincronizzate le librerie archiviate in una cartella condivisa mentre non sono aperte. La libreria aperta viene sempre sincronizzata.",
+  "@autoShareSyncDescription": {
+    "description": "Explanation of the automatic shared-folder sync switch. The library open in the app syncs whatever the switch says."
+  },
+  "syncNow": "Sincronizza Ora",
+  "@syncNow": {
+    "description": "Button that syncs one library with its shared folder immediately"
+  },
+  "syncing": "Sincronizzazione in Corso",
+  "@syncing": {
+    "description": "Label of the Sync Now button while the sync is running"
+  },
   "shareLibraryModeSubtitle": "Dove Rune memorizzerà il tuo indice multimediale?",
   "@shareLibraryModeSubtitle": {
     "description": "Add-library guide text"

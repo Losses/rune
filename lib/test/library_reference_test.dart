@@ -47,6 +47,7 @@ void main() {
   test('open state derives mode and folder access from the typed record', () async {
     final localFixture = await _stateFor(
       const LibraryRecordSummary(
+        shareSync: false,
         recordId: 'local-record',
         alias: 'Music',
         kind: LibraryRecordKindSummaryLocal(
@@ -63,6 +64,7 @@ void main() {
 
     final replicaFixture = await _stateFor(
       const LibraryRecordSummary(
+        shareSync: false,
         recordId: 'replica-record',
         alias: 'Shared Music',
         kind: LibraryRecordKindSummaryReplica(
@@ -79,6 +81,7 @@ void main() {
 
     final remoteFixture = await _stateFor(
       const LibraryRecordSummary(
+        shareSync: false,
         recordId: 'remote-record',
         alias: 'Renderer',
         kind: LibraryRecordKindSummaryRemoteControl(

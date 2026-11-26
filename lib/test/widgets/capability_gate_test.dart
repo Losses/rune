@@ -47,7 +47,7 @@ RequestCapabilities snapshot({
     listLocalLibrariesRequest: capability,
     listLibraryRecordsRequest: capability,
     removeLibraryRecordRequest: capability,
-    setLibraryBackgroundSyncRequest: capability,
+    syncShareLibraryRequest: capability,
     listPeerLibrariesRequest: capability,
     addRemoteLibraryRequest: capability,
     getSyncSettingsRequest: capability,
@@ -399,6 +399,7 @@ void main() {
           ChangeNotifierProvider<LibraryOpenStateProvider>(
             create: (_) => _LibraryOpenStateProvider(
               openRecord: const LibraryRecordSummary(
+                shareSync: false,
                 recordId: 'local-record',
                 alias: 'Music',
                 kind: LibraryRecordKindSummaryLocal(
@@ -425,6 +426,7 @@ void main() {
 
   group('the artist page', () {
     const local = LibraryRecordSummary(
+      shareSync: false,
       recordId: 'local-record',
       alias: 'Music',
       kind: LibraryRecordKindSummaryLocal(
@@ -639,6 +641,7 @@ void main() {
           ChangeNotifierProvider<LibraryOpenStateProvider>(
             create: (_) => _LibraryOpenStateProvider(
               openRecord: const LibraryRecordSummary(
+                shareSync: false,
                 recordId: 'local-record',
                 alias: 'Music',
                 kind: LibraryRecordKindSummaryLocal(

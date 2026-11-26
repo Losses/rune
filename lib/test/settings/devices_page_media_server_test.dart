@@ -19,6 +19,7 @@ const _mediaServer = 'Media Server';
 const _broadcast = 'Enable Broadcast';
 const _remoteControl = 'Allow Remote Control';
 const _sync = 'Allow Paired Sync';
+const _autoDeviceSync = 'Sync with Devices Automatically';
 
 class _Broadcast extends ChangeNotifier implements BroadcastProvider {
   @override
@@ -36,23 +37,28 @@ GetSyncSettingsResponse _settings({
   bool broadcast = true,
   bool acceptRemoteControl = false,
   bool acceptSync = true,
+  bool autoDeviceSync = true,
 }) => GetSyncSettingsResponse(
   requestId: 'loaded',
   mediaServer: mediaServer,
   broadcast: broadcast,
   acceptRemoteControl: acceptRemoteControl,
   acceptSync: acceptSync,
+  autoDeviceSync: autoDeviceSync,
+  autoShareSync: true,
   missingHostFile: MissingHostFilePolicy.keepAsRemote,
 );
 
-/// The four values a settings message carries for the Media Server group, in
-/// the order the page shows them.
+/// Every value a settings message carries: first the Media Server group in
+/// the order the page shows it, then the settings outside that group.
 List<Object> _values(GetSyncSettingsResponse settings) => [
   settings.mediaServer,
   settings.broadcast,
   settings.acceptRemoteControl,
   settings.acceptSync,
   settings.missingHostFile,
+  settings.autoDeviceSync,
+  settings.autoShareSync,
 ];
 
 const _titles = [_mediaServer, _broadcast, _remoteControl, _sync];
@@ -353,5 +359,31 @@ void main() {
     for (final title in _titles) {
       expect(_switch(tester, title).onChanged, isNotNull, reason: title);
     }
+  });
+
+  testWidgets('automatic device sync does not depend on the Media Server', (
+    tester,
+  ) async {
+    var stored = _settings(mediaServer: false);
+    final saved = <GetSyncSettingsResponse>[];
+    await _pumpPage(
+      tester,
+      load: () async => stored,
+      save: (settings) async {
+        saved.add(settings);
+        stored = settings;
+      },
+    );
+    expect(_switch(tester, _sync).onChanged, isNull);
+    expect(_switch(tester, _autoDeviceSync).checked, isTrue);
+    expect(_switch(tester, _autoDeviceSync).onChanged, isNotNull);
+
+    await _tap(tester, _autoDeviceSync);
+    await tester.pumpAndSettle();
+
+    expect(saved.map(_values), [
+      _values(_settings(mediaServer: false, autoDeviceSync: false)),
+    ]);
+    expect(_switch(tester, _autoDeviceSync).checked, isFalse);
   });
 }

@@ -13,6 +13,7 @@ import '../../utils/settings_body_padding.dart';
 import '../../utils/router/navigation.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/settings/settings_button.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
 import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -22,17 +23,29 @@ import '../../providers/library_manager.dart';
 import '../../providers/broadcast.dart';
 import '../../bindings/bindings.dart';
 import '../../utils/api/library_registry.dart';
+import '../../utils/api/get_sync_settings.dart';
+import '../../utils/api/set_sync_settings.dart';
 import '../../utils/api/request_failure.dart';
+import '../../utils/share_sync_messages.dart';
 import '../../utils/library_ui/library_ui_state.dart';
 import '../../utils/dialogs/information/error.dart';
 
 import 'utils/show_online_lyrics_dialog.dart';
 import 'utils/show_reset_library_dialog.dart';
+import 'widgets/share_sync_button.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
-  const SettingsLibraryPage({super.key, this.loadLibraries});
+  const SettingsLibraryPage({
+    super.key,
+    this.loadLibraries,
+    this.loadSyncSettings = getSyncSettings,
+    this.saveSyncSettings = setSyncSettings,
+  });
 
   final Future<ListLocalLibrariesResponse> Function()? loadLibraries;
+  final Future<GetSyncSettingsResponse> Function() loadSyncSettings;
+  final Future<void> Function(GetSyncSettingsResponse settings)
+  saveSyncSettings;
 
   @override
   State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
@@ -42,7 +55,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   String selectedItem = '';
 
   List<LocalLibrary> registeredLibraries = [];
-  final Set<String> updatingLibraries = {};
+  GetSyncSettingsResponse? syncSettings;
+  bool syncSettingsRequested = false;
   StreamSubscription? _contentSubscription;
 
   @override
@@ -75,43 +89,74 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     super.dispose();
   }
 
-  Future<void> _setBackgroundSync(LocalLibrary library, bool enabled) async {
-    setState(() {
-      updatingLibraries.add(library.libraryId);
-      registeredLibraries = registeredLibraries
-          .map(
-            (entry) => entry.libraryId == library.libraryId
-                ? entry.copyWith(backgroundSync: enabled)
-                : entry,
-          )
-          .toList();
-    });
-    Object? error;
-    try {
-      await setLibraryBackgroundSync(library.libraryId, enabled);
-    } catch (exception) {
-      error = exception;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The sync settings are only shown beside a library stored in a shared
+    // folder, so they are loaded when the first such library is listed.
+    final hasShareLibrary = Provider.of<LibraryRegistryProvider>(
+      context,
+    ).records.any((record) => record.shareSync);
+    if (hasShareLibrary && !syncSettingsRequested) {
+      syncSettingsRequested = true;
+      _loadSyncSettings();
     }
-    if (!mounted) return;
-    setState(() {
-      updatingLibraries.remove(library.libraryId);
-      if (error != null) {
-        registeredLibraries = registeredLibraries
-            .map(
-              (entry) => entry.libraryId == library.libraryId
-                  ? entry.copyWith(backgroundSync: library.backgroundSync)
-                  : entry,
-            )
-            .toList();
-      }
-    });
-    if (error != null) {
+  }
+
+  Future<void> _loadSyncSettings() async {
+    try {
+      final settings = await widget.loadSyncSettings();
+      if (mounted) setState(() => syncSettings = settings);
+    } catch (error) {
+      if (!mounted) return;
       await showErrorDialog(
         context: context,
-        title: S.of(context).unknownError,
+        title: S.of(context).autoShareSync,
         errorMessage: requestErrorText(S.of(context), error),
       );
     }
+  }
+
+  Future<void> _setAutoShareSync(bool enabled) async {
+    try {
+      // The other settings are changed on the Devices page, which may have
+      // happened since this page loaded them, so only this one is replaced
+      // in what the hub holds now.
+      final current = await widget.loadSyncSettings();
+      await widget.saveSyncSettings(current.copyWith(autoShareSync: enabled));
+      final updated = await widget.loadSyncSettings();
+      if (mounted) setState(() => syncSettings = updated);
+    } catch (error) {
+      if (!mounted) return;
+      await showErrorDialog(
+        context: context,
+        title: S.of(context).autoShareSync,
+        errorMessage: requestErrorText(S.of(context), error),
+      );
+    }
+  }
+
+  /// Syncs a library with its shared folder and reports a failure here: the
+  /// hub announces a failed sync it was asked for to nobody else.
+  Future<void> _syncShareLibrary(String libraryId) async {
+    final libraryManager = Provider.of<LibraryManagerProvider>(
+      context,
+      listen: false,
+    );
+    String? message;
+    try {
+      final failure = await libraryManager.syncShareLibrary(libraryId);
+      if (!mounted || failure == null) return;
+      message = shareSyncFailureMessage(S.of(context), failure);
+    } catch (error) {
+      if (!mounted) return;
+      message = requestErrorText(S.of(context), error);
+    }
+    await showErrorDialog(
+      context: context,
+      title: S.of(context).syncNow,
+      errorMessage: message,
+    );
   }
 
   @override
@@ -167,6 +212,14 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       $$replace("/");
                     },
                   ),
+                  if (syncSettings case final settings?
+                      when allRecords.any((record) => record.shareSync))
+                    SettingsBoxToggle(
+                      title: S.of(context).autoShareSync,
+                      subtitle: S.of(context).autoShareSyncDescription,
+                      value: settings.autoShareSync,
+                      onChanged: _setAutoShareSync,
+                    ),
                   const SizedBox(height: 2),
                   SizedBox(
                     width: double.maxFinite,
@@ -407,24 +460,17 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                         },
                                   child: Text(S.of(context).removeLibrary),
                                 ),
-                                if (row.library case final library?) ...[
-                                  Button(
-                                    onPressed:
-                                        updatingLibraries.contains(
-                                          library.libraryId,
-                                        )
-                                        ? null
-                                        : () => _setBackgroundSync(
-                                            library,
-                                            !library.backgroundSync,
-                                          ),
-                                    child: Text(
-                                      library.backgroundSync
-                                          ? S.of(context).turnOffBackgroundSync
-                                          : S.of(context).turnOnBackgroundSync,
-                                    ),
+                                if (record case LibraryRecordSummary(
+                                  shareSync: true,
+                                  kind: LibraryRecordKindSummaryOpenDal(
+                                    :final libraryId,
                                   ),
-                                ],
+                                ))
+                                  ShareSyncButton(
+                                    libraryId: libraryId,
+                                    onPressed: () =>
+                                        _syncShareLibrary(libraryId),
+                                  ),
                                 if (isCurrentLibrary) ...[
                                   const ScanLibraryButton(),
                                   const AnalyzeLibraryButton(),

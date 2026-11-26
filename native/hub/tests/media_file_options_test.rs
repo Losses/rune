@@ -40,7 +40,6 @@ async fn request_library(
         protocol: ProtocolAdapter::Native,
         fs: vec![FsAdapter::Local { path: root.into() }],
         catalog: CatalogPlacement::InMediaRoot,
-        background_sync: false,
     };
     pool.register_ui(LibraryResources {
         library_id,

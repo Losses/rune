@@ -17,6 +17,8 @@ Future<void> setSyncSettings(GetSyncSettingsResponse settings) async {
       broadcast: settings.broadcast,
       acceptRemoteControl: settings.acceptRemoteControl,
       acceptSync: settings.acceptSync,
+      autoDeviceSync: settings.autoDeviceSync,
+      autoShareSync: settings.autoShareSync,
       missingHostFile: settings.missingHostFile,
       callId: callId,
     ).sendSignalToRust(),

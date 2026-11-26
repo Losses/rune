@@ -50,7 +50,6 @@ async fn request_library(
             path: media_root.clone(),
         }],
         catalog: CatalogPlacement::InMediaRoot,
-        background_sync: false,
     };
     pool.register_ui(LibraryResources {
         library_id,

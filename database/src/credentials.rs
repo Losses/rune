@@ -392,7 +392,6 @@ mod tests {
             },
             fs: Vec::new(),
             catalog: CatalogPlacement::None,
-            background_sync: false,
         };
         LibraryRegistry::update(dir.path(), |registry| {
             registry.libraries.push(record);
@@ -494,7 +493,6 @@ mod tests {
                 },
                 fs: Vec::new(),
                 catalog: CatalogPlacement::None,
-                background_sync: false,
             });
             Ok(())
         })

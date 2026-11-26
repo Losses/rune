@@ -1332,7 +1332,6 @@ mod lifecycle_tests {
                     path: dir.to_string_lossy().into_owned(),
                 }],
                 catalog: CatalogPlacement::InMediaRoot,
-                background_sync: true,
             });
             Ok(())
         })
@@ -1531,8 +1530,8 @@ mod lifecycle_tests {
         let peer = fixture(dir.path()).await?;
         for name in [
             "ListLocalLibrariesRequest",
-            "SetLibraryBackgroundSyncRequest",
             "SetOnlineLyricsRequest",
+            "SyncShareLibraryRequest",
             "ListPeerLibrariesRequest",
             "AddRemoteLibraryRequest",
             "ListControllersRequest",
@@ -2106,11 +2105,17 @@ mod lifecycle_tests {
         )
         .await?;
         close_ui(&reopened.global_params).await?;
-        set_library_background(&a, original_id, false).await?;
-        set_library_background(&a, other_id, false).await?;
         assert!(
-            node.library_pool.served_library_ids().await?.is_empty(),
+            node.library_pool.ui_library_ids().await.is_empty(),
             "UI registration leaked"
+        );
+        let mut served = node.library_pool.served_library_ids().await?;
+        served.sort();
+        let mut registered = vec![original_id, other_id];
+        registered.sort();
+        assert_eq!(
+            served, registered,
+            "a library stopped being served when its UI closed"
         );
         assert_eq!(a.get_address().await, Some(addr));
         assert_eq!(
@@ -2413,6 +2418,8 @@ mod lifecycle_tests {
             broadcast: current.broadcast,
             accept_remote_control: current.accept_remote_control,
             accept_sync: current.accept_sync,
+            auto_device_sync: current.auto_device_sync,
+            auto_share_sync: current.auto_share_sync,
             missing_host_file: current.missing_host_file.into(),
             call_id: None,
         };
@@ -5816,7 +5823,6 @@ mod lifecycle_tests {
                     },
                     fs: Vec::new(),
                     catalog: CatalogPlacement::None,
-                    background_sync: false,
                 },
                 LibraryRecord {
                     record_id: subsonic_id,
@@ -5829,7 +5835,6 @@ mod lifecycle_tests {
                     },
                     fs: Vec::new(),
                     catalog: CatalogPlacement::None,
-                    background_sync: false,
                 },
             ]);
             Ok(())
@@ -6220,23 +6225,6 @@ mod lifecycle_tests {
             .context("held track")
     }
 
-    async fn set_library_background(manager: &Fixture, id: Uuid, enabled: bool) -> Result<()> {
-        let request = SetLibraryBackgroundSyncRequest {
-            call_id: None,
-            library_id: id.to_string(),
-            enabled,
-        };
-        request
-            .handle(
-                request.extract_params(&manager.global_params),
-                None,
-                &request,
-            )
-            .await?
-            .context("option response")?;
-        Ok(())
-    }
-
     async fn write_album(library: &LibraryHandle, name: &str) -> Result<ObjectKey> {
         let key = ObjectKey {
             collection: Collection::Albums,
@@ -6472,7 +6460,6 @@ mod lifecycle_tests {
         let addr = paired_full(&a, &b).await?;
         a.stop_worker().await?;
         b.stop_worker().await?;
-        set_library_background(&a, id, false).await?;
         let source = a.global_params.library_pool.acquire(id).await?;
         let key = write_album(&source, "before idle close").await?;
         let identity = source.library_sync.identity().await?;
@@ -6482,14 +6469,13 @@ mod lifecycle_tests {
             Ok(connection.upgrade().is_none().then_some(()))
         })
         .await?;
+        let pool = &a.global_params.library_pool;
         assert!(
-            !a.global_params
-                .library_pool
-                .served_library_ids()
-                .await?
-                .contains(&id)
+            pool.acquire_open_background(id).await.is_none(),
+            "the held library is still open"
         );
-        set_library_background(&a, id, true).await?;
+        // A library that is not open is served all the same: the request below opens it.
+        assert!(pool.served_library_ids().await?.contains(&id));
         assert!(connection.upgrade().is_none());
         let (base, client) = authenticated_client(
             &b.global_params.node,
@@ -6539,13 +6525,16 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn held_libraries_sync_without_ui_and_respect_background_option() -> Result<()> {
+    async fn held_libraries_sync_without_ui_and_follow_the_automatic_device_sync_switch()
+    -> Result<()> {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
-        let a = fixture_with_library(first.path(), Uuid::new_v4()).await?;
+        // Both devices have the same library open in the UI, and the second one also holds a
+        // replica of L2 that it never opens there.
+        let ui_id = Uuid::new_v4();
+        let a = fixture_with_library(first.path(), ui_id).await?;
         let b =
-            fixture_with_library_timeout(second.path(), Uuid::new_v4(), Duration::from_millis(100))
-                .await?;
+            fixture_with_library_timeout(second.path(), ui_id, Duration::from_millis(100)).await?;
         let library_id = held_owned_library(&a, &first.path().join("L2")).await?;
         let fingerprint = info(&a).await?.fingerprint;
         let peer_library = PeerLibrary {
@@ -6558,8 +6547,7 @@ mod lifecycle_tests {
         request_add_library(&b, &fingerprint, &peer_library).await?;
         let original = scan_held_track(&a, library_id, "first.ogg").await?;
         let replica = b.global_params.library_pool.acquire(library_id).await?;
-        let ui_id = b.global_params.library_id.context("UI library")?;
-        assert_ne!(a.global_params.library_id, Some(library_id));
+        assert_eq!(b.global_params.library_id, Some(ui_id));
         assert_ne!(ui_id, library_id);
         assert!(Arc::ptr_eq(
             &b.global_params.test_library().main_db,
@@ -6642,55 +6630,99 @@ mod lifecycle_tests {
             .await?;
         assert_eq!(blake3::hash(&bytes).to_hex().as_str(), digest);
 
-        let a_ui = a.global_params.library_id.context("A UI library")?;
-        set_library_background(&a, a_ui, false).await?;
-        let response = client
-            .post(format!("https://{addr}/libraries/{a_ui}/sync/metadata"))
+        // Both of the first device's libraries are served, the one open in its UI and the one
+        // that is not.
+        for served in [ui_id, library_id] {
+            let response = client
+                .post(format!("https://{addr}/libraries/{served}/sync/metadata"))
+                .json(&serde_json::json!({"operation": "identity"}))
+                .send()
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.json::<serde_json::Value>().await?["Ok"]["namespace"],
+                served.to_string()
+            );
+        }
+
+        // With automatic device sync off, the worker leaves the library that is not open in
+        // the UI alone.
+        let b_addr = paired_full(&b, &a).await?;
+        set_sync_settings(&b.global_params.node, |request| {
+            request.auto_device_sync = false
+        })
+        .await?;
+        let b_pool = &b.global_params.library_pool;
+        b.stop_worker().await?;
+        drop(replica);
+        wait_until("unopened L2 to idle close on the second device", || async {
+            Ok(b_pool
+                .acquire_open_background(library_id)
+                .await
+                .is_none()
+                .then_some(()))
+        })
+        .await?;
+        let later = write_album(
+            &a.global_params.library_pool.acquire(library_id).await?,
+            "written while automatic sync is off",
+        )
+        .await?;
+        let in_ui = write_album(a.global_params.test_library(), "in the UI library").await?;
+        // A fresh worker has every pass due at once: the pass that brings the UI library's
+        // album starts together with any pass this worker would give L2. The second album
+        // comes with the pass after that one, a retry interval later, when a pass over L2
+        // would long have ended.
+        b.start_worker().await?;
+        wait_for_album(b.global_params.test_library(), &in_ui).await?;
+        let in_ui_again =
+            write_album(a.global_params.test_library(), "in the UI library again").await?;
+        wait_for_album(b.global_params.test_library(), &in_ui_again).await?;
+        assert!(
+            b_pool.acquire_open_background(library_id).await.is_none(),
+            "the worker opened a library that is not open in the UI"
+        );
+        // The first device may still sync L2 with the second one: the switch is about what
+        // this device does on its own.
+        let (_, inbound) = authenticated_client(
+            &a.global_params.node,
+            &fingerprint,
+            &a.private_key,
+            &info(&b).await?.fingerprint,
+            "127.0.0.1",
+            b_addr.port(),
+        )
+        .await?;
+        let response = inbound
+            .post(format!(
+                "https://{b_addr}/libraries/{library_id}/sync/metadata"
+            ))
             .json(&serde_json::json!({"operation": "identity"}))
             .send()
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.json::<serde_json::Value>().await?["Ok"]["namespace"],
-            a_ui.to_string()
+            library_id.to_string()
+        );
+        let replica = b_pool.acquire(library_id).await?;
+        assert!(
+            replica.library_sync.get(&later).await?.is_none(),
+            "L2 was synced while automatic device sync was off"
         );
 
-        set_library_background(&a, library_id, false).await?;
-        for response in [
-            client.post(format!("{base}/sync/metadata")).send().await?,
-            client.get(&blob_url).send().await?,
-        ] {
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            assert_eq!(
-                response.json::<serde_json::Value>().await?["error"],
-                "library_not_served"
-            );
-        }
-        set_library_background(&a, library_id, true).await?;
-        set_library_background(&b, library_id, false).await?;
-        let connection = Arc::downgrade(&replica.main_db);
-        drop(replica);
-        // Leave the worker running across a complete normal retry interval.
-        let later = scan_held_track(&a, library_id, "second.ogg").await?;
-        tokio_time::timeout(TEST_DEADLINE, tokio_time::sleep(Duration::from_secs(32))).await?;
-        let replica = b.global_params.library_pool.acquire(library_id).await?;
-        assert!(
-            media_files::Entity::find()
-                .filter(Column::SourceUuid.eq(&later.source_uuid))
-                .one(&*replica.main_db)
-                .await?
-                .is_none(),
-            "disabled L2 received a later track"
-        );
-        wait_until("disabled L2 idle pool connection to close", || async {
-            Ok(connection.upgrade().is_none().then_some(()))
+        // Switching it back on syncs L2 again.
+        set_sync_settings(&b.global_params.node, |request| {
+            request.auto_device_sync = true
         })
         .await?;
+        wait_for_album(&replica, &later).await?;
         assert!(Arc::ptr_eq(
             &b.global_params.test_library().main_db,
             &b.global_params.library_pool.acquire(ui_id).await?.main_db,
         ));
         a.stop().await?;
+        b.stop().await?;
         b.stop_worker().await?;
         a.global_params.node.token.cancel();
         b.global_params.node.token.cancel();
