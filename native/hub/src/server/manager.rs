@@ -1150,17 +1150,17 @@ mod lifecycle_tests {
     }
 
     /// How a connection to a bound socket that never listens ends. Linux and Windows refuse it.
-    /// macOS answers it with nothing, so the attempt ends when the kernel gives up.
-    #[cfg(not(target_os = "macos"))]
+    /// Apple's kernel answers it with nothing, so the attempt ends when the kernel gives up.
+    #[cfg(not(target_vendor = "apple"))]
     const UNSERVED_CONNECTION: ErrorKind = ErrorKind::ConnectionRefused;
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     const UNSERVED_CONNECTION: ErrorKind = ErrorKind::TimedOut;
 
     /// The error of a connection to `addr`, which nothing serves (see [`UNSERVED_CONNECTION`]).
     async fn connect_to_unserved(addr: SocketAddr) -> Result<io::Error> {
         let socket = TcpSocket::new_v4()?;
         // The kernel gives up after 75 seconds unless the socket says otherwise.
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         {
             use std::os::fd::AsRawFd;
 
