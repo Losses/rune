@@ -213,6 +213,43 @@ impl HandoffReconcileFixture {
         rollback_entered
     }
 
+    /// The target's take-back endpoint answers its first request with a refusal rather than a
+    /// transport loss: the connection carrying it stays usable, but the reconciled block is
+    /// neither applied nor confirmed absent. Later requests reach the real handler.
+    async fn install_take_back_refusal(&self) -> Arc<Notify> {
+        let reconcile_refused = Arc::new(Notify::new());
+        let refused = reconcile_refused.clone();
+        let refuse_once = Arc::new(AtomicBool::new(false));
+        let target_node = Arc::downgrade(&self.target.global_params.node);
+        let take_back = "TakeBackHandoffBlockRequest";
+        self.target
+            .global_params
+            .node
+            .websocket_service
+            .override_handler(take_back, move |payload, session, library_id| {
+                let target_node = target_node.clone();
+                let refused = refused.clone();
+                let refuse_once = refuse_once.clone();
+                async move {
+                    let node = target_node.upgrade().expect("target node");
+                    if refuse_once.swap(true, Ordering::SeqCst) {
+                        return dispatch_remote(take_back, &payload, session, library_id, &node)
+                            .await
+                            .expect("real handoff rollback handler");
+                    }
+                    refused.notify_one();
+                    (
+                        String::new(),
+                        Err(anyhow::Error::new(ExpectedRequestError::invalid_input(
+                            "test: the reconciling take-back is refused",
+                        ))),
+                    )
+                }
+            })
+            .await;
+        reconcile_refused
+    }
+
     async fn shutdown(&self) -> Result<()> {
         self.source.global_params.node.shutdown().await?;
         self.target.global_params.node.shutdown().await?;
@@ -473,5 +510,154 @@ async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Resul
     f.target.manager.stop().await?;
     fs::write(&f.target_file, &f.valid_audio)?;
     assert_retry_reconciled(&f, false).await?;
+    f.shutdown().await
+}
+
+/// A reconciling take-back that is refused rather than lost still leaves its connection usable,
+/// so the retried handoff reaches the load step on it. The target must not receive that load
+/// while the old block is unresolved: the handoff fails, the target's queue stays as the failed
+/// rollback left it, and a later reconciliation clears the way for the retry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> {
+    use crate::messages::HandoffRequest;
+
+    let f = handoff_reconcile_fixture("handoff-rollback-pending-retry").await?;
+    // The rollback never applies: the target keeps the block, and the source records its
+    // outcome as unknown.
+    let rollback_entered = f.install_take_back_cut(false).await;
+    let source_params = f.source.global_params.clone();
+    let handoff = HandoffRequest {
+        call_id: None,
+        target: Some(f.target_fingerprint.clone()),
+    };
+    let handoff_task = tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
+    timeout(TEST_DEADLINE, rollback_entered.notified())
+        .await
+        .context("the decode failure should request a handoff rollback")?;
+    f.target.manager.stop().await?;
+    let result = handoff_task
+        .await
+        .context("join cut-rollback handoff")?
+        .context("dispatch cut-rollback handoff");
+    assert!(
+        result.as_ref().is_err(),
+        "a handoff whose rollback loses its connection must fail: {result:?}"
+    );
+
+    // The rollback never applied, so the target still holds the handed-off block on top of its
+    // original queue.
+    let held = wait_player(&f.target, |status| {
+        status
+            .playlist
+            .iter()
+            .any(|entry| entry.item == f.handed_off)
+    })
+    .await
+    .context("the unapplied rollback leaves the handoff block on the target")?;
+    let original_items: Vec<_> = held
+        .playlist
+        .iter()
+        .filter(|entry| entry.item != f.handed_off)
+        .map(|entry| entry.item.clone())
+        .collect();
+    assert!(
+        !original_items.is_empty(),
+        "the target should have its own queue before the handoff"
+    );
+    let held_items: Vec<_> = held
+        .playlist
+        .iter()
+        .map(|entry| entry.item.clone())
+        .collect();
+
+    // Connectivity returns, and the reconciling take-back is refused with a non-transport
+    // failure: the connection stays open and answers, but the block stays unresolved. The retry
+    // is immediate: no other connection reconciles first.
+    let reconcile_refused = f.install_take_back_refusal().await;
+    f.target
+        .manager
+        .clone()
+        .start(
+            f.target_address,
+            DiscoveryParams {
+                device_info: info(&f.target).await?,
+            },
+        )
+        .await?;
+    fs::write(&f.target_file, &f.valid_audio)?;
+    let retry = HandoffRequest {
+        call_id: None,
+        target: Some(f.target_fingerprint.clone()),
+    };
+    let result = timeout(
+        TEST_DEADLINE,
+        dispatch_gui_request(&f.source.global_params, &retry),
+    )
+    .await
+    .context("the refused-reconcile retry did not finish")?;
+    timeout(TEST_DEADLINE, reconcile_refused.notified())
+        .await
+        .context("the retry should reconcile the unresolved block before its load")?;
+    assert!(
+        result.as_ref().is_err(),
+        "a handoff onto a renderer with an unresolved rollback must fail: {result:?}"
+    );
+
+    // No new load reached the target: the queue is exactly what the failed rollback left.
+    let after_refusal = f.target.global_params.player.lock().await.get_status();
+    let after_items: Vec<_> = after_refusal
+        .playlist
+        .iter()
+        .map(|entry| entry.item.clone())
+        .collect();
+    assert_eq!(
+        after_items, held_items,
+        "the target must receive no new load while the old block is unresolved"
+    );
+    assert!(
+        original_items
+            .iter()
+            .all(|item| after_items.contains(item)),
+        "the target's original queue must remain intact: {after_items:?}"
+    );
+
+    // With the target answering normally again, the next connection reconciles the block and
+    // the retried handoff goes through end to end.
+    let retry = HandoffRequest {
+        call_id: None,
+        target: Some(f.target_fingerprint.clone()),
+    };
+    timeout(
+        TEST_DEADLINE,
+        dispatch_gui_request(&f.source.global_params, &retry),
+    )
+    .await
+    .context("the reconciled retry did not finish")?
+    .context("the reconciled retry should succeed")?;
+    let target_after_retry = wait_player(&f.target, |status| {
+        status.item == Some(f.handed_off.clone()) && status.state == PlayerPlaybackState::Playing
+    })
+    .await
+    .context("the reconciled retry should play on the target")?;
+    let handed_off_count = target_after_retry
+        .playlist
+        .iter()
+        .filter(|entry| entry.item == f.handed_off)
+        .count();
+    assert_eq!(
+        handed_off_count, 1,
+        "the retry must not duplicate the handed-off track on the target's queue: {:?}",
+        target_after_retry.playlist
+    );
+    assert!(
+        original_items
+            .iter()
+            .all(|item| target_after_retry.playlist.iter().any(|entry| &entry.item == item)),
+        "the target's original queue must survive the retry: {:?}",
+        target_after_retry.playlist
+    );
+    wait_player(&f.source, |status| status.state == PlayerPlaybackState::Paused)
+        .await
+        .context("only the target should play after the reconciled retry")?;
     f.shutdown().await
 }

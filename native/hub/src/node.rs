@@ -749,7 +749,6 @@ impl NodeContext {
             }
         };
         let mut resolved = Vec::new();
-        let mut failed = Vec::new();
         for &block in &blocks {
             match link
                 .call(&TakeBackHandoffBlockRequest {
@@ -768,7 +767,6 @@ impl NodeContext {
                         "Could not reconcile handoff block rollback with renderer {}: {error:#}",
                         link.fingerprint()
                     );
-                    failed.push(block);
                 }
             }
         }
@@ -777,11 +775,22 @@ impl NodeContext {
         }
         let mut pending = self.pending_handoff_rollbacks.lock().await;
         if let Some(blocks) = pending.get_mut(link.fingerprint()) {
-            blocks.retain(|block| failed.contains(block));
+            // Only what this pass resolved may leave the list: anything newer and anything
+            // still unanswered stays pending for the next connection.
+            blocks.retain(|block| !resolved.contains(block));
             if blocks.is_empty() {
                 pending.remove(link.fingerprint());
             }
         }
+    }
+
+    /// Whether rollback outcomes are still unknown for this renderer: while any are, a handoff
+    /// must not load onto it, because its queue may still hold the block being rolled back.
+    pub(crate) async fn has_pending_handoff_rollbacks(&self, fingerprint: &str) -> bool {
+        let pending = self.pending_handoff_rollbacks.lock().await;
+        pending
+            .get(fingerprint)
+            .is_some_and(|blocks| !blocks.is_empty())
     }
 
     pub(crate) fn handoff_generation(&self) -> u64 {

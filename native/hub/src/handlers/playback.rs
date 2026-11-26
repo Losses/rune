@@ -2214,6 +2214,17 @@ async fn hand_off_to_renderer(
     let (connected_link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
+    // A rollback whose outcome is still unknown may have left its block on the target: loading
+    // the new one on top of it would stack both. The connection just reconciled what it could,
+    // so anything still pending now refused to resolve; the handoff waits for a connection that
+    // can clear it.
+    if node.has_pending_handoff_rollbacks(target).await {
+        connected_link.close();
+        return Err(ExpectedRequestError::Unavailable {
+            what: "the target renderer's unresolved handoff rollback",
+        }
+        .into());
+    }
     let mut events = node.subscribe_handoff_playback_events();
     // The target starts the handed-off track as the load asks: playing, or paused at its place.
     let expected_state = if load.play != LoadPlay::Pause {
