@@ -1494,6 +1494,10 @@ impl PlayerInternal {
                             }
                             if let Some(load) = edit.load {
                                 self.failure_chain_signaled = false;
+                                // An edit that loads takes playback over, paused or playing, as
+                                // a session handed back does, so the report an older handoff
+                                // left must not answer a pause that follows.
+                                self.last_pause_report = None;
                                 self.load_at(
                                     Some(insertion + load.start_index),
                                     load.play,
@@ -1505,6 +1509,7 @@ impl PlayerInternal {
                                 && self.current_queue_edit_index().is_none()
                             {
                                 self.failure_chain_signaled = false;
+                                self.last_pause_report = None;
                                 self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
                             }
                         },
@@ -7181,6 +7186,70 @@ mod playback_state_tests {
                         response,
                     })?;
                     loaded.await?;
+                    assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pause_reporting_does_not_survive_a_local_session_handed_back_paused() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let track = library_item(library_id, file_uuid);
+                    let pause_reporting = || {
+                        let (response, paused) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                        Ok::<_, anyhow::Error>(paused)
+                    };
+                    commands_sender.send(restore(
+                        library_id,
+                        &[file_uuid],
+                        0,
+                        1.5,
+                        PlaybackMode::Sequential,
+                    ))?;
+                    expect_loaded(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
+
+                    // A handoff pauses the player playing, and the answer is lost: the report
+                    // it remembers is Playing.
+                    {
+                        let (response, _lost) = oneshot::channel();
+                        commands_sender.send(PlayerCommand::PauseReporting { response })?;
+                    }
+                    expect_paused(&mut events, &track).await?;
+
+                    // The session comes back to this player paused, the way a handoff back to
+                    // the local player loads it: an edit replacing the queue with a paused
+                    // load. What a pause answers starts there, not at the older handoff.
+                    commands_sender.send(PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            placement: PlaylistPlacement::Replace,
+                            tracks: vec![(track.clone(), PlaybackSource::LibraryStream)],
+                            block: None,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 0,
+                                position: Duration::from_millis(1500),
+                                play: false,
+                            }),
+                        },
+                        None,
+                    ))?;
                     assert_eq!(pause_reporting()?.await?, PausedPlayback::NotPlaying);
 
                     runner.abort();
