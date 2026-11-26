@@ -1,11 +1,11 @@
 use std::{
     borrow::Cow,
-    fs,
     path::{Path, PathBuf},
 };
 
 use anyhow::Result;
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
+use fsio::FsIo;
 
 use crate::{
     lrc::parse_lrc, srt::parse_srt, ttml::parse_ttml, types::LyricFile, utils::strip_bom,
@@ -25,11 +25,15 @@ const SIDECARS: [(&str, ParseFn); 5] = [
 ];
 
 /// Returns the first sidecar that parses; when none does, the last parse error.
-pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
+///
+/// Sidecars are probed and read through the audio file's filesystem backend,
+/// so a library on a remote backend finds sidecars stored next to the audio
+/// there rather than same-named files on the host filesystem.
+pub fn parse_audio_lyrics(fsio: &FsIo, path: PathBuf) -> Option<Result<LyricFile>> {
     let mut last_error = None;
 
     for (extension, parse_fn) in SIDECARS {
-        match parse_lyrics_with_extension(&path, extension, parse_fn) {
+        match parse_lyrics_with_extension(fsio, &path, extension, parse_fn) {
             Some(Ok(lyric)) => return Some(Ok(lyric)),
             Some(Err(err)) => {
                 log::warn!("Unable to parse the .{extension} lyric of {path:?}: {err:#}");
@@ -55,6 +59,7 @@ fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
 }
 
 fn parse_lyrics_with_extension<F>(
+    fsio: &FsIo,
     path: &Path,
     extension: &str,
     parse_fn: F,
@@ -65,16 +70,21 @@ where
     let mut file_path = path.to_path_buf();
     file_path.set_extension(extension);
 
-    if file_path.exists() {
-        match fs::read(&file_path) {
-            Ok(bytes) => Some(parse_fn(&decode_text(&bytes))),
-            Err(err) => {
-                log::warn!("Unable to read {file_path:?}: {err}");
-                None
-            }
+    match fsio.exists(&file_path) {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(err) => {
+            log::warn!("Unable to probe {file_path:?}: {err}");
+            return None;
         }
-    } else {
-        None
+    }
+
+    match fsio.read(&file_path) {
+        Ok(bytes) => Some(parse_fn(&decode_text(&bytes))),
+        Err(err) => {
+            log::warn!("Unable to read {file_path:?}: {err}");
+            None
+        }
     }
 }
 
@@ -82,6 +92,7 @@ where
 mod tests {
     use super::*;
     use std::env;
+    use std::fs;
     use std::process as std_process;
 
     #[test]
@@ -116,7 +127,9 @@ mod tests {
         let (gbk, _, _) = encoding_rs::GBK.encode("[00:01.00]我们的歌曲在这里唱给你听");
         fs::write(dir.join("song.lrc"), &*gbk).unwrap();
 
-        let lyric = parse_audio_lyrics(dir.join("song.flac")).unwrap().unwrap();
+        let lyric = parse_audio_lyrics(&FsIo::new(), dir.join("song.flac"))
+            .unwrap()
+            .unwrap();
         assert_eq!(lyric.lyrics.len(), 1);
         fs::remove_dir_all(&dir).unwrap();
     }
