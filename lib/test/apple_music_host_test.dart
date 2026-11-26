@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rune/utils/hosted_player/apple_music_host.dart';
@@ -25,15 +25,76 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('registerOnPlatform', () {
-    tearDown(() => platformHosts.remove('appleMusic'));
+    const channel = MethodChannel(AppleMusicHost.channelName);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    late List<String> asked;
 
-    test('registers the host only where the runner provides it', () {
-      AppleMusicHost.registerOnPlatform();
-      expect(
-        platformHosts['appleMusic'] is AppleMusicHost,
-        Platform.isMacOS || Platform.isIOS,
-      );
+    setUp(() => asked = []);
+
+    tearDown(() {
+      platformHosts.remove('appleMusic');
+      debugDefaultTargetPlatformOverride = null;
+      messenger.setMockMethodCallHandler(channel, null);
     });
+
+    /// A runner that answers `available`, as the Android runner of a build
+    /// that includes Apple Music does.
+    void runnerWithHost() =>
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          asked.add(call.method);
+          return call.method == 'available' ? true : null;
+        });
+
+    for (final platform in [TargetPlatform.macOS, TargetPlatform.iOS]) {
+      test('registers the host on ${platform.name} without asking', () async {
+        debugDefaultTargetPlatformOverride = platform;
+        runnerWithHost();
+        await AppleMusicHost.registerOnPlatform();
+        expect(platformHosts['appleMusic'], isA<AppleMusicHost>());
+        expect(asked, isEmpty);
+      });
+    }
+
+    test('registers the host on Android when the runner has it', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      runnerWithHost();
+      await AppleMusicHost.registerOnPlatform();
+      expect(platformHosts['appleMusic'], isA<AppleMusicHost>());
+      expect(asked, ['available']);
+    });
+
+    test(
+      'registers no host on Android when nothing handles the channel',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        await AppleMusicHost.registerOnPlatform();
+        expect(platformHosts.containsKey('appleMusic'), isFalse);
+      },
+    );
+
+    test(
+      'registers no host on Android when the runner fails to answer',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        messenger.setMockMethodCallHandler(
+          channel,
+          (call) async => throw PlatformException(code: 'broken'),
+        );
+        await AppleMusicHost.registerOnPlatform();
+        expect(platformHosts.containsKey('appleMusic'), isFalse);
+      },
+    );
+
+    for (final platform in [TargetPlatform.windows, TargetPlatform.linux]) {
+      test('registers no host on ${platform.name}', () async {
+        debugDefaultTargetPlatformOverride = platform;
+        runnerWithHost();
+        await AppleMusicHost.registerOnPlatform();
+        expect(platformHosts.containsKey('appleMusic'), isFalse);
+        expect(asked, isEmpty);
+      });
+    }
   });
 
   late MethodChannel channel;

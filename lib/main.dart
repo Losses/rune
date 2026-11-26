@@ -293,7 +293,7 @@ void main(List<String> arguments) async {
 
   initialPath = await getInitialPath();
   libraryRegistry = LibraryRegistryProvider();
-  registerPlatformHosts();
+  await registerPlatformHosts();
   try {
     await libraryRegistry.ready;
   } on Object catch (error) {
