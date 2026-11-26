@@ -9,29 +9,42 @@ import '../utils/system_volume.dart';
 import '../bindings/bindings.dart';
 import 'renderer_attachment.dart';
 
-/// Whether a platform host plays what this device's own player plays: the latest report and the
-/// ones that follow.
+/// Whether a platform host with no volume of its own plays what this device's own player plays:
+/// the latest report and the ones that follow.
 class HostedSignal {
   const HostedSignal({required this.latest, required this.changes});
 
   /// What the hub reports from the live signals.
-  factory HostedSignal.fromHub() => HostedSignal(
-    latest: PlayerHostChanged.latestRustSignal?.message.hosted ?? false,
-    changes: PlayerHostChanged.rustSignalStream.map(
-      (event) => event.message.hosted,
-    ),
+  factory HostedSignal.fromHub() => HostedSignal.fromReports(
+    latest: PlayerHostChanged.latestRustSignal?.message,
+    changes: PlayerHostChanged.rustSignalStream.map((event) => event.message),
   );
+
+  /// From the hub's reports of the host that plays this device's track. A host with a volume of
+  /// its own does not count: it plays at Rune's volume, as this device's own player does.
+  factory HostedSignal.fromReports({
+    required PlayerHostChanged? latest,
+    required Stream<PlayerHostChanged> changes,
+  }) => HostedSignal(
+    latest: _withoutOwnVolume(latest),
+    changes: changes.map(_withoutOwnVolume),
+  );
+
+  static bool _withoutOwnVolume(PlayerHostChanged? report) =>
+      report != null && report.hosted && !report.ownVolume;
 
   final bool latest;
   final Stream<bool> changes;
 }
 
-/// Rune's volume, or the system volume while a platform host plays this device's track.
+/// Rune's volume, or the system volume while a platform host with no volume of its own plays
+/// this device's track.
 ///
 /// A platform host on macOS or iOS may play with no volume of its own, so the volume control
 /// moves the system volume then. That is only so when this device's own player is the current
 /// one and the host plays the track; Rune's stored volume is left alone, and the system volume
-/// stays where it is once the mode ends.
+/// stays where it is once the mode ends. A host with a volume of its own plays at Rune's volume,
+/// as this device's own player does.
 class VolumeProvider with ChangeNotifier {
   static const String _volumeSettingsKey = 'volume_level';
 
@@ -66,7 +79,8 @@ class VolumeProvider with ChangeNotifier {
   /// else Rune's.
   double get volume => _systemMode ? (_system?.volume ?? 0) : _volume;
 
-  /// Whether the volume is the system's, because a platform host plays this device's track.
+  /// Whether the volume is the system's, because a platform host with no volume of its own plays
+  /// this device's track.
   bool get usesSystemVolume => _systemMode;
 
   /// Whether the system's own volume view stands in for the slider: on iOS, which has no call

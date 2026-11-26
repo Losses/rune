@@ -297,7 +297,18 @@ final class AppleMusicHost {
       "host": "appleMusic",
       "authorized": authorized,
       "canPlay": canPlay,
+      "ownVolume": Self.hasOwnVolume,
     ])
+  }
+
+  /// Whether `setGain` sets a volume of the player's own: on macOS, when the system has the
+  /// relative volume. Otherwise the system volume applies.
+  private static var hasOwnVolume: Bool {
+    #if os(macOS)
+      return RelativeVolume.shared != nil
+    #else
+      return false
+    #endif
   }
 
   /// A subscription that starts or ends changes what can be played.
@@ -1125,8 +1136,12 @@ final class MusicKitPlayback {
       case "stop":
         stop()
       case "setGain":
-        // MusicKit's player has no volume of its own; the system volume applies.
-        break
+        // Without a volume of the player's own, the system volume applies.
+        #if os(macOS)
+          if let gain = action.gain {
+            RelativeVolume.shared?.set(Float(gain))
+          }
+        #endif
       default:
         break
       }
