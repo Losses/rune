@@ -1677,6 +1677,11 @@ async fn the_sync_keeps_the_facts_of_the_held_albums_in_batches_of_a_hundred_and
     // names an id twice.
     let batches = apple.fake.count("/v1/catalog/it/albums?");
     assert_eq!(batches, 3);
+    let asked = apple.fake.asked_ids("/v1/catalog/it/albums?");
+    assert!(asked.iter().all(|ids| ids.len() <= 100), "{asked:?}");
+    let ids: Vec<&String> = asked.iter().flatten().collect();
+    assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len());
+    assert!(ids.len() >= 254);
     let facts = classes(&apple).await;
     assert!(facts.albums.len() >= 254);
     // The facts are the catalog's: the EP is one by name, the compilation one by flag.
@@ -2338,7 +2343,12 @@ async fn a_catalog_artist_in_a_rune_mix_brings_the_songs_of_its_albums_once() ->
             .count_containing("/v1/catalog/it/artists/330/albums?offset=1"),
         1
     );
-    assert_eq!(apple.fake.count_containing("include=artists,tracks"), 1);
+    assert_eq!(
+        apple
+            .fake
+            .count_including("/v1/catalog/it/albums?", "tracks"),
+        1
+    );
     assert_eq!(apple.fake.count("/v1/catalog/it/albums/"), 0);
 
     // The artist keeps its library page, with both albums in their section and every song once.

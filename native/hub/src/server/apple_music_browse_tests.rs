@@ -154,6 +154,14 @@ fn as_other_account(value: &mut Value) {
     }
 }
 
+/// Whether the query `query` asks for the relationship `relationship` to be included, as one
+/// of the names its `include` lists.
+fn includes(query: &str, relationship: &str) -> bool {
+    url::form_urlencoded::parse(query.as_bytes()).any(|(name, value)| {
+        name == "include" && value.split(',').any(|listed| listed == relationship)
+    })
+}
+
 /// Counts a read being answered for as long as it lives.
 struct InFlight<'a>(&'a AtomicUsize);
 
@@ -180,6 +188,37 @@ impl AppleFake {
             .iter()
             .filter(|(target, _)| target.contains(part))
             .count()
+    }
+
+    /// How many requests whose target starts with `prefix` asked for the relationship
+    /// `relationship` to be included.
+    fn count_including(&self, prefix: &str, relationship: &str) -> usize {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| {
+                target.starts_with(prefix)
+                    && includes(target.split_once('?').map_or("", |(_, query)| query), relationship)
+            })
+            .count()
+    }
+
+    /// The ids each request whose target starts with `prefix` asked for, in order.
+    fn asked_ids(&self, prefix: &str) -> Vec<Vec<String>> {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _)| target.starts_with(prefix))
+            .map(|(target, _)| {
+                let query = target.split_once('?').map_or("", |(_, query)| query);
+                url::form_urlencoded::parse(query.as_bytes())
+                    .filter(|(name, _)| name == "ids")
+                    .flat_map(|(_, ids)| ids.split(',').map(str::to_owned).collect::<Vec<_>>())
+                    .collect()
+            })
+            .collect()
     }
 
     /// How many requests Apple's API was asked. The covers the binding downloads in the
@@ -858,8 +897,7 @@ impl AppleFake {
             .find(|(name, _)| name == "ids")
             .map(|(_, ids)| ids.into_owned())
             .unwrap_or_default();
-        let tracks = url::form_urlencoded::parse(query.as_bytes())
-            .any(|(name, value)| name == "include" && value.contains("tracks"));
+        let tracks = includes(query, "tracks");
         json!({"data": ids
             .split(',')
             .filter_map(|id| {
