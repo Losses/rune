@@ -23,7 +23,7 @@ impl Broadcaster for Quiet {
 #[tokio::test]
 async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    crate::test_node::disable_sync_listener(dir.path())?;
+    crate::test_node::disable_media_server(dir.path())?;
     let path = dir.path().to_string_lossy();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
     let node = NodeContext::new(
@@ -368,7 +368,7 @@ async fn a_slow_lookup_stops_when_the_binding_already_names_the_track() -> Resul
 #[tokio::test]
 async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    crate::test_node::disable_sync_listener(dir.path())?;
+    crate::test_node::disable_media_server(dir.path())?;
     let path = dir.path().to_string_lossy();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
     let node = NodeContext::new(
@@ -648,7 +648,7 @@ struct ScriptedSession {
 impl ScriptedSession {
     async fn start() -> Result<Self> {
         let dir = tempfile::tempdir()?;
-        crate::test_node::disable_sync_listener(dir.path())?;
+        crate::test_node::disable_media_server(dir.path())?;
         let path = dir.path().to_string_lossy();
         let told = Arc::new(ToldStatuses::default());
         let node = NodeContext::new(
@@ -878,7 +878,7 @@ impl Broadcaster for ToldCapabilities {
 #[tokio::test]
 async fn what_the_item_supports_is_told_once_it_can_be() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    crate::test_node::disable_sync_listener(dir.path())?;
+    crate::test_node::disable_media_server(dir.path())?;
     let path = dir.path().to_string_lossy();
     let told = Arc::new(ToldCapabilities::default());
     let broadcaster: Arc<dyn Broadcaster> = told.clone();
@@ -974,7 +974,7 @@ impl Broadcaster for ToldHosts {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_report_after_the_barrier_answered_is_what_the_session_shows_again_with() -> Result<()> {
     let dir = tempfile::tempdir()?;
-    crate::test_node::disable_sync_listener(dir.path())?;
+    crate::test_node::disable_media_server(dir.path())?;
     let path = dir.path().to_string_lossy();
     let told = Arc::new(ToldHosts::default());
     let player = Arc::new(Mutex::new(ScriptedPlayer::new()));

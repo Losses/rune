@@ -1208,13 +1208,13 @@
   "@server": {
     "description": "La titolo de la agorda paĝo por regi amaskomunikilaj ludilo-kunhavigaj kondutoj. Inkluzivas administri rajtitajn uzantojn kaj dissendi aparatan ĉeeston."
   },
-  "serverControl": "Servilo-regado",
-  "@serverControl": {
-    "description": "Sekcia titolo por regi la lokan retan servilon. 'Servilo' ĉi tie rilatas al la fona servo kiu administras aparat-malkovron."
+  "mediaServer": "Plurmedia Servilo",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "Startigi la servilon por permesi aliajn aparatojn malkovri ĉi tiun aparaton en la loka reto.",
-  "@serverControlSubtitle": {
-    "description": "Klarigas ke la servilo nur funkcias en la loka reto. Emfazas ke startigo ebligas videblecon al aliaj."
+  "mediaServerSubtitle": "Permesi al aliaj aparatoj konektiĝi al ĉi tiu aparato por sinkronigi bibliotekojn kaj regi la ludadon. Malŝaltu por rifuzi ĉiun konekton.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "Reta Interfaco",
   "@selectInterface": {
@@ -1677,11 +1677,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "Aŭdio ne disponeblas",
+  "allowRemoteControl": "Permesi foran regadon",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "Parigitaj aparatoj povas regi la ludadon en ĉi tiu aparato.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "Permesi sinkronigon kun parigitaj aparatoj",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Malŝaltu por malhelpi aliajn aparatojn konektiĝi al ĉi tiu aparato.",
+  "allowPairedSyncDescription": "Parigitaj aparatoj povas sinkronigi bibliotekojn kun ĉi tiu aparato.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

@@ -487,78 +487,6 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         }
     }
 
-    fn handle_start_server_request(
-        &self,
-        node: &NodeSlot,
-        request: &StartServerRequest,
-    ) -> impl Future<Output = Result<Option<StartServerResponse>>> + Send {
-        async move {
-            let node = node.current().await?;
-            let manager = node
-                .server_manager
-                .get()
-                .cloned()
-                .context("Server manager is not initialized")?;
-            request
-                .handle(
-                    (node.config_path.clone(), manager, node.run_mode),
-                    None,
-                    request,
-                )
-                .await
-        }
-    }
-
-    fn handle_stop_server_request(
-        &self,
-        node: &NodeSlot,
-        request: &StopServerRequest,
-    ) -> impl Future<Output = Result<Option<StopServerResponse>>> + Send {
-        async move {
-            let node = node.current().await?;
-            let manager = node
-                .server_manager
-                .get()
-                .cloned()
-                .context("Server manager is not initialized")?;
-            request.handle(manager, None, request).await
-        }
-    }
-
-    fn handle_start_broadcast_request(
-        &self,
-        node: &NodeSlot,
-        request: &StartBroadcastRequest,
-    ) -> impl Future<Output = Result<Option<StartBroadcastResponse>>> + Send {
-        async move {
-            let node = node.current().await?;
-            request
-                .handle(
-                    (
-                        Arc::clone(&node.device_scanner),
-                        node.config_path.clone(),
-                        node.run_mode,
-                    ),
-                    None,
-                    request,
-                )
-                .await
-        }
-    }
-
-    fn handle_stop_broadcast_request(
-        &self,
-        node: &NodeSlot,
-        request: &StopBroadcastRequest,
-    ) -> impl Future<Output = Result<Option<StopBroadcastResponse>>> + Send {
-        async move {
-            let node = node.current().await?;
-            request
-                .handle((Arc::clone(&node.device_scanner),), None, request)
-                .await
-        }
-    }
-
     fn handle_start_listening_request(
         &self,
         node: &NodeSlot,
@@ -693,18 +621,7 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
     ) -> impl Future<Output = Result<Option<SetSyncSettingsResponse>>> + Send {
         async move {
             let node = node.current().await?;
-            request
-                .handle(
-                    (
-                        Arc::clone(&node.sync_settings),
-                        node.config_path.clone(),
-                        node.server_manager.get().cloned(),
-                        node.run_mode,
-                    ),
-                    None,
-                    request,
-                )
-                .await
+            request.handle(node, None, request).await
         }
     }
 
@@ -2878,7 +2795,7 @@ mod moved_node_request_tests {
             .await?
             .expect("sync settings response with a UI library");
         assert_eq!(open_response.request_id, closed_response.request_id);
-        assert_eq!(open_response.listen, closed_response.listen);
+        assert_eq!(open_response.media_server, closed_response.media_server);
         assert!(matches!(
             (
                 open_response.missing_host_file,

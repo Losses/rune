@@ -202,7 +202,7 @@ mod tests {
 
     async fn test_node() -> (TempDir, Arc<NodeContext>) {
         let dir = tempfile::tempdir().unwrap();
-        crate::test_node::disable_sync_listener(dir.path()).unwrap();
+        crate::test_node::disable_media_server(dir.path()).unwrap();
         let path = dir.path().to_str().unwrap();
         let node = NodeContext::new(
             path,

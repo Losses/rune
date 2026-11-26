@@ -2325,7 +2325,7 @@ mod visualizer_feed_tests {
         let (url, state, server) = server(true, true).await;
         let node_dir = TempDir::new().unwrap();
         let path = node_dir.path().to_string_lossy().into_owned();
-        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
+        crate::test_node::disable_media_server(node_dir.path()).unwrap();
         let node = NodeContext::new(
             &path,
             &path,
@@ -2392,7 +2392,7 @@ mod visualizer_feed_tests {
         let (url, state, server) = server(true, true).await;
         let node_dir = TempDir::new().unwrap();
         let path = node_dir.path().to_string_lossy().into_owned();
-        crate::test_node::disable_sync_listener(node_dir.path()).unwrap();
+        crate::test_node::disable_media_server(node_dir.path()).unwrap();
         let signals = Arc::new(Signals::default());
         let node = NodeContext::new(
             &path,
@@ -2595,7 +2595,7 @@ mod visualizer_feed_tests {
         let (url, state, server) = server(true, false).await;
         let root = TempDir::new().unwrap();
         let config = root.path().to_string_lossy().into_owned();
-        crate::test_node::disable_sync_listener(root.path()).unwrap();
+        crate::test_node::disable_media_server(root.path()).unwrap();
         let node = NodeContext::new(
             &config,
             &config,

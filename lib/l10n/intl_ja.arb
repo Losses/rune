@@ -1206,13 +1206,13 @@
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "通信管理機の制御",
-  "@serverControl": {
-    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  "mediaServer": "メディアサーバー",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "通信管理機を起動し、他の装置が局地通信網上で本装置を検出できるようにする。",
-  "@serverControlSubtitle": {
-    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  "mediaServerSubtitle": "他のデバイスがこのデバイスに接続して、ライブラリの同期や再生の操作をできるようにします。オフにすると、すべての接続を拒否します。",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "通信接続口",
   "@selectInterface": {
@@ -1410,11 +1410,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "音声を利用できません",
+  "allowRemoteControl": "リモート操作を許可",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "ペアリング済みデバイスがこのデバイスの再生を操作できるようにします。",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "同期を許可",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "オフにすると、他のデバイスから接続できなくなります。",
+  "allowPairedSyncDescription": "ペアリング済みデバイスがこのデバイスとライブラリを同期できるようにします。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

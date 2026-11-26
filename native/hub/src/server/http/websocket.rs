@@ -7,7 +7,10 @@ use axum::{
     Extension,
     extract::{
         ConnectInfo, State,
-        ws::{CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade},
+        ws::{
+            CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade,
+            rejection::WebSocketUpgradeRejection,
+        },
     },
     http::StatusCode,
     http::{HeaderMap, HeaderName, HeaderValue, header::HOST},
@@ -28,7 +31,7 @@ use crate::{
     messages::{RemoteRequestFailed, RequestCapabilities, RequestCapability},
     node::NodeContext,
     request_error::{FailedCall, classify, request_failure_cause},
-    server::{ServerState, sync_auth::AuthenticatedFingerprint},
+    server::{ServerManager, ServerState, sync_auth::AuthenticatedFingerprint},
 };
 use discovery::endpoint::{DeviceAddress, DeviceScheme};
 use discovery::protocol_version::{
@@ -79,12 +82,29 @@ fn is_capability_message(message: &[u8]) -> bool {
 }
 
 pub async fn websocket_handler(
-    ws: WebSocketUpgrade,
+    ws: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
     Extension(AuthenticatedFingerprint(fingerprint)): Extension<AuthenticatedFingerprint>,
+    Extension(manager): Extension<Arc<ServerManager>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<ServerState>>,
     headers: HeaderMap,
 ) -> Response {
+    // Take the token before reading the setting: a session admitted just before remote
+    // control is switched off then still holds the token that the switch cancels.
+    let remote_control_cancel = manager.remote_control_token();
+    let Some(node) = state.node.upgrade() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    // Controllers already handle 404 from a device that does not offer remote control. It
+    // answers every request, well-formed upgrade or not, as a missing route would.
+    if !node.sync_settings.read().await.accept_remote_control {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    drop(node);
+    let ws = match ws {
+        Ok(ws) => ws,
+        Err(rejection) => return rejection.into_response(),
+    };
     let (local_version, local_alias) = {
         let info = state.discovery_device_info.read().await;
         (
@@ -138,7 +158,14 @@ pub async fn websocket_handler(
             (
                 response_headers,
                 ws.on_upgrade(move |socket| {
-                    handle_socket(socket, state, user, base_url, broadcast_rx)
+                    handle_socket(
+                        socket,
+                        state,
+                        user,
+                        base_url,
+                        broadcast_rx,
+                        remote_control_cancel,
+                    )
                 }),
             )
                 .into_response()
@@ -156,6 +183,7 @@ pub async fn handle_socket(
     user: User,
     base_url: url::Url,
     mut broadcast_rx: Receiver<Vec<u8>>,
+    remote_control_cancel: CancellationToken,
 ) {
     let mut changes = state.permission_manager.read().await.changes();
     let Some(node) = state.node.upgrade() else {
@@ -415,6 +443,10 @@ pub async fn handle_socket(
         biased;
         _ = session_cancel.cancelled() => (
             Some(CloseFrame { code: 1001, reason: "server stopping".into() }),
+            true,
+        ),
+        _ = remote_control_cancel.cancelled() => (
+            Some(CloseFrame { code: 1001, reason: "remote control disabled".into() }),
             true,
         ),
         end = incoming => match end {

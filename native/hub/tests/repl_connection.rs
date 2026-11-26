@@ -207,7 +207,7 @@ async fn repl_connects_with_trust_authorization_and_reports_failures() -> Result
     let server_config = config_dir(server_home.path());
     std::fs::create_dir_all(&server_config)?;
     SyncSettings {
-        listen: false,
+        media_server: false,
         ..Default::default()
     }
     .save(&server_config)?;

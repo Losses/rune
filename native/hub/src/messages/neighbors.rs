@@ -47,34 +47,6 @@ pub struct TrustedServerCertificate {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
-pub struct StartBroadcastRequest {
-    pub duration_seconds: u32,
-    pub alias: String,
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-/// Confirms that the timed announcement task started.
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct StartBroadcastResponse {
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct StopBroadcastRequest {
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-/// Confirms that the announcement task has stopped.
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct StopBroadcastResponse {
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
 pub struct StartListeningRequest {
     pub alias: String,
     #[serde(default)]
@@ -106,32 +78,6 @@ pub struct GetDiscoveredDeviceRequest {
 #[derive(Deserialize, Serialize, RustSignal)]
 pub struct GetDiscoveredDeviceResponse {
     pub devices: Vec<DiscoveredDeviceMessage>,
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct StartServerRequest {
-    pub interface: String,
-    pub alias: String,
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct StartServerResponse {
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, DartSignal)]
-pub struct StopServerRequest {
-    #[serde(default)]
-    pub call_id: Option<u64>,
-}
-
-#[derive(Deserialize, Serialize, RustSignal)]
-pub struct StopServerResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }

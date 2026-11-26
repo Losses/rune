@@ -196,7 +196,6 @@ pub struct ServerManager {
     start_lock: Mutex<()>,
     addr: Mutex<Option<SocketAddr>>,
     is_running: AtomicBool,
-    sync_only: AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
     sync_cancel: Mutex<Option<tokio_util_sync::CancellationToken>>,
     sync_handle: Mutex<Option<JoinHandle<()>>>,
@@ -204,6 +203,7 @@ pub struct ServerManager {
     sync_auth: Mutex<Option<SyncAuth>>,
     watch_cancel: Mutex<Option<tokio_util_sync::CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
+    remote_control_cancel: StdMutex<tokio_util_sync::CancellationToken>,
     certificate: String,
     private_key: String,
     pub jwt_secret: Vec<u8>,
@@ -243,7 +243,6 @@ impl ServerManager {
             start_lock: Mutex::new(()),
             addr: Mutex::new(None),
             is_running: AtomicBool::new(false),
-            sync_only: AtomicBool::new(false),
             shutdown_handle: Mutex::new(None),
             sync_cancel: Mutex::new(None),
             sync_handle: Mutex::new(None),
@@ -251,61 +250,33 @@ impl ServerManager {
             sync_auth: Mutex::new(None),
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
+            remote_control_cancel: StdMutex::new(tokio_util_sync::CancellationToken::new()),
             certificate,
             private_key,
             jwt_secret,
         })
     }
 
-    pub async fn start(
+    /// Starts the server on `addr`. `broadcast` is passed in because the caller may hold the
+    /// settings lock.
+    ///
+    /// The future is boxed with a declared `Send` bound because the panel's broadcast route
+    /// can start the server: an opaque future here would make its own `Send` proof depend on
+    /// the routes it mounts.
+    pub fn start(
         self: Arc<Self>,
         addr: SocketAddr,
         discovery_params: DiscoveryParams,
-    ) -> Result<()> {
-        let old_addr =
-            if self.is_running.load(Ordering::SeqCst) && self.sync_only.load(Ordering::SeqCst) {
-                let old_addr = self.get_address().await;
-                self.stop().await?;
-                old_addr
-            } else {
-                None
-            };
-        let fallback_info = discovery_params.device_info.clone();
-        match self
-            .clone()
-            .start_inner(addr, discovery_params, false)
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                if let Some(old_addr) = old_addr
-                    && let Err(restore_error) = self
-                        .start_sync(
-                            old_addr,
-                            DiscoveryParams {
-                                device_info: fallback_info,
-                            },
-                        )
-                        .await
-                {
-                    log::error!("Could not restore paired sync service: {restore_error}");
-                }
-                Err(error)
-            }
-        }
-    }
-    pub fn start_sync(
-        self: Arc<Self>,
-        addr: SocketAddr,
-        discovery_params: DiscoveryParams,
+        broadcast: bool,
     ) -> pin::Pin<Box<dyn future::Future<Output = Result<()>> + Send>> {
-        Box::pin(async move { self.start_inner(addr, discovery_params, true).await })
+        Box::pin(self.serve(addr, discovery_params, broadcast))
     }
-    async fn start_inner(
+
+    async fn serve(
         self: Arc<Self>,
         addr: SocketAddr,
         discovery_params: DiscoveryParams,
-        sync_only: bool,
+        broadcast: bool,
     ) -> Result<()> {
         let node = self.node()?;
         let _start_guard = self.start_lock.lock().await;
@@ -409,18 +380,14 @@ impl ServerManager {
                 auth.clone(),
                 super::sync_auth::require_auth,
             ));
-        let app = app.merge(library_routes);
-        let app = if sync_only {
-            app
-        } else {
-            let device_routes = Router::new().route("/ws", get(websocket_handler)).layer(
-                middleware::from_fn_with_state(auth.clone(), super::sync_auth::require_auth),
-            );
-            app.merge(auth_routes)
-                .merge(protected_routes)
-                .merge(device_routes)
-        };
+        let device_routes = Router::new().route("/ws", get(websocket_handler)).layer(
+            middleware::from_fn_with_state(auth.clone(), super::sync_auth::require_auth),
+        );
         let app = app
+            .merge(library_routes)
+            .merge(auth_routes)
+            .merge(protected_routes)
+            .merge(device_routes)
             .with_state(server_state)
             .merge(auth.router())
             .merge(sync_routes)
@@ -484,7 +451,8 @@ impl ServerManager {
         {
             log::warn!("Could not start paired-device discovery: {error}");
         }
-        if !node.device_scanner.is_announcing().await
+        if broadcast
+            && !node.device_scanner.is_announcing().await
             && let Err(error) = node
                 .device_scanner
                 .start_announcements(device_info, Duration::from_secs(3), None)
@@ -495,7 +463,6 @@ impl ServerManager {
         *self.server_handle.lock().await = Some(server_handle);
         *self.addr.lock().await = Some(addr);
         *self.shutdown_handle.lock().await = Some(shutdown_handle);
-        self.sync_only.store(sync_only, Ordering::SeqCst);
         self.is_running.store(true, Ordering::SeqCst);
         if node.token.is_cancelled() {
             self.stop().await?;
@@ -749,10 +716,42 @@ impl ServerManager {
         self.is_running.load(Ordering::SeqCst)
     }
 
-    /// Whether the running listener is the sync-only service started for paired sync, rather
-    /// than the full server started through `StartServerRequest`.
-    pub fn is_sync_listener(&self) -> bool {
-        self.is_running() && self.sync_only.load(Ordering::SeqCst)
+    /// The token open remote-control sessions end on. A session takes it before it reads the
+    /// setting that admits it.
+    pub fn remote_control_token(&self) -> tokio_util_sync::CancellationToken {
+        self.remote_control_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Ends every open remote-control session. Sessions accepted afterwards get a fresh token.
+    pub fn disconnect_remote_control(&self) {
+        let mut current = self
+            .remote_control_cancel
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        mem::replace(&mut *current, tokio_util_sync::CancellationToken::new()).cancel();
+    }
+
+    /// Starts or stops announcing this device while the server runs. Does nothing while the
+    /// server is stopped: `start` announces when it is asked to.
+    pub async fn set_broadcast(&self, enabled: bool) -> Result<()> {
+        let node = self.node()?;
+        let _start_guard = self.start_lock.lock().await;
+        let Some(addr) = self.get_address().await else {
+            return Ok(());
+        };
+        if !enabled {
+            node.device_scanner.stop_announcements().await;
+        } else if !node.device_scanner.is_announcing().await {
+            let mut device_info = node.device_info().await?;
+            device_info.api_port = addr.port();
+            node.device_scanner
+                .start_announcements(device_info, Duration::from_secs(3), None)
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn get_address(&self) -> Option<SocketAddr> {
@@ -1283,7 +1282,7 @@ mod lifecycle_tests {
         })
         .await?;
         let library = pool.acquire_ui(library_id).await?;
-        crate::test_node::disable_sync_listener(dir)?;
+        crate::test_node::disable_media_server(dir)?;
         let node_context = NodeContext::with_reconnect_config(
             dir.to_str().context("config path")?,
             dir.to_str().context("db path")?,
@@ -1505,7 +1504,11 @@ mod lifecycle_tests {
         fixture
             .manager
             .clone()
-            .start(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .start(
+                ([127, 0, 0, 1], 0).into(),
+                DiscoveryParams { device_info },
+                true,
+            )
             .await?;
         let address = fixture
             .manager
@@ -1958,7 +1961,7 @@ mod lifecycle_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn node_listener_and_worker_survive_ui_close() -> Result<()> {
+    async fn node_server_and_worker_survive_ui_close() -> Result<()> {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         let a = fixture(first.path()).await?;
@@ -1978,7 +1981,7 @@ mod lifecycle_tests {
         assert_eq!(
             a.get_address().await,
             Some(addr),
-            "UI close stopped the node listener"
+            "UI close stopped the media server"
         );
         assert_eq!(
             a.sync_handle
@@ -2244,7 +2247,7 @@ mod lifecycle_tests {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         SyncSettings {
-            listen: false,
+            media_server: false,
             ..SyncSettings::default()
         }
         .save(first.path())?;
@@ -2311,14 +2314,18 @@ mod lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn outbound_worker_survives_listener_stop() -> Result<()> {
+    async fn outbound_worker_survives_server_stop() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let manager = fixture(dir.path()).await?;
         manager.start_worker().await?;
         let device_info = info(&manager).await?;
         manager
             .clone()
-            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
+            .start(
+                ([127, 0, 0, 1], 0).into(),
+                DiscoveryParams { device_info },
+                true,
+            )
             .await?;
         manager.stop().await?;
         assert!(
@@ -2335,64 +2342,81 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn failed_stop_restores_the_sync_listener_before_reporting() -> Result<()> {
-        let _port = crate::test_node::SYNC_PORT.lock().await;
-        let dir = tempfile::tempdir()?;
-        let fixture = fixture(dir.path()).await?;
-        let manager = &fixture.manager;
-        let params = &fixture.global_params;
-        let device_info = info(&fixture).await?;
-        manager
-            .clone()
-            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
-            .await?;
-        assert!(manager.is_sync_listener());
+    /// Changes the sync settings the way the Devices page does.
+    async fn set_sync_settings(
+        node: &Arc<NodeContext>,
+        change: impl FnOnce(&mut SetSyncSettingsRequest),
+    ) -> Result<()> {
+        let current = node.sync_settings.read().await.clone();
+        let mut request = SetSyncSettingsRequest {
+            request_id: "set-sync-settings".into(),
+            media_server: current.media_server,
+            broadcast: current.broadcast,
+            accept_remote_control: current.accept_remote_control,
+            accept_sync: current.accept_sync,
+            missing_host_file: current.missing_host_file.into(),
+            call_id: None,
+        };
+        change(&mut request);
+        request
+            .handle(Arc::clone(node), None, &request)
+            .await
+            .map(|_| ())
+    }
 
+    /// A fixture whose server runs on a loopback port and is about to lose its task, so that
+    /// `stop()` clears the server state and then returns a join error instead of a clean
+    /// shutdown.
+    async fn fixture_with_a_server_that_fails_to_stop(dir: &Path) -> Result<Fixture> {
+        let fixture = fixture(dir).await?;
+        let device_info = info(&fixture).await?;
+        fixture
+            .manager
+            .clone()
+            .start(
+                ([127, 0, 0, 1], 0).into(),
+                DiscoveryParams { device_info },
+                true,
+            )
+            .await?;
+        let params = &fixture.global_params;
         let settings = SyncSettings {
-            listen: true,
+            media_server: true,
             ..SyncSettings::default()
         };
         settings.save(Path::new(&*params.config_path))?;
         *params.sync_settings.write().await = settings;
-
-        // Abort the server task so stop() clears the listener state and then returns a
-        // join error instead of a clean shutdown.
-        manager
+        fixture
+            .manager
             .server_handle
             .lock()
             .await
             .as_ref()
-            .context("sync server task")?
+            .context("server task")?
             .abort();
+        Ok(fixture)
+    }
 
-        let request = SetSyncSettingsRequest {
-            request_id: "failed-stop".into(),
-            listen: false,
-            missing_host_file: crate::messages::MissingHostFilePolicy::RemoveEverywhere,
-            call_id: None,
-        };
-        let error = request
-            .handle(
-                (
-                    Arc::clone(&params.sync_settings),
-                    Arc::clone(&params.config_path),
-                    Some(Arc::clone(manager)),
-                    params.node.run_mode,
-                ),
-                None,
-                &request,
-            )
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_stop_restores_the_server_before_reporting() -> Result<()> {
+        let _port = crate::test_node::SYNC_PORT.lock().await;
+        let dir = tempfile::tempdir()?;
+        let fixture = fixture_with_a_server_that_fails_to_stop(dir.path()).await?;
+        let manager = &fixture.manager;
+        let params = &fixture.global_params;
+
+        let error = set_sync_settings(&params.node, |request| request.media_server = false)
             .await
             .err()
-            .expect("disabling a listener whose shutdown fails");
+            .expect("switching off a server whose shutdown fails");
         assert!(format!("{error:#}").contains("cancelled"), "{error:#}");
+        assert!(manager.is_running(), "the stopped server was not restored");
         assert!(
-            manager.is_sync_listener(),
-            "the stopped sync listener was not restored"
+            params.node.device_scanner.is_announcing().await,
+            "the restored server does not announce although broadcast is on"
         );
-        assert!(params.sync_settings.read().await.listen);
-        assert!(SyncSettings::load(Path::new(&*params.config_path)).listen);
+        assert!(params.sync_settings.read().await.media_server);
+        assert!(SyncSettings::load(Path::new(&*params.config_path)).media_server);
 
         fixture.global_params.node.shutdown().await?;
         Ok(())
@@ -2402,63 +2426,304 @@ mod lifecycle_tests {
     async fn failed_stop_reports_a_failed_restore() -> Result<()> {
         let _port = crate::test_node::SYNC_PORT.lock().await;
         let dir = tempfile::tempdir()?;
-        let fixture = fixture(dir.path()).await?;
+        let fixture = fixture_with_a_server_that_fails_to_stop(dir.path()).await?;
         let manager = &fixture.manager;
         let params = &fixture.global_params;
-        let device_info = info(&fixture).await?;
-        manager
-            .clone()
-            .start_sync(([127, 0, 0, 1], 0).into(), DiscoveryParams { device_info })
-            .await?;
-        let settings = SyncSettings {
-            listen: true,
-            ..SyncSettings::default()
-        };
-        settings.save(Path::new(&*params.config_path))?;
-        *params.sync_settings.write().await = settings;
-
-        manager
-            .server_handle
-            .lock()
-            .await
-            .as_ref()
-            .context("sync server task")?
-            .abort();
         let occupied = TcpListener::bind(SocketAddr::from((
             [0, 0, 0, 0],
             discovery::endpoint::DEFAULT_DEVICE_PORT,
         )))?;
 
-        let request = SetSyncSettingsRequest {
-            request_id: "failed-restore".into(),
-            listen: false,
-            missing_host_file: crate::messages::MissingHostFilePolicy::RemoveEverywhere,
-            call_id: None,
-        };
-        let error = request
-            .handle(
-                (
-                    Arc::clone(&params.sync_settings),
-                    Arc::clone(&params.config_path),
-                    Some(Arc::clone(manager)),
-                    params.node.run_mode,
-                ),
-                None,
-                &request,
-            )
+        let error = set_sync_settings(&params.node, |request| request.media_server = false)
             .await
             .err()
-            .expect("disabling a listener whose shutdown and restore fail");
+            .expect("switching off a server whose shutdown and restore fail");
         let text = format!("{error:#}");
         assert!(text.contains("cancelled"), "{text}");
+        assert!(
+            text.contains("the server could not be restored after stopping it failed"),
+            "{text}"
+        );
         assert!(text.contains("Failed to bind sync server"), "{text}");
         assert!(!manager.is_running());
-        assert!(params.sync_settings.read().await.listen);
-        assert!(SyncSettings::load(Path::new(&*params.config_path)).listen);
+        assert!(params.sync_settings.read().await.media_server);
+        assert!(SyncSettings::load(Path::new(&*params.config_path)).media_server);
         drop(occupied);
 
         fixture.global_params.node.shutdown().await?;
         Ok(())
+    }
+
+    /// Two paired fixtures, the first serving on a loopback port, and a client of the second
+    /// that is authenticated to the first.
+    struct ServedPair {
+        server: Fixture,
+        controller: Fixture,
+        address: SocketAddr,
+        base: String,
+        client: Client,
+        _dirs: [tempfile::TempDir; 2],
+    }
+
+    impl ServedPair {
+        async fn new(accept_remote_control: bool) -> Result<Self> {
+            let dirs = [tempfile::tempdir()?, tempfile::tempdir()?];
+            let server = fixture(dirs[0].path()).await?;
+            let controller = fixture(dirs[1].path()).await?;
+            let address = if accept_remote_control {
+                paired_full(&server, &controller).await?
+            } else {
+                paired_default(&server, &controller).await?
+            };
+            // The background worker would sync the same library over the same token.
+            server.stop_worker().await?;
+            controller.stop_worker().await?;
+            let (base, client) = authenticated_client(
+                &controller.global_params.node,
+                &info(&controller).await?.fingerprint,
+                &controller.private_key,
+                &info(&server).await?.fingerprint,
+                "127.0.0.1",
+                address.port(),
+            )
+            .await?;
+            Ok(Self {
+                server,
+                controller,
+                address,
+                base,
+                client,
+                _dirs: dirs,
+            })
+        }
+
+        /// Asks the server for the identity of its library over the sync route.
+        async fn sync_request(&self) -> Result<(StatusCode, serde_json::Value)> {
+            let library_id = self
+                .server
+                .global_params
+                .library_id
+                .context("served library")?;
+            let response = self
+                .client
+                .post(format!(
+                    "{}/libraries/{library_id}/sync/metadata",
+                    self.base
+                ))
+                .json(&serde_json::json!({"operation": "identity"}))
+                .send()
+                .await?;
+            Ok((response.status(), response.json().await?))
+        }
+
+        async fn assert_sync_request_succeeds(&self) -> Result<()> {
+            let library_id = self
+                .server
+                .global_params
+                .library_id
+                .context("served library")?;
+            let (status, body) = self.sync_request().await?;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["Ok"]["namespace"], library_id.to_string());
+            Ok(())
+        }
+
+        /// Opens a remote-control session the way a controller does.
+        async fn connect(
+            &self,
+        ) -> std::result::Result<WebSocketStream<MaybeTlsStream<TcpStream>>, RemoteConnectError>
+        {
+            let params = &self.controller.global_params;
+            connect_remote(
+                "127.0.0.1",
+                self.address.port(),
+                &params.config_path,
+                params.cert_validator.read().await.clone(),
+                &params.node.sync_tokens,
+            )
+            .await
+        }
+
+        /// What a controller gets from a device that does not offer remote control.
+        async fn assert_remote_control_is_refused(&self) -> Result<()> {
+            match self.connect().await {
+                Err(RemoteConnectError::Protocol(text)) => {
+                    assert!(text.contains("404"), "{text}")
+                }
+                Err(other) => anyhow::bail!("unexpected refusal: {other}"),
+                Ok(_) => anyhow::bail!("remote control was accepted"),
+            }
+            Ok(())
+        }
+
+        async fn assert_address_unchanged(&self) {
+            assert_eq!(
+                self.server.get_address().await,
+                Some(self.address),
+                "the server was restarted"
+            );
+        }
+
+        async fn shutdown(self) -> Result<()> {
+            self.server.global_params.node.shutdown().await?;
+            self.controller.global_params.node.shutdown().await
+        }
+    }
+
+    /// An answer to a request shows that the server still reads and writes the session.
+    async fn assert_session_answers(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    ) -> Result<()> {
+        let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
+        socket_request(socket, "GetMediaFilesCountRequest", &payload)
+            .await
+            .map(|_| ())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn default_settings_serve_sync_and_refuse_remote_control() -> Result<()> {
+        let pair = ServedPair::new(false).await?;
+        let settings = pair.server.global_params.sync_settings.read().await.clone();
+        assert!(!settings.accept_remote_control);
+        assert!(settings.accept_sync);
+
+        pair.assert_remote_control_is_refused().await?;
+        pair.assert_sync_request_succeeds().await?;
+
+        pair.shutdown().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn switching_remote_control_off_closes_sessions_without_a_restart() -> Result<()> {
+        use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+
+        let pair = ServedPair::new(true).await?;
+        let node = pair.server.global_params.node.clone();
+        let mut socket = pair
+            .connect()
+            .await
+            .map_err(|error| anyhow::anyhow!("remote control must be accepted: {error}"))?;
+        pair.assert_sync_request_succeeds().await?;
+
+        set_sync_settings(&node, |request| request.accept_remote_control = false).await?;
+
+        let close = tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match socket
+                    .next()
+                    .await
+                    .context("socket ended without a close frame")??
+                {
+                    Message::Close(frame) => return frame.context("close frame"),
+                    _ => continue,
+                }
+            }
+        })
+        .await
+        .context("the open session was not closed")??;
+        assert_eq!(close.code, CloseCode::Away);
+        assert_eq!(close.reason.as_str(), "remote control disabled");
+
+        pair.assert_remote_control_is_refused().await?;
+        pair.assert_address_unchanged().await;
+        pair.assert_sync_request_succeeds().await?;
+        assert!(
+            !SyncSettings::load(Path::new(&*node.config_path)).accept_remote_control,
+            "the switch was not saved"
+        );
+
+        // Sessions accepted after the switch is turned back on are not cut by the earlier one.
+        set_sync_settings(&node, |request| request.accept_remote_control = true).await?;
+        let mut socket = pair
+            .connect()
+            .await
+            .map_err(|error| anyhow::anyhow!("remote control must be accepted again: {error}"))?;
+        assert_session_answers(&mut socket).await?;
+        pair.assert_address_unchanged().await;
+
+        pair.shutdown().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn switching_sync_off_refuses_sync_and_keeps_remote_control() -> Result<()> {
+        let pair = ServedPair::new(true).await?;
+        let node = pair.server.global_params.node.clone();
+        let mut socket = pair
+            .connect()
+            .await
+            .map_err(|error| anyhow::anyhow!("remote control must be accepted: {error}"))?;
+
+        set_sync_settings(&node, |request| request.accept_sync = false).await?;
+        let (status, body) = pair.sync_request().await?;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body, serde_json::json!({"error": "forbidden"}));
+        // The session that was open before the switch still answers.
+        assert_session_answers(&mut socket).await?;
+        pair.assert_address_unchanged().await;
+
+        set_sync_settings(&node, |request| request.accept_sync = true).await?;
+        pair.assert_sync_request_succeeds().await?;
+        assert_session_answers(&mut socket).await?;
+        pair.assert_address_unchanged().await;
+
+        pair.shutdown().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn panel_broadcast_route_changes_the_saved_setting() -> Result<()> {
+        use axum::body::Body;
+        use axum::http::{Method, Request, header::CONTENT_TYPE};
+        use tower::ServiceExt;
+
+        let pair = ServedPair::new(false).await?;
+        let node = pair.server.global_params.node.clone();
+        let config = Path::new(&*node.config_path).to_owned();
+        // The route is mounted here without the panel login in front of it: the login cannot
+        // issue or check a token in this build, because `jsonwebtoken` is compiled without a
+        // crypto backend.
+        let panel = Router::new()
+            .route("/panel/broadcast", put(toggle_broadcast_handler))
+            .with_state(Arc::new(ServerState {
+                node: Arc::downgrade(&node),
+                session_cancel: CancellationToken::new(),
+                app_state: Arc::new(AppState {
+                    cover_temp_dir: COVER_TEMP_DIR.clone(),
+                }),
+                websocket_service: node.websocket_service.clone(),
+                discovery_device_info: Arc::new(RwLock::new(node.device_info().await?)),
+                permission_manager: node.permission_manager.clone(),
+                device_scanner: node.device_scanner.clone(),
+            }));
+        let toggle = |enabled: bool| {
+            let panel = panel.clone();
+            async move {
+                let request = Request::builder()
+                    .method(Method::PUT)
+                    .uri("/panel/broadcast")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"enabled": enabled}).to_string(),
+                    ))?;
+                anyhow::Ok(panel.oneshot(request).await?.status())
+            }
+        };
+        assert!(node.sync_settings.read().await.broadcast);
+        assert!(node.device_scanner.is_announcing().await);
+
+        assert_eq!(toggle(false).await?, StatusCode::NO_CONTENT);
+        let saved = SyncSettings::load(&config);
+        assert!(!saved.broadcast);
+        assert!(saved.media_server, "the panel switched the server off");
+        assert!(!node.sync_settings.read().await.broadcast);
+        assert!(!node.device_scanner.is_announcing().await);
+
+        assert_eq!(toggle(true).await?, StatusCode::NO_CONTENT);
+        assert!(SyncSettings::load(&config).broadcast);
+        assert!(node.sync_settings.read().await.broadcast);
+        assert!(node.device_scanner.is_announcing().await);
+        pair.assert_address_unchanged().await;
+
+        pair.shutdown().await
     }
 
     async fn pair(a: &Fixture, b: &Fixture) -> Result<()> {
@@ -2503,8 +2768,14 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// Pairs both ways and starts `a`'s server with remote control switched on.
     async fn paired_full(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
         paired_full_with_protocol_version(a, b, protocol_version::PROTOCOL_VERSION).await
+    }
+
+    /// Pairs both ways and starts `a`'s server with the settings of a fresh install.
+    async fn paired_default(a: &Fixture, b: &Fixture) -> Result<SocketAddr> {
+        paired_server(a, b, protocol_version::PROTOCOL_VERSION, false).await
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2536,6 +2807,15 @@ mod lifecycle_tests {
         b: &Fixture,
         protocol_version: protocol_version::ProtocolVersion,
     ) -> Result<SocketAddr> {
+        paired_server(a, b, protocol_version, true).await
+    }
+
+    async fn paired_server(
+        a: &Fixture,
+        b: &Fixture,
+        protocol_version: protocol_version::ProtocolVersion,
+        accept_remote_control: bool,
+    ) -> Result<SocketAddr> {
         let a_fingerprint = info(a).await?.fingerprint;
         let b_fingerprint = info(b).await?.fingerprint;
         if a.global_params
@@ -2558,6 +2838,8 @@ mod lifecycle_tests {
         {
             pair(b, a).await?;
         }
+        crate::test_node::describe_running_server(&a.global_params.node, accept_remote_control)
+            .await;
         a.manager
             .clone()
             .start(
@@ -2569,6 +2851,7 @@ mod lifecycle_tests {
                         info
                     },
                 },
+                true,
             )
             .await?;
         let address = a.get_address().await.context("missing listener address")?;
@@ -2661,15 +2944,16 @@ mod lifecycle_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn repl_handshake_rejects_an_incompatible_server_version() -> Result<()> {
-        use discovery::protocol_version::ProtocolVersion;
+        use discovery::protocol_version::{PROTOCOL_VERSION, ProtocolVersion};
 
+        let newer_major = ProtocolVersion::parse(&format!("{}.0.0", PROTOCOL_VERSION.major + 1))?;
         let server_dir = tempfile::tempdir()?;
         let client_dir = tempfile::tempdir()?;
         let server = step("create version server", fixture(server_dir.path())).await?;
         let client = step("create version client", fixture(client_dir.path())).await?;
         let address = step(
             "pair version fixtures",
-            paired_full_with_protocol_version(&server, &client, ProtocolVersion::parse("3.0.0")?),
+            paired_full_with_protocol_version(&server, &client, newer_major),
         )
         .await?;
         let validator = client.global_params.cert_validator.read().await.clone();
@@ -2693,7 +2977,7 @@ mod lifecycle_tests {
                 RemoteConnectError::PeerNeedsUpdate {
                     peer: Some(version),
                     ..
-                } if version == ProtocolVersion::parse("3.0.0").unwrap()
+                } if version == newer_major
             ),
             "unexpected handshake error: {error:?}"
         );
@@ -5531,19 +5815,17 @@ mod lifecycle_tests {
         })
         .await?;
         peer_step(
-            "start first sync listener",
-            a.clone().start_sync(
+            "start first server",
+            a.clone().start(
                 ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
                     device_info: a_info.clone(),
                 },
+                true,
             ),
         )
         .await?;
-        let a_addr = a
-            .get_address()
-            .await
-            .context("first sync listener address")?;
+        let a_addr = a.get_address().await.context("first server address")?;
         // A bound socket that has not called listen refuses connections and
         // keeps another fixture from claiming the offline peer's port.
         let offline_socket = TcpSocket::new_v4()?;
@@ -5562,19 +5844,17 @@ mod lifecycle_tests {
             ErrorKind::ConnectionRefused
         );
         peer_step(
-            "start second sync listener",
-            b.clone().start_sync(
+            "start second server",
+            b.clone().start(
                 ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
                     device_info: b_info.clone(),
                 },
+                true,
             ),
         )
         .await?;
-        let b_addr = b
-            .get_address()
-            .await
-            .context("second sync listener address")?;
+        let b_addr = b.get_address().await.context("second server address")?;
         assert_ne!(a_addr, b_addr);
         peer_step(
             "announce the second listener's bound address",
@@ -5916,7 +6196,7 @@ mod lifecycle_tests {
             )
             .await?
         );
-        let (_, authorized) = peer_step("authenticate sync-only client", async {
+        let (_, authorized) = peer_step("authenticate client", async {
             sync_worker::authenticated_client(
                 &b.global_params.node,
                 &b_info.fingerprint,
@@ -5928,13 +6208,15 @@ mod lifecycle_tests {
             .await
         })
         .await?;
-        // Pool-backed data routes are available on the sync listener.
+        // Every route is mounted. With the settings of a fresh install the pool-backed data
+        // routes answer, remote control is refused the way a missing route is, and the panel
+        // asks for its own login.
         for (path, status) in [
             ("/files/anything", StatusCode::BAD_REQUEST),
             ("/ws", StatusCode::NOT_FOUND),
-            ("/panel/users", StatusCode::NOT_FOUND),
+            ("/panel/users", StatusCode::UNAUTHORIZED),
         ] {
-            let actual = peer_step("sync-only listener route", async {
+            let actual = peer_step("route with remote control off", async {
                 Ok(authorized
                     .get(format!("{base}{path}"))
                     .send()
@@ -5942,24 +6224,27 @@ mod lifecycle_tests {
                     .status())
             })
             .await?;
-            assert_eq!(actual, status);
+            assert_eq!(actual, status, "{path}");
         }
+        crate::test_node::describe_running_server(&a.global_params.node, false).await;
         peer_step(
-            "upgrade to full listener",
-            a.manager.clone().start(
-                a_addr,
-                DiscoveryParams {
-                    device_info: a_info.clone(),
-                },
-            ),
+            "switch remote control on",
+            set_sync_settings(&a.global_params.node, |request| {
+                request.accept_remote_control = true
+            }),
         )
         .await?;
+        assert_eq!(
+            a.get_address().await,
+            Some(a_addr),
+            "switching remote control on restarted the server"
+        );
         peer_step(
-            "stop background worker before direct full-listener auth",
+            "stop background worker before direct remote-control auth",
             async { a.stop_worker().await },
         )
         .await?;
-        let (_, full_authorized) = peer_step("authenticate full listener client", async {
+        let (_, full_authorized) = peer_step("authenticate remote-control client", async {
             authenticated_client(
                 &b.global_params.node,
                 &b_info.fingerprint,
@@ -5989,12 +6274,12 @@ mod lifecycle_tests {
                     request
                 }
             };
-            let anonymous_status = peer_step("anonymous full-listener request", async {
+            let anonymous_status = peer_step("anonymous request", async {
                 Ok(request(&pinned).send().await?.status())
             })
             .await?;
             assert_eq!(anonymous_status, StatusCode::UNAUTHORIZED, "{path}");
-            let authorized_status = peer_step("authorized full-listener request", async {
+            let authorized_status = peer_step("authorized request", async {
                 Ok(request(&full_authorized).send().await?.status())
             })
             .await?;
@@ -6023,14 +6308,15 @@ mod lifecycle_tests {
         })
         .await?;
         assert_ne!(full, StatusCode::NOT_FOUND);
-        peer_step("stop full listener", a.stop()).await?;
+        peer_step("stop server", a.stop()).await?;
         peer_step(
-            "restart sync listener",
-            a.clone().start_sync(
+            "restart server",
+            a.clone().start(
                 a_addr,
                 DiscoveryParams {
                     device_info: a_info,
                 },
+                true,
             ),
         )
         .await?;

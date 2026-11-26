@@ -1206,13 +1206,13 @@
   "@server": {
     "description": "Заголовок сторінки налаштувань для керування поведінкою спільного використання медіаплеєра. Включає управління авторизованими користувачами та трансляцію присутності пристрою."
   },
-  "serverControl": "Керування сервером",
-  "@serverControl": {
-    "description": "Заголовок розділу для керування сервером локальної мережі. 'Сервер' тут стосується фонової служби, яка обробляє виявлення пристроїв."
+  "mediaServer": "Медіасервер",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "Запустіть сервер, щоб дозволити іншим пристроям виявляти цей пристрій у локальній мережі.",
-  "@serverControlSubtitle": {
-    "description": "Уточнює, що сервер працює лише в локальній мережі. Підкреслює, що запуск дозволяє видимість для інших."
+  "mediaServerSubtitle": "Дозвольте іншим пристроям підключатися до цього пристрою, щоб синхронізувати бібліотеки та керувати відтворенням. Вимкніть, щоб відхиляти всі підключення.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "Мережевий інтерфейс",
   "@selectInterface": {
@@ -1410,11 +1410,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "Аудіо недоступне",
+  "allowRemoteControl": "Дозволити віддалене керування",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "Дозволити спареним пристроям керувати відтворенням на цьому пристрої.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "Дозволити синхронізацію",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Вимкніть, щоб заборонити іншим пристроям підключатися до цього.",
+  "allowPairedSyncDescription": "Дозволити спареним пристроям синхронізувати бібліотеки з цим пристроєм.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

@@ -262,25 +262,4 @@ mod narrow_tests {
         };
         assert_eq!(narrow_slot(owner_only, 2, 0), owner_only);
     }
-
-    #[test]
-    fn artist_requests_are_not_forwarded_to_a_peer_of_minor_zero() {
-        use super::TargetRequest;
-        use crate::macros::RequestSlots;
-        use crate::messages::{FetchArtistPageRequest, FetchArtistSectionAlbumsRequest};
-        let too_old = Slot::Unsupported {
-            reason: UnsupportedReason::PeerTooOld,
-        };
-        let mut old_peer = RequestSlots::rune();
-        old_peer.narrow_to_minor(0);
-        assert_eq!(FetchArtistPageRequest::slot(&old_peer), too_old);
-        assert_eq!(FetchArtistSectionAlbumsRequest::slot(&old_peer), too_old);
-        let mut new_peer = RequestSlots::rune();
-        new_peer.narrow_to_minor(1);
-        assert_eq!(FetchArtistPageRequest::slot(&new_peer), Slot::Forward);
-        assert_eq!(
-            FetchArtistSectionAlbumsRequest::slot(&new_peer),
-            Slot::Forward
-        );
-    }
 }

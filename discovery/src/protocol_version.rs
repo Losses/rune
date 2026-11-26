@@ -28,8 +28,8 @@ pub const PROTOCOL_VERSION_HEADER: &str = "x-rune-protocol-version";
 pub const DEVICE_ALIAS_HEADER: &str = "x-rune-device-alias";
 
 pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion {
-    major: 2,
-    minor: 1,
+    major: 3,
+    minor: 0,
     patch: 0,
     pre: None,
 };

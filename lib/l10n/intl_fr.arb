@@ -1208,13 +1208,13 @@
   "@server": {
     "description": "Le titre de la page de paramètres pour contrôler les comportements de partage du lecteur multimédia. Inclut la gestion des utilisateurs autorisés et la diffusion de la présence de l'appareil."
   },
-  "serverControl": "Contrôle du Serveur",
-  "@serverControl": {
-    "description": "Titre de section pour contrôler le serveur de réseau local. 'Serveur' ici fait référence au service d'arrière-plan qui gère la découverte d'appareils."
+  "mediaServer": "Serveur Multimédia",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "Démarrez le serveur pour permettre aux autres appareils de découvrir cet appareil sur le réseau local.",
-  "@serverControlSubtitle": {
-    "description": "Clarifie que le serveur n'opère que sur le réseau local. Met l'accent sur le fait que démarrer permet la visibilité aux autres."
+  "mediaServerSubtitle": "Permettez aux autres appareils de se connecter à cet appareil pour synchroniser les bibliothèques et contrôler la lecture. Désactivez cette option pour refuser toute connexion.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "Interface Réseau",
   "@selectInterface": {
@@ -1412,11 +1412,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "Audio indisponible",
+  "allowRemoteControl": "Autoriser le contrôle à distance",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "Permet aux appareils associés de contrôler la lecture sur cet appareil.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "Autoriser la synchronisation",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Désactivez cette option pour empêcher les autres appareils de se connecter à celui-ci.",
+  "allowPairedSyncDescription": "Permet aux appareils associés de synchroniser les bibliothèques avec cet appareil.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

@@ -1208,13 +1208,13 @@
   "@server": {
     "description": "미디어 플레이어 공유 동작을 제어하는 설정 페이지 제목. 승인된 사용자 관리 및 기기 존재 브로드캐스트 포함."
   },
-  "serverControl": "서버 제어",
-  "@serverControl": {
-    "description": "로컬 네트워크 서버를 제어하는 섹션 제목. 여기서 '서버'는 기기 발견을 처리하는 백그라운드 서비스를 의미."
+  "mediaServer": "미디어 서버",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "다른 기기들이 로컬 네트워크에서 이 기기를 발견할 수 있도록 서버를 시작하세요.",
-  "@serverControlSubtitle": {
-    "description": "서버가 로컬 네트워크에서만 작동한다는 점을 명확히. 시작하면 다른 기기들에게 가시성이 활성화된다는 점을 강조."
+  "mediaServerSubtitle": "다른 기기가 이 기기에 연결하여 라이브러리를 동기화하고 재생을 제어할 수 있도록 합니다. 끄면 모든 연결을 거부합니다.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "네트워크 인터페이스",
   "@selectInterface": {
@@ -1412,11 +1412,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "오디오를 사용할 수 없음",
+  "allowRemoteControl": "원격 제어 허용",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "페어링된 기기가 이 기기의 재생을 제어할 수 있도록 합니다.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "동기화 허용",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "끄면 다른 기기가 이 기기에 연결할 수 없습니다.",
+  "allowPairedSyncDescription": "페어링된 기기가 이 기기와 라이브러리를 동기화할 수 있도록 합니다.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

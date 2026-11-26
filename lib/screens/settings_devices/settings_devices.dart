@@ -27,13 +27,19 @@ import 'remote_destinations_list.dart';
 
 import '../settings_server/utils/show_confirm_remove_device_dialog.dart';
 import '../settings_server/utils/show_review_connection_dialog.dart';
-import '../settings_server/widgets/server_control_setting_button.dart';
-import '../settings_server/widgets/enable_broadcast_setting_button.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/information/error.dart';
 
 class SettingsDevicesPage extends StatefulWidget {
-  const SettingsDevicesPage({super.key});
+  const SettingsDevicesPage({
+    super.key,
+    this.loadSyncSettings = getSyncSettings,
+    this.saveSyncSettings = setSyncSettings,
+  });
+
+  final Future<GetSyncSettingsResponse> Function() loadSyncSettings;
+  final Future<void> Function(GetSyncSettingsResponse settings)
+  saveSyncSettings;
 
   @override
   State<SettingsDevicesPage> createState() => _SettingsDevicesPageState();
@@ -108,7 +114,8 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
     $settingsManager.getValue<bool>(kOfflineCleanupDefaultKey).then((value) {
       if (mounted) setState(() => offlineCleanupDefault = value ?? true);
     });
-    getSyncSettings()
+    widget
+        .loadSyncSettings()
         .then((value) {
           if (mounted) setState(() => syncSettings = value);
         })
@@ -116,11 +123,81 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
           if (mounted) {
             showErrorDialog(
               context: context,
-              title: S.of(context).allowPairedSync,
+              title: S.of(context).mediaServer,
               errorMessage: requestErrorText(S.of(context), error),
             );
           }
         });
+  }
+
+  /// Saves [changed] and shows what the hub then reports, so a refused or
+  /// failed change leaves the switches at the values still in effect.
+  Future<void> _saveSyncSettings(
+    String title,
+    GetSyncSettingsResponse changed,
+  ) async {
+    try {
+      await widget.saveSyncSettings(changed);
+      final updated = await widget.loadSyncSettings();
+      if (mounted) setState(() => syncSettings = updated);
+    } catch (error) {
+      if (!mounted) return;
+      await showErrorDialog(
+        context: context,
+        title: title,
+        errorMessage: requestErrorText(S.of(context), error),
+      );
+    }
+  }
+
+  List<Widget> _mediaServerSettings(
+    BuildContext context,
+    GetSyncSettingsResponse settings,
+  ) {
+    final s = S.of(context);
+    Widget permission(
+      String title,
+      String subtitle,
+      bool value,
+      GetSyncSettingsResponse Function(bool value) change,
+    ) => SettingsBoxToggle(
+      title: title,
+      subtitle: subtitle,
+      value: value,
+      onChanged: settings.mediaServer
+          ? (value) => _saveSyncSettings(title, change(value))
+          : null,
+    );
+
+    return [
+      SettingsBoxToggle(
+        title: s.mediaServer,
+        subtitle: s.mediaServerSubtitle,
+        value: settings.mediaServer,
+        onChanged: (value) => _saveSyncSettings(
+          s.mediaServer,
+          settings.copyWith(mediaServer: value),
+        ),
+      ),
+      permission(
+        s.enableBroadcast,
+        s.enableBroadcastSubtitle,
+        settings.broadcast,
+        (value) => settings.copyWith(broadcast: value),
+      ),
+      permission(
+        s.allowRemoteControl,
+        s.allowRemoteControlDescription,
+        settings.acceptRemoteControl,
+        (value) => settings.copyWith(acceptRemoteControl: value),
+      ),
+      permission(
+        s.allowPairedSync,
+        s.allowPairedSyncDescription,
+        settings.acceptSync,
+        (value) => settings.copyWith(acceptSync: value),
+      ),
+    ];
   }
 
   @override
@@ -138,35 +215,9 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _sectionTitle(context, S.of(context).thisDevice),
-                  const ServerControlSetting(),
-                  const EnableBroadcastSetting(),
-                  const EditDeviceInformationSettingButton(),
                   if (syncSettings case final settings?)
-                    SettingsBoxToggle(
-                      title: S.of(context).allowPairedSync,
-                      subtitle: S.of(context).allowPairedSyncDescription,
-                      value: settings.listen,
-                      onChanged: (value) async {
-                        try {
-                          await setSyncSettings(
-                            value,
-                            settings.missingHostFile,
-                          );
-                          final updated = await getSyncSettings();
-                          if (mounted) setState(() => syncSettings = updated);
-                        } catch (error) {
-                          if (!context.mounted) return;
-                          await showErrorDialog(
-                            context: context,
-                            title: S.of(context).allowPairedSync,
-                            errorMessage: requestErrorText(
-                              S.of(context),
-                              error,
-                            ),
-                          );
-                        }
-                      },
-                    ),
+                    ..._mediaServerSettings(context, settings),
+                  const EditDeviceInformationSettingButton(),
                   SettingsBoxToggle(
                     title: S.of(context).offlineCleanupDefault,
                     subtitle: S.of(context).offlineCleanupDefaultDescription,

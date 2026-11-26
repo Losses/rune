@@ -1206,13 +1206,13 @@
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "掌伺",
-  "@serverControl": {
-    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  "mediaServer": "媒伺",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "啟伺機於本域，俾他者得以察。",
-  "@serverControlSubtitle": {
-    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  "mediaServerSubtitle": "許他器連此器，以同庫、控奏。閉之，則諸連皆拒。",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "網間門戶",
   "@selectInterface": {
@@ -1675,11 +1675,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "音不可使用",
+  "allowRemoteControl": "允許遙控",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "配對之器，得控此器之奏。",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "允許同",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "關閉後，他器將不可連至此器。",
+  "allowPairedSyncDescription": "配對之器，得與此器同庫。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },
