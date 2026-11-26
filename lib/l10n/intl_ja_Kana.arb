@@ -1206,13 +1206,13 @@
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "サーバーコントロール",
-  "@serverControl": {
-    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  "mediaServer": "メディアサーバー",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "ほかのデバイスがローカルネットワークでこのデバイスをディスカバーできるようにサーバーをスタートします。",
-  "@serverControlSubtitle": {
-    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  "mediaServerSubtitle": "ほかのデバイスがこのデバイスにコネクトして、ライブラリをシンクしたりプレイバックをコントロールしたりできるようにします。オフにすると、すべてのコネクションをリフューズします。",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "ネットワークインターフェース",
   "@selectInterface": {
@@ -1675,11 +1675,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "オンセイヲリヨウデキマセン",
+  "allowRemoteControl": "リモートソウサヲキョカ",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "ペアリングスミデバイスガコノデバイスノサイセイヲソウサデキルヨウニシマス。",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "ドウキヲキョカ",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "オフニスルト、ホカノデバイスカラセツゾクデキナクナリマス。",
+  "allowPairedSyncDescription": "ペアリングスミデバイスガコノデバイストライブラリーヲドウキデキルヨウニシマス。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

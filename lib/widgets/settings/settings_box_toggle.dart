@@ -20,6 +20,7 @@ class SettingsBoxToggle extends StatelessWidget {
   final Function(bool)? onChanged;
 
   Widget buildExpanderContent(BuildContext context) {
+    final onChanged = this.onChanged;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -28,11 +29,11 @@ class SettingsBoxToggle extends StatelessWidget {
           child: RadioButton(
             checked: value,
             content: Text(S.of(context).enable),
-            onChanged: (isChecked) {
-              if (isChecked && onChanged != null) {
-                onChanged!(true);
-              }
-            },
+            onChanged: onChanged == null
+                ? null
+                : (isChecked) {
+                    if (isChecked) onChanged(true);
+                  },
           ),
         ),
         Padding(
@@ -40,26 +41,19 @@ class SettingsBoxToggle extends StatelessWidget {
           child: RadioButton(
             checked: !value,
             content: Text(S.of(context).disable),
-            onChanged: (isChecked) {
-              if (isChecked && onChanged != null) {
-                onChanged!(false);
-              }
-            },
+            onChanged: onChanged == null
+                ? null
+                : (isChecked) {
+                    if (isChecked) onChanged(false);
+                  },
           ),
-        )
+        ),
       ],
     );
   }
 
   Widget buildDefaultContent(BuildContext context) {
-    return ToggleSwitch(
-      checked: value,
-      onChanged: (value) {
-        if (onChanged != null) {
-          onChanged!(value);
-        }
-      },
-    );
+    return ToggleSwitch(checked: value, onChanged: onChanged);
   }
 
   @override

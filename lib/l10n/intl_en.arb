@@ -1239,13 +1239,13 @@
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   },
-  "serverControl": "Server Control",
-  "@serverControl": {
-    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  "mediaServer": "Media Server",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "Start the server to allow other devices to discover this device on the local network.",
-  "@serverControlSubtitle": {
-    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  "mediaServerSubtitle": "Let other devices connect to this device to sync libraries and control playback. Turn off to refuse every connection.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "Network Interface",
   "@selectInterface": {
@@ -1514,11 +1514,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "Audio Unavailable",
+  "allowRemoteControl": "Allow Remote Control",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "Let paired devices control playback on this device.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "Allow Paired Sync",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Turn off to stop other devices from connecting to this device.",
+  "allowPairedSyncDescription": "Let paired devices sync libraries with this device.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

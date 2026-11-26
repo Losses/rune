@@ -3,7 +3,6 @@ use crate::node::NodeContext;
 use crate::request_error::ExpectedRequestError;
 use crate::server::api::remove_trusted_device;
 use crate::server::{
-    ServerManager,
     api::{
         add_trusted_server, check_fingerprint, edit_trusted_hosts, register_device, reported_status,
     },
@@ -12,12 +11,11 @@ use crate::server::{
     sync_worker::{
         SyncTokenStore, obtain_or_reuse_token, peer_base, tls_config, trusted_fingerprint,
     },
-    utils::device::{RunMode, local_device_info},
+    utils::device::RunMode,
 };
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::{
     fs,
-    future::Future,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -34,7 +32,6 @@ use uuid::Uuid;
 use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::error::ExpectedError;
 use ::discovery::{
-    DiscoveryParams,
     client::{
         CertValidator, CertValidatorError, fetch_server_certificate, select_best_host, try_connect,
     },
@@ -45,10 +42,8 @@ use ::discovery::{
 
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{Session, Signal, messages::*};
-use discovery::protocol;
 use reqwest::Client;
 use reqwest::StatusCode;
-use std::net;
 use std::result;
 
 pub(crate) async fn select_pinned_pair_host(
@@ -99,82 +94,6 @@ pub(crate) async fn select_pinned_pair_host(
             }
             .into())
         }
-    }
-}
-
-impl ParamsExtractor for StartBroadcastRequest {
-    type Params = (Arc<DiscoveryService>, Arc<String>, RunMode);
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (
-            Arc::clone(&all_params.device_scanner),
-            Arc::clone(&all_params.config_path),
-            all_params.node.run_mode,
-        )
-    }
-}
-
-impl Signal for StartBroadcastRequest {
-    type Params = (Arc<DiscoveryService>, Arc<String>, RunMode);
-    type Response = StartBroadcastResponse;
-
-    async fn handle(
-        &self,
-        (scanner, config_path, run_mode): Self::Params,
-        _session: Option<Session>,
-        request: &Self,
-    ) -> anyhow::Result<Option<Self::Response>> {
-        let certificate_id = request.alias.clone();
-        let (fingerprint, _, _) =
-            generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
-
-        info!(
-            "Start broadcasting the device: {}({})",
-            request.alias, fingerprint
-        );
-
-        scanner
-            .start_announcements(
-                local_device_info(request.alias.clone(), fingerprint, run_mode),
-                Duration::from_secs(3),
-                Some(Duration::from_secs(request.duration_seconds.into())),
-            )
-            .await
-            .map_err(|error| {
-                if let Some(running) = error.downcast_ref::<protocol::AnnouncementsAlreadyRunning>()
-                {
-                    ExpectedRequestError::BroadcastAlreadyRunning {
-                        indefinite: running.indefinite,
-                    }
-                    .into()
-                } else {
-                    error
-                }
-            })?;
-        Ok(Some(StartBroadcastResponse { call_id: None }))
-    }
-}
-
-impl ParamsExtractor for StopBroadcastRequest {
-    type Params = (Arc<DiscoveryService>,);
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.device_scanner),)
-    }
-}
-
-impl Signal for StopBroadcastRequest {
-    type Params = (Arc<DiscoveryService>,);
-    type Response = StopBroadcastResponse;
-
-    async fn handle(
-        &self,
-        (scanner,): Self::Params,
-        _session: Option<Session>,
-        _: &Self,
-    ) -> Result<Option<Self::Response>> {
-        scanner.stop_announcements().await;
-        Ok(Some(StopBroadcastResponse { call_id: None }))
     }
 }
 
@@ -316,110 +235,6 @@ mod device_type_tests {
         assert_eq!(response.devices.len(), 1);
         assert_eq!(response.devices[0].device_type, DeviceTypeMessage::Server);
         Ok(())
-    }
-}
-
-impl ParamsExtractor for StartServerRequest {
-    type Params = (Arc<String>, Arc<ServerManager>, RunMode);
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        let server_manager = all_params
-            .server_manager
-            .get()
-            .expect("ServerManager must be initialized before use")
-            .clone();
-
-        (
-            Arc::clone(&all_params.config_path),
-            Arc::clone(&server_manager),
-            all_params.node.run_mode,
-        )
-    }
-}
-
-impl Signal for StartServerRequest {
-    type Params = (Arc<String>, Arc<ServerManager>, RunMode);
-    type Response = StartServerResponse;
-
-    #[allow(clippy::manual_async_fn)]
-    fn handle(
-        &self,
-        (config_path, server_manager, run_mode): Self::Params,
-        _session: Option<Session>,
-        request: &Self,
-    ) -> impl Future<Output = Result<Option<Self::Response>>> + Send {
-        async move {
-            let ip: net::IpAddr = request.interface.parse().map_err(|e| {
-                ExpectedRequestError::invalid_input(format!(
-                    "Invalid interface address '{}': {}",
-                    request.interface, e
-                ))
-            })?;
-            let addr = SocketAddr::new(ip, DEFAULT_DEVICE_PORT);
-
-            let fingerprint =
-                generate_or_load_certificates(Path::new(&*config_path), &request.alias)
-                    .await?
-                    .0;
-            let device_info = local_device_info(request.alias.clone(), fingerprint, run_mode);
-
-            let discovery_params = DiscoveryParams { device_info };
-
-            server_manager
-                .start(addr, discovery_params)
-                .await
-                .map_err(|error| {
-                    anyhow::Error::new(ExpectedRequestError::Unavailable { what: "server" })
-                        .context(error)
-                })?;
-            Ok(Some(StartServerResponse { call_id: None }))
-        }
-    }
-}
-
-impl ParamsExtractor for StopServerRequest {
-    type Params = Arc<ServerManager>;
-
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        let server_manager = all_params
-            .server_manager
-            .get()
-            .expect("ServerManager must be initialized before use")
-            .clone();
-
-        Arc::clone(&server_manager)
-    }
-}
-
-impl Signal for StopServerRequest {
-    type Params = Arc<ServerManager>;
-    type Response = StopServerResponse;
-
-    async fn handle(
-        &self,
-        server_manager: Self::Params,
-        _session: Option<Session>,
-        _: &Self,
-    ) -> Result<Option<Self::Response>> {
-        let address = server_manager.get_address().await;
-        async {
-            server_manager.stop().await?;
-            if server_manager.node()?.sync_settings.read().await.listen
-                && let Some(address) = address
-            {
-                let info = server_manager.node()?.device_info().await?;
-                server_manager
-                    .clone()
-                    .start_sync(address, DiscoveryParams { device_info: info })
-                    .await?;
-            }
-            anyhow::Ok(())
-        }
-        .await
-        .map_err(|error| {
-            anyhow::Error::new(ExpectedRequestError::Unavailable { what: "server" }).context(error)
-        })?;
-        Ok(Some(StopServerResponse { call_id: None }))
     }
 }
 

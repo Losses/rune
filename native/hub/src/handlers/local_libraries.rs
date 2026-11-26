@@ -487,7 +487,7 @@ mod tests {
     async fn list_and_set_local_library_options() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let config = Arc::new(dir.path().to_string_lossy().into_owned());
-        crate::test_node::disable_sync_listener(dir.path())?;
+        crate::test_node::disable_media_server(dir.path())?;
         let node = NodeContext::new(
             &config,
             &config,

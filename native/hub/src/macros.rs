@@ -258,26 +258,6 @@ mod node_request_loop_tests {
             FetchServerCertificateRequest,
             FetchServerCertificateResponse
         );
-        error_handler!(
-            handle_start_server_request,
-            StartServerRequest,
-            StartServerResponse
-        );
-        error_handler!(
-            handle_stop_server_request,
-            StopServerRequest,
-            StopServerResponse
-        );
-        error_handler!(
-            handle_start_broadcast_request,
-            StartBroadcastRequest,
-            StartBroadcastResponse
-        );
-        error_handler!(
-            handle_stop_broadcast_request,
-            StopBroadcastRequest,
-            StopBroadcastResponse
-        );
         error_handler!(handle_start_listening_request, StartListeningRequest, ());
         error_handler!(handle_stop_listening_request, StopListeningRequest, ());
         error_handler!(
@@ -454,8 +434,6 @@ mod node_request_loop_tests {
         let (discovered_tx, discovered_rx) = signal_channel();
         let (clients_tx, clients_rx) = signal_channel();
         let (paired_servers_tx, paired_servers_rx) = signal_channel();
-        let (start_server_tx, start_server_rx) = signal_channel();
-        let (stop_server_tx, stop_server_rx) = signal_channel();
         let (library_test_tx, library_test_rx) = signal_channel();
         let (mix_with_others_tx, mix_with_others_rx) = signal_channel();
         let (sync_settings_tx, sync_settings_rx) = signal_channel();
@@ -473,8 +451,6 @@ mod node_request_loop_tests {
         let (fingerprint_tx, fingerprint_rx) = signal_channel();
         let (visualizer_support_tx, visualizer_support_rx) = signal_channel();
         let (visualizer_presets_tx, visualizer_presets_rx) = signal_channel();
-        let (broadcast_tx, broadcast_rx) = signal_channel();
-        let (stop_broadcast_tx, stop_broadcast_rx) = signal_channel();
         let (listening_tx, listening_rx) = signal_channel();
         let (stop_listening_tx, stop_listening_rx) = signal_channel();
         let (visualizer_dirs_tx, visualizer_dirs_rx) = signal_channel();
@@ -522,8 +498,6 @@ mod node_request_loop_tests {
                 get_discovered_device_request_receiver: discovered_rx,
                 list_clients_request_receiver: clients_rx,
                 list_paired_servers_request_receiver: paired_servers_rx,
-                start_server_request_receiver: start_server_rx,
-                stop_server_request_receiver: stop_server_rx,
                 test_library_initialized_request_receiver: library_test_rx,
                 set_mix_with_others_request_receiver: mix_with_others_rx,
                 get_sync_settings_request_receiver: sync_settings_rx,
@@ -541,8 +515,6 @@ mod node_request_loop_tests {
                 get_ssl_certificate_fingerprint_request_receiver: fingerprint_rx,
                 visualizer_support_request_receiver: visualizer_support_rx,
                 list_visualizer_presets_request_receiver: visualizer_presets_rx,
-                start_broadcast_request_receiver: broadcast_rx,
-                stop_broadcast_request_receiver: stop_broadcast_rx,
                 start_listening_request_receiver: listening_rx,
                 stop_listening_request_receiver: stop_listening_rx,
                 set_visualizer_preset_dirs_request_receiver: visualizer_dirs_rx,
@@ -579,30 +551,6 @@ mod node_request_loop_tests {
                 fingerprint: String::new(),
                 call_id: None,
             },
-            binary: Vec::new(),
-        });
-        assert_eq!(
-            response_or_loop_exit(&mut loop_future, &mut output_rx)
-                .await
-                .0,
-            "RequestFailedResponse"
-        );
-        start_server_tx.send(DartSignalPack {
-            message: StartServerRequest {
-                interface: String::new(),
-                alias: String::new(),
-                call_id: None,
-            },
-            binary: Vec::new(),
-        });
-        assert_eq!(
-            response_or_loop_exit(&mut loop_future, &mut output_rx)
-                .await
-                .0,
-            "RequestFailedResponse"
-        );
-        stop_server_tx.send(DartSignalPack {
-            message: StopServerRequest { call_id: None },
             binary: Vec::new(),
         });
         assert_eq!(
@@ -755,31 +703,6 @@ mod node_request_loop_tests {
                 .0,
             "RequestFailedResponse"
         );
-
-        broadcast_tx.send(DartSignalPack {
-            message: StartBroadcastRequest {
-                duration_seconds: 1,
-                alias: String::new(),
-                call_id: None,
-            },
-            binary: Vec::new(),
-        });
-        assert_eq!(
-            response_or_loop_exit(&mut loop_future, &mut output_rx)
-                .await
-                .0,
-            "RequestFailedResponse"
-        );
-        stop_broadcast_tx.send(DartSignalPack {
-            message: StopBroadcastRequest { call_id: None },
-            binary: Vec::new(),
-        });
-        assert_eq!(
-            response_or_loop_exit(&mut loop_future, &mut output_rx)
-                .await
-                .0,
-            "RequestFailedResponse"
-        );
         listening_tx.send(DartSignalPack {
             message: StartListeningRequest {
                 alias: String::new(),
@@ -873,7 +796,10 @@ mod node_request_loop_tests {
         set_sync_settings_tx.send(DartSignalPack {
             message: SetSyncSettingsRequest {
                 request_id: String::new(),
-                listen: false,
+                media_server: false,
+                broadcast: false,
+                accept_remote_control: false,
+                accept_sync: false,
                 missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
                 call_id: None,
             },

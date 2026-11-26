@@ -245,6 +245,10 @@ pub struct NodeContext {
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub device_scanner: Arc<DiscoveryService>,
     pub sync_settings: Arc<RwLock<SyncSettings>>,
+    /// Serialises settings updates, so that the lock on `sync_settings` itself is only ever
+    /// held briefly: an update reconciles the server, which can wait on open connections,
+    /// while requests keep reading the settings.
+    pub(crate) sync_settings_update: Mutex<()>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
@@ -500,6 +504,7 @@ impl NodeContext {
             cert_validator: Arc::new(RwLock::new(CertValidator::new(config_path).await?)),
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
+            sync_settings_update: Mutex::new(()),
             broadcaster: Arc::new(NodeBroadcaster {
                 current_player: current_player.clone(),
                 local_session_hidden: local_session_hidden.clone(),
@@ -574,19 +579,24 @@ impl NodeContext {
         node.refresh_current_player(node.current_player()?)?;
         node.start_notifications().await;
         manager.start_worker().await?;
-        if node.sync_settings.read().await.listen {
+        let (media_server, broadcast) = {
+            let settings = node.sync_settings.read().await;
+            (settings.media_server, settings.broadcast)
+        };
+        if media_server {
             let result = async {
                 let device_info = node.device_info().await?;
                 manager
-                    .start_sync(
+                    .start(
                         ([0, 0, 0, 0], DEFAULT_DEVICE_PORT).into(),
                         DiscoveryParams { device_info },
+                        broadcast,
                     )
                     .await
             }
             .await;
             if let Err(error) = result {
-                log::warn!("Could not start paired sync server: {error:#}");
+                log::warn!("Could not start the media server: {error:#}");
             }
         }
         node.publish_capabilities()?;
@@ -2062,7 +2072,7 @@ mod tests {
     #[tokio::test]
     async fn permission_status_change_emits_notification() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
-        crate::test_node::disable_sync_listener(dir.path())?;
+        crate::test_node::disable_media_server(dir.path())?;
         let path = dir.path().to_string_lossy();
         let (tx, mut rx) = mpsc::unbounded_channel();
         let node = NodeContext::new(
@@ -2141,7 +2151,7 @@ mod tests {
         let first = tempfile::tempdir()?;
         let second = tempfile::tempdir()?;
         SyncSettings {
-            listen: false,
+            media_server: false,
             ..SyncSettings::default()
         }
         .save(first.path())?;

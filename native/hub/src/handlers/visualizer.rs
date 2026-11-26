@@ -1110,7 +1110,7 @@ mod tests {
     #[tokio::test]
     async fn setting_the_scene_folders_announces_the_scene_list() {
         let dir = tempfile::tempdir().unwrap();
-        crate::test_node::disable_sync_listener(dir.path()).ok();
+        crate::test_node::disable_media_server(dir.path()).ok();
         let path = dir.path().to_string_lossy();
         let capture = Arc::new(Capture::default());
         let node = NodeContext::new(
@@ -1266,7 +1266,7 @@ mod tests {
         // Create a test node with the global visualizer
         // This simulates the app node in production
         let dir = tempfile::tempdir().unwrap();
-        crate::test_node::disable_sync_listener(dir.path()).ok();
+        crate::test_node::disable_media_server(dir.path()).ok();
         let path = dir.path().to_string_lossy();
         let node = NodeContext::new(
             &path,
@@ -1313,8 +1313,8 @@ mod tests {
         // Create nodes with different visualizers and separate folders
         let dir1 = tempfile::tempdir().unwrap();
         let dir2 = tempfile::tempdir().unwrap();
-        crate::test_node::disable_sync_listener(dir1.path()).ok();
-        crate::test_node::disable_sync_listener(dir2.path()).ok();
+        crate::test_node::disable_media_server(dir1.path()).ok();
+        crate::test_node::disable_media_server(dir2.path()).ok();
         let path1 = dir1.path().to_string_lossy();
         let path2 = dir2.path().to_string_lossy();
 

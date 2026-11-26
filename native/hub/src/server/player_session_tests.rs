@@ -71,7 +71,6 @@ use reqwest::StatusCode as ReqwestStatusCode;
 use reqwest::header;
 use std::collections;
 use std::slice;
-use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time as tokio_time;
 use visualizer::Chart;
@@ -2338,7 +2337,7 @@ async fn assert_node_threads_stop(case: &str) -> Result<()> {
         drop(fixture);
         node
     } else {
-        crate::test_node::disable_sync_listener(dir.path())?;
+        crate::test_node::disable_media_server(dir.path())?;
         let path = dir.path().to_str().context("node path")?;
         let node = NodeContext::new(
             path,
@@ -2353,11 +2352,12 @@ async fn assert_node_threads_stop(case: &str) -> Result<()> {
         let manager = node.manager()?;
         manager
             .clone()
-            .start_sync(
+            .start(
                 ([127, 0, 0, 1], 0).into(),
                 DiscoveryParams {
                     device_info: node.device_info().await?,
                 },
+                true,
             )
             .await?;
         assert!(manager.is_running());
@@ -2908,10 +2908,7 @@ async fn liked_requests_without_an_item_are_refused() -> Result<()> {
 }
 
 #[tokio::test]
-async fn server_start_and_stop_failures_are_typed() -> Result<()> {
-    use crate::messages::{StartServerRequest, StopServerRequest};
-    use crate::request_error::classify;
-
+async fn server_start_and_stop_failures_are_reported() -> Result<()> {
     let node_dir = tempfile::tempdir()?;
     let fixture = fixture(node_dir.path()).await?;
     let node = &fixture.global_params.node;
@@ -2919,31 +2916,32 @@ async fn server_start_and_stop_failures_are_typed() -> Result<()> {
 
     // 192.0.2.1 is reserved for documentation (RFC 5737), so no interface of
     // this device has it and the server cannot listen there.
-    let start = StartServerRequest {
-        interface: "192.0.2.1".into(),
-        alias: "unreachable interface".into(),
-        call_id: None,
-    };
-    let error = match start
-        .handle(
-            (node.config_path.clone(), Arc::clone(&manager), node.run_mode),
-            None,
-            &start,
+    let error = match Arc::clone(&manager)
+        .start(
+            ([192, 0, 2, 1], 0).into(),
+            DiscoveryParams {
+                device_info: node.device_info().await?,
+            },
+            true,
         )
         .await
     {
-        Ok(_) => anyhow::bail!("a server cannot start on an address this device lacks"),
+        Ok(()) => anyhow::bail!("a server cannot start on an address this device lacks"),
         Err(error) => error,
     };
-    assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{error:#}");
+    assert!(
+        format!("{error:#}").contains("Failed to bind sync server"),
+        "{error:#}"
+    );
+    assert!(!manager.is_running());
+    assert!(!node.device_scanner.is_announcing().await);
 
-    // The fixture never started its server, so there is nothing to stop.
-    let stop = StopServerRequest { call_id: None };
-    let error = match stop.handle(manager, None, &stop).await {
-        Ok(_) => anyhow::bail!("stopping a server that is not running must fail"),
+    // The failed start left no server, so there is nothing to stop.
+    let error = match manager.stop().await {
+        Ok(()) => anyhow::bail!("stopping a server that is not running must fail"),
         Err(error) => error,
     };
-    assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{error:#}");
+    assert!(format!("{error:#}").contains("Server not running"), "{error:#}");
     Ok(())
 }
 
@@ -12789,7 +12787,7 @@ async fn subsonic_library_opened_at_startup_answers_gui_requests_until_closed() 
         let dir = tempfile::tempdir()?;
         fs::create_dir_all(dir.path().join(".rune"))?;
         SyncSettings {
-            listen: false,
+            media_server: false,
             ..SyncSettings::default()
         }
         .save(dir.path())?;
@@ -16367,6 +16365,7 @@ async fn rr_reconnect_restores_real_node_requests() -> Result<()> {
             DiscoveryParams {
                 device_info: super::info(&f.b).await?,
             },
+            true,
         )
         .await?;
     let event: RemoteLibraryReconnected = f.wait_signal("RemoteLibraryReconnected").await?;
@@ -16442,7 +16441,7 @@ async fn rr_reconnect_stops_after_incompatible_peer_with_permanent_loss() -> Res
     });
     f.b.manager
         .clone()
-        .start(f.address, DiscoveryParams { device_info })
+        .start(f.address, DiscoveryParams { device_info }, true)
         .await?;
     let loss: RemoteConnectionLost = f.wait_signal("RemoteConnectionLost").await?;
     assert_eq!(loss.kind, RemoteLossKind::ProtocolIncompatible);
@@ -16511,6 +16510,7 @@ async fn rr_reconnect_leaving_stops_attempts() -> Result<()> {
                 DiscoveryParams {
                     device_info: super::info(&f.b).await?,
                 },
+                true,
             ),
         )
         .await?;
@@ -17743,11 +17743,9 @@ async fn a_mix_without_a_stored_mode_keeps_the_players_mode_instead_of_failing_r
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_settings_and_scene_requests_answer_typed_failures() -> Result<()> {
     use crate::messages::{
-        ImportVisualizerSceneRequest, MissingHostFilePolicy, RemoveVisualizerSceneRequest,
-        SetDownloadRuleRequest, SetSyncSettingsRequest,
+        ImportVisualizerSceneRequest, RemoveVisualizerSceneRequest, SetDownloadRuleRequest,
     };
     use crate::request_error::classify;
-    use crate::utils::sync_settings::SyncSettings;
 
     let dir = tempfile::tempdir()?;
     let fixture = fixture(dir.path()).await?;
@@ -17772,33 +17770,6 @@ async fn failed_settings_and_scene_requests_answer_typed_failures() -> Result<()
         .expect("an offline rule that selects nothing or a missing mix");
         assert_eq!(classify(&error), kind, "{error:#}");
     }
-
-    // Turning sync listening on needs the server manager, which this call does not have.
-    let settings = Arc::new(RwLock::new(SyncSettings {
-        listen: false,
-        ..SyncSettings::default()
-    }));
-    let request = SetSyncSettingsRequest {
-        request_id: "settings".into(),
-        listen: true,
-        missing_host_file: MissingHostFilePolicy::KeepAsRemote,
-        call_id: None,
-    };
-    let error = request
-        .handle(
-            (
-                settings,
-                params.config_path.clone(),
-                None::<Arc<crate::server::ServerManager>>,
-                RunMode::App,
-            ),
-            None,
-            &request,
-        )
-        .await
-        .err()
-        .expect("listening without a server manager");
-    assert_eq!(classify(&error), RequestErrorKind::Unavailable, "{error:#}");
 
     let scenes = tempfile::tempdir()?;
     let import = ImportVisualizerSceneRequest {

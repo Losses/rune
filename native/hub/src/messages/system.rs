@@ -86,7 +86,6 @@ pub enum RequestFailureCause {
     ScrobbleAuthentication {
         failure: ScrobbleAuthenticationFailure,
     },
-    IndefiniteBroadcastAlreadyRunning,
     /// Rune's file dialog could not read or change an item.
     FileDialogFailed {
         failure: FileDialogFailure,

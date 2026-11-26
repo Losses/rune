@@ -1208,13 +1208,13 @@
   "@server": {
     "description": "Il titolo della pagina delle impostazioni per controllare i comportamenti di condivisione del lettore multimediale. Include la gestione degli utenti autorizzati e la trasmissione della presenza del dispositivo."
   },
-  "serverControl": "Controllo Server",
-  "@serverControl": {
-    "description": "Titolo della sezione per controllare il server di rete locale. 'Server' qui si riferisce al servizio in background che gestisce la scoperta dei dispositivi."
+  "mediaServer": "Server Multimediale",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "Avvia il server per consentire ad altri dispositivi di scoprire questo dispositivo sulla rete locale.",
-  "@serverControlSubtitle": {
-    "description": "Chiarisce che il server opera solo sulla rete locale. Sottolinea che l'avvio abilita la visibilità agli altri."
+  "mediaServerSubtitle": "Consenti ad altri dispositivi di connettersi a questo dispositivo per sincronizzare le librerie e controllare la riproduzione. Disattiva per rifiutare ogni connessione.",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "Interfaccia di Rete",
   "@selectInterface": {
@@ -1412,11 +1412,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "Audio non disponibile",
+  "allowRemoteControl": "Consenti il controllo remoto",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "Consenti ai dispositivi associati di controllare la riproduzione su questo dispositivo.",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "Consenti la sincronizzazione",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "Disattiva per impedire agli altri dispositivi di connettersi a questo dispositivo.",
+  "allowPairedSyncDescription": "Consenti ai dispositivi associati di sincronizzare le librerie con questo dispositivo.",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

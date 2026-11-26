@@ -90,7 +90,10 @@ pub struct GetSyncSettingsRequest {
 #[derive(Serialize, Deserialize, RustSignal)]
 pub struct GetSyncSettingsResponse {
     pub request_id: String,
-    pub listen: bool,
+    pub media_server: bool,
+    pub broadcast: bool,
+    pub accept_remote_control: bool,
+    pub accept_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
     #[serde(default)]
     pub call_id: Option<u64>,
@@ -98,7 +101,10 @@ pub struct GetSyncSettingsResponse {
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetSyncSettingsRequest {
     pub request_id: String,
-    pub listen: bool,
+    pub media_server: bool,
+    pub broadcast: bool,
+    pub accept_remote_control: bool,
+    pub accept_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
     #[serde(default)]
     pub call_id: Option<u64>,

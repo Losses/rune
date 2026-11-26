@@ -13,20 +13,10 @@ import '../constants/configurations.dart';
 final SettingsManager _settingsManager = SettingsManager();
 
 class BroadcastProvider extends ChangeNotifier {
-  static const int _defaultDuration = 300;
-
-  Timer? _countdownTimer;
   StreamSubscription? _clientsChangedSubscription;
-  int _remainingSeconds = 0;
-  bool _isBroadcasting = false;
-  bool _isUpdatingBroadcast = false;
-  String? _errorMessage;
   String? _deviceAlias;
   String? _fingerprint;
 
-  bool _isServerRunning = false;
-  String? _interface;
-  late Completer<void> _initializationCompleter;
   late final Future<void> _deviceAliasReady = _initializeDeviceAlias();
 
   List<ClientSummary> _users = [];
@@ -41,25 +31,14 @@ class BroadcastProvider extends ChangeNotifier {
   List<ClientSummary> get pairedServers => _pairedServers;
   bool get isLoadingPairedServers => _isLoadingPairedServers;
 
-  int get remainingSeconds => _remainingSeconds;
-  bool get isBroadcasting => _isBroadcasting;
-
-  /// Whether a broadcast command or server stop is awaiting a reply.
-  bool get isUpdatingBroadcast => _isUpdatingBroadcast;
-  String? get errorMessage => _errorMessage;
   String? get deviceAlias => _deviceAlias;
   String? get fingerprint => _fingerprint;
-  bool get isServerRunning => _isServerRunning;
-  String? get interface => _interface;
 
   BroadcastProvider() {
     _clientsChangedSubscription = TrustedClientsChanged.rustSignalStream.listen(
       (_) => fetchUsers(),
     );
-    _initializationCompleter = Completer<void>();
-    _initializeDevice().then((_) {
-      _initializationCompleter.complete();
-    });
+    unawaited(_initializeDevice());
   }
 
   Future<void> _initializeDevice() async {
@@ -99,136 +78,6 @@ class BroadcastProvider extends ChangeNotifier {
     await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
     notifyListeners();
-  }
-
-  Future<void> startBroadcast([int? customDuration]) async {
-    if (_isBroadcasting || _isUpdatingBroadcast) return;
-    if (!_isServerRunning) {
-      _errorMessage = 'Server must be running to broadcast';
-      notifyListeners();
-      return;
-    }
-
-    final duration = customDuration ?? _defaultDuration;
-    await _updateBroadcast(() async {
-      try {
-        await awaitResponse(
-          'StartBroadcastRequest',
-          StartBroadcastResponse.rustSignalStream,
-          responseCallId: (response) => response.message.callId?.toInt(),
-          send: (callId) => StartBroadcastRequest(
-            durationSeconds: duration,
-            alias: _deviceAlias ?? '',
-            callId: callId,
-          ).sendSignalToRust(),
-        );
-      } on RequestFailure catch (error) {
-        if (error.cause
-            is! RequestFailureCauseIndefiniteBroadcastAlreadyRunning) {
-          rethrow;
-        }
-        // The server already started announcements without this countdown.
-        _isBroadcasting = true;
-        return;
-      }
-
-      _isBroadcasting = duration > 0;
-      _remainingSeconds = duration;
-      if (_isBroadcasting) _startCountdownTimer(duration);
-    });
-  }
-
-  Future<void> stopBroadcast() async {
-    if (!_isBroadcasting || _isUpdatingBroadcast) return;
-
-    await _updateBroadcast(() async {
-      await _requestBroadcastStop();
-      _clearBroadcast();
-    });
-  }
-
-  Future<void> _requestBroadcastStop() async {
-    await awaitResponse(
-      'StopBroadcastRequest',
-      StopBroadcastResponse.rustSignalStream,
-      responseCallId: (response) => response.message.callId?.toInt(),
-      send: (callId) => StopBroadcastRequest(callId: callId).sendSignalToRust(),
-    );
-  }
-
-  Future<void> _updateBroadcast(Future<void> Function() update) async {
-    _isUpdatingBroadcast = true;
-    _errorMessage = null;
-    notifyListeners();
-    try {
-      await update();
-    } finally {
-      _isUpdatingBroadcast = false;
-      notifyListeners();
-    }
-  }
-
-  void _clearBroadcast() {
-    _countdownTimer?.cancel();
-    _isBroadcasting = false;
-    _remainingSeconds = 0;
-  }
-
-  void _startCountdownTimer(int totalSeconds) {
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      _remainingSeconds = totalSeconds - timer.tick;
-
-      if (_remainingSeconds <= 0) _clearBroadcast();
-
-      notifyListeners();
-    });
-  }
-
-  /// Start the server. A failure is left to the global handler.
-  Future<void> startServer(String interface) async {
-    if (_isServerRunning) return;
-    await _initializationCompleter.future;
-
-    _interface = interface;
-    notifyListeners();
-
-    try {
-      await awaitResponse(
-        'StartServerRequest',
-        StartServerResponse.rustSignalStream,
-        responseCallId: (response) => response.message.callId?.toInt(),
-        send: (callId) => StartServerRequest(
-          interface: interface,
-          alias: _deviceAlias!,
-          callId: callId,
-        ).sendSignalToRust(),
-      );
-    } on RequestFailure {
-      stopBroadcast();
-      rethrow;
-    }
-    _isServerRunning = true;
-    notifyListeners();
-  }
-
-  /// Stop the server. A failure is left to the global handler.
-  void stopServer() {
-    if (!_isServerRunning || _isUpdatingBroadcast) return;
-    final wasBroadcasting = _isBroadcasting;
-    unawaited(
-      _updateBroadcast(() async {
-        await awaitResponse(
-          'StopServerRequest',
-          StopServerResponse.rustSignalStream,
-          responseCallId: (response) => response.message.callId?.toInt(),
-          send: (callId) =>
-              StopServerRequest(callId: callId).sendSignalToRust(),
-        );
-        _isServerRunning = false;
-        if (wasBroadcasting) await _requestBroadcastStop();
-        _clearBroadcast();
-      }),
-    );
   }
 
   /// Reload the trusted devices. A failure is left to the global handler.
@@ -281,7 +130,6 @@ class BroadcastProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
     _clientsChangedSubscription?.cancel();
     // A fetch still in flight must not notify a disposed provider.
     _pairedServersGeneration++;

@@ -32,6 +32,23 @@ Calls that are neither, such as pairing and this device's settings, always run o
 
 Each app process has one node, created at start. It owns the library pool, trust, discovery, grants, the server, the sync worker and the player session. Sharing and sync therefore keep running on the welcome screen, across library switches and while this device controls another one.
 
+### The Media Server
+
+A node has one server, the Media Server, and one way of starting it. It serves pairing, device information, the file and media routes, library sync, remote control over the WebSocket and the headless panel, all on one port. There is no reduced mode: every route is always mounted, and settings decide at request time what is answered.
+
+| Setting (`sync_settings.json`) | Default | Meaning |
+|---|---|---|
+| `media_server` (files written by earlier versions call it `listen`) | on | Whether this device listens for other devices at all. Off stops the server and its announcements; on starts it at the device port. |
+| `broadcast` | on | While the server runs, announce this device on the local network. |
+| `accept_remote_control` | off | While the server runs, accept remote-control connections. When off, `/ws` answers 404, as a device without that route would. |
+| `accept_sync` | on | While the server runs, accept library sync requests from other devices. When off, the sync routes of every library answer 403. Listing libraries, access checks, cast preflight, files and media are not affected. |
+
+- Changing `broadcast`, `accept_remote_control` or `accept_sync` never restarts the server, so connections that the change does not concern stay open. Switching remote control off closes the open remote-control sessions with close code 1001, after new ones are already refused.
+- These settings are permissions under the server, checked before the grants of the asking device. They do not replace grants: a device still needs Control to drive playback and a sync grant on the library it asks for.
+- Every writer of the settings (the Devices page and the panel's broadcast switch) goes through one function. It brings the server to the requested state first and saves afterwards, so a failed change leaves the saved and shown settings equal to what is actually served; when the save itself fails, the server is put back.
+- The sync worker, which reaches out to paired devices, does not depend on the server and keeps running while it is off.
+- The headless server exists to serve: it runs with the server, remote control and sync accepted whatever the saved settings say, and keeps the saved `broadcast`.
+
 ### Requests
 
 - Every call is listed once in the request catalogue: its request and response, whether it is a library, player or this-device call, the access rule for calls from other devices, and the protocol version that introduced it.
@@ -354,7 +371,7 @@ Before a cast the controller checks the player (reachable, accepts any granted l
 ### Enforcement
 
 - Every library call from another device names its library. A call without a `library_id` is rejected; it is never served from the library open in the UI.
-- Every call in the request catalogue has an access rule for calls from other devices. This-device calls (trust management, scrobbling sign-in, server control, logs, licences) are refused when they come from another device.
+- Every call in the request catalogue has an access rule for calls from other devices. This-device calls (trust management, scrobbling sign-in, the Media Server's settings, logs, licences) are refused when they come from another device.
 - A call whose body names libraries, through its items, also declares in the catalogue what they mean: the call acts on each of them, so each is authorized with the call's access rule and must be the library the call names; or the player reads them under its own grants (load, cast, handoff). The libraries are found from the body's types and checked where the call is authorized, before any handler runs.
 - Short-lived tokens, issued only to approved devices after a signature challenge, authenticate the WebSocket, the file and media routes and sync.
 - The capability snapshot sent to a controller marks every call its grants do not allow as unavailable.
@@ -389,7 +406,7 @@ The UI uses the existing settings components (`SettingsTileTitle` rows, `Content
 
 Three sections:
 
-- This device: its name, "Visible to nearby devices" and "Allow other devices to connect".
+- This device: the Media Server switch, then the three permissions under it, which are disabled while the server is off ("Enable Broadcast", "Allow Remote Control", "Allow Paired Sync"), and its name.
 - Devices that can connect to this one: name and a short summary of what the device may do. Only "Waiting for approval" and "Blocked" carry a coloured badge. A device that is controlling this one can be disconnected from its row.
 - Other devices: search nearby and add manually.
 

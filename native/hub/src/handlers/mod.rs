@@ -23,6 +23,6 @@ mod scrobble;
 mod search;
 mod sfx;
 mod stat;
-mod sync;
+pub(crate) mod sync;
 mod system;
 mod visualizer;

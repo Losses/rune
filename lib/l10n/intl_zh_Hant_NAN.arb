@@ -1208,13 +1208,13 @@
   "@server": {
     "description": "用來控制媒體播放器分享行為的設定頁面標題，包括管理授權使用者佮廣播設備狀態。"
   },
-  "serverControl": "伺服器控制",
-  "@serverControl": {
-    "description": "用來控制本地網路伺服器的部分標題。「伺服器」指的是用來發現設備的背景服務。"
+  "mediaServer": "媒體伺服器",
+  "@mediaServer": {
+    "description": "Title of the switch that decides whether this device listens for other devices at all. 'Media Server' is the name of that service."
   },
-  "serverControlSubtitle": "啟動伺服器，予其他設備會當佇本地網路中發現這台設備。",
-  "@serverControlSubtitle": {
-    "description": "明確伺服器干焦佇本地網路中執行。強調啟動伺服器會予設備對別人可見。"
+  "mediaServerSubtitle": "予其他設備會當連線這台設備，來同步媒體庫佮控制播放。關掉了後會拒絕所有的連線。",
+  "@mediaServerSubtitle": {
+    "description": "Explains the Media Server switch: on lets other devices connect for library sync and playback control, off refuses every connection."
   },
   "selectInterface": "網路介面",
   "@selectInterface": {
@@ -1677,11 +1677,19 @@
     "description": "Explains that disabling downloads does not delete audio."
   },
   "audioUnavailable": "音訊無通使用",
+  "allowRemoteControl": "允許遠端控制",
+  "@allowRemoteControl": {
+    "description": "Label for allowing paired devices to control playback on this device"
+  },
+  "allowRemoteControlDescription": "予配對的裝置會當控制這个裝置的播放。",
+  "@allowRemoteControlDescription": {
+    "description": "Explanation of the incoming remote control setting"
+  },
   "allowPairedSync": "允許同步",
   "@allowPairedSync": {
     "description": "Label for allowing incoming paired device sync"
   },
-  "allowPairedSyncDescription": "關閉後，別个裝置將無通連線至這个裝置。",
+  "allowPairedSyncDescription": "予配對的裝置會當佮這个裝置同步媒體庫。",
   "@allowPairedSyncDescription": {
     "description": "Explanation of the incoming sync setting"
   },

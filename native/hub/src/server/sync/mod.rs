@@ -88,6 +88,9 @@ async fn serve_library(
     let Some(peer) = request.extensions().get::<PeerIdentity>().cloned() else {
         return forbidden();
     };
+    if !global.sync_settings.read().await.accept_sync {
+        return forbidden();
+    }
     let id = match path.library_id.parse::<Uuid>() {
         Ok(id) => id,
         Err(_) => return StatusCode::NOT_FOUND.into_response(),

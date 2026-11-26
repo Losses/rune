@@ -3,10 +3,7 @@ import '../../bindings/bindings.dart';
 
 int _sequence = 0;
 
-Future<void> setSyncSettings(
-  bool listen,
-  MissingHostFilePolicy missingHostFile,
-) async {
+Future<void> setSyncSettings(GetSyncSettingsResponse settings) async {
   final id = '${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
   await awaitResponse(
     'SetSyncSettingsRequest',
@@ -16,8 +13,11 @@ Future<void> setSyncSettings(
     responseCallId: (response) => response.message.callId?.toInt(),
     send: (callId) => SetSyncSettingsRequest(
       requestId: id,
-      listen: listen,
-      missingHostFile: missingHostFile,
+      mediaServer: settings.mediaServer,
+      broadcast: settings.broadcast,
+      acceptRemoteControl: settings.acceptRemoteControl,
+      acceptSync: settings.acceptSync,
+      missingHostFile: settings.missingHostFile,
       callId: callId,
     ).sendSignalToRust(),
     timeout: const Duration(seconds: 15),

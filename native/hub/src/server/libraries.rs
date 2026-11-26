@@ -89,10 +89,23 @@ pub(super) async fn peer_access(
         .sync
         .libraries
         .retain(|library_id, _| node.access_policy.library_visible(&peer, *library_id));
+    // A peer decides from this answer what it offers its user, so it reports what this
+    // device serves right now and not only what the peer was granted.
+    let (accept_remote_control, accept_sync) = {
+        let settings = node.sync_settings.read().await;
+        (settings.accept_remote_control, settings.accept_sync)
+    };
     Ok(Json(PeerAccess {
-        control: grants.control,
+        control: grants.control && accept_remote_control,
         connection: grants.connection,
-        sync: grants.sync,
+        sync: if accept_sync {
+            grants.sync
+        } else {
+            LibraryGrants {
+                all_libraries: None,
+                libraries: BTreeMap::new(),
+            }
+        },
         administer: grants.administer,
     }))
 }
@@ -105,6 +118,9 @@ pub(super) async fn cast_preflight(
     let node = manager
         .node()
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !node.sync_settings.read().await.accept_remote_control {
+        return Err(StatusCode::FORBIDDEN);
+    }
     node.access_policy
         .check(&peer, &Action::Control)
         .map_err(|_| StatusCode::FORBIDDEN)?;
@@ -552,6 +568,7 @@ pub(super) async fn list_libraries(
         .access_policy
         .grants(&peer.fingerprint)
         .map_err(|_| StatusCode::FORBIDDEN)?;
+    let accept_sync = node.sync_settings.read().await.accept_sync;
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
@@ -566,7 +583,11 @@ pub(super) async fn list_libraries(
                         library_id,
                         alias: library.alias.clone(),
                         connection: grants.connection_level(library_id),
-                        sync: grants.sync_level(library_id),
+                        sync: if accept_sync {
+                            grants.sync_level(library_id)
+                        } else {
+                            SyncLevel::None
+                        },
                     })
             })
             .collect(),

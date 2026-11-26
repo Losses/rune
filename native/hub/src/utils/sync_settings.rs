@@ -9,14 +9,26 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SyncSettings {
-    pub listen: bool,
+    /// Whether this device listens for other devices at all. Files written before the server
+    /// had one mode call this `listen`.
+    #[serde(alias = "listen")]
+    pub media_server: bool,
+    /// While the server runs, announce this device on the local network.
+    pub broadcast: bool,
+    /// While the server runs, accept remote-control connections.
+    pub accept_remote_control: bool,
+    /// While the server runs, accept library sync requests from other devices.
+    pub accept_sync: bool,
     pub missing_host_file: MissingHostFilePolicy,
 }
 
 impl Default for SyncSettings {
     fn default() -> Self {
         Self {
-            listen: true,
+            media_server: true,
+            broadcast: true,
+            accept_remote_control: false,
+            accept_sync: true,
             missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
         }
     }
@@ -60,27 +72,40 @@ mod tests {
     #[test]
     fn defaults_and_atomic_round_trip() -> Result<()> {
         let dir = tempfile::tempdir()?;
-        assert!(SyncSettings::load(dir.path()).listen);
+        let defaults = SyncSettings::load(dir.path());
+        assert!(defaults.media_server);
+        assert!(defaults.broadcast);
+        assert!(!defaults.accept_remote_control);
+        assert!(defaults.accept_sync);
         fs::write(dir.path().join("sync_settings.json"), b"{\"listen\":false}")?;
         let partial = SyncSettings::load(dir.path());
-        assert!(!partial.listen);
+        assert!(!partial.media_server);
+        assert!(partial.broadcast);
+        assert!(!partial.accept_remote_control);
+        assert!(partial.accept_sync);
         assert_eq!(
             partial.missing_host_file,
             MissingHostFilePolicy::RemoveEverywhere
         );
         let updated = SyncSettings {
-            listen: true,
+            media_server: false,
+            broadcast: false,
+            accept_remote_control: true,
+            accept_sync: false,
             missing_host_file: MissingHostFilePolicy::KeepAsRemote,
         };
         updated.save(dir.path())?;
         let loaded = SyncSettings::load(dir.path());
-        assert!(loaded.listen);
+        assert!(!loaded.media_server);
+        assert!(!loaded.broadcast);
+        assert!(loaded.accept_remote_control);
+        assert!(!loaded.accept_sync);
         assert_eq!(
             loaded.missing_host_file,
             MissingHostFilePolicy::KeepAsRemote
         );
         fs::write(dir.path().join("sync_settings.json"), b"invalid")?;
-        assert!(SyncSettings::load(dir.path()).listen);
+        assert!(SyncSettings::load(dir.path()).media_server);
         Ok(())
     }
 }
