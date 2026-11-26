@@ -1492,6 +1492,7 @@ impl PlayerInternal {
                             if let Some(mode) = edit.playback_mode {
                                 self.set_playback_mode(mode)?;
                             }
+                            let mut started = false;
                             if let Some(load) = edit.load {
                                 self.failure_chain_signaled = false;
                                 // An edit that loads takes playback over, paused or playing, as
@@ -1504,6 +1505,7 @@ impl PlayerInternal {
                                     false,
                                     Some(load.position),
                                 )?;
+                                started = load.play;
                             } else if added
                                 && edit.placement == PlaylistPlacement::PlayNext
                                 && self.current_queue_edit_index().is_none()
@@ -1511,6 +1513,10 @@ impl PlayerInternal {
                                 self.failure_chain_signaled = false;
                                 self.last_pause_report = None;
                                 self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
+                                started = true;
+                            }
+                            if let Some(report) = edit.started_playback {
+                                let _ = report.send(started);
                             }
                         },
                         PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response, .. } => {
@@ -5442,6 +5448,7 @@ mod playback_state_tests {
                                 position: Duration::from_secs(1),
                                 play: false,
                             }),
+                            started_playback: None,
                         },
                         None,
                     ))?;
@@ -5491,6 +5498,7 @@ mod playback_state_tests {
                             playback_mode: None,
                             block: None,
                             load: None,
+                            started_playback: None,
                         },
                         None,
                     ))?;
@@ -5533,6 +5541,7 @@ mod playback_state_tests {
                         playback_mode: None,
                         block: None,
                         load: None,
+                        started_playback: None,
                     }, None))?;
                     let updated = tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
@@ -7241,6 +7250,7 @@ mod playback_state_tests {
                             placement: PlaylistPlacement::Replace,
                             tracks: vec![(track.clone(), PlaybackSource::LibraryStream)],
                             block: None,
+                            started_playback: None,
                             playback_mode: None,
                             load: Some(PlaylistLoad {
                                 start_index: 0,
@@ -7921,6 +7931,7 @@ mod playback_state_tests {
                     playback_mode: None,
                     load: None,
                     block: None,
+                    started_playback: None,
                 };
                 let completion =
                     completed_command(&commands_sender, PlayerCommand::EditPlaylist(edit, None));

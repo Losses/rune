@@ -273,7 +273,7 @@ fn edit_playlist(
     player: &dyn Playable,
     prepared: &[(PlayingItem, PlaybackSource)],
     options: PlaylistEditOptions,
-) -> (bool, PlaylistEdit) {
+) -> (bool, bool, PlaylistEdit) {
     let PlaylistEditOptions {
         mode,
         start_index,
@@ -299,35 +299,22 @@ fn edit_playlist(
         });
     let changed = (mode == PlaylistOperateMode::Replace && !player.get_playlist().is_empty())
         || !prepared.is_empty();
+    // A commanded load always displaces the track that plays, and replacing the playlist
+    // clears it outright; inserting behind or next to it does not. Whatever plays the
+    // displaced track later is no longer the playback the current owner started.
+    let displaces = load.is_some() || placement == PlaylistPlacement::Replace;
     (
         changed,
+        displaces,
         PlaylistEdit {
             tracks: prepared.to_vec(),
             placement,
             playback_mode: playback_mode.map(Into::into),
             load,
             block: None,
+            started_playback: None,
         },
     )
-}
-
-/// Whether an edit starts playback, mirroring the player's reading of it: an explicit load
-/// that plays, or a PlayNext insertion with no load on a player that has nothing current,
-/// which the player starts on its own. The ownership the edit's initiator takes over the
-/// playback it starts depends on this answer, so the idle case must not read as idle editing:
-/// the player checks its cursor, nothing current or stopped, and the status here exposes both.
-fn edit_starts_playback(player: &dyn Playable, edit: &PlaylistEdit) -> bool {
-    if edit.load.as_ref().is_some_and(|load| load.play) {
-        return true;
-    }
-    if edit.load.is_some()
-        || edit.tracks.is_empty()
-        || edit.placement != PlaylistPlacement::PlayNext
-    {
-        return false;
-    }
-    let status = player.get_status();
-    status.state == PlayerPlaybackState::Stopped || status.index.is_none()
 }
 
 /// Convert many items to requests, acquiring each library and querying it once.
@@ -1101,8 +1088,8 @@ impl Signal for LoadResolvedItemsRequest {
                     .edit_queue_with_load(
                         request.expected_revision,
                         load_initiator(session.as_ref()),
-                        |player| {
-                            let (changed, edit) = edit_playlist(
+                        |player, started_report| {
+                            let (changed, displaces, mut edit) = edit_playlist(
                                 player,
                                 &prepared,
                                 PlaylistEditOptions {
@@ -1115,12 +1102,12 @@ impl Signal for LoadResolvedItemsRequest {
                                     play: request.play,
                                 },
                             );
-                            let starts_playback = edit_starts_playback(player, &edit);
+                            edit.started_playback = Some(started_report);
                             let completion =
                                 Some(player.command_with_completion(PlayerCommand::EditPlaylist(
                                     edit, None,
                                 )));
-                            (changed, starts_playback, completion)
+                            (changed, false, displaces, completion)
                         },
                     )
                     .await?;
@@ -1231,8 +1218,8 @@ impl Signal for LoadResolvedItemsRequest {
                 .edit_queue_with_load(
                     request.expected_revision,
                     load_initiator(session.as_ref()),
-                    |player| {
-                        let (changed, edit) = edit_playlist(
+                    |player, started_report| {
+                        let (changed, displaces, mut edit) = edit_playlist(
                             player,
                             &prepared,
                             PlaylistEditOptions {
@@ -1243,11 +1230,11 @@ impl Signal for LoadResolvedItemsRequest {
                                 play: request.play,
                             },
                         );
-                        let starts_playback = edit_starts_playback(player, &edit);
+                        edit.started_playback = Some(started_report);
                         let completion = Some(
                             player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                         );
-                        (changed, starts_playback, completion)
+                        (changed, false, displaces, completion)
                     },
                 )
                 .await?;
@@ -1533,8 +1520,8 @@ async fn apply_resolved_items_load(
             .edit_queue_with_load(
                 request.expected_revision,
                 load_initiator(session),
-                |player| {
-                    let (changed, edit) = edit_playlist(
+                |player, started_report| {
+                    let (changed, displaces, mut edit) = edit_playlist(
                         player,
                         &prepared,
                         PlaylistEditOptions {
@@ -1545,11 +1532,11 @@ async fn apply_resolved_items_load(
                             play: request.play,
                         },
                     );
-                    let starts_playback = edit_starts_playback(player, &edit);
+                    edit.started_playback = Some(started_report);
                     let completion = Some(
                         player.command_with_completion(PlayerCommand::EditPlaylist(edit, None)),
                     );
-                    (changed, starts_playback, completion)
+                    (changed, false, displaces, completion)
                 },
             )
             .await?;

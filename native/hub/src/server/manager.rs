@@ -3513,7 +3513,7 @@ mod lifecycle_tests {
                     fingerprint: fingerprint.clone(),
                     public_key: String::new(),
                 }),
-                |_player| (false, true, None),
+                |_player, _started_report| (false, true, false, None),
             )
             .await?;
         wait_until("the recorded owner to reach the session store", || async {
@@ -3572,9 +3572,11 @@ mod lifecycle_tests {
         };
         // The first controller owns the playback.
         session
-            .edit_queue_with_load(None, owner_of(&first_fingerprint), |_player| {
-                (false, true, None)
-            })
+            .edit_queue_with_load(
+                None,
+                owner_of(&first_fingerprint),
+                |_player, _started_report| (false, true, false, None),
+            )
             .await?;
         assert_eq!(
             session
@@ -3586,30 +3588,35 @@ mod lifecycle_tests {
         // The second controller's load goes out and fails its own completion: the track list
         // is replaced with one entry while the load asks for index 99.
         let error = session
-            .edit_queue_with_load(None, owner_of(&second_fingerprint), |player| {
-                let completion = Some(player.command_with_completion(
-                    playback::PlayerCommand::EditPlaylist(
-                        PlaylistEdit {
-                            tracks: vec![(
-                                PlayingItem::IndependentFile("missing-load-track.ogg".into()),
-                                playback::player::PlaybackSource::Local(
-                                    "missing-load-track.ogg".into(),
-                                ),
-                            )],
-                            placement: PlaylistPlacement::Replace,
-                            playback_mode: None,
-                            load: Some(PlaylistLoad {
-                                start_index: 99,
-                                position: Duration::ZERO,
-                                play: true,
-                            }),
-                            block: None,
-                        },
-                        None,
-                    ),
-                ));
-                (true, true, completion)
-            })
+            .edit_queue_with_load(
+                None,
+                owner_of(&second_fingerprint),
+                |player, _started_report| {
+                    let completion = Some(player.command_with_completion(
+                        playback::PlayerCommand::EditPlaylist(
+                            PlaylistEdit {
+                                tracks: vec![(
+                                    PlayingItem::IndependentFile("missing-load-track.ogg".into()),
+                                    playback::player::PlaybackSource::Local(
+                                        "missing-load-track.ogg".into(),
+                                    ),
+                                )],
+                                placement: PlaylistPlacement::Replace,
+                                playback_mode: None,
+                                load: Some(PlaylistLoad {
+                                    start_index: 99,
+                                    position: Duration::ZERO,
+                                    play: true,
+                                }),
+                                block: None,
+                                started_playback: None,
+                            },
+                            None,
+                        ),
+                    ));
+                    (true, true, true, completion)
+                },
+            )
             .await
             .expect_err("a load past the end of the playlist cannot apply");
         assert!(
@@ -3676,7 +3683,7 @@ mod lifecycle_tests {
         );
         let revoke_fingerprint = fingerprint.clone();
         let edit_result = session
-            .edit_queue_with_load(None, Some(peer), move |player| {
+            .edit_queue_with_load(None, Some(peer), move |player, _started_report| {
                 let completion = Some(player.command_with_completion(
                     playback::PlayerCommand::EditPlaylist(
                         PlaylistEdit {
@@ -3689,6 +3696,7 @@ mod lifecycle_tests {
                                 play: true,
                             }),
                             block: None,
+                            started_playback: None,
                         },
                         None,
                     ),
@@ -3700,7 +3708,7 @@ mod lifecycle_tests {
                 access_policy
                     .set(&revoke_fingerprint, grants)
                     .expect("revoking the controller mid-load");
-                (true, true, completion)
+                (true, true, true, completion)
             })
             .await;
         // Which answer the edit gets depends on where the revocation pass lands: a pause that
@@ -3730,6 +3738,98 @@ mod lifecycle_tests {
             Ok((session.playback_owner_for_test().await.is_none()).then_some(()))
         })
         .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// A controller whose access is already revoked when its load reaches the session is
+    /// refused before anything is dispatched: the revocation pass over the owner ran before
+    /// the edit could write its ownership, so no pause after the fact could ever catch the
+    /// playback the load would start. The edit must fail the request, send nothing to the
+    /// player, and move neither the queue nor the ownership.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn revoked_controller_load_is_refused_before_dispatch() -> Result<()> {
+        use crate::access_policy::Action;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement};
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let session = player.global_params.node.session()?;
+        let track_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        let track = (
+            PlayingItem::IndependentFile(track_path.to_string_lossy().into_owned()),
+            playback::player::PlaybackSource::Local(track_path),
+        );
+        let access_policy = player.global_params.node.access_policy.clone();
+        let peer = PeerIdentity {
+            fingerprint: fingerprint.clone(),
+            public_key: String::new(),
+        };
+        assert!(
+            access_policy.check(&peer, &Action::Control).is_ok(),
+            "the paired controller must control the player before the revocation"
+        );
+        let mut grants = access_policy
+            .grants(&fingerprint)
+            .expect("paired controller grants");
+        grants.control = false;
+        access_policy
+            .set(&fingerprint, grants)
+            .expect("revoking the controller before its load");
+        let queue_revision_before = session.queue_revision().await;
+        let edit_result = session
+            .edit_queue_with_load(None, Some(peer), move |player, _started_report| {
+                let completion = Some(player.command_with_completion(
+                    playback::PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: vec![track],
+                            placement: PlaylistPlacement::Replace,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 0,
+                                position: Duration::ZERO,
+                                play: true,
+                            }),
+                            block: None,
+                            started_playback: None,
+                        },
+                        None,
+                    ),
+                ));
+                (true, true, true, completion)
+            })
+            .await;
+        let error = edit_result.expect_err("a revoked controller's load must never dispatch");
+        assert!(
+            format!("{error:?}").contains("denied") || format!("{error:?}").contains("access"),
+            "the refusal should be the access policy's: {error:?}"
+        );
+        assert_eq!(
+            session.queue_revision().await,
+            queue_revision_before,
+            "a refused edit must not move the queue revision"
+        );
+        assert!(
+            session.playback_owner_for_test().await.is_none(),
+            "a refused edit must not write the ownership"
+        );
+        assert!(
+            player
+                .global_params
+                .player
+                .lock()
+                .await
+                .get_playlist()
+                .is_empty(),
+            "a refused edit must not reach the player's queue"
+        );
         player.global_params.node.token.cancel();
         controller.global_params.node.token.cancel();
         Ok(())
