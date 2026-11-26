@@ -85,4 +85,16 @@ void main() {
       s.libraryOpenDalReadOnly,
     );
   });
+
+  test('a requested sync does not promise a retry of an unavailable store', () {
+    final s = AppLocalizationsEn();
+    expect(
+      requestedShareSyncFailureMessage(s, ShareSyncFailure.storeUnavailable),
+      s.libraryShareStoreUnavailableOnRequest,
+    );
+    expect(
+      requestedShareSyncFailureMessage(s, ShareSyncFailure.readOnlyShare),
+      shareSyncFailureMessage(s, ShareSyncFailure.readOnlyShare),
+    );
+  });
 }

@@ -1616,6 +1616,7 @@
   "libraryStorageFailure": "Impossible d’enregistrer la bibliothèque.",
   "libraryNewerVersion": "Cette bibliothèque a été créée par une version plus récente de Rune. Mettez Rune à jour sur cet appareil pour l’ouvrir.",
   "libraryShareStoreUnavailable": "Le stockage partagé est indisponible. La synchronisation réessaiera automatiquement.",
+  "libraryShareStoreUnavailableOnRequest": "Le stockage partagé est indisponible.",
   "libraryRemoteNotAuthorized": "L’appareil n’a pas autorisé cette connexion.",
   "libraryRemoteUnreachable": "L’appareil est injoignable.",
   "libraryRemoteProtocolFailure": "L’appareil a renvoyé une réponse incompatible.",

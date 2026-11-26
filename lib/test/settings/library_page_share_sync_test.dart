@@ -286,9 +286,8 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(ContentDialog),
-        matching: find.text(
-          'Shared storage is unavailable. Sync will retry automatically.',
-        ),
+        // Nothing retries a requested sync, so the message does not say so.
+        matching: find.text('Shared storage is unavailable.'),
       ),
       findsOneWidget,
     );

@@ -1535,6 +1535,7 @@
   "libraryStorageFailure": "無通儲存媒體庫。",
   "libraryNewerVersion": "這个媒體庫是用較新的 Rune 版本做的。請佇這台設備更新 Rune 才通開。",
   "libraryShareStoreUnavailable": "共享儲存無通使用。同步會自動重試。",
+  "libraryShareStoreUnavailableOnRequest": "共享儲存無通使用。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
   "libraryRemoteUnreachable": "無通連線到裝置。",
   "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",

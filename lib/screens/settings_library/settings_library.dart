@@ -153,7 +153,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     try {
       final failure = await libraryManager.syncShareLibrary(libraryId);
       if (!mounted || failure == null) return;
-      message = shareSyncFailureMessage(S.of(context), failure);
+      message = requestedShareSyncFailureMessage(S.of(context), failure);
     } catch (error) {
       if (!mounted) return;
       message = requestErrorText(S.of(context), error);

@@ -1614,6 +1614,7 @@
   "libraryStorageFailure": "ライブラリーを保存できませんでした。",
   "libraryNewerVersion": "このライブラリーは新しいバージョンのRuneで作成されました。開くには、このデバイスでRuneを更新してください。",
   "libraryShareStoreUnavailable": "共有ストレージに接続できません。同期は自動的に再試行されます。",
+  "libraryShareStoreUnavailableOnRequest": "共有ストレージに接続できません。",
   "libraryRemoteNotAuthorized": "デバイスが接続を許可しませんでした。",
   "libraryRemoteUnreachable": "デバイスに接続できません。",
   "libraryRemoteProtocolFailure": "デバイスから互換性のない応答がありました。",

@@ -1533,6 +1533,7 @@
   "libraryStorageFailure": "不可儲存媒體庫。",
   "libraryNewerVersion": "此媒體庫由新版 Rune 作成。更新此器之 Rune，方可開。",
   "libraryShareStoreUnavailable": "共有儲存不可達。同步將自動再試。",
+  "libraryShareStoreUnavailableOnRequest": "共有儲存不可達。",
   "libraryRemoteNotAuthorized": "器未授權此連線。",
   "libraryRemoteUnreachable": "不可連線到器。",
   "libraryRemoteProtocolFailure": "器傳回不相容的回應。",

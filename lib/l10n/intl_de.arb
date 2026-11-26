@@ -1614,6 +1614,7 @@
   "libraryStorageFailure": "Die Bibliothek konnte nicht gespeichert werden.",
   "libraryNewerVersion": "Diese Bibliothek wurde mit einer neueren Version von Rune erstellt. Aktualisieren Sie Rune auf diesem Gerät, um sie zu öffnen.",
   "libraryShareStoreUnavailable": "Der gemeinsame Speicher ist nicht erreichbar. Die Synchronisierung wird automatisch wiederholt.",
+  "libraryShareStoreUnavailableOnRequest": "Der gemeinsame Speicher ist nicht erreichbar.",
   "libraryRemoteNotAuthorized": "Das Gerät hat diese Verbindung nicht autorisiert.",
   "libraryRemoteUnreachable": "Das Gerät ist nicht erreichbar.",
   "libraryRemoteProtocolFailure": "Das Gerät hat eine inkompatible Antwort gesendet.",

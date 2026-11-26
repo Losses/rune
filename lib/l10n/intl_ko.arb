@@ -1616,6 +1616,7 @@
   "libraryStorageFailure": "라이브러리를 저장하지 못했습니다.",
   "libraryNewerVersion": "이 라이브러리는 더 새로운 버전의 Rune에서 만들어졌습니다. 열려면 이 기기에서 Rune을 업데이트하세요.",
   "libraryShareStoreUnavailable": "공유 저장소를 사용할 수 없습니다. 동기화가 자동으로 다시 시도됩니다.",
+  "libraryShareStoreUnavailableOnRequest": "공유 저장소를 사용할 수 없습니다.",
   "libraryRemoteNotAuthorized": "기기에서 연결을 승인하지 않았습니다.",
   "libraryRemoteUnreachable": "기기에 연결할 수 없습니다.",
   "libraryRemoteProtocolFailure": "기기에서 호환되지 않는 응답을 보냈습니다.",

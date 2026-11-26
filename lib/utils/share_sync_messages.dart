@@ -12,3 +12,13 @@ String shareSyncFailureMessage(AppLocalizations s, ShareSyncFailure failure) =>
       ShareSyncFailure.probeFailed => s.libraryStorageFailure,
       ShareSyncFailure.storeUnavailable => s.libraryShareStoreUnavailable,
     };
+
+/// The message for a sync the user asked for that failed. Nothing retries such
+/// a sync, so it must not promise a retry.
+String requestedShareSyncFailureMessage(
+  AppLocalizations s,
+  ShareSyncFailure failure,
+) => switch (failure) {
+  ShareSyncFailure.storeUnavailable => s.libraryShareStoreUnavailableOnRequest,
+  _ => shareSyncFailureMessage(s, failure),
+};
