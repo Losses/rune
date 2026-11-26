@@ -99,7 +99,8 @@ pub(crate) async fn delete_service_library_folder(
 /// their records (see `delete_service_library_folder`): those of the libraries that `known` does
 /// not name. A reset of the app deletes them with the libraries it removes, with anything a
 /// removal could not delete beside the records. A folder of service libraries that cannot be
-/// listed fails it, as nothing could be deleted.
+/// listed fails it, as nothing could be deleted. A folder that cannot be deleted does not keep
+/// the others: each is deleted, and the first failure is answered after.
 pub(crate) async fn delete_left_service_library_folders(
     config_dir: &Path,
     known: HashSet<Uuid>,
@@ -108,12 +109,14 @@ pub(crate) async fn delete_left_service_library_folders(
     let left = tokio::task::spawn_blocking(move || scan_left(&root, Uuid::nil(), &known))
         .await
         .map_err(io::Error::other)??;
+    let mut outcome = Ok(());
     for removed in left {
-        remove_if_there(
+        let removal = remove_if_there(
             tokio_fs::remove_dir_all(service_library_folder(config_dir, removed)).await,
-        )?;
+        );
+        outcome = outcome.and(removal);
     }
-    Ok(())
+    outcome
 }
 
 /// A removal that found nothing to remove is no failure.
@@ -326,6 +329,40 @@ mod tests {
                 .is_err()
         );
         assert!(left_device_records(root.path(), Uuid::new_v4(), &HashSet::new()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_reset_deletes_every_folder_left_though_one_cannot_be_deleted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TempDir::new().unwrap();
+        let (stuck, older) = (Uuid::new_v4(), Uuid::new_v4());
+        // The older records were written a minute ago, so the stuck folder comes first.
+        write_records(root.path(), older, "older");
+        let written = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        let records = device_records_folder(root.path(), older);
+        for path in [records.join("playlists.json"), records] {
+            open_to_set_times(&path).set_modified(written).unwrap();
+        }
+        // A records folder whose files cannot be deleted.
+        write_records(root.path(), stuck, "stuck");
+        let locked = device_records_folder(root.path(), stuck);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        if fs::write(locked.join("probe"), b"").is_ok() {
+            // Permissions do not hold this user back, so nothing here fails to be deleted.
+            return;
+        }
+        assert_eq!(
+            left_device_records(root.path(), Uuid::nil(), &HashSet::new()),
+            [stuck, older]
+        );
+
+        let swept = delete_left_service_library_folders(root.path(), HashSet::new()).await;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(swept.is_err());
+        assert!(!service_library_folder(root.path(), older).exists());
+        assert_eq!(read_records(root.path(), stuck).as_deref(), Some("stuck"));
     }
 
     #[tokio::test]
