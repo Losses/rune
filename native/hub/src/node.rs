@@ -62,8 +62,8 @@ use crate::{
         LibraryTaskKind, LibraryTaskStateChanged, PauseReport, PauseReportingRequest, PauseRequest,
         PlaybackStatus, PlayerHostChanged, PlaylistItem, ProtocolUpdateSide, RefreshSessionRequest,
         RemoteLibraryReconnecting, RemoteLossKind, RendererAttachmentChanged, RendererLinkLost,
-        RequestCapabilities, RequestCapability, TrustListUpdated, TrustedClientsChanged,
-        TrustedServerCertificate, VisualizerInputsChanged,
+        RequestCapabilities, RequestCapability, RequestErrorKind, TakeBackHandoffBlockRequest,
+        TrustListUpdated, TrustedClientsChanged, TrustedServerCertificate, VisualizerInputsChanged,
     },
     server::{
         ServerManager, WebSocketService,
@@ -292,6 +292,9 @@ pub struct NodeContext {
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
+    /// Blocks whose take-back answer never arrived: the target may still hold them, and only a
+    /// confirmed answer may retire them. Reconciled when a connection to that renderer opens.
+    pending_handoff_rollbacks: Mutex<HashMap<String, Vec<PlayerHandoffBlockId>>>,
     /// Weak references to service cover caches for cleanup when removing libraries.
     cover_caches: Arc<StdMutex<HashMap<Uuid, Vec<Weak<ServiceCoverCache>>>>>,
     /// Libraries currently being removed. A binding created during removal must not
@@ -538,6 +541,7 @@ impl NodeContext {
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_blocks: Mutex::new(HashMap::new()),
+            pending_handoff_rollbacks: Mutex::new(HashMap::new()),
             cover_caches: Arc::new(StdMutex::new(HashMap::new())),
             removing_libraries: Arc::new(StdMutex::new(HashSet::new())),
         });
@@ -713,6 +717,107 @@ impl NodeContext {
         fingerprint: &str,
     ) -> Option<PlayerHandoffBlockId> {
         self.handoff_blocks.lock().await.remove(fingerprint)
+    }
+
+    /// Forget the remembered block for `fingerprint` only when it still is `block`, so a newer
+    /// handoff's record is never removed.
+    pub(crate) async fn forget_handoff_block(
+        &self,
+        fingerprint: &str,
+        block: PlayerHandoffBlockId,
+    ) {
+        let mut blocks = self.handoff_blocks.lock().await;
+        if blocks.get(fingerprint) == Some(&block) {
+            blocks.remove(fingerprint);
+        }
+    }
+
+    /// A block take-back whose outcome never came back: whether the target still holds it is
+    /// unknown, so it must be asked again when a connection to it opens.
+    pub(crate) async fn note_pending_handoff_rollback(
+        &self,
+        fingerprint: &str,
+        block: PlayerHandoffBlockId,
+    ) {
+        let mut pending = self.pending_handoff_rollbacks.lock().await;
+        let blocks = pending.entry(fingerprint.to_owned()).or_default();
+        if !blocks.contains(&block) {
+            blocks.push(block);
+        }
+    }
+
+    /// Whether the target's answer says the block is not there: either it never had it or it
+    /// already removed it. Transport failures are not this: the request may have applied.
+    pub(crate) fn handoff_block_confirmed_absent(error: &AnyhowError) -> bool {
+        error.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<ExpectedRequestError>(),
+                Some(ExpectedRequestError::Remote {
+                    kind: RequestErrorKind::Unavailable,
+                    ..
+                })
+            )
+        })
+    }
+
+    /// Take back every block whose rollback outcome is still unknown for this renderer, once
+    /// each per connection: confirmed absent counts as resolved, because the target can only
+    /// say so once it no longer holds the block. The interrupted queue goes back without
+    /// playing: this device is the one the handoff returned to. Failures keep the block pending
+    /// for the next connection and never fail the connection itself. Entries stay recorded
+    /// until their outcome is known, so a connection that opens while another is reconciling
+    /// sees them rather than an empty list.
+    pub(crate) async fn reconcile_handoff_rollbacks(&self, link: &RendererLink) {
+        let blocks = {
+            let pending = self.pending_handoff_rollbacks.lock().await;
+            match pending.get(link.fingerprint()) {
+                Some(blocks) => blocks.clone(),
+                None => return,
+            }
+        };
+        let mut resolved = Vec::new();
+        for &block in &blocks {
+            match link
+                .call(&TakeBackHandoffBlockRequest {
+                    block: block.into(),
+                    resume: false,
+                    call_id: None,
+                })
+                .await
+            {
+                Ok(_) => resolved.push(block),
+                Err(error) if Self::handoff_block_confirmed_absent(&error) => {
+                    resolved.push(block);
+                }
+                Err(error) => {
+                    log::warn!(
+                        "Could not reconcile handoff block rollback with renderer {}: {error:#}",
+                        link.fingerprint()
+                    );
+                }
+            }
+        }
+        for &block in &resolved {
+            self.forget_handoff_block(link.fingerprint(), block).await;
+        }
+        let mut pending = self.pending_handoff_rollbacks.lock().await;
+        if let Some(blocks) = pending.get_mut(link.fingerprint()) {
+            // Only what this pass resolved may leave the list: anything newer and anything
+            // still unanswered stays pending for the next connection.
+            blocks.retain(|block| !resolved.contains(block));
+            if blocks.is_empty() {
+                pending.remove(link.fingerprint());
+            }
+        }
+    }
+
+    /// Whether rollback outcomes are still unknown for this renderer: while any are, a handoff
+    /// must not load onto it, because its queue may still hold the block being rolled back.
+    pub(crate) async fn has_pending_handoff_rollbacks(&self, fingerprint: &str) -> bool {
+        let pending = self.pending_handoff_rollbacks.lock().await;
+        pending
+            .get(fingerprint)
+            .is_some_and(|blocks| !blocks.is_empty())
     }
 
     pub(crate) fn handoff_generation(&self) -> u64 {
