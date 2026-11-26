@@ -41,7 +41,7 @@ use http_request::sync::PageCursor;
 use playback::player;
 use playback::player::{
     LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
-    RemoteAudioSource, ServiceItem, ServiceTarget,
+    RemoteAudioSource, ServiceItem, ServiceTarget, validate_audio_response,
 };
 use rand::rngs::OsRng;
 use reqwest::Client;
@@ -2037,48 +2037,6 @@ impl RenewableAudio {
         }
         Ok(response)
     }
-}
-
-fn validate_audio_response(
-    response: &reqwest::Response,
-    size: u64,
-    range: Option<(u64, Option<u64>)>,
-) -> Result<()> {
-    let expected_length = if let Some((start, end)) = range {
-        ensure!(start < size, "audio range starts beyond content");
-        let last = end.unwrap_or(size - 1).min(size - 1);
-        ensure!(last >= start, "invalid audio range");
-        if response.status() != ReqwestStatusCode::PARTIAL_CONTENT {
-            anyhow::bail!(RemoteAudioError::unreachable(format!(
-                "unexpected status {}",
-                response.status()
-            )));
-        }
-        let expected = format!("bytes {start}-{last}/{size}");
-        if response
-            .headers()
-            .get(header::CONTENT_RANGE)
-            .and_then(|h| h.to_str().ok())
-            != Some(expected.as_str())
-        {
-            anyhow::bail!(RemoteAudioError::unreachable(format!(
-                "content range does not match {expected}"
-            )));
-        }
-        last - start + 1
-    } else {
-        if response.status() != ReqwestStatusCode::OK {
-            anyhow::bail!(RemoteAudioError::unreachable(format!(
-                "unexpected status {}",
-                response.status()
-            )));
-        }
-        size
-    };
-    if response.content_length() != Some(expected_length) {
-        anyhow::bail!(RemoteAudioError::Incomplete);
-    }
-    Ok(())
 }
 
 impl player::AudioRequest for RenewableAudio {

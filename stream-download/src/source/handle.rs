@@ -327,3 +327,70 @@ impl std::error::Error for SharedFailure {
         std::error::Error::source(&*self.original)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct TypedCause;
+    impl std::fmt::Display for TypedCause {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "the typed cause")
+        }
+    }
+    impl std::error::Error for TypedCause {}
+
+    /// A failure the reads of a download report is the failure the download died of: undoing
+    /// the retention leaves reads with an untyped failure, which the typed classification of
+    /// peer audio cannot read.
+    #[test]
+    fn a_failure_is_kept_for_reads_and_reports_its_own_chain() {
+        let status = DownloadStatus::default();
+        let failure = io::Error::new(io::ErrorKind::UnexpectedEof, TypedCause);
+        status.set_failed_with(failure);
+
+        let reported = status.failure_error().expect("the failure is kept for reads");
+        assert_eq!(reported.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(reported.to_string(), "the typed cause");
+        // The original error survives inside the shared handle: an io error does not report a
+        // custom payload as its `source`, so the reads keep the whole original error instead
+        // of a chain link.
+        let inner = reported
+            .get_ref()
+            .expect("the shared failure is inside the reported error");
+        assert_eq!(inner.to_string(), "the typed cause");
+
+        // The first failure is what happened; a later teardown error must not overwrite it.
+        status.set_failed_with(io::Error::new(io::ErrorKind::BrokenPipe, "teardown noise"));
+        let reported = status.failure_error().expect("the failure is kept for reads");
+        assert_eq!(reported.to_string(), "the typed cause");
+
+        // Every read position gets its own handle over the shared failure, and the original
+        // error itself is still inside it for whoever inspects deeper.
+        let second = status.failure_error().expect("the failure is kept for reads");
+        assert_eq!(second.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(
+            second
+                .get_ref()
+                .is_some_and(|inner| inner.to_string() == "the typed cause"),
+            "the original error is not reachable inside the reported one"
+        );
+    }
+
+    /// `Interrupted` cannot be terminal: `read_exact` retries it, so a cancelled download would
+    /// spin forever if its cancellation surfaced with that kind.
+    #[test]
+    fn an_interrupted_failure_does_not_report_as_interrupted() {
+        let status = DownloadStatus::default();
+        status.set_failed_with(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+        let reported = status.failure_error().expect("the failure is kept for reads");
+        assert_ne!(reported.kind(), io::ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn a_successful_download_reports_no_failure() {
+        let status = DownloadStatus::default();
+        assert!(status.failure_error().is_none());
+    }
+}
