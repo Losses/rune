@@ -48,6 +48,7 @@ class SettingsDevicesPage extends StatefulWidget {
 class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
   String selectedUserId = '';
   GetSyncSettingsResponse? syncSettings;
+  bool savingSyncSettings = false;
   bool offlineCleanupDefault = true;
   final Map<String, DeviceGrantsInfo> grants = {};
   BroadcastProvider? broadcast;
@@ -130,16 +131,26 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
         });
   }
 
-  /// Saves [changed] and shows what the hub then reports, so a refused or
-  /// failed change leaves the switches at the values still in effect.
+  /// Applies [change] to the settings the hub holds, saves the result and shows
+  /// it. A failed load or save throws, so what is shown after a success is what
+  /// the hub holds, and a failure leaves the switches at the values still in
+  /// effect. The switches stay disabled until this finishes, so that edits are
+  /// made one at a time.
   Future<void> _saveSyncSettings(
     String title,
-    GetSyncSettingsResponse changed,
+    GetSyncSettingsResponse Function(GetSyncSettingsResponse current) change,
   ) async {
+    setState(() => savingSyncSettings = true);
     try {
-      await widget.saveSyncSettings(changed);
-      final updated = await widget.loadSyncSettings();
-      if (mounted) setState(() => syncSettings = updated);
+      try {
+        // A save replaces every setting, so the change is applied to the
+        // settings as they are now, not as this page last showed them.
+        final changed = change(await widget.loadSyncSettings());
+        await widget.saveSyncSettings(changed);
+        if (mounted) setState(() => syncSettings = changed);
+      } finally {
+        if (mounted) setState(() => savingSyncSettings = false);
+      }
     } catch (error) {
       if (!mounted) return;
       await showErrorDialog(
@@ -159,13 +170,18 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
       String title,
       String subtitle,
       bool value,
-      GetSyncSettingsResponse Function(bool value) change,
+      GetSyncSettingsResponse Function(
+        GetSyncSettingsResponse current,
+        bool value,
+      )
+      change,
     ) => SettingsBoxToggle(
       title: title,
       subtitle: subtitle,
       value: value,
-      onChanged: settings.mediaServer
-          ? (value) => _saveSyncSettings(title, change(value))
+      onChanged: settings.mediaServer && !savingSyncSettings
+          ? (value) =>
+                _saveSyncSettings(title, (current) => change(current, value))
           : null,
     );
 
@@ -174,28 +190,30 @@ class _SettingsDevicesPageState extends State<SettingsDevicesPage> {
         title: s.mediaServer,
         subtitle: s.mediaServerSubtitle,
         value: settings.mediaServer,
-        onChanged: (value) => _saveSyncSettings(
-          s.mediaServer,
-          settings.copyWith(mediaServer: value),
-        ),
+        onChanged: savingSyncSettings
+            ? null
+            : (value) => _saveSyncSettings(
+                s.mediaServer,
+                (current) => current.copyWith(mediaServer: value),
+              ),
       ),
       permission(
         s.enableBroadcast,
         s.enableBroadcastSubtitle,
         settings.broadcast,
-        (value) => settings.copyWith(broadcast: value),
+        (current, value) => current.copyWith(broadcast: value),
       ),
       permission(
         s.allowRemoteControl,
         s.allowRemoteControlDescription,
         settings.acceptRemoteControl,
-        (value) => settings.copyWith(acceptRemoteControl: value),
+        (current, value) => current.copyWith(acceptRemoteControl: value),
       ),
       permission(
         s.allowPairedSync,
         s.allowPairedSyncDescription,
         settings.acceptSync,
-        (value) => settings.copyWith(acceptSync: value),
+        (current, value) => current.copyWith(acceptSync: value),
       ),
     ];
   }

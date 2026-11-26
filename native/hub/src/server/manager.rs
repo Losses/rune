@@ -1051,6 +1051,7 @@ mod lifecycle_tests {
         RemoteConnectError, connect_controller, connect_remote, decode_message,
     };
     use crate::handlers::neighbors::select_pinned_pair_host;
+    use crate::handlers::sync::update_sync_settings;
     use crate::library_pool::{LibraryHandle, LibraryPool};
     use crate::messages::{
         DeviceConnectionLevel, DeviceSyncLevel, LibraryInitializeMode, OpenLibraryRequest,
@@ -2407,8 +2408,7 @@ mod lifecycle_tests {
 
         let error = set_sync_settings(&params.node, |request| request.media_server = false)
             .await
-            .err()
-            .expect("switching off a server whose shutdown fails");
+            .expect_err("switching off a server whose shutdown fails");
         assert!(format!("{error:#}").contains("cancelled"), "{error:#}");
         assert!(manager.is_running(), "the stopped server was not restored");
         assert!(
@@ -2436,8 +2436,7 @@ mod lifecycle_tests {
 
         let error = set_sync_settings(&params.node, |request| request.media_server = false)
             .await
-            .err()
-            .expect("switching off a server whose shutdown and restore fail");
+            .expect_err("switching off a server whose shutdown and restore fail");
         let text = format!("{error:#}");
         assert!(text.contains("cancelled"), "{text}");
         assert!(
@@ -2475,6 +2474,14 @@ mod lifecycle_tests {
             } else {
                 paired_default(&server, &controller).await?
             };
+            // The settings of the app are always saved, and a change is applied to the saved
+            // ones as well as to the ones in use, so the file has to describe this server too.
+            server
+                .global_params
+                .sync_settings
+                .read()
+                .await
+                .save(Path::new(&*server.global_params.config_path))?;
             // The background worker would sync the same library over the same token.
             server.stop_worker().await?;
             controller.stop_worker().await?;
@@ -2564,20 +2571,86 @@ mod lifecycle_tests {
             );
         }
 
+        /// A served request for the server's library shows that the server still reads,
+        /// handles and writes the session. A refusal is an answer too, so the reply has to
+        /// be the response itself.
+        async fn assert_session_answers(
+            &self,
+            socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        ) -> Result<()> {
+            let library_id = self
+                .server
+                .global_params
+                .library_id
+                .context("served library")?;
+            let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
+            let (name, _) = socket_request_for_library(
+                socket,
+                "GetMediaFilesCountRequest",
+                &payload,
+                library_id,
+            )
+            .await?;
+            assert_eq!(name, "GetMediaFilesCountResponse");
+            Ok(())
+        }
+
+        /// What the server tells the controller it may do, as the controller asks for it.
+        async fn reported_access(&self) -> Result<serde_json::Value> {
+            Ok(self
+                .client
+                .get(format!("{}/access", self.base))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?)
+        }
+
+        async fn cast_preflight_status(&self) -> Result<StatusCode> {
+            Ok(self
+                .client
+                .post(format!("{}/cast/preflight", self.base))
+                .json(&serde_json::json!({ "libraryIds": [] }))
+                .send()
+                .await?
+                .status())
+        }
+
+        /// The server's own library as `/libraries` lists it for the controller.
+        async fn listed_library(&self) -> Result<serde_json::Value> {
+            let library_id = self
+                .server
+                .global_params
+                .library_id
+                .context("served library")?;
+            let libraries: Vec<serde_json::Value> = self
+                .client
+                .get(format!("{}/libraries", self.base))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            libraries
+                .into_iter()
+                .find(|library| library["library_id"] == library_id.to_string())
+                .context("the served library is not listed")
+        }
+
+        /// The grants the server has saved for the controller.
+        async fn saved_grants(&self) -> Result<crate::access_policy::DeviceGrants> {
+            self.server
+                .global_params
+                .node
+                .access_policy
+                .grants(&info(&self.controller).await?.fingerprint)
+        }
+
         async fn shutdown(self) -> Result<()> {
             self.server.global_params.node.shutdown().await?;
             self.controller.global_params.node.shutdown().await
         }
-    }
-
-    /// An answer to a request shows that the server still reads and writes the session.
-    async fn assert_session_answers(
-        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
-    ) -> Result<()> {
-        let payload = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
-        socket_request(socket, "GetMediaFilesCountRequest", &payload)
-            .await
-            .map(|_| ())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2638,7 +2711,7 @@ mod lifecycle_tests {
             .connect()
             .await
             .map_err(|error| anyhow::anyhow!("remote control must be accepted again: {error}"))?;
-        assert_session_answers(&mut socket).await?;
+        pair.assert_session_answers(&mut socket).await?;
         pair.assert_address_unchanged().await;
 
         pair.shutdown().await
@@ -2658,12 +2731,65 @@ mod lifecycle_tests {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body, serde_json::json!({"error": "forbidden"}));
         // The session that was open before the switch still answers.
-        assert_session_answers(&mut socket).await?;
+        pair.assert_session_answers(&mut socket).await?;
         pair.assert_address_unchanged().await;
 
         set_sync_settings(&node, |request| request.accept_sync = true).await?;
         pair.assert_sync_request_succeeds().await?;
-        assert_session_answers(&mut socket).await?;
+        pair.assert_session_answers(&mut socket).await?;
+        pair.assert_address_unchanged().await;
+
+        pair.shutdown().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn access_reports_control_only_while_remote_control_is_accepted() -> Result<()> {
+        let pair = ServedPair::new(false).await?;
+        let node = pair.server.global_params.node.clone();
+        let grants = pair.saved_grants().await?;
+        assert!(grants.control, "the controller must hold the Control grant");
+
+        assert_eq!(pair.reported_access().await?["control"], false);
+        assert_eq!(pair.cast_preflight_status().await?, StatusCode::FORBIDDEN);
+        assert_eq!(pair.saved_grants().await?, grants);
+
+        update_sync_settings(&node, |settings| settings.accept_remote_control = true).await?;
+        assert_eq!(pair.reported_access().await?["control"], true);
+        assert_eq!(pair.cast_preflight_status().await?, StatusCode::OK);
+        assert_eq!(pair.saved_grants().await?, grants);
+        pair.assert_address_unchanged().await;
+
+        pair.shutdown().await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn access_and_libraries_report_no_sync_while_sync_is_refused() -> Result<()> {
+        let pair = ServedPair::new(false).await?;
+        let node = pair.server.global_params.node.clone();
+        let grants = pair.saved_grants().await?;
+
+        let access = pair.reported_access().await?;
+        assert_eq!(access["sync"]["all_libraries"], "PullPush");
+        assert_eq!(access["connection"]["all_libraries"], "ViewEdit");
+        let listed = pair.listed_library().await?;
+        assert_eq!(listed["sync"], "PullPush");
+        assert_eq!(listed["connection"], "ViewEdit");
+
+        update_sync_settings(&node, |settings| settings.accept_sync = false).await?;
+        let access = pair.reported_access().await?;
+        assert_eq!(
+            access["sync"],
+            serde_json::json!({"all_libraries": null, "libraries": {}})
+        );
+        assert_eq!(access["connection"]["all_libraries"], "ViewEdit");
+        let listed = pair.listed_library().await?;
+        assert_eq!(listed["sync"], "None");
+        assert_eq!(listed["connection"], "ViewEdit");
+        assert_eq!(
+            pair.saved_grants().await?,
+            grants,
+            "refusing sync changed the saved grants"
+        );
         pair.assert_address_unchanged().await;
 
         pair.shutdown().await

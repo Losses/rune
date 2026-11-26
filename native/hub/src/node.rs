@@ -228,6 +228,10 @@ pub struct NodeContext {
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub device_scanner: Arc<DiscoveryService>,
     pub sync_settings: Arc<RwLock<SyncSettings>>,
+    /// Serialises settings updates, so that the lock on `sync_settings` itself is only ever
+    /// held briefly: an update reconciles the server, which can wait on open connections,
+    /// while requests keep reading the settings.
+    pub(crate) sync_settings_update: Mutex<()>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub websocket_service: Arc<WebSocketService>,
     pub gui_broadcaster: Arc<dyn Broadcaster>,
@@ -473,6 +477,7 @@ impl NodeContext {
             cert_validator: Arc::new(RwLock::new(CertValidator::new(config_path).await?)),
             device_scanner: Arc::new(DiscoveryService::without_store()),
             sync_settings: Arc::new(RwLock::new(SyncSettings::load(Path::new(config_path)))),
+            sync_settings_update: Mutex::new(()),
             broadcaster: Arc::new(NodeBroadcaster {
                 current_player: current_player.clone(),
                 local_session_hidden: local_session_hidden.clone(),

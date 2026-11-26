@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -53,6 +54,17 @@ List<Object> _values(GetSyncSettingsResponse settings) => [
   settings.acceptSync,
   settings.missingHostFile,
 ];
+
+const _titles = [_mediaServer, _broadcast, _remoteControl, _sync];
+
+/// What the four switches show, in the order of [_titles].
+List<bool> _shown(WidgetTester tester) =>
+    _titles.map((title) => _switch(tester, title).checked).toList();
+
+Future<void> _tap(WidgetTester tester, String title) async {
+  await tester.ensureVisible(_switchFinder(title));
+  await tester.tap(_switchFinder(title));
+}
 
 ToggleSwitch _switch(WidgetTester tester, String title) =>
     tester.widget<ToggleSwitch>(_switchFinder(title));
@@ -184,7 +196,79 @@ void main() {
     };
 
     for (final MapEntry(key: title, value: expected) in changes.entries) {
-      var stored = loaded;
+      // What happens between the page and the hub, in order.
+      final calls = <String>[];
+      final saved = <GetSyncSettingsResponse>[];
+      await _pumpPage(
+        tester,
+        load: () async {
+          calls.add('load');
+          return loaded;
+        },
+        save: (settings) async {
+          calls.add('save');
+          saved.add(settings);
+        },
+      );
+      expect(calls, ['load'], reason: title);
+
+      await _tap(tester, title);
+      await tester.pumpAndSettle();
+
+      // The page shows what it saved without asking the hub again.
+      expect(calls, ['load', 'load', 'save'], reason: title);
+      expect(saved.map(_values), [_values(expected)], reason: title);
+      expect(_shown(tester), _values(expected).take(4), reason: title);
+
+      // The next round starts from a new page with the loaded settings.
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
+  testWidgets('the switches are disabled while a save is pending', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    final saved = <GetSyncSettingsResponse>[];
+    await _pumpPage(
+      tester,
+      load: () async => _settings(),
+      save: (settings) {
+        saved.add(settings);
+        return pending.future;
+      },
+    );
+
+    await _tap(tester, _remoteControl);
+    await tester.pump();
+    expect(saved, hasLength(1));
+    for (final title in _titles) {
+      expect(_switch(tester, title).onChanged, isNull, reason: title);
+    }
+    for (final title in _titles) {
+      await tester.tap(_switchFinder(title), warnIfMissed: false);
+      await tester.pump();
+    }
+    expect(saved, hasLength(1), reason: 'a tap during a save sent a request');
+    // The value is shown only once the hub has accepted it.
+    expect(_shown(tester), [true, true, false, true]);
+
+    pending.complete();
+    await tester.pumpAndSettle();
+    for (final title in _titles) {
+      expect(_switch(tester, title).onChanged, isNotNull, reason: title);
+    }
+    expect(
+      _values(saved.single),
+      _values(_settings(acceptRemoteControl: true)),
+    );
+    expect(_shown(tester), [true, true, true, true]);
+  });
+
+  testWidgets(
+    'a save keeps a setting changed in the hub after the page loaded',
+    (tester) async {
+      var stored = _settings();
       final saved = <GetSyncSettingsResponse>[];
       await _pumpPage(
         tester,
@@ -194,29 +278,20 @@ void main() {
           stored = settings;
         },
       );
+      expect(_switch(tester, _sync).checked, isTrue);
 
-      await tester.ensureVisible(_switchFinder(title));
-      await tester.tap(_switchFinder(title));
+      stored = stored.copyWith(acceptSync: false);
+      await _tap(tester, _remoteControl);
       await tester.pumpAndSettle();
 
-      expect(saved.map(_values), [_values(expected)], reason: title);
-      expect(
-        [
-          _mediaServer,
-          _broadcast,
-          _remoteControl,
-          _sync,
-        ].map((title) => _switch(tester, title).checked),
-        _values(expected).take(4),
-        reason: title,
-      );
+      expect(saved.map(_values), [
+        _values(_settings(acceptRemoteControl: true, acceptSync: false)),
+      ]);
+      expect(_shown(tester), [true, true, true, false]);
+    },
+  );
 
-      // The next round starts from a new page with the loaded settings.
-      await tester.pumpWidget(const SizedBox());
-    }
-  });
-
-  testWidgets('a failed save shows the error and keeps the loaded value', (
+  testWidgets('a failed save shows the error and keeps the shown values', (
     tester,
   ) async {
     var loads = 0;
@@ -230,8 +305,7 @@ void main() {
     );
     expect(loads, 1);
 
-    await tester.ensureVisible(_switchFinder(_remoteControl));
-    await tester.tap(_switchFinder(_remoteControl));
+    await _tap(tester, _remoteControl);
     await tester.pumpAndSettle();
 
     expect(
@@ -242,10 +316,42 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('settings file is read-only'), findsOneWidget);
-    expect(_switch(tester, _remoteControl).checked, isFalse);
-    expect(_switch(tester, _mediaServer).checked, isTrue);
-    expect(_switch(tester, _broadcast).checked, isTrue);
-    expect(_switch(tester, _sync).checked, isTrue);
-    expect(loads, 1);
+    expect(_shown(tester), [true, true, false, true]);
+    for (final title in _titles) {
+      expect(_switch(tester, title).onChanged, isNotNull, reason: title);
+    }
+    expect(loads, 2);
+  });
+
+  testWidgets('a failed load before a save shows the error and saves nothing', (
+    tester,
+  ) async {
+    var loads = 0;
+    final saved = <GetSyncSettingsResponse>[];
+    await _pumpPage(
+      tester,
+      load: () async {
+        if (++loads > 1) throw Exception('hub is not answering');
+        return _settings();
+      },
+      save: (settings) async => saved.add(settings),
+    );
+
+    await _tap(tester, _remoteControl);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(ContentDialog),
+        matching: find.text(_remoteControl),
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('hub is not answering'), findsOneWidget);
+    expect(saved, isEmpty);
+    expect(_shown(tester), [true, true, false, true]);
+    for (final title in _titles) {
+      expect(_switch(tester, title).onChanged, isNotNull, reason: title);
+    }
   });
 }

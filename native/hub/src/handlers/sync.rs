@@ -172,11 +172,16 @@ async fn start_media_server(
 /// persisted only after the server reached the requested state, so a failed attempt leaves
 /// the saved and displayed settings equal to what is actually served. If the save itself
 /// fails, the server is put back to the state the saved settings still describe.
+///
+/// `change` is applied twice: to the settings in use, and to the saved ones. A process may
+/// run with settings it forced on for itself only, and those must not reach the file when
+/// another setting changes.
 pub(crate) async fn update_sync_settings(
     node: &NodeContext,
-    change: impl FnOnce(&mut SyncSettings),
+    change: impl Fn(&mut SyncSettings),
 ) -> Result<()> {
-    let mut current = node.sync_settings.write().await;
+    let _update = node.sync_settings_update.lock().await;
+    let current = node.sync_settings.read().await.clone();
     let mut next = current.clone();
     change(&mut next);
 
@@ -231,7 +236,10 @@ pub(crate) async fn update_sync_settings(
             });
         }
     }
-    if let Err(save_error) = next.save(Path::new(&**node.config_path)) {
+    let config_path = Path::new(&**node.config_path);
+    let mut saved = SyncSettings::load(config_path);
+    change(&mut saved);
+    if let Err(save_error) = saved.save(config_path) {
         let restore = match manager {
             Some(manager) if started && manager.is_running() => manager.stop().await,
             Some(manager) if stopped && !manager.is_running() => {
@@ -250,7 +258,7 @@ pub(crate) async fn update_sync_settings(
         });
     }
     let remote_control_disabled = current.accept_remote_control && !next.accept_remote_control;
-    *current = next;
+    *node.sync_settings.write().await = next;
     // The new value is stored first, so a controller that reconnects is refused before the
     // open sessions are closed.
     if remote_control_disabled && let Some(manager) = manager {
@@ -682,6 +690,37 @@ mod tests {
         let saved = SyncSettings::load(dir.path());
         assert!(saved.broadcast);
         assert!(!saved.media_server);
+
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_setting_forced_on_in_memory_is_not_saved_by_a_later_change() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        SyncSettings {
+            media_server: false,
+            accept_remote_control: false,
+            ..SyncSettings::default()
+        }
+        .save(dir.path())?;
+        let node = node_in(dir.path()).await?;
+        node.sync_settings.write().await.accept_remote_control = true;
+
+        update_sync_settings(&node, |settings| settings.broadcast = false).await?;
+
+        let saved = SyncSettings::load(dir.path());
+        assert!(!saved.broadcast);
+        assert!(
+            !saved.accept_remote_control,
+            "a setting forced on for this process was written to the file"
+        );
+        let in_use = node.sync_settings.read().await.clone();
+        assert!(!in_use.broadcast);
+        assert!(
+            in_use.accept_remote_control,
+            "the forced setting was lost from the running process"
+        );
 
         node.shutdown().await?;
         Ok(())
