@@ -71,8 +71,9 @@ impl RuneOutputStream {
     where
         E: FnMut(cpal::StreamError) + Send + 'static + Clone,
     {
-        let (mixer, _stream) =
-            device.try_new_output_stream_config_with_callback(config, error_callback)?;
+        let (mixer, _stream) = device
+            .new_output_stream_with_format_and_callback(config, error_callback)
+            .map_err(StreamError::BuildStreamError)?;
         _stream.play().map_err(StreamError::PlayStreamError)?;
         let out = Self {
             mixer,
@@ -131,6 +132,11 @@ impl RuneOutputStream {
         self.suspended.get()
     }
 
+    /// Opens the default output device or, if that cannot play, the first other output device that
+    /// can. Each device is tried with its default config only, and passed over if that fails,
+    /// rather than with every other config it supports: a device behind ALSA's PulseAudio plugin
+    /// supports hundreds, each try opens the device again, and while the server has no sink none
+    /// of them can play, so trying them all takes about 0.4 s per device.
     #[cfg(not(any(feature = "test-output", test)))]
     pub fn try_default_with_callback<E>(
         error_callback: E,
@@ -226,14 +232,6 @@ pub(crate) trait CpalDeviceExt {
         format: cpal::SupportedStreamConfig,
         error_callback: E,
     ) -> Result<(Arc<DynamicMixerController<f32>>, cpal::Stream), cpal::BuildStreamError>
-    where
-        E: FnMut(cpal::StreamError) + Send + 'static + Clone;
-
-    fn try_new_output_stream_config_with_callback<E>(
-        &self,
-        config: cpal::SupportedStreamConfig,
-        error_callback: E,
-    ) -> Result<(Arc<DynamicMixerController<f32>>, cpal::Stream), StreamError>
     where
         E: FnMut(cpal::StreamError) + Send + 'static + Clone;
 }
@@ -361,51 +359,6 @@ impl CpalDeviceExt for cpal::Device {
         }
         .map(|stream| (mixer_tx, stream))
     }
-
-    fn try_new_output_stream_config_with_callback<E>(
-        &self,
-        config: SupportedStreamConfig,
-        error_callback: E,
-    ) -> Result<(Arc<DynamicMixerController<f32>>, cpal::Stream), StreamError>
-    where
-        E: FnMut(cpal::StreamError) + Send + 'static + Clone,
-    {
-        self.new_output_stream_with_format_and_callback(config, error_callback.clone())
-            .or_else(|err| {
-                supported_output_formats(self)?
-                    .find_map(|format| {
-                        self.new_output_stream_with_format_and_callback(
-                            format,
-                            error_callback.clone(),
-                        )
-                        .ok()
-                    })
-                    .ok_or(StreamError::BuildStreamError(err))
-            })
-    }
-}
-
-fn supported_output_formats(
-    device: &cpal::Device,
-) -> Result<impl Iterator<Item = cpal::SupportedStreamConfig>, StreamError> {
-    const HZ_44100: cpal::SampleRate = cpal::SampleRate(44_100);
-
-    let mut supported: Vec<_> = device
-        .supported_output_configs()
-        .map_err(StreamError::SupportedStreamConfigsError)?
-        .collect();
-    supported.sort_by(|a, b| b.cmp_default_heuristics(a));
-
-    Ok(supported.into_iter().flat_map(|sf| {
-        let max_rate = sf.max_sample_rate();
-        let min_rate = sf.min_sample_rate();
-        let mut formats = vec![sf.with_max_sample_rate()];
-        if HZ_44100 < max_rate && HZ_44100 > min_rate {
-            formats.push(sf.with_sample_rate(HZ_44100))
-        }
-        formats.push(sf.with_sample_rate(min_rate));
-        formats
-    }))
 }
 
 /// How the player opens, stops and starts again its audio output. The player opens outputs this
