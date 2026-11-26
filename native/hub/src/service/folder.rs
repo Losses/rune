@@ -144,15 +144,16 @@ pub(crate) fn left_device_records(
 }
 
 /// The libraries `left_device_records` answers, or the error of a folder of service libraries
-/// that is there but cannot be read; one that is not there holds none.
+/// that is there but cannot be read, to its last entry; one that is not there holds none.
 fn scan_left(config_dir: &Path, library_id: Uuid, known: &HashSet<Uuid>) -> io::Result<Vec<Uuid>> {
     let listing = match fs::read_dir(config_dir.join(SERVICE_LIBRARIES)) {
         Ok(listing) => listing,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
-    let mut left: Vec<(SystemTime, Uuid)> = listing
-        .flatten()
+    let entries = listing.collect::<io::Result<Vec<_>>>()?;
+    let mut left: Vec<(SystemTime, Uuid)> = entries
+        .into_iter()
         .filter_map(|entry| Uuid::parse_str(&entry.file_name().to_string_lossy()).ok())
         .filter(|removed| *removed != library_id && !known.contains(removed))
         .filter_map(|removed| {
