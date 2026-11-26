@@ -1457,7 +1457,12 @@ fn run(
         let sample_rate = input.sample_rate.load(Ordering::Relaxed);
         match sample_rate {
             0 => {}
-            rate if rate != tracker.sample_rate() => tracker = BeatTracker::new(rate),
+            rate if rate != tracker.sample_rate() => {
+                tracker = BeatTracker::new(rate);
+                // The spectrum is read from the same audio: the frequency a bin is at moves
+                // with the rate, or the same tone would land on another column.
+                pipeline.set_sample_rate(rate);
+            }
             _ => {}
         }
         tracker.push(&pcm, channels);

@@ -207,6 +207,20 @@ impl Analyzer {
         self.sample_rate as u32
     }
 
+    /// The samples that arrive are at `sample_rate` from now on (the track changed its format):
+    /// the bins the spectrum is read from move with it. The samples already heard were at the
+    /// rate before, so they would read at the wrong frequencies; they are forgotten as a scene
+    /// that takes over the music from one of another rate forgets them (see
+    /// `Scene::take_music_from`).
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        let sample_rate = sample_rate.max(1) as f32;
+        if sample_rate == self.sample_rate {
+            return;
+        }
+        self.sample_rate = sample_rate;
+        self.recent.clear();
+    }
+
     /// A new song began (or the song went back): its perceived speed is measured afresh.
     pub fn new_song(&mut self) {
         self.feel.restart();
@@ -352,6 +366,126 @@ mod tests {
 
     use super::*;
     use std::f32::consts::TAU;
+
+    /// The spectrum column `hz` lands on (see `Analyzer::update`'s edges).
+    fn column_of(hz: f32) -> f32 {
+        SPECTRUM_WIDTH as f32 * (hz / LOW_HZ).ln() / (HIGH_HZ / LOW_HZ).ln()
+    }
+
+    /// Play `channels`-channel samples of a sum of `frequencies` at `rate` through the analyzer
+    /// (which hears the rate change) for a few frames, and read the columns the peaks are on.
+    fn peak_columns_after_switch(
+        frequencies: &[f32],
+        rate: u32,
+        channels: usize,
+    ) -> Vec<(usize, f32)> {
+        let mut analyzer = Analyzer::new(44_100);
+        // Warm up on one rate, then switch, as a track change does.
+        let warm = tones(frequencies, 44_100, channels, 3_000);
+        for frame in warm.chunks(800 * channels) {
+            analyzer.push(frame, channels);
+            analyzer.update(1.0 / 60.0);
+        }
+        analyzer.set_sample_rate(rate);
+        let pcm = tones(frequencies, rate, channels, 4_096);
+        for frame in pcm.chunks(800 * channels) {
+            analyzer.push(frame, channels);
+            analyzer.update(1.0 / 60.0);
+        }
+        peak_columns(&analyzer)
+    }
+
+    /// The same, without telling the analyzer of the rate: the way the analyzer behaved before it
+    /// could be told (the visualizer's loop only ever told it the rate it started with).
+    fn peak_columns_at_stale_rate(
+        frequencies: &[f32],
+        rate: u32,
+        channels: usize,
+    ) -> Vec<(usize, f32)> {
+        let mut analyzer = Analyzer::new(44_100);
+        let pcm = tones(frequencies, rate, channels, 4_096);
+        for frame in pcm.chunks(800 * channels) {
+            analyzer.push(frame, channels);
+            analyzer.update(1.0 / 60.0);
+        }
+        peak_columns(&analyzer)
+    }
+
+    fn peak_columns(analyzer: &Analyzer) -> Vec<(usize, f32)> {
+        let row = &analyzer.spectrum[..SPECTRUM_WIDTH];
+        (1..SPECTRUM_WIDTH - 1)
+            .filter(|&k| row[k] >= row[k - 1] && row[k] > row[k + 1] && row[k] > 0.5)
+            .map(|k| (k, row[k]))
+            .collect()
+    }
+
+    /// Interleaved `channels`-channel samples of a sum of sines at `frequencies` and `rate`.
+    fn tones(frequencies: &[f32], rate: u32, channels: usize, n: usize) -> Vec<f32> {
+        (0..n)
+            .flat_map(|i| {
+                let mono = frequencies
+                    .iter()
+                    .map(|&hz| (TAU * hz * i as f32 / rate as f32).sin() * 0.25)
+                    .sum::<f32>();
+                std::iter::repeat_n(mono, channels)
+            })
+            .collect()
+    }
+
+    /// The issue's case: stereo tones of 2 and 3 kHz at 44.1 kHz and 48 kHz. Before the rate
+    /// could be set the peaks moved columns (171/187 to 168/184 in the real run, past the
+    /// two-column tolerance); told of the rate they hold. The column a tone is read on can sit
+    /// one column off its exact one across rates (the bins align with it a little differently),
+    /// so the tolerance is the issue's two columns.
+    #[test]
+    fn a_tone_holds_its_column_across_sample_rates() {
+        for (channels, frequencies) in [(1, &[2_000.0][..]), (2, &[2_000.0, 3_000.0][..])] {
+            let mut reference: Vec<usize> = Vec::new();
+            for rate in [44_100, 48_000, 44_100] {
+                let columns = peak_columns_after_switch(frequencies, rate, channels);
+                assert_eq!(
+                    columns.len(),
+                    frequencies.len(),
+                    "{channels}ch at {rate}: peaks {columns:?}"
+                );
+                for (&hz, &(k, _)) in frequencies.iter().zip(&columns) {
+                    assert!(
+                        (k as f32 - column_of(hz)).abs() <= 2.0,
+                        "{channels}ch {hz} Hz at {rate}: peak column {k}, expected {}",
+                        column_of(hz)
+                    );
+                }
+                let got: Vec<usize> = columns.iter().map(|&(k, _)| k).collect();
+                if reference.is_empty() {
+                    reference = got;
+                } else {
+                    for (&before, &now) in reference.iter().zip(&got) {
+                        assert!(
+                            before.abs_diff(now) <= 2,
+                            "{channels}ch at {rate}: columns {got:?} moved from {reference:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the regression above pins down: with the rate the analyzer started at instead of
+    /// the rate the samples are at, the 48 kHz peaks sit off their columns (the failure the
+    /// regression test showed before the fix). 2 kHz moves about 4 columns.
+    #[test]
+    fn a_stale_rate_shifts_the_columns() {
+        let columns = peak_columns_at_stale_rate(&[2_000.0, 3_000.0], 48_000, 2);
+        let drifted = columns
+            .iter()
+            .zip([2_000.0, 3_000.0])
+            .filter(|&((k, _), hz)| (*k as f32 - column_of(hz)).abs() > 2.0)
+            .count();
+        assert!(
+            drifted > 0,
+            "a stale rate is expected to shift at least one peak: {columns:?}"
+        );
+    }
 
     fn sine(hz: f32, rate: f32, n: usize) -> Vec<f32> {
         (0..n)
