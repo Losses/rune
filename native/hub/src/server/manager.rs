@@ -777,12 +777,18 @@ impl ServerManager {
         // difference to tolerate after the expiry.
         validation.leeway = 0;
 
-        decode::<JwtClaims>(
+        let Ok(token) = decode::<JwtClaims>(
             token,
             &DecodingKey::from_secret(&self.jwt_secret),
             &validation,
-        )
-        .is_ok()
+        ) else {
+            return false;
+        };
+        // The library still accepts a token during the second its `exp` names. A token is
+        // expired from that second on.
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .is_ok_and(|now| token.claims.exp as u64 > now.as_secs())
     }
 }
 
@@ -6571,6 +6577,21 @@ mod lifecycle_tests {
         let forged_claims = URL_SAFE_NO_PAD.encode(br#"{"exp":99999999999,"iat":0}"#);
         assert_ne!(forged_claims, claims);
         assert!(!manager.verify_jwt_token(&format!("{header}.{forged_claims}.{signature}")));
+
+        // The second named by `exp` is already past the token's life.
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as usize;
+        let expiring_now = encode(
+            &Header::new(Algorithm::HS256),
+            &JwtClaims {
+                exp: now,
+                iat: now - 60,
+            },
+            &EncodingKey::from_secret(&manager.jwt_secret),
+        )?;
+        assert!(
+            !manager.verify_jwt_token(&expiring_now),
+            "token was accepted when exp == now"
+        );
 
         // A validity cannot be negative, so the expired token is signed here with the
         // manager's own secret: only its expiry can be what gets it rejected.
