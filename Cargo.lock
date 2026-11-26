@@ -2733,6 +2733,7 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-core-video",
+ "pollster 0.4.0",
  "raw-window-handle 0.6.2",
  "windows 0.62.2",
 ]
