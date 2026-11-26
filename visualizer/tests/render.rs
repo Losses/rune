@@ -1,4 +1,5 @@
-//! Headless GPU tests. They skip (and say so) when the machine has no GPU adapter.
+//! Headless GPU tests. They skip (and say so) when the machine has no GPU the visualizer runs on,
+//! which is asked before the visualizer starts; a visualizer that then shows no frame fails.
 
 use std::f32::consts::TAU;
 use std::path::Path;
@@ -17,7 +18,7 @@ use std::process as std_process;
 use std::thread;
 use visualizer::Transport;
 use visualizer::{
-    Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Visualizer, VisualizerInputs,
+    Frame, LabCommand, Location, PcmInput, RUNTIME_TOML, Status, Visualizer, VisualizerInputs,
 };
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -85,6 +86,7 @@ fn start(width: u32, height: u32) -> Option<(Visualizer, Feeder)> {
 fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Feeder)> {
     // A test that failed holding its turn poisons the lock; the next may still go.
     let turn = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    usable_gpu(visualizer::probe_gpu())?;
     let (producer, consumer) = RingBuffer::new(1 << 16);
     // Create a PcmTap to manage the consumer lifecycle
     let tap = PcmTap::new();
@@ -113,21 +115,104 @@ fn start_with(width: u32, height: u32, readback: bool) -> Option<(Visualizer, Fe
         noise: 1,
         _turn: turn,
     };
-    // Wait for the first frame or for the failure to get a GPU.
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while visualizer.latest_frame().is_none() {
-        let status = visualizer.status();
-        if !status.running {
-            eprintln!(
-                "SKIPPED: no usable GPU: {}",
-                status.last_error.unwrap_or_default()
-            );
-            return None;
+    await_first_frame(FIRST_FRAME_WAIT, || {
+        (visualizer.latest_frame().is_some(), visualizer.status())
+    });
+    Some((visualizer, feeder))
+}
+
+/// How long a visualizer that keeps running may take to show its first frame.
+const FIRST_FRAME_WAIT: Duration = Duration::from_secs(30);
+
+/// The GPU the visualizer would run on, as `probe` found it. Without one the test is skipped,
+/// and says so. This is the only way a test is skipped: once a GPU is known to be there, a
+/// visualizer that shows no frame has failed.
+fn usable_gpu(probe: anyhow::Result<String>) -> Option<String> {
+    match probe {
+        Ok(adapter) => Some(adapter),
+        Err(reason) => {
+            eprintln!("SKIPPED: no usable GPU: {reason:#}");
+            None
         }
-        assert!(Instant::now() < deadline, "no frame within 30 s");
+    }
+}
+
+/// Wait for the first frame of a started visualizer. `poll` tells whether a frame is there and
+/// the status. A render thread that stops before its first frame fails the test with the error
+/// it left, whether the engine returned it or panicked.
+fn await_first_frame(wait: Duration, mut poll: impl FnMut() -> (bool, Status)) {
+    let deadline = Instant::now() + wait;
+    loop {
+        let (has_frame, status) = poll();
+        if has_frame {
+            return;
+        }
+        assert!(
+            status.running,
+            "the visualizer stopped before its first frame: {}",
+            status.last_error.unwrap_or_default()
+        );
+        assert!(Instant::now() < deadline, "no frame within {wait:?}");
         thread::sleep(Duration::from_millis(10));
     }
-    Some((visualizer, feeder))
+}
+
+/// A status as the render thread leaves it when it stops with `error`.
+fn stopped_with(error: &str) -> Status {
+    Status {
+        running: false,
+        last_error: Some(error.to_string()),
+        ..Status::default()
+    }
+}
+
+#[test]
+#[should_panic(expected = "stopped before its first frame: Failed to create the device")]
+fn an_engine_error_before_the_first_frame_fails_the_test() {
+    await_first_frame(FIRST_FRAME_WAIT, || {
+        (false, stopped_with("Failed to create the device"))
+    });
+}
+
+#[test]
+#[should_panic(expected = "stopped before its first frame: The visualizer thread panicked")]
+fn a_caught_panic_before_the_first_frame_fails_the_test() {
+    await_first_frame(FIRST_FRAME_WAIT, || {
+        (false, stopped_with("The visualizer thread panicked"))
+    });
+}
+
+#[test]
+#[should_panic(expected = "no frame within")]
+fn a_running_visualizer_without_a_frame_fails_at_its_deadline() {
+    let running = Status {
+        running: true,
+        ..Status::default()
+    };
+    await_first_frame(Duration::from_millis(50), || (false, running.clone()));
+}
+
+#[test]
+fn a_first_frame_ends_the_wait() {
+    let mut polls = 0;
+    await_first_frame(FIRST_FRAME_WAIT, || {
+        polls += 1;
+        let running = Status {
+            running: true,
+            ..Status::default()
+        };
+        (polls == 3, running)
+    });
+    assert_eq!(polls, 3);
+}
+
+#[test]
+fn only_a_missing_gpu_skips_a_test() {
+    assert_eq!(
+        usable_gpu(Ok("Test GPU".to_string())).as_deref(),
+        Some("Test GPU")
+    );
+    assert_eq!(usable_gpu(Err(anyhow::anyhow!("No GPU adapter"))), None);
 }
 
 /// Pull frames for `count` new frame ids while feeding audio. Returns the frames and the fps.
