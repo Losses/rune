@@ -1253,18 +1253,23 @@ async fn pausing_and_resuming_does_not_start_the_track_again() -> Result<()> {
     playback.reports(&track, 0, PlaybackState::Paused).await;
     playback.reports(&track, 0, PlaybackState::Playing).await;
     playback.plays_through(&track).await;
+    playback.until_played(1).await?;
     assert_eq!(
         playback.service.started.load(Ordering::SeqCst),
         1,
         "pausing and resuming does not start the occurrence again"
     );
-    playback.until_played(1).await?;
 
     // A different track starts and completes as before.
     playback.reports(&other, 1, PlaybackState::Playing).await;
     playback.until_started(2).await?;
     playback.plays_through(&other).await;
     playback.until_played(2).await?;
+    assert_eq!(
+        playback.service.started.load(Ordering::SeqCst),
+        2,
+        "only the two occurrences report their starts"
+    );
 
     playback.stop().await
 }
