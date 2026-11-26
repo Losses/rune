@@ -810,6 +810,8 @@ struct HostedPlayback {
     // when that was.
     position: Duration,
     reported_at: Instant,
+    // The host's last status said that the track is told to play but does not move on yet.
+    buffering: bool,
     // When the host was last told to play the track, and when it last reported on it since it
     // was handed over.
     started_at: Instant,
@@ -907,19 +909,23 @@ impl Drop for Lookup {
 }
 
 impl HostedPlayback {
-    // Where the track stands now: it moves on from the last report while it plays.
+    // Where the track stands now: it moves on from the last report while it plays, unless the
+    // host said that it buffers.
     fn position(&self) -> Duration {
-        if self.playing {
+        if self.playing && !self.buffering {
             self.position + self.reported_at.elapsed()
         } else {
             self.position
         }
     }
 
+    // The track stands at `position` now. Whether it buffers there is for the host's next status
+    // to say.
     fn report(&mut self, position: Duration, playing: bool) {
         self.position = position;
         self.playing = playing;
         self.reported_at = Instant::now();
+        self.buffering = false;
     }
 
     // Whether an end or a failure that the host reported in `revision` for the entry at `index`
@@ -3623,6 +3629,7 @@ impl PlayerInternal {
             playing: true,
             position,
             reported_at: now,
+            buffering: false,
             started_at: now,
             heard_at: None,
             recovered: false,
@@ -4019,6 +4026,7 @@ impl PlayerInternal {
         id: Option<&str>,
         playing: bool,
         position: Duration,
+        buffering: bool,
         revision: u64,
     ) -> Result<()> {
         if !self.end_current_track()? {
@@ -4033,6 +4041,7 @@ impl PlayerInternal {
         });
         if queued && self.move_along_run(steps, playing, position)? {
             if let Some(hosted) = &mut self.hosted {
+                hosted.buffering = buffering;
                 hosted.heard_at = Some(Instant::now());
             }
             return Ok(());
@@ -4256,6 +4265,7 @@ impl PlayerInternal {
                 current_id,
                 playing,
                 position_ms,
+                buffering,
             } => {
                 let Some(hosted) = self.hosted.as_mut().filter(|hosted| {
                     hosted.track.host == host
@@ -4271,6 +4281,7 @@ impl PlayerInternal {
                     {
                         let changed = hosted.playing != playing;
                         hosted.report(position, playing);
+                        hosted.buffering = buffering;
                         hosted.heard_at = Some(Instant::now());
                         if changed {
                             self.send_track_state(playing, position)?;
@@ -4301,6 +4312,7 @@ impl PlayerInternal {
                             current_id.as_deref(),
                             playing,
                             position,
+                            buffering,
                             revision,
                         );
                     }

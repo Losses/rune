@@ -65,6 +65,11 @@
 //! it has 10 s for its first report; after that, 15 s without a report while it plays counts as
 //! a failure of its track.
 //!
+//! Between two statuses the player moves the track on by itself while it plays. `buffering: true`
+//! says that the entry is told to play but does not move on yet, as while the platform player
+//! loads its audio: it still counts as playing, and stays where the status puts it until a status
+//! without it. A host that tells the two apart reports a status at once when either begins.
+//!
 //! At the end of an entry with an entry after it, the host makes that one current, plays it
 //! without a gap, and reports a status with its index, one higher, and its id.
 //! [`HostEvent::JukeboxEnded`] means that the last entry finished with nothing after it; a move
@@ -232,6 +237,10 @@ pub enum HostEvent {
         playing: bool,
         #[serde(deserialize_with = "position_ms")]
         position_ms: u64,
+        /// Whether the entry is told to play but does not move on yet. A host that leaves it out
+        /// says that it moves on, and it is written only when it is true.
+        #[serde(default, skip_serializing_if = "is_false")]
+        buffering: bool,
     },
     /// The entry at `index` cannot be played.
     JukeboxItemFailed {
@@ -279,6 +288,10 @@ fn shows_itself() -> bool {
 
 fn is_true(value: &bool) -> bool {
     *value
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 // Hosts written in JavaScript may report a fractional position.
@@ -417,6 +430,7 @@ mod tests {
                 current_id: Some("track-1".to_owned()),
                 playing: true,
                 position_ms: 1500,
+                buffering: false,
             },
             r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":1500}"#,
         );
@@ -428,8 +442,21 @@ mod tests {
                 current_id: None,
                 playing: false,
                 position_ms: 0,
+                buffering: false,
             },
             r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":null,"currentId":null,"playing":false,"positionMs":0}"#,
+        );
+        assert_json(
+            HostEvent::JukeboxStatus {
+                host: "host".to_owned(),
+                revision: 3,
+                current_index: Some(0),
+                current_id: Some("track-1".to_owned()),
+                playing: true,
+                position_ms: 0,
+                buffering: true,
+            },
+            r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":0,"buffering":true}"#,
         );
         for (reason, json) in [
             (HostFailure::Unplayable, "unplayable"),
@@ -519,6 +546,7 @@ mod tests {
                 current_id: Some("track-1".to_owned()),
                 playing: true,
                 position_ms: 81251,
+                buffering: false,
             })
         );
         assert!(matches!(

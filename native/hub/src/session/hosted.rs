@@ -312,6 +312,7 @@ mod tests {
                     current_id: Some("track-2".into()),
                     playing: true,
                     position_ms: 2500,
+                    buffering: false,
                 },
                 HostEvent::JukeboxItemFailed {
                     host: "host".into(),

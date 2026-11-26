@@ -102,6 +102,7 @@ impl Model {
             current_id: self.current.map(|current| self.queue[current].clone()),
             playing: self.playing,
             position_ms: self.position_ms,
+            buffering: false,
         }
     }
 }
@@ -637,6 +638,19 @@ fn status(revision: u64, playing: bool, position_ms: u64) -> HostEvent {
     status_of(revision, "1440", playing, position_ms)
 }
 
+// A status of the main host about track 1440 at index 0, which is told to play and buffers.
+fn buffering(revision: u64, position_ms: u64) -> HostEvent {
+    HostEvent::JukeboxStatus {
+        host: HOST.to_owned(),
+        revision,
+        current_index: Some(0),
+        current_id: Some("1440".to_owned()),
+        playing: true,
+        position_ms,
+        buffering: true,
+    }
+}
+
 // A status of the main host about track `id` at index 0.
 fn status_of(revision: u64, id: &str, playing: bool, position_ms: u64) -> HostEvent {
     HostEvent::JukeboxStatus {
@@ -646,6 +660,7 @@ fn status_of(revision: u64, id: &str, playing: bool, position_ms: u64) -> HostEv
         current_id: Some(id.to_owned()),
         playing,
         position_ms,
+        buffering: false,
     }
 }
 
@@ -657,6 +672,7 @@ fn lost(revision: u64) -> HostEvent {
         current_id: None,
         playing: false,
         position_ms: 0,
+        buffering: false,
     }
 }
 
@@ -1637,6 +1653,7 @@ async fn events_about_an_older_track_or_from_another_host_change_nothing() -> Re
                 current_id: None,
                 playing: false,
                 position_ms: 5_000,
+                buffering: false,
             },
             ready(&other, false, false),
             HostEvent::Unknown,
@@ -1757,6 +1774,34 @@ async fn a_hosted_track_moves_on_from_its_report_while_it_plays_only() -> Result
             told.len() <= 1 && told.iter().all(|position| *position == paused_at),
             "{told:?}"
         );
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hosted_track_that_buffers_stays_where_its_host_puts_it() -> Result<()> {
+    let (internal, f) = hosted_engine(2, &[]);
+    with_engine(internal, f, async |f| {
+        let hosted = f.hosted("1440");
+        start_first(f, std::slice::from_ref(&hosted), None).await?;
+        f.report(buffering(1, 10_000))?;
+        f.settle().await?;
+        tokio::time::advance(Duration::from_millis(400)).await;
+
+        // The host still loads the track's audio: the track plays, and stands still.
+        f.send(PlayerCommand::Pause)?;
+        let paused_at = expect_paused(&mut f.events, &hosted).await?;
+        assert_eq!(paused_at, Duration::from_secs(10));
+
+        // Once a status says that it moves on, it does.
+        f.send(PlayerCommand::Play)?;
+        f.report(status(3, true, 10_000))?;
+        f.settle().await?;
+        tokio::time::advance(Duration::from_millis(400)).await;
+        f.send(PlayerCommand::Pause)?;
+        let paused_at = expect_paused(&mut f.events, &hosted).await?;
+        assert_eq!(paused_at, Duration::from_millis(10_400));
         Ok(())
     })
     .await
@@ -2679,6 +2724,7 @@ fn status_at(revision: u64, index: u32, id: &str, playing: bool) -> HostEvent {
         current_id: Some(id.to_owned()),
         playing,
         position_ms: 0,
+        buffering: false,
     }
 }
 
