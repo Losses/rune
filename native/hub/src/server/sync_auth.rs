@@ -593,6 +593,8 @@ mod tests {
             .change_user_status(&fingerprint, UserStatus::Approved)
             .await
             .unwrap();
+        // The new registration uses the same trust state with a fresh HTTP rate-limit budget.
+        let app = auth.router();
         assert_eq!(
             post(&app, "/sync/authorize", &sign(&get_challenge(&app).await))
                 .await
