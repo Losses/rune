@@ -14,11 +14,13 @@ final _strings = lookupAppLocalizations(const Locale('en'));
 
 const _records = [
   LibraryRecordSummary(
+    shareSync: false,
     recordId: 'local-1',
     alias: 'Local alias',
     kind: LibraryRecordKindSummaryLocal(libraryId: 'l1', path: '/music/Jazz'),
   ),
   LibraryRecordSummary(
+    shareSync: false,
     recordId: 'subsonic-1',
     alias: 'Home server',
     kind: LibraryRecordKindSummarySubsonic(
@@ -27,6 +29,7 @@ const _records = [
     ),
   ),
   LibraryRecordSummary(
+    shareSync: false,
     recordId: 'apple-1',
     alias: 'Apple Music',
     kind: LibraryRecordKindSummaryAppleMusic(),

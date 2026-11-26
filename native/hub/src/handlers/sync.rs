@@ -321,7 +321,11 @@ impl Signal for SyncShareLibraryRequest {
         let library_id = Uuid::parse_str(&request.library_id).map_err(|error| {
             ExpectedRequestError::invalid_input(format!("invalid library UUID: {error}"))
         })?;
-        let share_failure = node.share_sync_requests.sync(library_id).await?.err();
+        let share_failure = node
+            .share_sync_requests
+            .sync(library_id, &node.token)
+            .await?
+            .err();
         Ok(Some(Self::Response {
             share_failure,
             call_id: None,

@@ -6,6 +6,7 @@ void main() {
   test('only a record that keeps a credential asks for it again', () {
     const records = [
       LibraryRecordSummary(
+        shareSync: false,
         recordId: 'kept-credential',
         alias: 'Server',
         kind: LibraryRecordKindSummarySubsonic(
@@ -14,6 +15,7 @@ void main() {
         ),
       ),
       LibraryRecordSummary(
+        shareSync: false,
         recordId: 'signed-in-here',
         alias: 'Service',
         kind: LibraryRecordKindSummaryAppleMusic(),

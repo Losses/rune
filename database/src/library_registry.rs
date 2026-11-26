@@ -460,7 +460,13 @@ fn legacy_background_sync_disabled_library(
     record: &serde_json::Value,
 ) -> Option<Uuid> {
     let holder = match version {
-        2 => record.get("kind")?,
+        // Only these kinds carried the switch; another kind's stray keys are not one.
+        2 => record.get("kind").filter(|kind| {
+            matches!(
+                kind.get("type").and_then(serde_json::Value::as_str),
+                Some("owned" | "rune_replica")
+            )
+        })?,
         3 => {
             // Only a record that is written back with a flag derived from its catalog stops
             // being reported after the rewrite. A hidden record keeps the flag it has.
@@ -2547,6 +2553,37 @@ mod tests {
 
         // A write that changes nothing leaves the file alone, so the explicit rewrite exists.
         LibraryRegistry::rewrite(dir.path()).await.unwrap();
+        assert_eq!(
+            LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
+            Vec::<Uuid>::new()
+        );
+    }
+
+    #[test]
+    fn legacy_scan_reads_the_switch_only_from_the_kinds_that_had_one() {
+        let dir = TempDir::new().unwrap();
+        let catalog = Uuid::new_v4();
+        // A remote-control record never had the switch; keys a hand edit left on it must not
+        // deny the catalog they name.
+        let file = serde_json::json!({
+            "version": 2,
+            "libraries": [{
+                "record_id": Uuid::new_v4(),
+                "alias": "Controlled",
+                "kind": {
+                    "type": "rune_remote_control",
+                    "fingerprint": "peer",
+                    "library_id": catalog,
+                    "background_sync": false,
+                },
+            }],
+        });
+        fs::write(
+            dir.path().join("libraries.json"),
+            serde_json::to_vec(&file).unwrap(),
+        )
+        .unwrap();
+
         assert_eq!(
             LibraryRegistry::legacy_background_sync_disabled(dir.path()).unwrap(),
             Vec::<Uuid>::new()

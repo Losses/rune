@@ -112,6 +112,7 @@ void main() {
 
   test('a service registered again keeps its one record', () async {
     const apple = LibraryRecordSummary(
+      shareSync: false,
       recordId: 'apple-record',
       alias: 'Apple Music',
       kind: LibraryRecordKindSummaryAppleMusic(),

@@ -1662,8 +1662,7 @@ void main() {
       expect(nestedObserver.replaced, isEmpty);
       expect(nestedObserver.pushed, ['/', '/library']);
       expect(
-        runeWithNavigationBarAndPlaybackControllorNavigatorKey
-            .currentState!
+        runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState!
             .canPop(),
         isTrue,
       );
@@ -1893,6 +1892,7 @@ void main() {
   group('Apple Music', () {
     final strings = lookupAppLocalizations(const Locale('en'));
     const appleRecord = LibraryRecordSummary(
+      shareSync: false,
       recordId: 'apple-record',
       alias: 'Apple Music',
       kind: LibraryRecordKindSummaryAppleMusic(),

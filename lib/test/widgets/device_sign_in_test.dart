@@ -29,6 +29,7 @@ import 'package:rune/widgets/router/rune_with_navigation_bar_and_playback_contro
 final _strings = lookupAppLocalizations(const Locale('en'));
 
 const _signedInAppleRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'apple-record',
   alias: 'Apple Music',
   kind: LibraryRecordKindSummaryAppleMusic(),
@@ -36,6 +37,7 @@ const _signedInAppleRecord = LibraryRecordSummary(
 );
 
 const _appleRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'apple-record',
   alias: 'Apple Music',
   kind: LibraryRecordKindSummaryAppleMusic(),
@@ -43,12 +45,14 @@ const _appleRecord = LibraryRecordSummary(
 );
 
 const _localRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'local-record',
   alias: 'Music',
   kind: LibraryRecordKindSummaryLocal(libraryId: 'library-1', path: '/music'),
 );
 
 const _subsonicRecord = LibraryRecordSummary(
+  shareSync: false,
   recordId: 'subsonic-record',
   alias: 'Subsonic',
   kind: LibraryRecordKindSummarySubsonic(
@@ -1124,6 +1128,7 @@ void main() {
       'lost access signs in the open library only when it signs in through that host',
       (tester) async {
         const second = LibraryRecordSummary(
+          shareSync: false,
           recordId: 'apple-second',
           alias: 'Apple Music 2',
           kind: LibraryRecordKindSummaryAppleMusic(),

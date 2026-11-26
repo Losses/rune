@@ -546,15 +546,25 @@ impl Default for ShareSyncRequests {
 }
 
 impl ShareSyncRequests {
-    /// Sync a library with its shared folder and wait for the pass to end.
-    pub async fn sync(&self, library_id: Uuid) -> Result<Result<(), ShareSyncFailure>> {
+    /// Sync a library with its shared folder and wait for the pass to end, or for `shutdown`:
+    /// a request still queued when the node stops is never taken by a worker.
+    pub async fn sync(
+        &self,
+        library_id: Uuid,
+        shutdown: &CancellationToken,
+    ) -> Result<Result<(), ShareSyncFailure>> {
         let (reply, answer) = oneshot::channel();
         self.sender
             .send((library_id, reply))
             .map_err(|_| anyhow::anyhow!("The share sync request queue is closed"))?;
-        answer
-            .await
-            .context("The sync worker stopped before the share sync ended")?
+        tokio::select! {
+            answer = answer => {
+                answer.context("The sync worker stopped before the share sync ended")?
+            }
+            _ = shutdown.cancelled() => {
+                Err(anyhow::anyhow!("The node stopped before the share sync ended"))
+            }
+        }
     }
 }
 
@@ -790,12 +800,7 @@ async fn run_share_worker(
         // State is kept for every served library, not only the scheduled ones, so that
         // switching automatic sync off does not drop open store sessions.
         state.retain(&served);
-        let scheduled = if global.sync_settings.read().await.auto_share_sync {
-            served
-        } else {
-            global.library_pool.ui_library_ids().await
-        };
-        for id in scheduled {
+        for id in scheduled_share_libraries(&global, served).await {
             if state.in_backoff(id) {
                 continue;
             }
@@ -823,6 +828,16 @@ async fn run_share_worker(
     }
 }
 
+/// The libraries a scheduled share pass works on: every served one while automatic share sync
+/// is on, and only the ones open in the UI while it is off.
+async fn scheduled_share_libraries(global: &NodeContext, served: Vec<Uuid>) -> Vec<Uuid> {
+    if global.sync_settings.read().await.auto_share_sync {
+        served
+    } else {
+        global.library_pool.ui_library_ids().await
+    }
+}
+
 async fn flush_share_worker(
     global: &Weak<NodeContext>,
     sessions: &HashMap<Uuid, ShareStoreSession>,
@@ -831,10 +846,12 @@ async fn flush_share_worker(
     let Some(global) = global.upgrade() else {
         return;
     };
-    let Ok(ids) = global.library_pool.served_library_ids().await else {
+    let Ok(served) = global.library_pool.served_library_ids().await else {
         return;
     };
-    for id in ids {
+    // The last publication is a scheduled pass like any other: a library that was only synced
+    // on request keeps its store session, and must not be published without one.
+    for id in scheduled_share_libraries(&global, served).await {
         let Some(session) = sessions.get(&id) else {
             continue;
         };

@@ -612,7 +612,6 @@ async fn share_worker_fixtures_do_not_start_the_media_server() -> Result<()> {
 /// it, and the library opens through its registry record like a backgrounded real library.
 struct IdlePatrolNode {
     _directory: tempfile::TempDir,
-    root: String,
     node: Arc<NodeContext>,
     // The node reuses this pool only while the strong reference lives, so the harness keeps it.
     pool: Arc<LibraryPool>,
@@ -663,7 +662,6 @@ impl IdlePatrolNode {
         );
         Ok(Self {
             _directory: directory,
-            root,
             node,
             pool,
             library_id,
@@ -731,19 +729,8 @@ async fn share_patrol_of_an_unshared_library_allows_idle_closure() -> Result<()>
     let library_id = fixture.library_id;
     fixture.start_worker();
 
-    // The patrol visits the library: with no open entry yet, only its acquire can create the
-    // database in the media root.
-    wait_until(
-        "the share patrol to open the library's database",
-        || async {
-            Ok(std_path::Path::new(&fixture.root)
-                .join(".rune")
-                .join(".0.db")
-                .exists()
-                .then_some(()))
-        },
-    )
-    .await?;
+    // The patrol does not visit a library that is not stored in a shared folder, so this
+    // probe is what opens it.
     let initial = fixture.probe_connection().await?;
     initial
         .execute_unprepared("CREATE TABLE share_idle_probe (value INTEGER NOT NULL)")
@@ -3086,6 +3073,73 @@ impl ShareSwitchFixture {
     }
 }
 
+#[tokio::test]
+async fn a_share_sync_request_ends_when_the_node_stops() -> Result<()> {
+    let requests = ShareSyncRequests::default();
+    let shutdown = CancellationToken::new();
+    let pending = requests.sync(Uuid::new_v4(), &shutdown);
+    tokio::pin!(pending);
+    // No worker runs here, so nothing ever takes the request.
+    assert!(futures::poll!(&mut pending).is_pending());
+
+    shutdown.cancel();
+    assert!(pending.await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_last_publication_leaves_out_a_library_that_only_syncs_on_request() -> Result<()> {
+    let mut fixture = ShareSwitchFixture::start(false).await?;
+    let background = fixture.background;
+    // The worker is stopped first: whether its own last publication runs depends on where the
+    // stop finds it, so the publication is called here with the session a request leaves.
+    fixture.cancel.cancel();
+    (&mut fixture.task).await?;
+    let after_the_request = new_playlist_key();
+    fixture
+        .node
+        .library_pool
+        .acquire_background(background)
+        .await?
+        .library_sync
+        .write_local(
+            after_the_request.clone(),
+            support::playlist("after the request"),
+        )
+        .await?;
+    let sessions = HashMap::from([(background, memory_session(&fixture.background_store).await)]);
+    let notify: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+
+    flush_share_worker(&Arc::downgrade(&fixture.node), &sessions, &notify).await;
+
+    fixture.other_device_pass().await?;
+    assert!(
+        fixture
+            .other_device
+            .sync_store
+            .get(&after_the_request)
+            .await?
+            .is_none(),
+        "the last publication pushed a library that automatic sync does not cover"
+    );
+
+    // With automatic sync on, the same publication covers it.
+    fixture.set_auto_share_sync(true).await?;
+    flush_share_worker(&Arc::downgrade(&fixture.node), &sessions, &notify).await;
+    fixture.other_device_pass().await?;
+    assert!(
+        fixture
+            .other_device
+            .sync_store
+            .get(&after_the_request)
+            .await?
+            .is_some()
+    );
+    let ShareSwitchFixture { node, _handles, .. } = fixture;
+    drop(_handles);
+    node.shutdown().await
+}
+
 fn new_playlist_key() -> ObjectKey {
     ObjectKey {
         collection: Collection::Playlists,
@@ -3135,7 +3189,11 @@ async fn share_library_not_open_in_the_ui_syncs_only_on_request_while_automatic_
 
     // A request runs one pass that both pulls and pushes, and is reported like a scheduled one.
     assert_eq!(
-        fixture.node.share_sync_requests.sync(background).await?,
+        fixture
+            .node
+            .share_sync_requests
+            .sync(background, &fixture.node.token)
+            .await?,
         Ok(())
     );
     assert_eq!(fixture.sessions_opened(background), 1);
@@ -3198,7 +3256,11 @@ async fn share_library_not_open_in_the_ui_syncs_only_on_request_while_automatic_
     fixture.set_auto_share_sync(false).await?;
     fixture.scheduled_ui_passes(2).await?;
     assert_eq!(
-        fixture.node.share_sync_requests.sync(background).await?,
+        fixture
+            .node
+            .share_sync_requests
+            .sync(background, &fixture.node.token)
+            .await?,
         Ok(())
     );
     assert_eq!(fixture.sessions_opened(background), 1);
@@ -3224,7 +3286,11 @@ async fn manual_share_sync_answers_with_its_failure_and_runs_again_during_backof
     let started = Instant::now();
     for _ in 0..3 {
         assert_eq!(
-            fixture.node.share_sync_requests.sync(background).await?,
+            fixture
+                .node
+                .share_sync_requests
+                .sync(background, &fixture.node.token)
+                .await?,
             Err(ShareSyncFailure::ReadOnlyShare)
         );
     }
@@ -3237,7 +3303,11 @@ async fn manual_share_sync_answers_with_its_failure_and_runs_again_during_backof
 
     fixture.background_store.clear_error(StoreOperation::Put);
     assert_eq!(
-        fixture.node.share_sync_requests.sync(background).await?,
+        fixture
+            .node
+            .share_sync_requests
+            .sync(background, &fixture.node.token)
+            .await?,
         Ok(())
     );
     assert!(
@@ -3282,7 +3352,7 @@ async fn manual_share_sync_refuses_a_library_that_is_not_stored_in_a_shared_fold
         let error = fixture
             .node
             .share_sync_requests
-            .sync(library_id)
+            .sync(library_id, &fixture.node.token)
             .await
             .expect_err("a library outside a shared folder was synced with one");
         assert_eq!(classify(&error), RequestErrorKind::InvalidInput);

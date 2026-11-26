@@ -310,11 +310,20 @@ pub struct NodeContext {
 ///
 /// Grants first, registry second: a crash in between repeats the same denial, which changes
 /// nothing, and then rewrites the registry.
+///
+/// A registry that cannot be read does not stop the node from starting: no library can be
+/// served from it either, and the next start looks again.
 async fn deny_sync_of_libraries_with_background_sync_off(
     config: &Path,
     access_policy: &RuneAccessPolicy,
 ) -> Result<()> {
-    let disabled = LibraryRegistry::legacy_background_sync_disabled(config)?;
+    let disabled = match LibraryRegistry::legacy_background_sync_disabled(config) {
+        Ok(disabled) => disabled,
+        Err(error) => {
+            log::warn!("Could not read the background sync switches of the registry: {error:#}");
+            return Ok(());
+        }
+    };
     if !disabled.is_empty() {
         access_policy.deny_sync(&disabled)?;
         LibraryRegistry::rewrite(config).await?;
@@ -2382,6 +2391,35 @@ mod tests {
             serde_json::to_vec_pretty(&serde_json::json!({ "version": 3, "libraries": records }))?,
         )?;
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_registry_that_cannot_be_read_does_not_stop_the_node_from_starting()
+    -> anyhow::Result<()> {
+        use database::library_registry::LibraryRegistry;
+        use std::fs;
+
+        let dir = tempfile::tempdir()?;
+        crate::test_node::disable_media_server(dir.path())?;
+        fs::write(
+            dir.path().join("libraries.json"),
+            br#"{"version":3,"libraries":["#,
+        )?;
+        let path = dir.path().to_string_lossy().into_owned();
+
+        let node = NodeContext::new(
+            &path,
+            &path,
+            Arc::new(Quiet(None)),
+            false,
+            RunMode::App,
+            Arc::new(VisualizerVisualizer::new()),
+        )
+        .await?;
+
+        // The registry is still unreadable, and says so where it is used.
+        assert!(LibraryRegistry::load(dir.path()).is_err());
+        node.shutdown().await
     }
 
     #[tokio::test]
