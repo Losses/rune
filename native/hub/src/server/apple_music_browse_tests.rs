@@ -8441,10 +8441,13 @@ fn with_playlists() -> AppleOptions {
     }
 }
 
-/// Lets the import a sign-in started do what it does: once everything was imported, it asks
-/// Apple nothing, which the counts of what Apple was asked then show.
-async fn import_settled() {
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+/// Waits for the import the last sign-in of `binding` started to end: once everything was
+/// imported, it asks Apple nothing, which the counts of what Apple was asked then show.
+async fn import_settled(binding: &AppleMusicBinding) -> Result<()> {
+    wait_until("the import of the sign-in to end", || async {
+        Ok((!binding.importing.load(Ordering::SeqCst)).then_some(()))
+    })
+    .await
 }
 
 /// Makes a binding of the library afresh, as at the next start: the one held is retired, the
@@ -8685,9 +8688,9 @@ async fn the_first_sign_in_imports_apples_likes_once() -> Result<()> {
     assert!(reads > 0);
     apple.fake.liked.lock().unwrap().insert("i.s2".into());
     sign_in_again(&apple, USER_TOKEN).await?;
-    import_settled().await;
-    let (_ui, _binding) = bind_again(&apple).await?;
-    import_settled().await;
+    import_settled(&apple.binding).await?;
+    let (_ui, binding) = bind_again(&apple).await?;
+    import_settled(&binding).await?;
     assert_eq!(apple.fake.rating_reads.load(Ordering::SeqCst), reads);
     assert!(!is_liked(&apple, "i.s2").await?);
     assert_eq!(liked_group(&apple).await?, ["Third Road", "First Light"]);
@@ -8866,9 +8869,9 @@ async fn the_first_sign_in_imports_every_playlist_of_apples_once() -> Result<()>
     let reads = import_reads(&apple);
     assert_eq!(reads, 1);
     sign_in_again(&apple, USER_TOKEN).await?;
-    import_settled().await;
-    let (_ui, _binding) = bind_again(&apple).await?;
-    import_settled().await;
+    import_settled(&apple.binding).await?;
+    let (_ui, binding) = bind_again(&apple).await?;
+    import_settled(&binding).await?;
     assert_eq!(import_reads(&apple), reads);
     assert_eq!(rune_playlist_songs(&apple).await?, imported_playlists());
     apple.finish().await

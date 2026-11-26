@@ -1032,7 +1032,7 @@ pub(crate) struct AppleMusicBinding {
     pub(crate) config_dir: PathBuf,
     /// Whether what comes in from Apple once, its playlists and likes, is being imported into
     /// Rune (see `import_in_background`).
-    importing: AtomicBool,
+    pub(crate) importing: AtomicBool,
     /// Set when a sign-in came while an import was under way: the import runs once more when it
     /// ends, for that sign-in.
     import_again: AtomicBool,
