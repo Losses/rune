@@ -8,12 +8,14 @@ use futures::future::BoxFuture;
 use reqwest::header;
 use std::collections::HashMap;
 use std::net::TcpListener as StdTcpListener;
+use std::sync::Condvar;
 use tokio::task;
 use tokio::time as tokio_time;
 
 /// The responses of a peer's audio endpoint to ranged requests, correct or broken in one of
-/// the ways a faulty peer broke them. A range whose start passes the first byte is corrupt,
-/// everything else is correct.
+/// the ways a faulty peer broke them. Every ranged request is corrupt, the unranged one is
+/// correct. A range can start at the first byte: the downloader asks for the first byte with a
+/// range of its own when the reader asks for it before the unranged response brought it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Corruption {
     /// The peer answers every request correctly.
@@ -26,21 +28,64 @@ enum Corruption {
     ShortBody,
 }
 
-/// Serves `data` over bare HTTP, correct except as `corruption` says. Returns its base URL.
-fn audio_server(data: &'static [u8], corruption: Corruption) -> Result<String> {
+/// When the body of the unranged response, which a download starts with, begins to arrive.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FirstBytes {
+    /// At once, and the rest streams in slowly.
+    AtOnce,
+    /// Only once a ranged request reached the peer. The reader asks for the first byte before it
+    /// arrived, so the downloader asks for it with a range of its own, from the first byte.
+    AfterARange,
+}
+
+/// Whether a ranged request reached a server, which a body held for one waits on.
+#[derive(Clone, Default)]
+struct RangeArrived(Arc<(Mutex<bool>, Condvar)>);
+
+impl RangeArrived {
+    fn mark(&self) {
+        let (arrived, changed) = &*self.0;
+        *arrived.lock().unwrap() = true;
+        changed.notify_all();
+    }
+
+    fn wait(&self) {
+        let (arrived, changed) = &*self.0;
+        let mut arrived = arrived.lock().unwrap();
+        while !*arrived {
+            arrived = changed.wait(arrived).unwrap();
+        }
+    }
+}
+
+/// Serves `data` over bare HTTP, correct except as `corruption` says, and starts the body of
+/// the unranged response as `first_bytes` says. Returns its base URL.
+fn audio_server(
+    data: &'static [u8],
+    corruption: Corruption,
+    first_bytes: FirstBytes,
+) -> Result<String> {
     let listener = StdTcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
+    let range_arrived = RangeArrived::default();
     thread::spawn(move || {
         while let Ok((stream, _)) = listener.accept() {
+            let range_arrived = range_arrived.clone();
             thread::spawn(move || {
-                let _ = serve_audio(stream, data, corruption);
+                let _ = serve_audio(stream, data, corruption, first_bytes, &range_arrived);
             });
         }
     });
     Ok(format!("http://127.0.0.1:{port}/audio"))
 }
 
-fn serve_audio(mut stream: std::net::TcpStream, data: &[u8], corruption: Corruption) -> Result<()> {
+fn serve_audio(
+    mut stream: std::net::TcpStream,
+    data: &[u8],
+    corruption: Corruption,
+    first_bytes: FirstBytes,
+    range_arrived: &RangeArrived,
+) -> Result<()> {
     use std::io::{Read, Write};
     stream.set_nonblocking(false)?;
     let mut buffer = Vec::new();
@@ -75,8 +120,11 @@ fn serve_audio(mut stream: std::net::TcpStream, data: &[u8], corruption: Corrupt
         };
         Some((start, end))
     });
+    if range.is_some() {
+        range_arrived.mark();
+    }
     let size = data.len() as u64;
-    let corruptible = range.is_some_and(|(start, _)| start > 0);
+    let corruptible = range.is_some();
     let (status, start, last) = if let Some((start, end)) = range {
         let last = end.unwrap_or(size - 1).min(size - 1);
         if corruption == Corruption::WrongStatus && corruptible {
@@ -90,10 +138,7 @@ fn serve_audio(mut stream: std::net::TcpStream, data: &[u8], corruption: Corrupt
     let length = last - start + 1;
     let (content_range, length) = if corruptible && corruption == Corruption::WrongContentRange {
         // The body matches the asked range, but its header names a different start.
-        (
-            format!("bytes {}-{last}/{size}", start.saturating_sub(1)),
-            length,
-        )
+        (format!("bytes {}-{last}/{size}", start + 1), length)
     } else if corruptible && corruption == Corruption::ShortBody {
         (
             format!("bytes {start}-{last}/{size}"),
@@ -113,6 +158,9 @@ fn serve_audio(mut stream: std::net::TcpStream, data: &[u8], corruption: Corrupt
     let end = (start + length).min(size);
     let body = &data[start as usize..end as usize];
     if range.is_none() {
+        if first_bytes == FirstBytes::AfterARange {
+            range_arrived.wait();
+        }
         // The full response of the initial request streams in slowly, as the audio of a peer
         // over a network does. The throttle is far slower than any decoder probe: a probe that
         // passes the downloaded part always asks a range before the stream could have completed.
@@ -330,8 +378,8 @@ fn remote_engine(
     (internal, commands_sender, events)
 }
 
-async fn range_failure_scenario(corruption: Corruption) -> Result<()> {
-    let url = audio_server(STARTUP_OGG, corruption)?;
+async fn range_failure_scenario(corruption: Corruption, first_bytes: FirstBytes) -> Result<()> {
+    let url = audio_server(STARTUP_OGG, corruption, first_bytes)?;
     let file_uuid = Uuid::new_v4();
     let file_uuids = [file_uuid];
     let resolver = Arc::new(RangeFailureResolver {
@@ -431,10 +479,10 @@ async fn range_failure_scenario(corruption: Corruption) -> Result<()> {
 async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
     // Two corrupt tracks ahead of a healthy one: the first failure answers the play request, and
     // the second comes from the chain the first starts.
-    let url = audio_server(STARTUP_OGG, Corruption::WrongStatus)?;
+    let url = audio_server(STARTUP_OGG, Corruption::WrongStatus, FirstBytes::AtOnce)?;
     let file_uuid = Uuid::new_v4();
     let second_uuid = Uuid::new_v4();
-    let third_url = audio_server(STARTUP_OGG, Corruption::Correct)?;
+    let third_url = audio_server(STARTUP_OGG, Corruption::Correct, FirstBytes::AtOnce)?;
     let third_uuid = Uuid::new_v4();
     let resolver = Arc::new(MultiRangeResolver {
         tracks: [
@@ -530,7 +578,7 @@ async fn failures_of_one_chain_tell_the_user_once() -> Result<()> {
 
 #[tokio::test]
 async fn a_correct_range_response_does_not_fail_playback() -> Result<()> {
-    let url = audio_server(STARTUP_OGG, Corruption::Correct)?;
+    let url = audio_server(STARTUP_OGG, Corruption::Correct, FirstBytes::AtOnce)?;
     let file_uuid = Uuid::new_v4();
     let file_uuids = [file_uuid];
     let resolver = Arc::new(RangeFailureResolver {
@@ -566,15 +614,32 @@ async fn a_correct_range_response_does_not_fail_playback() -> Result<()> {
 
 #[tokio::test]
 async fn a_range_answered_with_200_surfaces_a_typed_failure() -> Result<()> {
-    range_failure_scenario(Corruption::WrongStatus).await
+    range_failure_scenario(Corruption::WrongStatus, FirstBytes::AtOnce).await
 }
 
 #[tokio::test]
 async fn a_content_range_mismatch_surfaces_a_typed_failure() -> Result<()> {
-    range_failure_scenario(Corruption::WrongContentRange).await
+    range_failure_scenario(Corruption::WrongContentRange, FirstBytes::AtOnce).await
 }
 
 #[tokio::test]
 async fn a_short_content_range_body_surfaces_a_typed_failure() -> Result<()> {
-    range_failure_scenario(Corruption::ShortBody).await
+    range_failure_scenario(Corruption::ShortBody, FirstBytes::AtOnce).await
+}
+
+/// A reader that asks for the first byte before the unranged response brought it has the
+/// downloader ask for it with a range of its own, which starts at the first byte. A faulty peer
+/// answers that range as wrongly as any other, and playback must fail on it the same way.
+#[tokio::test]
+async fn a_corrupt_range_from_the_first_byte_surfaces_a_typed_failure() -> Result<()> {
+    for corruption in [
+        Corruption::WrongStatus,
+        Corruption::WrongContentRange,
+        Corruption::ShortBody,
+    ] {
+        range_failure_scenario(corruption, FirstBytes::AfterARange)
+            .await
+            .with_context(|| format!("a range from the first byte answered with {corruption:?}"))?;
+    }
+    Ok(())
 }
