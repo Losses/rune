@@ -1293,7 +1293,6 @@ async fn open_fails_and_closes_when_the_last_selection_cannot_be_saved() -> Resu
         },
         fs: Vec::new(),
         catalog: CatalogPlacement::None,
-        background_sync: false,
     };
     LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
         registry.libraries.push(record.clone());
