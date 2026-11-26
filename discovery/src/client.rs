@@ -48,11 +48,39 @@ use std::time as std_time;
 /// in contexts where certificate retrieval might fail or the certificate information is not yet available.
 type CertInfo = Option<(String, String)>;
 
+/// A host taken from a URI, without the brackets that quote IPv6 literals. Both URI
+/// hosts (`[::1]`) and plain device hosts (`::1`) are accepted, because trusted entries
+/// are compared through the same form.
+fn bare_host(host: &str) -> &str {
+    host.strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host)
+}
+
+/// The identity a host is trusted and matched by: the canonical form of an IP literal,
+/// the host name itself otherwise. Canonicalising IP literals here, the same way
+/// `DeviceAddress` does when it parses an address, keeps `::1`, `0:0:0:0:0:0:0:1` and
+/// `[::1]` one identity instead of three spellings.
+fn canonical_host(host: &str) -> String {
+    bare_host(host)
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| bare_host(host).to_owned())
+}
+
+/// Builds the TLS server name for a host. A bracketed IPv6 literal reaches here quoted
+/// (`[::1]`) because that is how URIs carry it, while rustls expects the bare literal
+/// and would treat the quoted form as a DNS name.
+fn server_name_for_host(host: &str) -> Result<ServerName<'static>, CertValidatorError> {
+    ServerName::try_from(bare_host(host).to_owned())
+        .map_err(|_| CertValidatorError::InvalidServerName)
+}
+
 /// A trusted entry may carry a port (`host:port`); TLS only sees the host name.
 fn trusted_host_matches(candidate: &str, host: &str) -> bool {
     candidate
         .parse::<DeviceAddress>()
-        .is_ok_and(|address| address.host() == host)
+        .is_ok_and(|address| address.host() == canonical_host(host))
 }
 
 /// Defines errors that can occur during certificate validation and management.
@@ -332,6 +360,7 @@ impl CertValidator {
     /// # Returns
     /// `Vec<String>` - A vector of certificate fingerprints that trust the given hostname.
     pub async fn find_fingerprints_by_host(&self, host: &str) -> Vec<String> {
+        let host = canonical_host(host);
         self.storage
             .read()
             .await // Acquire read lock on persistent storage
@@ -340,7 +369,7 @@ impl CertValidator {
             .filter(|(_, hosts)| {
                 hosts
                     .iter()
-                    .any(|candidate| trusted_host_matches(candidate, host))
+                    .any(|candidate| trusted_host_matches(candidate, &host))
             }) // Match a trusted host with or without its explicit port
             .map(|(fp, _)| fp.clone()) // Map filtered entries to fingerprints (keys)
             .collect() // Collect fingerprints to Vec<String>
@@ -468,12 +497,13 @@ impl ServerCertVerifier for CertValidator {
             .cached_entries
             .read()
             .map_err(|_| RustlsError::General("Failed to acquire the lock".into()))?; // Read cached fingerprint entries
+        let server_host = canonical_host(&server_name_str);
         let is_trusted = entries
             .get(&fingerprint) // Get trusted hosts for the fingerprint from cache
             .map(|hosts| {
                 hosts
                     .iter()
-                    .any(|host| trusted_host_matches(host, &server_name_str))
+                    .any(|host| trusted_host_matches(host, &server_host))
             }) // Check trusted hosts with or without explicit ports
             .unwrap_or(false); // Default to false if fingerprint not found
 
@@ -582,8 +612,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     let tcp_stream = TcpStream::connect((address.host(), address.port())).await?;
 
-    let server_name =
-        ServerName::try_from(host).map_err(|_| CertValidatorError::InvalidServerName)?; // Create ServerName from host
+    let server_name = server_name_for_host(&host)?; // Create ServerName from host
 
     let tls_stream = connector
         .connect(server_name, tcp_stream)
@@ -798,7 +827,7 @@ pub async fn trust_server(
 pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     let uri = host.parse::<Uri>()?; // Parse host string to Uri
     let host_str = uri.host().unwrap().to_string(); // Extract host string from Uri
-    let sni = ServerName::try_from(host_str.clone())?; // Create ServerName for SNI
+    let sni = server_name_for_host(&host_str)?; // Create ServerName for SNI
 
     let connector = TlsConnector::from(Arc::new(config)); // Create TLS connector from ClientConfig
     let address = DeviceAddress::new(host_str, uri.port_u16().unwrap_or(DEFAULT_DEVICE_PORT))?;
@@ -930,19 +959,23 @@ pub async fn measure_host_response_times(
 #[cfg(test)]
 mod tests {
     use super::{
-        TempCertVerifier, fetch_server_certificate, select_best_host, trusted_host_matches,
+        CertValidator, TempCertVerifier, fetch_server_certificate, select_best_host,
+        server_name_for_host, trusted_host_matches, try_connect,
     };
     use crate::ssl::generate_self_signed_cert;
+    use crate::utils::server_name_to_string;
+    use rustls::client::danger::ServerCertVerifier;
     use rustls::crypto::ring::default_provider;
     use rustls::{
         ClientConfig, ServerConfig,
-        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime},
         server::{ClientHello, ResolvesServerCert},
         sign::CertifiedKey,
     };
     use std::{
+        net::Ipv6Addr,
         sync::{Arc, Mutex},
-        time::Duration,
+        time::{Duration, SystemTime},
     };
     use tokio::time as tokio_time;
     use tokio::{net::TcpListener, task::JoinHandle};
@@ -962,8 +995,31 @@ mod tests {
         assert!(trusted_host_matches("127.0.0.1", "127.0.0.1"));
         assert!(trusted_host_matches("127.0.0.1:7863", "127.0.0.1"));
         assert!(trusted_host_matches("[::1]:7863", "::1"));
+        assert!(trusted_host_matches("::1", "::1"));
+        assert!(trusted_host_matches(
+            "[2001:db8::]:7863",
+            "2001:db8:0:0:0:0:0:0"
+        ));
+        assert!(!trusted_host_matches("[2001:db8::1]:7863", "2001:db8::"));
         assert!(!trusted_host_matches("127.0.0.1:7863", "127.0.0.2"));
         assert!(!trusted_host_matches("127.0.0.10", "127.0.0.1"));
+    }
+
+    #[test]
+    fn uri_hosts_become_their_ip_server_name() {
+        for host in ["[::1]", "::1"] {
+            let name = server_name_for_host(host).unwrap();
+            assert!(
+                matches!(name, ServerName::IpAddress(_)),
+                "{host} must name an IP, not a DNS name"
+            );
+        }
+        let name = server_name_for_host("[2001:db8::ff00:42]").unwrap();
+        assert_eq!(server_name_to_string(&name).unwrap(), "2001:db8::ff00:42");
+        let name = server_name_for_host("device.local").unwrap();
+        assert!(matches!(name, ServerName::DnsName(_)));
+        let name = server_name_for_host("192.168.1.5").unwrap();
+        assert_eq!(server_name_to_string(&name).unwrap(), "192.168.1.5");
     }
 
     fn certified_key(certificate_pem: &str, private_key_pem: &str) -> CertifiedKey {
@@ -994,6 +1050,196 @@ mod tests {
             let _ = acceptor.accept(stream).await;
         });
         (port, server)
+    }
+
+    /// A loopback TLS server that accepts `accepts` handshakes with `key`, bound on IPv4 or IPv6.
+    async fn serve_tls(key: CertifiedKey, bind: &str, accepts: usize) -> (u16, JoinHandle<()>) {
+        let server_config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(TestCertificateResolver(Arc::new(key))));
+        let listener = TcpListener::bind(bind).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let acceptor = TlsAcceptor::from(Arc::new(server_config));
+        let server = tokio::spawn(async move {
+            for _ in 0..accepts {
+                let (stream, _) = listener.accept().await.unwrap();
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    let _ = acceptor.accept(stream).await;
+                });
+            }
+        });
+        (port, server)
+    }
+
+    fn certificate_der(certificate_pem: &str) -> CertificateDer<'static> {
+        CertificateDer::from(pem::parse(certificate_pem).unwrap().contents().to_vec())
+    }
+
+    fn unix_now() -> UnixTime {
+        UnixTime::since_unix_epoch(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap(),
+        )
+    }
+
+    /// The pinned-host check a TLS handshake performs: the validator's in-memory trust is seeded
+    /// directly so the check does not depend on the asynchronous cache refresh.
+    async fn pinned_validator(
+        fingerprint: &str,
+        hosts: &[&str],
+    ) -> (Arc<CertValidator>, tempfile::TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let validator = Arc::new(CertValidator::new(directory.path()).await.unwrap());
+        validator.cached_entries.write().unwrap().insert(
+            fingerprint.to_owned(),
+            hosts.iter().map(|host| host.to_string()).collect(),
+        );
+        (validator, directory)
+    }
+
+    fn pinned_certificate_is_accepted(
+        validator: &CertValidator,
+        certificate: &CertificateDer<'static>,
+        server_name: &ServerName<'static>,
+    ) -> bool {
+        validator
+            .verify_server_cert(certificate, &[], server_name, &[], unix_now())
+            .is_ok()
+    }
+
+    fn loopback_server_name() -> ServerName<'static> {
+        ServerName::from(std::net::IpAddr::from(Ipv6Addr::LOCALHOST))
+    }
+
+    #[tokio::test]
+    async fn pinned_certificate_matches_canonical_ipv6_hosts() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let der = certificate_der(&cert.certificate);
+        let (validator, _directory) =
+            pinned_validator(&cert.public_key_fingerprint, &["::1"]).await;
+
+        for literal in ["::1", "0:0:0:0:0:0:0:1"] {
+            let address: Ipv6Addr = literal.parse().unwrap();
+            let server_name = ServerName::from(std::net::IpAddr::from(address));
+            assert!(
+                pinned_certificate_is_accepted(&validator, &der, &server_name),
+                "certificate pinned for ::1 must verify against {literal}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pinned_certificate_matches_trailing_and_interior_compressed_ipv6() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let der = certificate_der(&cert.certificate);
+
+        for (trusted, literal) in [
+            ("2001:db8::", "2001:db8:0:0:0:0:0:0"),
+            ("2001:db8::ff00:42", "2001:db8:0:0:0:0:ff00:42"),
+            ("::", "0:0:0:0:0:0:0:0"),
+        ] {
+            let (validator, _directory) =
+                pinned_validator(&cert.public_key_fingerprint, &[trusted]).await;
+            let address: Ipv6Addr = literal.parse().unwrap();
+            let server_name = ServerName::from(std::net::IpAddr::from(address));
+            assert!(
+                pinned_certificate_is_accepted(&validator, &der, &server_name),
+                "certificate pinned for {trusted} must verify against {literal}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pinned_certificate_matching_keeps_ipv4_and_dns_controls() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let der = certificate_der(&cert.certificate);
+        let (validator, _directory) = pinned_validator(
+            &cert.public_key_fingerprint,
+            &["127.0.0.1:7863", "device.local"],
+        )
+        .await;
+
+        let ipv4 = ServerName::try_from("127.0.0.1").unwrap().to_owned();
+        assert!(pinned_certificate_is_accepted(&validator, &der, &ipv4));
+        let dns = ServerName::try_from("device.local").unwrap().to_owned();
+        assert!(pinned_certificate_is_accepted(&validator, &der, &dns));
+    }
+
+    #[tokio::test]
+    async fn a_certificate_pinned_elsewhere_stays_rejected() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let other = generate_self_signed_cert("other", "rune", "CA", 1).unwrap();
+        let der = certificate_der(&cert.certificate);
+        let (validator, _directory) =
+            pinned_validator(&other.public_key_fingerprint, &["::1"]).await;
+
+        assert!(!pinned_certificate_is_accepted(
+            &validator,
+            &der,
+            &loopback_server_name()
+        ));
+
+        let (validator, _directory) =
+            pinned_validator(&cert.public_key_fingerprint, &["2001:db8::5"]).await;
+        assert!(!pinned_certificate_is_accepted(
+            &validator,
+            &der,
+            &loopback_server_name()
+        ));
+    }
+
+    /// One certificate fetch and two connections over IPv6 loopback, with the certificate
+    /// pinned for its canonical `::1` host.
+    #[tokio::test]
+    async fn ipv6_loopback_peer_is_reached_with_its_pinned_certificate() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let key = certified_key(&cert.certificate, &cert.private_key);
+        let (port, server) = serve_tls(key, "[::1]:0", 3).await;
+
+        let (validator, _directory) =
+            pinned_validator(&cert.public_key_fingerprint, &["[::1]:7863"]).await;
+        let config = validator.clone().into_client_config();
+
+        let url = format!("https://[::1]:{port}/ping");
+        let fetched = fetch_server_certificate(&url).await;
+        let fetched = match fetched {
+            Ok(fetched) => fetched,
+            Err(error) => panic!("certificate fetch over bracketed IPv6 must succeed: {error}"),
+        };
+        assert_eq!(fetched.fingerprint, cert.public_key_fingerprint);
+
+        for attempt in 0..2 {
+            let connected = try_connect(&url, config.clone()).await;
+            match connected {
+                Ok(_) => {}
+                Err(error) => {
+                    panic!("connection {attempt} to the pinned IPv6 peer must succeed: {error}")
+                }
+            }
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ipv6_peer_with_an_unpinned_certificate_stays_rejected() {
+        let cert = generate_self_signed_cert("localhost", "rune", "CA", 1).unwrap();
+        let other = generate_self_signed_cert("other", "rune", "CA", 1).unwrap();
+        let key = certified_key(&cert.certificate, &cert.private_key);
+        let (port, server) = serve_tls(key, "[::1]:0", 1).await;
+
+        let (validator, _directory) =
+            pinned_validator(&other.public_key_fingerprint, &["::1"]).await;
+        let config = validator.clone().into_client_config();
+
+        let url = format!("https://[::1]:{port}/ping");
+        let connected = try_connect(&url, config).await;
+        assert!(
+            connected.is_err(),
+            "a certificate pinned to another key must not verify"
+        );
+        server.abort();
     }
 
     #[tokio::test]

@@ -1492,6 +1492,7 @@ impl PlayerInternal {
                             if let Some(mode) = edit.playback_mode {
                                 self.set_playback_mode(mode)?;
                             }
+                            let mut started = false;
                             if let Some(load) = edit.load {
                                 self.failure_chain_signaled = false;
                                 // An edit that loads takes playback over, paused or playing, as
@@ -1504,6 +1505,7 @@ impl PlayerInternal {
                                     false,
                                     Some(load.position),
                                 )?;
+                                started = load.play;
                             } else if added
                                 && edit.placement == PlaylistPlacement::PlayNext
                                 && self.current_queue_edit_index().is_none()
@@ -1511,6 +1513,10 @@ impl PlayerInternal {
                                 self.failure_chain_signaled = false;
                                 self.last_pause_report = None;
                                 self.load_at(Some(insertion), true, false, Some(Duration::ZERO))?;
+                                started = true;
+                            }
+                            if let Some(report) = edit.started_playback {
+                                let _ = report.send(started);
                             }
                         },
                         PlayerCommand::HandoffLoad { tracks, block, start_index, position, play, playback_mode, response, .. } => {
@@ -5442,6 +5448,7 @@ mod playback_state_tests {
                                 position: Duration::from_secs(1),
                                 play: false,
                             }),
+                            started_playback: None,
                         },
                         None,
                     ))?;
@@ -5491,6 +5498,7 @@ mod playback_state_tests {
                             playback_mode: None,
                             block: None,
                             load: None,
+                            started_playback: None,
                         },
                         None,
                     ))?;
@@ -5533,6 +5541,7 @@ mod playback_state_tests {
                         playback_mode: None,
                         block: None,
                         load: None,
+                        started_playback: None,
                     }, None))?;
                     let updated = tokio_time::timeout(TEST_DEADLINE, async {
                         loop {
@@ -7241,6 +7250,7 @@ mod playback_state_tests {
                             placement: PlaylistPlacement::Replace,
                             tracks: vec![(track.clone(), PlaybackSource::LibraryStream)],
                             block: None,
+                            started_playback: None,
                             playback_mode: None,
                             load: Some(PlaylistLoad {
                                 start_index: 0,
@@ -7921,6 +7931,7 @@ mod playback_state_tests {
                     playback_mode: None,
                     load: None,
                     block: None,
+                    started_playback: None,
                 };
                 let completion =
                     completed_command(&commands_sender, PlayerCommand::EditPlaylist(edit, None));
@@ -8364,6 +8375,153 @@ mod playback_state_tests {
             "{event:?}"
         );
         Ok(())
+    }
+
+    // The move of the track that is loading, or of the same track loaded at another
+    // occurrence: the published index and the successor of `next` follow the moved
+    // occurrence, so Next never selects it again. `paused` decides whether the track
+    // comes up paused, `move_duplicate` whether the move carries the loading occurrence
+    // itself or a duplicate of it.
+    async fn check_move_during_delayed_load(paused: bool, move_duplicate: bool) -> Result<()> {
+        let file_uuids = [
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        ];
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let resolved_ids = Arc::new(Mutex::new(Vec::new()));
+        let (resolver, wav_path) = delayed_resolver_fixture_with_samples(
+            &file_uuids,
+            resolved_ids.clone(),
+            started.clone(),
+            release.clone(),
+            &[2],
+            LONG_TRACK_SAMPLES,
+        );
+        let (mut internal, commands_sender, mut events) = library_engine(resolver);
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    // The second occurrence of track B loads: [A, B, B, D], and the move
+                    // carries that occurrence across its twin to the head of the queue.
+                    // Without a duplicate the queue is [A, B, C, D] and the loading track
+                    // moves from 1 to 2.
+                    let order = if move_duplicate {
+                        [file_uuids[0], file_uuids[1], file_uuids[1], file_uuids[3]]
+                    } else {
+                        file_uuids
+                    };
+                    let moved = library_item(library_id, order[1]);
+                    // Without a duplicate the move lands B at index 2 and D follows at 3.
+                    // With a duplicate the move lands the loading occurrence at index 0,
+                    // where A follows at 1; the twin stays at index 2, and its track is
+                    // the one the resolver blocks, so it must never become the successor.
+                    let successor =
+                        library_item(library_id, if move_duplicate { order[0] } else { order[3] });
+                    let successor_index = if move_duplicate { 1 } else { 3 };
+                    commands_sender.send(add_library_tracks(library_id, &order))?;
+                    commands_sender.send(PlayerCommand::Switch(if move_duplicate {
+                        2
+                    } else {
+                        1
+                    }))?;
+                    tokio_time::timeout(TEST_DEADLINE, started.notified()).await?;
+                    if paused {
+                        commands_sender.send(PlayerCommand::Pause)?;
+                    }
+                    commands_sender.send(PlayerCommand::MovePlayListItem {
+                        old_index: if move_duplicate { 2 } else { 1 },
+                        new_index: if move_duplicate { 0 } else { 2 },
+                        revision: None,
+                    })?;
+                    release.notify_one();
+
+                    let event = next_track_state(&mut events).await?;
+                    let expected_index = if move_duplicate { 0 } else { 2 };
+                    if paused {
+                        assert!(
+                            matches!(&event, PlayerEvent::Loaded { index, item, .. }
+                                if *index == expected_index && *item == moved),
+                            "{event:?}"
+                        );
+                    } else {
+                        assert!(
+                            matches!(&event, PlayerEvent::Playing { index, item, .. }
+                                if *index == expected_index && *item == moved),
+                            "{event:?}"
+                        );
+                    }
+
+                    commands_sender.send(PlayerCommand::Next)?;
+                    // Wait for the successor's state directly instead of next_track_state:
+                    // failure events mean Next did not go straight to the successor and the
+                    // state arrived through failure recovery, which is exactly the regression
+                    // this test guards against. The resolver id log confirms no re-resolution.
+                    let event = tokio_time::timeout(TEST_DEADLINE, async {
+                        loop {
+                            match events.recv().await {
+                                Some(
+                                    event @ (PlayerEvent::Loaded { .. }
+                                    | PlayerEvent::Playing { .. }
+                                    | PlayerEvent::Paused { .. }),
+                                ) => break Ok::<PlayerEvent, anyhow::Error>(event),
+                                Some(
+                                    event @ (PlayerEvent::Error { .. }
+                                    | PlayerEvent::Unavailable(..)),
+                                ) => {
+                                    bail!(
+                                        "the successor must load without failure events: {event:?}"
+                                    )
+                                }
+                                Some(_) => {}
+                                None => bail!("player events closed"),
+                            }
+                        }
+                    })
+                    .await??;
+                    assert!(
+                        matches!(&event, PlayerEvent::Playing { index, item, .. }
+                            if *index == successor_index && *item == successor),
+                        "Next after the move must select the successor: {event:?}"
+                    );
+                    // Resolver ids are track positions in `file_uuids` plus one: the loading
+                    // B is 2, and the successor must be the only other resolution. A replay
+                    // of the moved track would resolve 2 again.
+                    let successor_id = if move_duplicate { 1 } else { 4 };
+                    assert_eq!(
+                        &*resolved_ids.lock().unwrap(),
+                        &[2, successor_id],
+                        "Next must resolve the successor, not the moved track again"
+                    );
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn moving_the_loading_track_publishes_it_at_the_new_index() -> Result<()> {
+        check_move_during_delayed_load(false, false).await
+    }
+
+    #[tokio::test]
+    async fn moving_a_loading_paused_track_publishes_it_at_the_new_index() -> Result<()> {
+        check_move_during_delayed_load(true, false).await
+    }
+
+    #[tokio::test]
+    async fn moving_a_duplicate_of_the_loading_track_keeps_its_occurrence() -> Result<()> {
+        check_move_during_delayed_load(false, true).await
     }
 
     async fn check_move_during_load(queued: bool) -> Result<()> {

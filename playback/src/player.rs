@@ -644,6 +644,11 @@ pub struct PlaylistEdit {
     pub playback_mode: Option<PlaybackMode>,
     pub load: Option<PlaylistLoad>,
     pub block: Option<HandoffBlockId>,
+    /// When set, the player answers here whether applying the edit started playback — an
+    /// explicit load that plays, or a PlayNext insertion it starts on its own. The answer is
+    /// the player's own decision where the edit applies, not a reading of its state from
+    /// outside, which cannot tell a user-paused track from one loaded paused without output.
+    pub started_playback: Option<oneshot::Sender<bool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
