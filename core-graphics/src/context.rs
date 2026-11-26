@@ -139,8 +139,9 @@ impl CGContext {
         Self::from_ptr(ctx)
     }
 
-    pub fn create_bitmap_context(data: Option<*mut c_void>,
-                                 width: size_t,
+    /// A bitmap context that draws into storage Core Graphics allocates. The storage lives as
+    /// long as the context or any clone of it does.
+    pub fn create_bitmap_context(width: size_t,
                                  height: size_t,
                                  bits_per_component: size_t,
                                  bytes_per_row: size_t,
@@ -148,24 +149,99 @@ impl CGContext {
                                  bitmap_info: u32)
                                  -> CGContext {
         unsafe {
-            let result = CGBitmapContextCreate(data.unwrap_or(ptr::null_mut()),
-                                               width,
-                                               height,
-                                               bits_per_component,
-                                               bytes_per_row,
-                                               space.as_ptr(),
-                                               bitmap_info);
-            assert!(!result.is_null());
-            Self::from_ptr(result)
+            Self::create_bitmap_context_with_data(ptr::null_mut(),
+                                                  width,
+                                                  height,
+                                                  bits_per_component,
+                                                  bytes_per_row,
+                                                  space,
+                                                  bitmap_info)
         }
     }
 
-    pub fn data(&mut self) -> &mut [u8] {
-        unsafe {
-            slice::from_raw_parts_mut(
-                    CGBitmapContextGetData(self.as_ptr()) as *mut u8,
-                    (self.height() * self.bytes_per_row()) as usize)
+    /// A bitmap context that draws into the storage at `data`, which the caller keeps.
+    ///
+    /// # Safety
+    ///
+    /// `data` must be null, for storage Core Graphics allocates, or point to at least
+    /// `height * bytes_per_row` bytes. Those bytes must stay valid, and nothing but Core Graphics
+    /// may read or write them, for as long as the context or any clone of it lives. A safe caller
+    /// cannot promise that for a pointer:
+    ///
+    /// ```compile_fail
+    /// use core_graphics::base::kCGImageAlphaPremultipliedLast;
+    /// use core_graphics::color_space::CGColorSpace;
+    /// use core_graphics::context::CGContext;
+    ///
+    /// let context;
+    /// {
+    ///     let mut storage = vec![0u8; 16 * 8 * 4];
+    ///     context = CGContext::create_bitmap_context_with_data(
+    ///         storage.as_mut_ptr().cast(),
+    ///         16,
+    ///         8,
+    ///         8,
+    ///         16 * 4,
+    ///         &CGColorSpace::create_device_rgb(),
+    ///         kCGImageAlphaPremultipliedLast,
+    ///     );
+    /// }
+    /// context.flush();
+    /// ```
+    pub unsafe fn create_bitmap_context_with_data(data: *mut c_void,
+                                                  width: size_t,
+                                                  height: size_t,
+                                                  bits_per_component: size_t,
+                                                  bytes_per_row: size_t,
+                                                  space: &CGColorSpace,
+                                                  bitmap_info: u32)
+                                                  -> CGContext {
+        let result = CGBitmapContextCreate(data,
+                                           width,
+                                           height,
+                                           bits_per_component,
+                                           bytes_per_row,
+                                           space.as_ptr(),
+                                           bitmap_info);
+        assert!(!result.is_null());
+        Self::from_ptr(result)
+    }
+
+    /// The bytes a bitmap context draws into, `height` rows of `bytes_per_row`, or `None` when
+    /// this is not a bitmap context.
+    ///
+    /// # Safety
+    ///
+    /// A clone is the same native context, so every clone draws into these bytes and returns them
+    /// here. While the slice is alive nothing else may read or write them: no drawing through
+    /// this context or a clone of it, and no slice from a clone. The borrow of one wrapper does
+    /// not keep its clones away, so a safe caller cannot have the slice:
+    ///
+    /// ```compile_fail
+    /// use core_graphics::base::kCGImageAlphaPremultipliedLast;
+    /// use core_graphics::color_space::CGColorSpace;
+    /// use core_graphics::context::CGContext;
+    ///
+    /// let mut context = CGContext::create_bitmap_context(
+    ///     16,
+    ///     8,
+    ///     8,
+    ///     0,
+    ///     &CGColorSpace::create_device_rgb(),
+    ///     kCGImageAlphaPremultipliedLast,
+    /// );
+    /// let mut clone = context.clone();
+    /// let (first, second) = (context.data().unwrap(), clone.data().unwrap());
+    /// first[0] = 1;
+    /// second[0] = 2;
+    /// ```
+    pub unsafe fn data(&mut self) -> Option<&mut [u8]> {
+        let data = CGBitmapContextGetData(self.as_ptr()) as *mut u8;
+        if data.is_null() {
+            return None;
         }
+        let len = self.height().checked_mul(self.bytes_per_row())?;
+        Some(slice::from_raw_parts_mut(data, len))
     }
 }
 
@@ -619,8 +695,7 @@ fn create_bitmap_context_test() {
     use geometry::*;
 
     let cs = CGColorSpace::create_device_rgb();
-    let ctx = CGContext::create_bitmap_context(None,
-                                16, 8,
+    let ctx = CGContext::create_bitmap_context(16, 8,
                                 8, 0,
                                 &cs,
                                 ::base::kCGImageAlphaPremultipliedLast);
