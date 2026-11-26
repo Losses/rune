@@ -1721,6 +1721,10 @@
   "@libraryShareStoreUnavailable": {
     "description": "Shown when the shared storage holding the library is unreachable and the share sync retries on its own."
   },
+  "libraryShareStoreUnavailableOnRequest": "Shared storage is unavailable.",
+  "@libraryShareStoreUnavailableOnRequest": {
+    "description": "Shown when a sync the user asked for could not reach the shared storage. Nothing is retried on its own."
+  },
   "libraryRemoteNotAuthorized": "The device did not allow this connection.",
   "libraryRemoteUnreachable": "The device could not be reached.",
   "libraryRemoteProtocolFailure": "The device returned an incompatible response.",

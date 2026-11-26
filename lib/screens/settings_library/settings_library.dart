@@ -44,8 +44,7 @@ class SettingsLibraryPage extends StatefulWidget {
 
   final Future<ListLocalLibrariesResponse> Function()? loadLibraries;
   final Future<GetSyncSettingsResponse> Function() loadSyncSettings;
-  final Future<void> Function(GetSyncSettingsResponse settings)
-  saveSyncSettings;
+  final Future<void> Function(SyncSettingsChange change) saveSyncSettings;
 
   @override
   State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
@@ -56,6 +55,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
   List<LocalLibrary> registeredLibraries = [];
   GetSyncSettingsResponse? syncSettings;
+  bool savingAutoShareSync = false;
   bool syncSettingsRequested = false;
   StreamSubscription? _contentSubscription;
 
@@ -118,14 +118,20 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   }
 
   Future<void> _setAutoShareSync(bool enabled) async {
+    setState(() => savingAutoShareSync = true);
     try {
-      // The other settings are changed on the Devices page, which may have
-      // happened since this page loaded them, so only this one is replaced
-      // in what the hub holds now.
-      final current = await widget.loadSyncSettings();
-      await widget.saveSyncSettings(current.copyWith(autoShareSync: enabled));
-      final updated = await widget.loadSyncSettings();
-      if (mounted) setState(() => syncSettings = updated);
+      try {
+        // The other settings are changed on the Devices page, so only this
+        // one is sent and only this one is replaced in what is shown.
+        final change = SyncSettingsChange(autoShareSync: enabled);
+        await widget.saveSyncSettings(change);
+        final shown = syncSettings;
+        if (mounted && shown != null) {
+          setState(() => syncSettings = change.applyTo(shown));
+        }
+      } finally {
+        if (mounted) setState(() => savingAutoShareSync = false);
+      }
     } catch (error) {
       if (!mounted) return;
       await showErrorDialog(
@@ -147,7 +153,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     try {
       final failure = await libraryManager.syncShareLibrary(libraryId);
       if (!mounted || failure == null) return;
-      message = shareSyncFailureMessage(S.of(context), failure);
+      message = requestedShareSyncFailureMessage(S.of(context), failure);
     } catch (error) {
       if (!mounted) return;
       message = requestErrorText(S.of(context), error);
@@ -218,7 +224,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       title: S.of(context).autoShareSync,
                       subtitle: S.of(context).autoShareSyncDescription,
                       value: settings.autoShareSync,
-                      onChanged: _setAutoShareSync,
+                      // Two saves in flight could finish out of order and
+                      // leave the earlier value shown.
+                      onChanged: savingAutoShareSync ? null : _setAutoShareSync,
                     ),
                   const SizedBox(height: 2),
                   SizedBox(

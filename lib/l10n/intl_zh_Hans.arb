@@ -1695,6 +1695,7 @@
   "libraryStorageFailure": "无法保存媒体库。",
   "libraryNewerVersion": "此媒体库由较新版本的 Rune 创建。请更新此设备上的 Rune 以打开。",
   "libraryShareStoreUnavailable": "共享存储不可用。同步将自动重试。",
+  "libraryShareStoreUnavailableOnRequest": "共享存储不可用。",
   "libraryRemoteNotAuthorized": "设备未授权此连接。",
   "libraryRemoteUnreachable": "无法连接到设备。",
   "libraryRemoteProtocolFailure": "设备返回了不兼容的响应。",

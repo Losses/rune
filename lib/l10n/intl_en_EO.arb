@@ -1535,6 +1535,7 @@
   "libraryStorageFailure": "La biblioteko ne povis esti konservita.",
   "libraryNewerVersion": "Ĉi tiun bibliotekon kreis pli nova versio de Rune. Ĝisdatigu Rune ĉe ĉi tiu aparato por malfermi ĝin.",
   "libraryShareStoreUnavailable": "La komuna konservejo ne atingeblas. La sinkronigo aŭtomate reprovos.",
+  "libraryShareStoreUnavailableOnRequest": "La komuna konservejo ne atingeblas.",
   "libraryRemoteNotAuthorized": "La aparato ne rajtigis ĉi tiun konekton.",
   "libraryRemoteUnreachable": "La aparato ne atingeblas.",
   "libraryRemoteProtocolFailure": "La aparato sendis nekongruan respondon.",

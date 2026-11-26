@@ -1616,6 +1616,7 @@
   "libraryStorageFailure": "Impossibile salvare la raccolta.",
   "libraryNewerVersion": "Questa raccolta è stata creata da una versione più recente di Rune. Aggiorna Rune su questo dispositivo per aprirla.",
   "libraryShareStoreUnavailable": "L’archivio condiviso non è disponibile. La sincronizzazione verrà ritentata automaticamente.",
+  "libraryShareStoreUnavailableOnRequest": "L’archivio condiviso non è disponibile.",
   "libraryRemoteNotAuthorized": "Il dispositivo non ha autorizzato questa connessione.",
   "libraryRemoteUnreachable": "Impossibile raggiungere il dispositivo.",
   "libraryRemoteProtocolFailure": "Il dispositivo ha restituito una risposta incompatibile.",

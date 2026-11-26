@@ -1533,6 +1533,7 @@
   "libraryStorageFailure": "不可儲存樂庫。",
   "libraryNewerVersion": "此樂庫乃新版 符石聆音 所作。請於此器更 符石聆音 以啟之。",
   "libraryShareStoreUnavailable": "共享儲存不通。同步將自再試。",
+  "libraryShareStoreUnavailableOnRequest": "共享儲存不通。",
   "libraryRemoteNotAuthorized": "器未授權此連。",
   "libraryRemoteUnreachable": "不可連到器。",
   "libraryRemoteProtocolFailure": "器傳回不合的回應。",

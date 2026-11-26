@@ -1685,6 +1685,7 @@
   "libraryStorageFailure": "無法儲存媒體庫。",
   "libraryNewerVersion": "此媒體庫由較新版本的 Rune 建立。請更新此設備上的 Rune 以開啟。",
   "libraryShareStoreUnavailable": "共享儲存空間無法使用。同步會自動重試。",
+  "libraryShareStoreUnavailableOnRequest": "共享儲存空間無法使用。",
   "libraryRemoteNotAuthorized": "裝置未授權此連線。",
   "libraryRemoteUnreachable": "無法連線到裝置。",
   "libraryRemoteProtocolFailure": "裝置傳回不相容的回應。",

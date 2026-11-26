@@ -287,13 +287,27 @@ impl Signal for crate::messages::SetSyncSettingsRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         update_sync_settings(&node, |settings| {
-            settings.media_server = request.media_server;
-            settings.broadcast = request.broadcast;
-            settings.accept_remote_control = request.accept_remote_control;
-            settings.accept_sync = request.accept_sync;
-            settings.auto_device_sync = request.auto_device_sync;
-            settings.auto_share_sync = request.auto_share_sync;
-            settings.missing_host_file = request.missing_host_file.into();
+            if let Some(media_server) = request.media_server {
+                settings.media_server = media_server;
+            }
+            if let Some(broadcast) = request.broadcast {
+                settings.broadcast = broadcast;
+            }
+            if let Some(accept_remote_control) = request.accept_remote_control {
+                settings.accept_remote_control = accept_remote_control;
+            }
+            if let Some(accept_sync) = request.accept_sync {
+                settings.accept_sync = accept_sync;
+            }
+            if let Some(auto_device_sync) = request.auto_device_sync {
+                settings.auto_device_sync = auto_device_sync;
+            }
+            if let Some(auto_share_sync) = request.auto_share_sync {
+                settings.auto_share_sync = auto_share_sync;
+            }
+            if let Some(missing_host_file) = request.missing_host_file {
+                settings.missing_host_file = missing_host_file.into();
+            }
         })
         .await?;
         Ok(Some(Self::Response {
@@ -343,22 +357,20 @@ mod tests {
     use database::actions::metadata::MissingHostFilePolicy as SavedMissingHostFilePolicy;
     use std::net::{SocketAddr, TcpListener};
 
-    /// Changes the sync settings the way the Devices page does: every field is sent, the
-    /// changed one together with the ones the page loaded.
+    /// Changes the sync settings the way the pages do: only the changed fields are sent.
     async fn set_sync_settings(
         node: &Arc<NodeContext>,
         change: impl FnOnce(&mut SetSyncSettingsRequest),
     ) -> Result<()> {
-        let shown = shown_settings(node).await?;
         let mut request = SetSyncSettingsRequest {
             request_id: "set-sync-settings".into(),
-            media_server: shown.media_server,
-            broadcast: shown.broadcast,
-            accept_remote_control: shown.accept_remote_control,
-            accept_sync: shown.accept_sync,
-            auto_device_sync: shown.auto_device_sync,
-            auto_share_sync: shown.auto_share_sync,
-            missing_host_file: shown.missing_host_file,
+            media_server: None,
+            broadcast: None,
+            accept_remote_control: None,
+            accept_sync: None,
+            auto_device_sync: None,
+            auto_share_sync: None,
+            missing_host_file: None,
             call_id: None,
         };
         change(&mut request);
@@ -463,7 +475,7 @@ mod tests {
         let occupied = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], DEFAULT_DEVICE_PORT)))
             .context("occupy the device port")?;
         for attempt in 1..=2 {
-            let error = set_sync_settings(&node, |request| request.media_server = true)
+            let error = set_sync_settings(&node, |request| request.media_server = Some(true))
                 .await
                 .err()
                 .unwrap_or_else(|| {
@@ -486,7 +498,7 @@ mod tests {
         );
         drop(occupied);
 
-        set_sync_settings(&node, |request| request.media_server = true).await?;
+        set_sync_settings(&node, |request| request.media_server = Some(true)).await?;
         assert!(manager.is_running());
         assert!(SyncSettings::load(dir.path()).media_server);
         assert!(shown_settings(&node).await?.media_server);
@@ -497,7 +509,7 @@ mod tests {
         {
             let blocked = BlockedSettingsFile::new(dir.path())?;
             let error = set_sync_settings(&node, |request| {
-                request.missing_host_file = MissingHostFilePolicy::KeepAsRemote
+                request.missing_host_file = Some(MissingHostFilePolicy::KeepAsRemote)
             })
             .await
             .expect_err("changing a setting while the settings cannot be saved");
@@ -521,7 +533,7 @@ mod tests {
 
         // The same request succeeds without starting a second server.
         set_sync_settings(&node, |request| {
-            request.missing_host_file = MissingHostFilePolicy::KeepAsRemote
+            request.missing_host_file = Some(MissingHostFilePolicy::KeepAsRemote)
         })
         .await?;
         assert_eq!(manager.get_address().await, address);
@@ -536,7 +548,7 @@ mod tests {
         // describes, announcing as that setting says.
         {
             let blocked = BlockedSettingsFile::new(dir.path())?;
-            let error = set_sync_settings(&node, |request| request.media_server = false)
+            let error = set_sync_settings(&node, |request| request.media_server = Some(false))
                 .await
                 .expect_err("disabling while the settings cannot be saved");
             assert!(
@@ -560,7 +572,7 @@ mod tests {
             );
         }
 
-        set_sync_settings(&node, |request| request.media_server = false).await?;
+        set_sync_settings(&node, |request| request.media_server = Some(false)).await?;
         assert!(!manager.is_running());
         let saved = SyncSettings::load(dir.path());
         assert!(!saved.media_server);
@@ -574,7 +586,7 @@ mod tests {
         // setting still says disabled.
         {
             let blocked = BlockedSettingsFile::new(dir.path())?;
-            let error = set_sync_settings(&node, |request| request.media_server = true)
+            let error = set_sync_settings(&node, |request| request.media_server = Some(true))
                 .await
                 .expect_err("enabling while the settings cannot be saved");
             assert!(
@@ -591,7 +603,7 @@ mod tests {
             assert!(!SyncSettings::load(dir.path()).media_server);
         }
 
-        set_sync_settings(&node, |request| request.media_server = true).await?;
+        set_sync_settings(&node, |request| request.media_server = Some(true)).await?;
         assert!(manager.is_running());
         assert!(SyncSettings::load(dir.path()).media_server);
         assert!(shown_settings(&node).await?.media_server);
@@ -610,7 +622,7 @@ mod tests {
         assert!(manager.is_running());
         assert!(node.device_scanner.is_announcing().await);
 
-        set_sync_settings(&node, |request| request.media_server = false).await?;
+        set_sync_settings(&node, |request| request.media_server = Some(false)).await?;
         assert!(!manager.is_running());
         assert_eq!(manager.get_address().await, None);
         assert!(!node.device_scanner.is_announcing().await);
@@ -621,7 +633,7 @@ mod tests {
             "stopping the server changed another setting"
         );
 
-        set_sync_settings(&node, |request| request.media_server = true).await?;
+        set_sync_settings(&node, |request| request.media_server = Some(true)).await?;
         assert!(manager.is_running());
         assert_eq!(
             manager.get_address().await.map(|address| address.port()),
@@ -663,17 +675,17 @@ mod tests {
         assert!(manager.is_running());
         assert!(!node.device_scanner.is_announcing().await);
 
-        set_sync_settings(&node, |request| request.broadcast = true).await?;
+        set_sync_settings(&node, |request| request.broadcast = Some(true)).await?;
         assert!(node.device_scanner.is_announcing().await);
         assert_eq!(manager.get_address().await, Some(address));
         assert!(SyncSettings::load(dir.path()).broadcast);
 
         // Repeating the request keeps the announcement that is already running.
-        set_sync_settings(&node, |request| request.broadcast = true).await?;
+        set_sync_settings(&node, |request| request.broadcast = Some(true)).await?;
         assert!(node.device_scanner.is_announcing().await);
         assert_eq!(manager.get_address().await, Some(address));
 
-        set_sync_settings(&node, |request| request.broadcast = false).await?;
+        set_sync_settings(&node, |request| request.broadcast = Some(false)).await?;
         assert!(!node.device_scanner.is_announcing().await);
         assert_eq!(manager.get_address().await, Some(address));
         assert!(!SyncSettings::load(dir.path()).broadcast);
@@ -691,7 +703,7 @@ mod tests {
         assert!(node.device_scanner.is_announcing().await);
 
         let blocked = BlockedSettingsFile::new(dir.path())?;
-        let error = set_sync_settings(&node, |request| request.broadcast = false)
+        let error = set_sync_settings(&node, |request| request.broadcast = Some(false))
             .await
             .expect_err("switching broadcast off while the settings cannot be saved");
         assert!(
@@ -717,12 +729,12 @@ mod tests {
         let node = test_node(dir.path()).await?;
         let manager = node.manager()?;
 
-        set_sync_settings(&node, |request| request.broadcast = false).await?;
+        set_sync_settings(&node, |request| request.broadcast = Some(false)).await?;
         assert!(!manager.is_running());
         assert!(!node.device_scanner.is_announcing().await);
         assert!(!SyncSettings::load(dir.path()).broadcast);
 
-        set_sync_settings(&node, |request| request.broadcast = true).await?;
+        set_sync_settings(&node, |request| request.broadcast = Some(true)).await?;
         assert!(!manager.is_running());
         assert!(!node.device_scanner.is_announcing().await);
         let saved = SyncSettings::load(dir.path());
@@ -730,6 +742,163 @@ mod tests {
         assert!(!saved.media_server);
 
         node.shutdown().await?;
+        Ok(())
+    }
+
+    /// Settings in which every field differs from its default, so that a field a request
+    /// left alone can be told from one it reset.
+    fn non_default_settings() -> SyncSettings {
+        SyncSettings {
+            media_server: false,
+            broadcast: false,
+            accept_remote_control: true,
+            accept_sync: false,
+            auto_device_sync: false,
+            auto_share_sync: false,
+            missing_host_file: SavedMissingHostFilePolicy::KeepAsRemote,
+        }
+    }
+
+    /// Brings a node to [`non_default_settings`] through requests, one field at a time.
+    async fn set_every_setting_to_non_default(node: &Arc<NodeContext>) -> Result<()> {
+        set_sync_settings(node, |request| request.media_server = Some(false)).await?;
+        set_sync_settings(node, |request| request.broadcast = Some(false)).await?;
+        set_sync_settings(node, |request| request.accept_remote_control = Some(true)).await?;
+        set_sync_settings(node, |request| request.accept_sync = Some(false)).await?;
+        set_sync_settings(node, |request| request.auto_device_sync = Some(false)).await?;
+        set_sync_settings(node, |request| request.auto_share_sync = Some(false)).await?;
+        set_sync_settings(node, |request| {
+            request.missing_host_file = Some(MissingHostFilePolicy::KeepAsRemote)
+        })
+        .await
+    }
+
+    /// Asserts that both the settings in use and the saved ones equal `expected`.
+    async fn assert_settings(
+        node: &Arc<NodeContext>,
+        config_dir: &Path,
+        expected: &SyncSettings,
+        context: &str,
+    ) -> Result<()> {
+        let expected = serde_json::to_value(expected)?;
+        assert_eq!(
+            serde_json::to_value(&*node.sync_settings.read().await)?,
+            expected,
+            "{context}: settings in use"
+        );
+        assert_eq!(
+            serde_json::to_value(SyncSettings::load(config_dir))?,
+            expected,
+            "{context}: saved settings"
+        );
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_request_with_one_field_changes_that_field_and_leaves_every_other() -> Result<()> {
+        type Case = (
+            &'static str,
+            fn(&mut SetSyncSettingsRequest),
+            fn(&mut SyncSettings),
+        );
+        // Each case puts one field back to its default. The media server comes last: it is
+        // the only one that binds the device port.
+        let cases: [Case; 7] = [
+            (
+                "broadcast",
+                |request| request.broadcast = Some(true),
+                |settings| settings.broadcast = true,
+            ),
+            (
+                "accept_remote_control",
+                |request| request.accept_remote_control = Some(false),
+                |settings| settings.accept_remote_control = false,
+            ),
+            (
+                "accept_sync",
+                |request| request.accept_sync = Some(true),
+                |settings| settings.accept_sync = true,
+            ),
+            (
+                "auto_device_sync",
+                |request| request.auto_device_sync = Some(true),
+                |settings| settings.auto_device_sync = true,
+            ),
+            (
+                "auto_share_sync",
+                |request| request.auto_share_sync = Some(true),
+                |settings| settings.auto_share_sync = true,
+            ),
+            (
+                "missing_host_file",
+                |request| request.missing_host_file = Some(MissingHostFilePolicy::RemoveEverywhere),
+                |settings| {
+                    settings.missing_host_file = SavedMissingHostFilePolicy::RemoveEverywhere
+                },
+            ),
+            (
+                "media_server",
+                |request| request.media_server = Some(true),
+                |settings| settings.media_server = true,
+            ),
+        ];
+        let _sync_port = crate::test_node::SYNC_PORT.lock().await;
+
+        for (field, change_request, change_expected) in cases {
+            let dir = tempfile::tempdir()?;
+            let node = test_node(dir.path()).await?;
+            set_every_setting_to_non_default(&node).await?;
+            assert_settings(&node, dir.path(), &non_default_settings(), field).await?;
+
+            set_sync_settings(&node, change_request).await?;
+
+            let mut expected = non_default_settings();
+            change_expected(&mut expected);
+            assert_settings(&node, dir.path(), &expected, field).await?;
+            node.shutdown().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_request_with_no_field_succeeds_and_changes_nothing() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let node = test_node(dir.path()).await?;
+        set_every_setting_to_non_default(&node).await?;
+
+        set_sync_settings(&node, |_| {}).await?;
+
+        assert_settings(&node, dir.path(), &non_default_settings(), "empty request").await?;
+        node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn requests_for_different_fields_keep_both_changes_in_either_order() -> Result<()> {
+        let requests: [fn(&mut SetSyncSettingsRequest); 2] = [
+            |request| request.accept_sync = Some(true),
+            |request| request.auto_share_sync = Some(true),
+        ];
+        let expected = SyncSettings {
+            accept_sync: true,
+            auto_share_sync: true,
+            ..non_default_settings()
+        };
+
+        for (order, [first, second]) in [
+            ("accept_sync first", [requests[0], requests[1]]),
+            ("auto_share_sync first", [requests[1], requests[0]]),
+        ] {
+            let dir = tempfile::tempdir()?;
+            let node = test_node(dir.path()).await?;
+            set_every_setting_to_non_default(&node).await?;
+
+            set_sync_settings(&node, first).await?;
+            set_sync_settings(&node, second).await?;
+
+            assert_settings(&node, dir.path(), &expected, order).await?;
+            node.shutdown().await?;
+        }
         Ok(())
     }
 

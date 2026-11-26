@@ -1533,6 +1533,7 @@
   "libraryStorageFailure": "ライブラリーヲホゾンデキマセンデシタ。",
   "libraryNewerVersion": "コノライブラリーハアタラシイバージョンノルーンデサクセイサレマシタ。ヒラクニハ、コノデバイスデルーンヲコウシンシテクダサイ。",
   "libraryShareStoreUnavailable": "キョウユウストレージニセツゾクデキマセン。ドウキハジドウテキニサイシコウサレマス。",
+  "libraryShareStoreUnavailableOnRequest": "キョウユウストレージニセツゾクデキマセン。",
   "libraryRemoteNotAuthorized": "デバイスガセツゾクヲキョカシマセンデシタ。",
   "libraryRemoteUnreachable": "デバイスニセツゾクデキマセン。",
   "libraryRemoteProtocolFailure": "デバイスカラゴカンセイノナイオウトウガアリマシタ。",

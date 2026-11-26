@@ -45,7 +45,7 @@ A node has one server, the Media Server, and one way of starting it. It serves p
 
 - Changing `broadcast`, `accept_remote_control` or `accept_sync` never restarts the server, so connections that the change does not concern stay open. Switching remote control off closes the open remote-control sessions with close code 1001, after new ones are already refused.
 - These settings are permissions under the server, checked before the grants of the asking device. They do not replace grants: a device still needs Control to drive playback and a sync grant on the library it asks for.
-- Every writer of the settings (the Devices page and the panel's broadcast switch) goes through one function. It brings the server to the requested state first and saves afterwards, so a failed change leaves the saved and shown settings equal to what is actually served; when the save itself fails, the server is put back.
+- Every writer of the settings (the Devices page, the Library page and the panel's broadcast switch) goes through one function and names only the settings it changes; the others stay as they are, so two writers never overwrite each other's settings. The function brings the server to the requested state first and saves afterwards, so a failed change leaves the saved and shown settings equal to what is actually served; when the save itself fails, the server is put back.
 - The sync worker, which reaches out to paired devices, does not depend on the server and keeps running while it is off.
 
 Two more settings in the same file say what this device does on its own. They have nothing to do with the server and are never disabled by it:

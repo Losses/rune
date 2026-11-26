@@ -100,16 +100,18 @@ pub struct GetSyncSettingsResponse {
     #[serde(default)]
     pub call_id: Option<u64>,
 }
+/// Changes the named sync settings. An absent field is left as it is, so writers that each
+/// change a different setting do not overwrite one another.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetSyncSettingsRequest {
     pub request_id: String,
-    pub media_server: bool,
-    pub broadcast: bool,
-    pub accept_remote_control: bool,
-    pub accept_sync: bool,
-    pub auto_device_sync: bool,
-    pub auto_share_sync: bool,
-    pub missing_host_file: MissingHostFilePolicy,
+    pub media_server: Option<bool>,
+    pub broadcast: Option<bool>,
+    pub accept_remote_control: Option<bool>,
+    pub accept_sync: Option<bool>,
+    pub auto_device_sync: Option<bool>,
+    pub auto_share_sync: Option<bool>,
+    pub missing_host_file: Option<MissingHostFilePolicy>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

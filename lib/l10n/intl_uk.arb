@@ -1614,6 +1614,7 @@
   "libraryStorageFailure": "Не вдалося зберегти медіатеку.",
   "libraryNewerVersion": "Цю медіатеку створено новішою версією Rune. Оновіть Rune на цьому пристрої, щоб відкрити її.",
   "libraryShareStoreUnavailable": "Спільне сховище недоступне. Синхронізація повторить спробу автоматично.",
+  "libraryShareStoreUnavailableOnRequest": "Спільне сховище недоступне.",
   "libraryRemoteNotAuthorized": "Пристрій не дозволив це з’єднання.",
   "libraryRemoteUnreachable": "Не вдалося під’єднатися до пристрою.",
   "libraryRemoteProtocolFailure": "Пристрій надіслав несумісну відповідь.",

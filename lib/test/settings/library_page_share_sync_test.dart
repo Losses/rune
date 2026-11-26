@@ -11,6 +11,7 @@ import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/settings_library/settings_library.dart';
 import 'package:rune/screens/settings_library/widgets/progress_button.dart';
+import 'package:rune/utils/api/set_sync_settings.dart';
 import 'package:rune/widgets/settings/settings_box_toggle.dart';
 
 const _syncNow = 'Sync Now';
@@ -78,15 +79,17 @@ GetSyncSettingsResponse _settings({bool autoShareSync = true}) =>
       missingHostFile: MissingHostFilePolicy.keepAsRemote,
     );
 
-List<Object> _values(GetSyncSettingsResponse settings) => [
-  settings.mediaServer,
-  settings.broadcast,
-  settings.acceptRemoteControl,
-  settings.acceptSync,
-  settings.autoDeviceSync,
-  settings.autoShareSync,
-  settings.missingHostFile,
-];
+/// Every field a change can carry, by name. A null value is a field the save
+/// leaves as the hub holds it.
+Map<String, Object?> _fields(SyncSettingsChange change) => {
+  'mediaServer': change.mediaServer,
+  'broadcast': change.broadcast,
+  'acceptRemoteControl': change.acceptRemoteControl,
+  'acceptSync': change.acceptSync,
+  'autoDeviceSync': change.autoDeviceSync,
+  'autoShareSync': change.autoShareSync,
+  'missingHostFile': change.missingHostFile,
+};
 
 /// A library manager whose share syncs end when the test says so.
 class _Syncs {
@@ -114,7 +117,7 @@ Future<void> _pumpPage(
   required List<LibraryRecordSummary> records,
   LibraryManagerProvider? manager,
   Future<GetSyncSettingsResponse> Function()? loadSyncSettings,
-  Future<void> Function(GetSyncSettingsResponse)? saveSyncSettings,
+  Future<void> Function(SyncSettingsChange)? saveSyncSettings,
 }) async {
   final registry = LibraryRegistryProvider(
     loadRecords: () async =>
@@ -283,9 +286,8 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(ContentDialog),
-        matching: find.text(
-          'Shared storage is unavailable. Sync will retry automatically.',
-        ),
+        // Nothing retries a requested sync, so the message does not say so.
+        matching: find.text('Shared storage is unavailable.'),
       ),
       findsOneWidget,
     );
@@ -354,36 +356,80 @@ void main() {
   testWidgets('the automatic sync switch saves only its own setting', (
     tester,
   ) async {
-    var stored = _settings();
-    final saved = <GetSyncSettingsResponse>[];
+    var loads = 0;
+    final saved = <SyncSettingsChange>[];
     await _pumpPage(
       tester,
       records: const [_share],
-      loadSyncSettings: () async => stored,
-      saveSyncSettings: (settings) async {
-        saved.add(settings);
-        stored = settings;
+      loadSyncSettings: () async {
+        loads++;
+        return _settings();
       },
+      saveSyncSettings: (change) async => saved.add(change),
     );
     expect(
       tester.widget<ToggleSwitch>(_switchFinder(_autoShareSync)).checked,
       isTrue,
     );
 
-    // Another page changed a setting after this page loaded them.
-    stored = stored.copyWith(acceptSync: true);
     await tester.ensureVisible(_switchFinder(_autoShareSync));
     await tester.tap(_switchFinder(_autoShareSync));
     await tester.pumpAndSettle();
 
-    expect(saved.map(_values), [
-      _values(_settings(autoShareSync: false).copyWith(acceptSync: true)),
+    expect(saved.map(_fields), [
+      {
+        'mediaServer': null,
+        'broadcast': null,
+        'acceptRemoteControl': null,
+        'acceptSync': null,
+        'autoDeviceSync': null,
+        'autoShareSync': false,
+        'missingHostFile': null,
+      },
     ]);
+    expect(loads, 1, reason: 'a save loaded the settings');
     expect(
       tester.widget<ToggleSwitch>(_switchFinder(_autoShareSync)).checked,
       isFalse,
     );
   });
+
+  testWidgets(
+    'the automatic sync switch is disabled while its save is pending',
+    (tester) async {
+      final pending = Completer<void>();
+      final saved = <SyncSettingsChange>[];
+      await _pumpPage(
+        tester,
+        records: const [_share],
+        loadSyncSettings: () async => _settings(),
+        saveSyncSettings: (change) {
+          saved.add(change);
+          return pending.future;
+        },
+      );
+
+      await tester.ensureVisible(_switchFinder(_autoShareSync));
+      await tester.tap(_switchFinder(_autoShareSync));
+      await tester.pump();
+
+      final waiting = tester.widget<ToggleSwitch>(
+        _switchFinder(_autoShareSync),
+      );
+      expect(waiting.onChanged, isNull);
+      expect(waiting.checked, isTrue);
+      await tester.tap(_switchFinder(_autoShareSync), warnIfMissed: false);
+      await tester.pump();
+      expect(saved, hasLength(1));
+
+      pending.complete();
+      await tester.pumpAndSettle();
+
+      final done = tester.widget<ToggleSwitch>(_switchFinder(_autoShareSync));
+      expect(done.onChanged, isNotNull);
+      expect(done.checked, isFalse);
+    },
+  );
 
   testWidgets('a failed save of the automatic sync switch keeps its value', (
     tester,

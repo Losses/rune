@@ -2406,21 +2406,21 @@ mod lifecycle_tests {
         Ok(())
     }
 
-    /// Changes the sync settings the way the Devices page does.
+    /// Changes the sync settings the way the Devices page does: only the changed fields are
+    /// sent.
     async fn set_sync_settings(
         node: &Arc<NodeContext>,
         change: impl FnOnce(&mut SetSyncSettingsRequest),
     ) -> Result<()> {
-        let current = node.sync_settings.read().await.clone();
         let mut request = SetSyncSettingsRequest {
             request_id: "set-sync-settings".into(),
-            media_server: current.media_server,
-            broadcast: current.broadcast,
-            accept_remote_control: current.accept_remote_control,
-            accept_sync: current.accept_sync,
-            auto_device_sync: current.auto_device_sync,
-            auto_share_sync: current.auto_share_sync,
-            missing_host_file: current.missing_host_file.into(),
+            media_server: None,
+            broadcast: None,
+            accept_remote_control: None,
+            accept_sync: None,
+            auto_device_sync: None,
+            auto_share_sync: None,
+            missing_host_file: None,
             call_id: None,
         };
         change(&mut request);
@@ -2471,7 +2471,7 @@ mod lifecycle_tests {
         let manager = &fixture.manager;
         let params = &fixture.global_params;
 
-        let error = set_sync_settings(&params.node, |request| request.media_server = false)
+        let error = set_sync_settings(&params.node, |request| request.media_server = Some(false))
             .await
             .expect_err("switching off a server whose shutdown fails");
         assert!(format!("{error:#}").contains("cancelled"), "{error:#}");
@@ -2499,7 +2499,7 @@ mod lifecycle_tests {
             discovery::endpoint::DEFAULT_DEVICE_PORT,
         )))?;
 
-        let error = set_sync_settings(&params.node, |request| request.media_server = false)
+        let error = set_sync_settings(&params.node, |request| request.media_server = Some(false))
             .await
             .expect_err("switching off a server whose shutdown and restore fail");
         let text = format!("{error:#}");
@@ -2743,7 +2743,7 @@ mod lifecycle_tests {
             .map_err(|error| anyhow::anyhow!("remote control must be accepted: {error}"))?;
         pair.assert_sync_request_succeeds().await?;
 
-        set_sync_settings(&node, |request| request.accept_remote_control = false).await?;
+        set_sync_settings(&node, |request| request.accept_remote_control = Some(false)).await?;
 
         let close = tokio_time::timeout(TEST_DEADLINE, async {
             loop {
@@ -2771,7 +2771,7 @@ mod lifecycle_tests {
         );
 
         // Sessions accepted after the switch is turned back on are not cut by the earlier one.
-        set_sync_settings(&node, |request| request.accept_remote_control = true).await?;
+        set_sync_settings(&node, |request| request.accept_remote_control = Some(true)).await?;
         let mut socket = pair
             .connect()
             .await
@@ -2791,7 +2791,7 @@ mod lifecycle_tests {
             .await
             .map_err(|error| anyhow::anyhow!("remote control must be accepted: {error}"))?;
 
-        set_sync_settings(&node, |request| request.accept_sync = false).await?;
+        set_sync_settings(&node, |request| request.accept_sync = Some(false)).await?;
         let (status, body) = pair.sync_request().await?;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body, serde_json::json!({"error": "forbidden"}));
@@ -2799,7 +2799,7 @@ mod lifecycle_tests {
         pair.assert_session_answers(&mut socket).await?;
         pair.assert_address_unchanged().await;
 
-        set_sync_settings(&node, |request| request.accept_sync = true).await?;
+        set_sync_settings(&node, |request| request.accept_sync = Some(true)).await?;
         pair.assert_sync_request_succeeds().await?;
         pair.assert_session_answers(&mut socket).await?;
         pair.assert_address_unchanged().await;
@@ -6649,7 +6649,7 @@ mod lifecycle_tests {
         // the UI alone.
         let b_addr = paired_full(&b, &a).await?;
         set_sync_settings(&b.global_params.node, |request| {
-            request.auto_device_sync = false
+            request.auto_device_sync = Some(false)
         })
         .await?;
         let b_pool = &b.global_params.library_pool;
@@ -6713,7 +6713,7 @@ mod lifecycle_tests {
 
         // Switching it back on syncs L2 again.
         set_sync_settings(&b.global_params.node, |request| {
-            request.auto_device_sync = true
+            request.auto_device_sync = Some(true)
         })
         .await?;
         wait_for_album(&replica, &later).await?;
@@ -7247,7 +7247,7 @@ mod lifecycle_tests {
         peer_step(
             "switch remote control on",
             set_sync_settings(&a.global_params.node, |request| {
-                request.accept_remote_control = true
+                request.accept_remote_control = Some(true)
             }),
         )
         .await?;
