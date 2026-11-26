@@ -239,6 +239,7 @@ mod tests {
                 host: "platformHost".into(),
                 authorized: true,
                 can_play: true,
+                shows_in_media_controls: true,
             })
         );
     }
@@ -302,6 +303,7 @@ mod tests {
                     host: "host".into(),
                     authorized: false,
                     can_play: false,
+                    shows_in_media_controls: true,
                 },
                 HostEvent::JukeboxStatus {
                     host: "host".into(),

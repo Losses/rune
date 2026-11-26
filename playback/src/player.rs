@@ -1,6 +1,6 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -151,6 +151,10 @@ pub struct PlayerStatus {
     /// The platform host that plays the current track, when this player does not play it itself.
     /// Not sent over the network.
     pub hosted_by: Option<String>,
+    /// Whether the host in `hosted_by` shows itself in the system's media controls, as it said
+    /// when it started. A host that said nothing of it does. False when no host plays the track.
+    /// Not sent over the network.
+    pub host_shows_in_media_controls: bool,
 }
 
 /// A track that reached its end, with the time it actually played.
@@ -768,6 +772,7 @@ impl Player {
             ready: false,
             volume: 1.0,
             hosted_by: None,
+            host_shows_in_media_controls: false,
         }));
 
         let pcm_tap = PcmTap::new();
@@ -834,6 +839,12 @@ impl Player {
             // The revision of the playlist as the events reported it last, so that the
             // snapshots the Unavailable reports send pair with the queue they describe.
             let mut queue_revision = 0;
+            // The hosts that said their platform player does not show itself in the system's
+            // media controls.
+            let mut hosts_unshown = HashSet::new();
+            let host_shows = |hosts_unshown: &HashSet<String>, host: Option<&String>| {
+                host.is_some_and(|host| !hosts_unshown.contains(host))
+            };
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
                 match event {
@@ -993,7 +1004,21 @@ impl Player {
                         status.volume = value;
                     }
                     PlayerEvent::HostedChanged(host) => {
+                        status.host_shows_in_media_controls =
+                            host_shows(&hosts_unshown, host.as_ref());
                         status.hosted_by = host;
+                    }
+                    PlayerEvent::HostMediaControls {
+                        host,
+                        shows_in_media_controls,
+                    } => {
+                        if shows_in_media_controls {
+                            hosts_unshown.remove(&host);
+                        } else {
+                            hosts_unshown.insert(host);
+                        }
+                        status.host_shows_in_media_controls =
+                            host_shows(&hosts_unshown, status.hosted_by.as_ref());
                     }
                     PlayerEvent::StatusAfterPending(response) => {
                         let _ = response.send(status.clone());
@@ -1493,6 +1518,7 @@ impl Playable for MockPlayer {
             ready: false,
             volume: 1.0,
             hosted_by: None,
+            host_shows_in_media_controls: false,
         }
     }
     fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {

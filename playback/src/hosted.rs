@@ -26,6 +26,13 @@
 //! may do nothing, and that control moves the system volume instead. The player itself does not
 //! read it.
 //!
+//! `showsInMediaControls: false` says that the platform player does not show itself in the
+//! system's media controls, as on the lock screen, and takes no commands from them: the player
+//! then shows the host's tracks there as it shows its own, and what the controls ask reaches the
+//! host in batches. A host that leaves it out, or sends `true`, shows itself there, and the
+//! player's own media controls give way while it plays. Either way, the platform player looks
+//! after the audio of the host's tracks itself, such as the audio focus.
+//!
 //! ## Batches and the queue
 //!
 //! The player sends [`HostCommand`]s: batches of [`HostAction`]s under one revision, each higher
@@ -208,6 +215,10 @@ pub enum HostEvent {
         host: String,
         authorized: bool,
         can_play: bool,
+        /// Whether the platform player shows itself in the system's media controls. A host that
+        /// leaves it out does, and it is written only when it is false.
+        #[serde(default = "shows_itself", skip_serializing_if = "is_true")]
+        shows_in_media_controls: bool,
     },
     /// Which entry is current, by its index and its id, whether it plays and where it stands.
     /// `current_index` and `current_id` are none when the host holds no track, as after it
@@ -259,6 +270,15 @@ impl HostEvent {
             }
         }
     }
+}
+
+// What a `hostReady` without `showsInMediaControls` says.
+fn shows_itself() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 // Hosts written in JavaScript may report a fractional position.
@@ -385,6 +405,7 @@ mod tests {
                 host: "host".to_owned(),
                 authorized: true,
                 can_play: false,
+                shows_in_media_controls: true,
             },
             r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":false}"#,
         );
@@ -442,6 +463,30 @@ mod tests {
                 index: Some(4),
             },
             r#"{"type":"jukeboxEnded","host":"host","revision":3,"index":4}"#,
+        );
+    }
+
+    #[test]
+    fn a_host_says_only_when_its_platform_player_does_not_show_itself_in_the_media_controls() {
+        let ready = |shows_in_media_controls| HostEvent::HostReady {
+            host: "host".to_owned(),
+            authorized: true,
+            can_play: true,
+            shows_in_media_controls,
+        };
+        assert_json(
+            ready(false),
+            r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true,"showsInMediaControls":false}"#,
+        );
+        assert_json(
+            ready(true),
+            r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true}"#,
+        );
+        assert_eq!(
+            HostEvent::parse(
+                r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true,"showsInMediaControls":true}"#
+            ),
+            Some(ready(true))
         );
     }
 

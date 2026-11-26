@@ -82,6 +82,7 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
                 ready: true,
                 volume: 1.0,
                 hosted_by: None,
+                host_shows_in_media_controls: false,
             },
             &mut item_state,
             &None,
@@ -126,6 +127,7 @@ fn the_position_of_an_item_waits_for_its_name_and_its_state_does_not() {
         ready: true,
         volume: 1.0,
         hosted_by: None,
+        host_shows_in_media_controls: false,
     };
     let at_seven = |progress: Option<MediaPosition>| {
         progress.is_some_and(|position| position.0 == Duration::from_secs(7))
@@ -443,6 +445,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
             ready: true,
             volume: 1.0,
             hosted_by: None,
+            host_shows_in_media_controls: false,
         },
         &mut item_state,
         &None,
@@ -582,6 +585,7 @@ async fn a_track_named_late_goes_to_runes_scrobblers_unless_its_service_counts_i
                 ready: true,
                 volume: 1.0,
                 hosted_by: None,
+                host_shows_in_media_controls: false,
             },
             &mut item_state,
             &None,
@@ -896,6 +900,7 @@ impl ScriptedSession {
             ready: true,
             volume: 1.0,
             hosted_by: None,
+            host_shows_in_media_controls: false,
         }
     }
 
@@ -1087,6 +1092,7 @@ async fn what_the_item_supports_is_told_once_it_can_be() -> Result<()> {
         ready: true,
         volume: 1.0,
         hosted_by: None,
+        host_shows_in_media_controls: false,
     };
     let registry = dir.path().join("libraries.json");
     let _ = fs::remove_file(&registry);
@@ -1304,6 +1310,7 @@ impl ReportingPlayback {
             ready: true,
             volume: 1.0,
             hosted_by: None,
+            host_shows_in_media_controls: false,
         }
     }
 

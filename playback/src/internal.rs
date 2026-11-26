@@ -1,6 +1,6 @@
 use crate::stream_utils::ManagedStream;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     future::Future,
     io::{BufReader, Cursor, Error, ErrorKind},
@@ -675,6 +675,12 @@ pub enum PlayerEvent {
     // The host that plays the current track, from when a hosted track becomes current until no
     // hosted track is.
     HostedChanged(Option<String>),
+    // Whether a host's platform player shows itself in the system's media controls, as the host
+    // said when it started, each time that changes. A host that says nothing of it does.
+    HostMediaControls {
+        host: String,
+        shows_in_media_controls: bool,
+    },
     PlaylistUpdated(Vec<PlaylistItem>, u64),
     RealtimeFFT(Vec<f32>),
     Log(InternalLog),
@@ -1092,6 +1098,9 @@ pub(crate) struct PlayerInternal {
     host_revision: u64,
     // Hosts that said they cannot play, and why, until they say they can.
     hosts_unable: HashMap<String, UnavailableReason>,
+    // Hosts that said their platform player does not show itself in the system's media controls,
+    // until they say otherwise.
+    hosts_unshown: HashSet<String>,
     // The tracks marked unavailable because their host said it cannot play, with that host, so
     // that they become available again once it can. A track leaves it once its mark goes, or
     // once another cause marks it.
@@ -1171,6 +1180,7 @@ impl PlayerInternal {
             hosted: None,
             host_revision: 0,
             hosts_unable: HashMap::new(),
+            hosts_unshown: HashSet::new(),
             host_refused: HashMap::new(),
             host_run_request: 0,
             host_run_limit: RUN_LIMIT,
@@ -4195,7 +4205,21 @@ impl PlayerInternal {
                 host,
                 authorized,
                 can_play,
+                shows_in_media_controls,
             } => {
+                let changed = if shows_in_media_controls {
+                    self.hosts_unshown.remove(&host)
+                } else {
+                    self.hosts_unshown.insert(host.clone())
+                };
+                if changed {
+                    self.event_sender
+                        .send(PlayerEvent::HostMediaControls {
+                            host: host.clone(),
+                            shows_in_media_controls,
+                        })
+                        .context("Failed to send HostMediaControls event")?;
+                }
                 let current = self
                     .hosted
                     .as_ref()
