@@ -7170,6 +7170,62 @@ fn mix_names(group: &CollectionGroup) -> Vec<&str> {
         .collect()
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), recommending()).await?;
+    let album = album_listed(&apple, "Dawn Album").await?;
+    let song = apple.binding.intern_track("i.s1")?;
+    // How many covers an album, a song, the recommended mixes and the Tracks page come with.
+    let covers = async |bake| -> Result<(usize, usize, usize, usize)> {
+        let albums = apple
+            .run(&FetchCollectionByIdsRequest {
+                call_id: None,
+                collection_type: CollectionType::Album,
+                bake_cover_arts: bake,
+                ids: vec![album],
+            })
+            .await?;
+        let files = apple
+            .run(&FetchMediaFileByIdsRequest {
+                ids: vec![song],
+                bake_cover_arts: bake,
+                call_id: None,
+            })
+            .await?;
+        let mixes = apple
+            .run(&FetchCollectionGroupsRequest {
+                collection_type: CollectionType::Mix,
+                bake_cover_arts: bake,
+                group_titles: vec!["Made for You".into()],
+                call_id: None,
+            })
+            .await?;
+        let tracks = apple
+            .run(&MixQueryRequest {
+                bake_cover_arts: bake,
+                ..mix("lib::all", "true")
+            })
+            .await?;
+        Ok((
+            albums.result[0].cover_art_map.len(),
+            files.cover_art_map.len(),
+            mixes.groups[0]
+                .collections
+                .iter()
+                .map(|mix| mix.cover_art_map.len())
+                .sum(),
+            tracks.cover_art_map.len(),
+        ))
+    };
+    wait_until("the covers to be cached", || async {
+        Ok((covers(true).await? == (1, 1, 3, 3)).then_some(()))
+    })
+    .await?;
+    assert_eq!(covers(false).await?, (0, 0, 0, 0));
+    apple.finish().await
+}
+
 /// The queries a mix page plays, as it fetches them.
 async fn stored_queries(apple: &OpenApple, mix_id: i32) -> Result<Vec<MixQuery>> {
     Ok(apple
