@@ -54,7 +54,7 @@ pub fn get_random_sequence(max_value: usize) -> Vec<usize> {
     }
 
     let mut values: Vec<usize> = (1..(max_value + 1)).collect();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     values.shuffle(&mut rng);
 
     let mut result: Vec<usize> = vec![0];
@@ -149,7 +149,7 @@ impl ShuffleStrategy {
 
     fn insert_randomized(&mut self, start: usize, count: usize) {
         let new_tracks: Vec<usize> = (start..start + count).collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut shuffled = new_tracks[1..].to_vec();
         shuffled.shuffle(&mut rng);
 

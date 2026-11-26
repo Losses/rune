@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use clearscreen::clear;
-use rand::Rng;
+use rand::RngExt;
 use tokio::signal;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -99,17 +99,17 @@ impl DeviceDiscovery {
 }
 
 fn generate_random_alias() -> String {
-    let mut rng = rand::thread_rng();
-    format!("Device-{:04x}", rng.r#gen::<u16>())
+    let mut rng = rand::rng();
+    format!("Device-{:04x}", rng.random::<u16>())
 }
 
 fn generate_random_model() -> String {
-    let mut rng = rand::thread_rng();
-    format!("Model-{:04x}", rng.r#gen::<u16>())
+    let mut rng = rand::rng();
+    format!("Model-{:04x}", rng.random::<u16>())
 }
 
 fn generate_random_port() -> u16 {
-    rand::thread_rng().gen_range(1024..=65535)
+    rand::rng().random_range(1024..=65535)
 }
 
 fn generate_fingerprint() -> String {

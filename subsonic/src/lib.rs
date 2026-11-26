@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use discovery::endpoint::{EndpointUrl, HttpTransport};
-use rand::RngCore;
+use rand::Rng;
 use reqwest::header;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -917,7 +917,7 @@ impl SubsonicClient {
 
 fn random_salt() -> String {
     let mut bytes = [0_u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 

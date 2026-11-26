@@ -4,7 +4,7 @@ use anyhow::Result;
 use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
 use once_cell::sync::Lazy;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use reqwest::{Client, StatusCode, header};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -124,7 +124,7 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
                 header::USER_AGENT,
                 header::HeaderValue::from_static(
                     USER_AGENTS
-                        .choose(&mut rand::thread_rng())
+                        .choose(&mut rand::rng())
                         .ok_or_else(|| anyhow::anyhow!("Failed to choose a user agent"))?,
                 ),
             )
