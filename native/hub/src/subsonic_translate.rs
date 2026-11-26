@@ -2068,6 +2068,10 @@ pub(crate) async fn mix_query_request(
         }
         // Only the cover wall draws at random, and it keeps to the tracks that have a cover.
         Plan::Random(_) => return Err(mixes::unsupported_query(MixQueryRequest::wire_name())),
+        // Subsonic builds no artist page.
+        Plan::ArtistPage { .. } => {
+            return Err(mixes::unsupported_query(MixQueryRequest::wire_name()));
+        }
         Plan::Collection(MixTarget::Album(id)) => {
             paged(detail_songs(binding, DetailQuery::Album(id)).await?)
         }

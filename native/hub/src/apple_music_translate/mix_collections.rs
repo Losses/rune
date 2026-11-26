@@ -29,7 +29,7 @@ use crate::messages::{
 };
 use crate::service::{
     home::{HomeMix, denies_the_account},
-    mixes::{self, MixTarget, unsupported_query},
+    mixes::{self, MixTarget, Plan, unsupported_query},
     rune_mixes::{StoredMix, StoredQuery},
 };
 
@@ -440,11 +440,13 @@ pub(crate) async fn fetch_mix_queries_request(
 const RUNE_PLAYLIST: &str = "rune-playlist:";
 
 /// The queries of a Rune mix, parsed, as long as the mix query translation answers them; any
-/// other is refused as unsupported by `request`. A mix made without queries, as a track's menu
-/// makes one before it adds the track, has none to check.
+/// other is refused as unsupported by `request`. A list of an artist's page is refused too: a
+/// mix holds none, as a local library's holds none. A mix made without queries, as a track's
+/// menu makes one before it adds the track, has none to check.
 fn mix_operators(queries: &[MixQuery], request: &'static str) -> Result<Vec<QueryOperator>> {
-    if !queries.is_empty() {
-        mixes::plan(queries, request)?;
+    if !queries.is_empty() && matches!(mixes::plan(queries, request)?.plan, Plan::ArtistPage { .. })
+    {
+        return Err(unsupported_query(request));
     }
     queries
         .iter()

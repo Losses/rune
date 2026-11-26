@@ -64,15 +64,16 @@ async fn a_search_lists_the_librarys_matches_then_the_catalogs_and_each_song_onc
         collection_names(&apple, CollectionType::Album, &search.albums).await?,
         ["Dawn Album", "Dawn Remixes"]
     );
-    // The artists are those of the library's artist list: the library's "Artist One" and the
-    // catalog artist it is are one. "Dawn Singer" is no artist of the library, and is left out.
+    // The artists are those of the library's artist list, then the catalog's others: the
+    // library's "Artist One" and the catalog artist it is are one. "Dawn Singer" is no artist of
+    // the library, and is the catalog artist, which opens its catalog page.
     assert_eq!(
         remotes(&apple, AppleIdKind::Artist, &search.artists)?,
-        ["artist:300"]
+        ["artist:300", "catalog:301"]
     );
     assert_eq!(
         collection_names(&apple, CollectionType::Artist, &search.artists).await?,
-        ["Artist One"]
+        ["Artist One", "Dawn Singer"]
     );
     // The playlists are Rune's own, and none is called "dawn".
     assert!(search.playlists.is_empty());
@@ -183,7 +184,7 @@ async fn a_failing_library_search_leaves_the_catalogs_matches_as_the_copies_the_
     );
     assert_eq!(
         remotes(&apple, AppleIdKind::Artist, &search.artists)?,
-        ["artist:300"]
+        ["artist:300", "catalog:301"]
     );
     apple.finish().await
 }

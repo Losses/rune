@@ -2,6 +2,7 @@
 //! from Rune's own playlists and mixes it keeps on this device and from Apple's API, mapping
 //! Apple's models to the hub's messages.
 
+pub(crate) mod artist_page;
 pub(crate) mod mix_collections;
 pub(crate) mod search;
 
@@ -23,15 +24,16 @@ use crate::apple_music_binding::{
     MixRef, PlaylistRef, SongRef, catalog_track, cover_url, is_library_song, is_library_song_id,
     song_of_track,
 };
-use crate::apple_music_held::is_rune_album;
+use crate::apple_music_held::{self, is_rune_album};
 use crate::macros::{RequestSlots, RequestTranslator};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, AddItemToPlaylistResponse, Album, Artist,
     AudioAvailability, AudioOrigin, Collection, CollectionGroup, CollectionGroupSummary,
     CollectionGroupSummaryResponse, CollectionType, ComplexQueryRequest, ComplexQueryResponse,
     CreateMixRequest, CreatePlaylistRequest, CreatePlaylistResponse, FetchAllMixesRequest,
-    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchCollectionByIdsRequest,
-    FetchCollectionByIdsResponse, FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchArtistPageRequest,
+    FetchArtistSectionAlbumsRequest, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
+    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
     FetchCollectionGroupsResponse, FetchMediaFileByIdsRequest, FetchMediaFileByIdsResponse,
     FetchMediaFilesRequest, FetchMediaFilesResponse, FetchMixQueriesRequest,
     FetchParsedMediaFileRequest, FetchParsedMediaFileResponse, FetchPlaylistOccurrencesRequest,
@@ -53,10 +55,11 @@ use crate::service::{
     ServiceBinding, ServiceFuture,
     home::{self, HomeItem, HomeMix, HomeSource, HomeTrack},
     lrclib,
-    mixes::{self, MixItem, MixSource, MixTarget, Plan, unsupported_query},
+    mixes::{self, ArtistListing, MixItem, MixSource, MixTarget, Plan, unsupported_query},
     positional_occurrences::{listed_after, occurrence_page, occurrences_response},
     rune_playlists::{StoredEntry, StoredPlaylist, TrackAbout},
 };
+use artist_page::{fetch_artist_page_request, fetch_artist_section_albums_request};
 use mix_collections::{
     add_item_to_mix_request, create_mix_request, fetch_all_mixes_request,
     fetch_mix_queries_request, get_mix_by_id_request, remove_mix_request, update_mix_request,
@@ -160,6 +163,24 @@ async fn entries(
             let named = binding.named_artists().await?;
             for artist in named.iter() {
                 add(&artist.remote(), &artist.name, artist.artwork.as_ref())?;
+            }
+            // A catalog artist a Rune mix names that the list does not hold, by its catalog
+            // artist or by its name, is listed by the id the catalog gives it, so it opens the
+            // catalog's page, as from a search: the library holds none of its songs yet. Once
+            // they are read, they credit it, and the list holds it with its library page. An
+            // artist of the list of that name with another catalog artist is another artist.
+            for artist in apple_music_held::held(binding).await.artists() {
+                let listed = named.get(&catalog_artist_remote(&artist.id)).is_some()
+                    || named_artist_remote(&artist.name)
+                        .and_then(|remote| named.get(&remote))
+                        .is_some_and(|listed| listed.catalog_id().is_none());
+                if !listed {
+                    add(
+                        &format!("{CATALOG_PREFIX}{}", artist.id),
+                        &artist.name,
+                        None,
+                    )?;
+                }
             }
         }
         AppleIdKind::RunePlaylist => {
@@ -420,7 +441,9 @@ pub(crate) async fn fetch_collection_by_ids_request(
                         name: artist.name.clone(),
                         cover: cover_url(artist.artwork.as_ref()),
                     }
-                } else if let Some((collection, catalog_id)) = catalog_album(binding, kind, *id)? {
+                } else if let Some((collection, catalog_id)) =
+                    catalog_album_or_artist(binding, kind, *id)?
+                {
                     catalog_collection_info(binding, collection, &catalog_id).await?
                 } else {
                     let remote = library_collection(binding, kind, *id)?;
@@ -513,7 +536,7 @@ fn catalog_playlist_id(binding: &AppleMusicBinding, id: i32) -> Result<String> {
         .ok_or_else(not_apple_collection)
 }
 
-/// The catalog album or playlist a mix target names, with its catalog id; None for a
+/// The catalog album, playlist or artist a mix target names, with its catalog id; None for a
 /// collection of the library and a Rune playlist.
 fn catalog_collection(
     binding: &AppleMusicBinding,
@@ -531,28 +554,36 @@ fn catalog_collection(
                 binding.resolve(AppleIdKind::Playlist, id)?,
             ),
         },
-        MixTarget::Artist(_) => return Ok(None),
+        // An artist of the library's artist list is a name, which no catalog id is.
+        MixTarget::Artist(id) if binding.named_artist_key(AppleIdKind::Artist, id).is_some() => {
+            return Ok(None);
+        }
+        MixTarget::Artist(id) => (
+            CatalogCollection::Artist(id),
+            binding.resolve(AppleIdKind::Artist, id)?,
+        ),
     };
     Ok(remote
         .strip_prefix(CATALOG_PREFIX)
         .map(|catalog_id| (collection, catalog_id.to_owned())))
 }
 
-/// The catalog album the collection id `id` of `kind` names, with its catalog id; None for any
-/// other collection.
-fn catalog_album(
+/// The catalog album or artist the collection id `id` of `kind` names, with its catalog id;
+/// None for any other collection.
+fn catalog_album_or_artist(
     binding: &AppleMusicBinding,
     kind: AppleIdKind,
     id: i32,
 ) -> Result<Option<(CatalogCollection, String)>> {
-    if kind != AppleIdKind::Album {
-        return Ok(None);
+    match kind {
+        AppleIdKind::Album => catalog_collection(binding, MixTarget::Album(id)),
+        AppleIdKind::Artist => catalog_collection(binding, MixTarget::Artist(id)),
+        _ => Ok(None),
     }
-    catalog_collection(binding, MixTarget::Album(id))
 }
 
-/// What a catalog album or playlist is listed with: as the recommendations or an earlier read
-/// listed it, or else read from Apple's catalog, and remembered.
+/// What a catalog album, playlist or artist is listed with: as the recommendations or an earlier
+/// read listed it, or else read from Apple's catalog, and remembered.
 async fn catalog_collection_info(
     binding: &AppleMusicBinding,
     collection: CatalogCollection,
@@ -574,6 +605,11 @@ async fn catalog_collection_info(
             let attributes = playlist.attributes.unwrap_or_default();
             (attributes.name, attributes.artwork)
         }
+        CatalogCollection::Artist(_) => {
+            let artist = binding.read_catalog_artist(catalog_id).await?;
+            let attributes = artist.attributes.unwrap_or_default();
+            (attributes.name, attributes.artwork)
+        }
     };
     let name = name.unwrap_or_default();
     binding.remember_collection(generation, kind, id, &name, artwork.as_ref());
@@ -583,7 +619,7 @@ async fn catalog_collection_info(
     })
 }
 
-/// The songs of a catalog album or playlist as tracks of the catalog, as
+/// The songs of a catalog album, playlist or artist as tracks of the catalog, as
 /// `catalog_collection_songs` gives them.
 async fn catalog_songs(
     binding: &AppleMusicBinding,
@@ -1475,6 +1511,16 @@ fn disc_number_title(song: &LibrarySong) -> (u32, u32, String) {
 /// with, album by album, each song once. Albums go by year, then name, and an album's songs by
 /// disc, number and title. Songs without an album come last.
 fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed> {
+    artist_songs_by_album(list, artist, false)
+}
+
+/// The songs of `artist` in the kept song list as `artist_songs_from_list` lists them, except
+/// that `newest_first` lists the albums from the latest year to the earliest.
+fn artist_songs_by_album(
+    list: &AppleSongs,
+    artist: &NamedArtist,
+    newest_first: bool,
+) -> Vec<Listed> {
     let mut seen = HashSet::new();
     let mut found: Vec<(&str, &LibrarySong)> = list
         // The library's songs only: the list also holds songs of playlists that are not.
@@ -1504,6 +1550,14 @@ fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed
             slot.1 = name;
         }
     }
+    // An album without a year comes last either way.
+    let year_order = |year: u32| {
+        if newest_first && year != u32::MAX {
+            u32::MAX - 1 - year
+        } else {
+            year
+        }
+    };
     found.sort_by_cached_key(|(_, song)| {
         let listed = SongRef::Library(song);
         let (disc, number, title) = disc_number_title(song);
@@ -1511,7 +1565,7 @@ fn artist_songs_from_list(list: &AppleSongs, artist: &NamedArtist) -> Vec<Listed
         let (year, name) = albums[&album].clone();
         (
             listed.album().is_none() && song.album_id().is_none(),
-            year,
+            year_order(year),
             name,
             album,
             disc,
@@ -1669,6 +1723,20 @@ pub(crate) async fn mix_query_request(
                 .take(count)
                 .collect(),
         },
+        // Songs without a cover are dropped before the page is cut, so the whole list is read for
+        // a cover filter.
+        Plan::ArtistPage { artist, listing } if planned.cover_only => {
+            artist_page::listing_page(binding, artist, listing, 0, usize::MAX)
+                .await?
+                .into_iter()
+                .filter(|(_, song)| song_has_cover(song))
+                .skip(cursor)
+                .take(count)
+                .collect()
+        }
+        Plan::ArtistPage { artist, listing } => {
+            artist_page::listing_page(binding, artist, listing, cursor, count).await?
+        }
         Plan::All => binding
             .songs()
             .await?
@@ -1826,6 +1894,18 @@ impl MixSource for AppleMusicBinding {
 
     fn track_key(&self, id: i32) -> Result<Option<String>> {
         Ok(self.resolve_track(id).ok())
+    }
+
+    fn artist_page_tracks(
+        &self,
+        artist: i32,
+        listing: ArtistListing,
+        limit: usize,
+    ) -> ServiceFuture<'_, Vec<String>> {
+        Box::pin(async move {
+            let songs = artist_page::listing_page(self, artist, listing, 0, limit).await?;
+            Ok(songs.into_iter().map(|(track, _)| track).collect())
+        })
     }
 }
 
@@ -2175,6 +2255,8 @@ apple_music_requests! {
         GetLikedRequest => get_liked_request as translate_get_liked_request,
         GetLyricByTrackIdRequest => get_lyric_by_track_id_request as translate_get_lyric_by_track_id_request,
         SearchForRequest => search_for_request as translate_search_for_request,
+        FetchArtistPageRequest => fetch_artist_page_request as translate_fetch_artist_page_request,
+        FetchArtistSectionAlbumsRequest => fetch_artist_section_albums_request as translate_fetch_artist_section_albums_request,
     }
     // This device answers these by the library of the item each names, whichever library is
     // open: the items of another library are that library's to answer.
@@ -2201,7 +2283,7 @@ mod tests {
     use apple_music::models::LibrarySong;
     use serde_json::{Value, json};
 
-    use super::{album_songs_from_list, artist_songs_from_list};
+    use super::{album_songs_from_list, artist_songs_by_album, artist_songs_from_list};
     use crate::apple_music_artists::tests::catalog;
     use crate::apple_music_artists::{NamedArtists, SongArtists};
     use crate::apple_music_binding::{AppleSongs, catalog_track};
@@ -2301,6 +2383,11 @@ mod tests {
         assert_eq!(
             titles(artist_songs_from_list(&list, ann)),
             ["Early", "First", "Second", "Late", "Loose"]
+        );
+        // Newest first lists the latest year's albums first, and a song without an album last.
+        assert_eq!(
+            titles(artist_songs_by_album(&list, ann, true)),
+            ["First", "Second", "Late", "Early", "Loose"]
         );
         assert_eq!(
             titles(album_songs_from_list(&list, "l.a")),

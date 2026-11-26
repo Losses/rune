@@ -364,11 +364,13 @@ fn found_albums(
     Ok(listed)
 }
 
-/// The artists found, as the library's artist list numbers them: those the library artists
-/// found are, then the catalog artists found that the list has, `n` of each. A catalog artist
-/// the list does not have is not listed.
+/// The artists found, as numbered: those of the library's artist list that the library artists
+/// found are, then the catalog artists found, `n` of each. A catalog artist the list has is that
+/// entry of the list, which opens the library's page of it; one it does not have is the catalog
+/// artist itself, remembered with its name and picture, which opens the catalog's page of it.
 fn found_artists(
     binding: &AppleMusicBinding,
+    generation: u64,
     named: &NamedArtists,
     library: &LibraryFound,
     catalog: &CatalogFound,
@@ -402,8 +404,23 @@ fn found_artists(
         }
     }
     for artist in catalog.artists.iter().take(n) {
-        if let Some(listed) = named.get(&catalog_artist_remote(&artist.id)) {
-            push_once(&mut remotes, &mut seen, listed.remote());
+        match named.get(&catalog_artist_remote(&artist.id)) {
+            Some(listed) => push_once(&mut remotes, &mut seen, listed.remote()),
+            None => {
+                let remote = format!("{CATALOG_PREFIX}{}", artist.id);
+                let id = binding.intern(AppleIdKind::Artist, &remote)?;
+                let attributes = artist.attributes.as_ref();
+                binding.remember_collection(
+                    generation,
+                    AppleIdKind::Artist,
+                    id,
+                    attributes
+                        .and_then(|attributes| attributes.name.as_deref())
+                        .unwrap_or_default(),
+                    attributes.and_then(|attributes| attributes.artwork.as_ref()),
+                );
+                push_once(&mut remotes, &mut seen, remote);
+            }
         }
     }
     remotes
@@ -439,9 +456,11 @@ async fn rune_playlist_matches(
 /// library holds a copy of answered as that copy. When one part cannot be searched in time, the
 /// other still answers (see `search_both`). What the catalog found is kept for a while, so a
 /// search for the same text again asks it nothing; with `refresh` it is asked again. The artists
-/// found are those of the library's artist list, and the playlists Rune's own whose names hold
-/// the text. Catalog songs are named `catalog:<id>`, and catalog albums open from the catalog.
-/// A search for playlists alone asks Apple nothing, so it finds Rune's signed out and offline.
+/// found are those of the library's artist list, then the catalog artists it does not have (see
+/// `found_artists`), or the catalog artists alone when the list cannot be read in time, and the
+/// playlists Rune's own whose names hold the text. Catalog songs are named `catalog:<id>`, and
+/// catalog albums and artists open from the catalog. A search for playlists alone asks Apple
+/// nothing, so it finds Rune's signed out and offline.
 pub(crate) async fn search_for_request(
     binding: &AppleMusicBinding,
     request: &SearchForRequest,
@@ -512,19 +531,27 @@ pub(crate) async fn search_for_request(
         &copies,
         wants(CollectionQueryType::Album),
     )?;
-    response.artists = match named {
-        None => Vec::new(),
-        Some(Ok(Ok(named))) => found_artists(binding, &named, &library, &catalog, artists)?,
+    // Without the artist list, the catalog artists found are still listed, as themselves: they
+    // open the catalog's page, which needs no list.
+    let named = match named {
+        None => None,
+        Some(Ok(Ok(named))) => Some(named),
         Some(Ok(Err(error))) => {
             log::warn!(
-                "A search lists no Apple Music artists, as the artist list failed: {error:#}"
+                "A search lists only the catalog's Apple Music artists, as the artist list failed: {error:#}"
             );
-            Vec::new()
+            Some(Arc::default())
         }
         Some(Err(_)) => {
-            log::warn!("A search lists no Apple Music artists, as the artist list took too long");
-            Vec::new()
+            log::warn!(
+                "A search lists only the catalog's Apple Music artists, as the artist list took too long"
+            );
+            Some(Arc::default())
         }
+    };
+    response.artists = match named {
+        Some(named) => found_artists(binding, generation, &named, &library, &catalog, artists)?,
+        None => Vec::new(),
     };
     response.playlists = rune_playlist_matches(binding, term, playlists).await?;
     Ok(Some(response))
