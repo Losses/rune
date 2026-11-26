@@ -21,7 +21,6 @@ const WIDTH: usize = 16;
 
 fn row_of(gradient: &CGGradient) -> Vec<[u8; 4]> {
     let context = CGContext::create_bitmap_context(
-        None,
         WIDTH,
         1,
         8,
