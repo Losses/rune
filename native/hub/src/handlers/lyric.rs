@@ -112,33 +112,44 @@ async fn load_lyric_lines(
         return Ok(Vec::new());
     };
 
-    let embedded = match get_lyrics(fsio, path) {
-        Ok(x) => x.filter(|x| !x.trim().is_empty()),
-        Err(err) => {
-            error!("Unable to read embedded lyric: path={path:?}: {err:#}");
-            None
-        }
-    };
-
-    let mut lyric = None;
-
-    if let Some(content) = embedded {
-        match parse_embedded_lyric(&content) {
-            Ok(file) if !file.lyrics.is_empty() => lyric = Some(file),
-            Ok(_) => warn!("Embedded lyric has no timed lines, falling back: path={path:?}"),
+    // Reading embedded lyrics and the sidecar search are synchronous filesystem
+    // work: on OpenDAL backends they block the calling thread on a runtime, which
+    // must not be an async worker, so both run on one blocking worker.
+    let worker_fsio = fsio.clone();
+    let worker_path = path.to_path_buf();
+    let lyric = tokio::task::spawn_blocking(move || -> Result<Option<LyricFile>> {
+        let embedded = match get_lyrics(&worker_fsio, &worker_path) {
+            Ok(x) => x.filter(|x| !x.trim().is_empty()),
             Err(err) => {
-                warn!("Unable to parse embedded lyric, falling back: path={path:?}: {err:#}")
+                error!("Unable to read embedded lyric: path={worker_path:?}: {err:#}");
+                None
+            }
+        };
+
+        if let Some(content) = embedded {
+            match parse_embedded_lyric(&content) {
+                Ok(file) if !file.lyrics.is_empty() => return Ok(Some(file)),
+                Ok(_) => {
+                    warn!("Embedded lyric has no timed lines, falling back: path={worker_path:?}")
+                }
+                Err(err) => {
+                    warn!(
+                        "Unable to parse embedded lyric, falling back: path={worker_path:?}: {err:#}"
+                    )
+                }
             }
         }
-    }
 
-    let lyric = match lyric {
-        Some(x) => x,
-        None => match parse_audio_lyrics(path.to_path_buf()) {
-            Some(Ok(x)) => x,
-            Some(Err(err)) => return Err(err.context("Unable to parse sidecar lyric")),
-            None => return Ok(Vec::new()),
-        },
+        match parse_audio_lyrics(worker_path) {
+            Some(Ok(x)) => Ok(Some(x)),
+            Some(Err(err)) => Err(err.context("Unable to parse sidecar lyric")),
+            None => Ok(None),
+        }
+    })
+    .await??;
+
+    let Some(lyric) = lyric else {
+        return Ok(Vec::new());
     };
 
     Ok(content_lines(lyric))

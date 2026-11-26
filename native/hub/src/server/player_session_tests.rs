@@ -2762,6 +2762,171 @@ async fn the_lyrics_of_a_track_of_another_local_library_are_read_from_that_libra
     Ok(())
 }
 
+// Regression probe for Losses/rune#403: lyric requests for WebDAV tracks must not
+// panic inside the async runtime. Registers and scans a read-only WebDAV library,
+// then dispatches two lyric requests; the first proves the blocking filesystem work
+// stays off the async worker, the second proves the node survives it.
+#[tokio::test]
+async fn webdav_lyric_requests_do_not_panic_in_the_async_runtime() -> Result<()> {
+    let name = format!("lyric-webdav-{}.ogg", Uuid::new_v4());
+    let server = WebDavFixture::start_read_only(vec![(
+        name.clone(),
+        include_bytes!("../../../../assets/startup_0.ogg").to_vec(),
+    )])
+    .await?;
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let registration = register_opendal_library_on_node(
+        &RegisterOpenDalLibraryRequest {
+            call_id: None,
+            service: OpenDalLibraryService::WebDav {
+                endpoint: server.endpoint.clone(),
+                root: "/dav/library/".into(),
+                username: "user".into(),
+                password: "pass".into(),
+            },
+            alias: "Lyric WebDAV".into(),
+            share_data_choice: ShareDataChoice::ThisDeviceOnly,
+        },
+        &node,
+    )
+    .await?;
+    anyhow::ensure!(
+        registration.outcome == RegisterLibraryOutcome::Registered,
+        "WebDAV registration failed: {:?}",
+        registration.outcome
+    );
+    let record_id = registration.record.context("WebDAV record")?.record_id;
+    let registry = LibraryRegistry::load(PathBuf::from(&*node.config_path).as_path())?;
+    let library_id = registry
+        .libraries
+        .iter()
+        .find(|record| record.record_id.0.to_string() == record_id)
+        .and_then(|record| record.library_id)
+        .context("WebDAV catalog library id")?;
+    let library = node.library_pool.acquire_ui(library_id).await?;
+    let root = PathBuf::from(&library.media_root);
+    let scanned = scan_audio_library(
+        &library.fsio,
+        &library.main_db,
+        &node.node_id.to_string(),
+        &root,
+        ScanOptions {
+            cleanup: true,
+            force: true,
+            missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+            cancel_token: None,
+        },
+        |_| {},
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    anyhow::ensure!(scanned == 1, "expected one scanned track, got {scanned}");
+    let file = media_files::Entity::find()
+        .filter(Column::FileName.eq(&name))
+        .one(&*library.main_db)
+        .await?
+        .context("scanned WebDAV track")?;
+
+    let item = PlayingItemRef::LibraryTrack {
+        library_id: library_id.to_string(),
+        track: file.source_uuid.clone(),
+    };
+    for attempt in 1..=2 {
+        let lyrics = dispatch_gui_request(
+            &fixture.global_params,
+            &GetLyricByTrackIdRequest {
+                call_id: None,
+                item: Some(item.clone()),
+            },
+        )
+        .await?
+        .with_context(|| format!("WebDAV lyric request {attempt} returned no response"))?;
+        anyhow::ensure!(
+            lyrics.lines.is_empty(),
+            "the fixture audio has no embedded lyrics, got {} lines",
+            lyrics.lines.len()
+        );
+    }
+    assert!(server.write_requests().is_empty());
+    node.shutdown().await?;
+    Ok(())
+}
+
+// With valid embedded timed lyrics the sidecar search must not run at all: a
+// broken .lrc next to the track neither errors the request nor overrides the
+// embedded lyrics.
+#[tokio::test]
+async fn valid_embedded_lyrics_win_over_a_broken_sidecar() -> Result<()> {
+    use crate::messages::RegisterLocalLibraryRequest;
+
+    let node_dir = tempfile::tempdir()?;
+    let second_library_dir = tempfile::tempdir()?;
+    let fixture = fixture(node_dir.path()).await?;
+    let registered = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            call_id: None,
+            path: second_library_dir.path().to_string_lossy().into_owned(),
+            alias: "Embedded lyrics library".into(),
+            mode: Some(LibraryInitializeMode::Portable),
+        },
+        &fixture.global_params.node,
+    )
+    .await?;
+    let record = registered.record.context("embedded lyrics library record")?;
+    let library_id = LibraryRegistry::load(node_dir.path())?
+        .catalogs()
+        .find(|library| library.alias == record.alias)
+        .and_then(|library| library.library_id)
+        .context("embedded lyrics library catalog id")?;
+    let library = fixture
+        .global_params
+        .library_pool
+        .acquire(library_id)
+        .await?;
+    let target = Path::new(&library.media_root).join("embedded-wins.ogg");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/embedded-lyrics.ogg"),
+        &target,
+    )?;
+    fs::write(target.with_extension("lrc"), "no timestamps at all")?;
+    scan_audio_file(
+        &library.fsio,
+        &library.main_db,
+        &fixture.global_params.node_id,
+        Path::new(&library.media_root),
+        &target,
+        &library.library_sync.record_store(),
+    )
+    .await?;
+    let file = media_files::Entity::find()
+        .filter(Column::FileName.eq("embedded-wins.ogg"))
+        .one(&*library.main_db)
+        .await?
+        .context("embedded lyrics track")?;
+
+    let lyrics = dispatch_gui_request(
+        &fixture.global_params,
+        &GetLyricByTrackIdRequest {
+            call_id: None,
+            item: Some(PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: file.source_uuid.clone(),
+            }),
+        },
+    )
+    .await?
+    .context("lyrics response")?;
+    let contents = lyrics
+        .lines
+        .iter()
+        .flat_map(|line| line.sections.iter().map(|section| section.content.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(contents, ["Embedded line wins"]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn setting_liked_on_a_read_only_replica_returns_a_typed_error() -> Result<()> {
     use crate::messages::SetLikedRequest;

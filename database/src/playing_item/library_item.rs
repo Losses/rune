@@ -85,19 +85,27 @@ impl PlayingFileMetadataProvider for LibraryItemProcessor {
     ) -> Result<HashMap<PlayingItem, PathBuf>> {
         let handles = self.get_file_handle(fsio, main_db, items).await?;
 
-        let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
+        // `canonicalize_path` is synchronous filesystem work: on OpenDAL backends
+        // it blocks the calling thread on a runtime, which must not be an async
+        // worker, so the loop runs on a blocking worker like `materialized_path`.
+        let fsio = fsio.clone();
+        let lib_path = lib_path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            let mut result: HashMap<PlayingItem, PathBuf> = HashMap::new();
 
-        for handle in handles {
-            let file_path = fsio.canonicalize_path(
-                &Path::new(lib_path)
-                    .join(handle.directory.clone())
-                    .join(handle.file_name.clone()),
-            )?;
+            for handle in handles {
+                let file_path = fsio.canonicalize_path(
+                    &lib_path
+                        .join(handle.directory.clone())
+                        .join(handle.file_name.clone()),
+                )?;
 
-            result.insert(handle.item.clone(), file_path);
-        }
+                result.insert(handle.item.clone(), file_path);
+            }
 
-        Ok(result)
+            Ok(result)
+        })
+        .await?
     }
 
     async fn get_metadata_summary(
