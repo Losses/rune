@@ -1,4 +1,6 @@
-/// A dummy implementation of the media controls.
+//! Souvlaki's types for Android and iOS, where souvlaki is not built. The media controls
+//! themselves are `android_media_session`'s and `ios_now_playing`'s.
+
 use std::time::Duration;
 
 /// The metadata of a media item.
@@ -50,38 +52,3 @@ pub struct PlatformConfig<'a> {
 /// A platform-specific error.
 #[derive(Debug)]
 pub struct Error;
-
-/// A handle to OS media controls.
-#[cfg(target_os = "android")]
-pub struct MediaControls;
-
-#[cfg(target_os = "android")]
-impl MediaControls {
-    /// Create media controls with the specified config.
-    pub fn new(_config: PlatformConfig<'_>) -> Result<Self, Error> {
-        Ok(Self)
-    }
-
-    /// Attach the media control events to a handler.
-    pub fn attach<F>(&mut self, _event_handler: F) -> Result<(), Error>
-    where
-        F: Fn(MediaControlEvent) + Send + 'static,
-    {
-        Ok(())
-    }
-
-    /// Detach the event handler.
-    pub fn detach(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    /// Set the current playback status.
-    pub fn set_playback(&mut self, _playback: MediaPlayback) -> Result<(), Error> {
-        Ok(())
-    }
-
-    /// Set the metadata of the currently playing media item.
-    pub fn set_metadata(&mut self, _metadata: MediaMetadata) -> Result<(), Error> {
-        Ok(())
-    }
-}

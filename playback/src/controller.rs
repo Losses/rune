@@ -15,7 +15,9 @@ use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
 
 #[cfg(target_os = "android")]
-use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
+use crate::android_media_session::MediaControls;
+#[cfg(target_os = "android")]
+use crate::dummy_souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
 
 #[cfg(target_os = "ios")]
 use crate::dummy_souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};

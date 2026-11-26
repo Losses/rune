@@ -1,5 +1,7 @@
+#[cfg(any(test, target_os = "android"))]
+mod android_media_session;
 mod internal;
-#[cfg(any(test, target_os = "ios"))]
+#[cfg(any(test, target_os = "ios", target_os = "android"))]
 mod ios_now_playing;
 #[cfg(any(test, target_os = "ios"))]
 mod ios_session;

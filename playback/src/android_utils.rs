@@ -118,3 +118,8 @@ pub extern "system" fn Java_ci_not_rune_MainActivity_initializeContext(
 pub fn get_jvm() -> Option<*mut c_void> {
     unsafe { JVM }
 }
+
+/// The application context that `MainActivity` handed over, once it has.
+pub(crate) fn application_context() -> Option<&'static GlobalRef> {
+    APPLICATION_CONTEXT.get()
+}
