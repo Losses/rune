@@ -8840,6 +8840,27 @@ async fn a_playlist_apple_refuses_alone_costs_no_first_song_list() -> Result<()>
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn playlists_apple_fails_to_list_cost_no_first_song_list() -> Result<()> {
+    const PLAYLISTS: &str = "/v1/me/library/playlists";
+    let dir = tempfile::tempdir()?;
+    // Apple fails to list the playlists, though it lists the library's songs.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            respond: Some((PLAYLISTS, 500, r#"{"errors":[{"status":"500"}]}"#)),
+            import_unfinished: true,
+            ..with_playlists()
+        },
+    )
+    .await?;
+    let songs = apple.binding.songs().await?;
+    assert_eq!(songs.len(), 3);
+    assert!(apple.fake.count(PLAYLISTS) > 0);
+    assert!(apple.binding.is_signed_in());
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_playlist_read_before_another_sign_in_is_read_again_for_it() -> Result<()> {
     const JAZZ: &str = "/v1/me/library/playlists/p.sub1/tracks";
     let dir = tempfile::tempdir()?;

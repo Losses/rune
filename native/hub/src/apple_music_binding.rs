@@ -1879,16 +1879,27 @@ impl AppleMusicBinding {
             }
             Ok::<_, AppleApiError>(())
         };
-        let read = try_join(
+        let (library, playlists) = join(
             library,
             self.client
                 .library_playlists()
                 .try_collect::<Vec<LibraryPlaylist>>(),
         )
         .await;
-        let ((), playlists) = match read {
-            Ok(read) => read,
-            Err(error) => return Err(self.judged(error).await),
+        if let Err(error) = library {
+            return Err(self.judged(error).await);
+        }
+        let mut unread = None;
+        // Playlists Apple cannot list are as a playlist it cannot read: they do not cost a first
+        // song list either.
+        let playlists = match playlists {
+            Ok(playlists) => playlists,
+            Err(error) => {
+                let error = self.playlist_failure(error).await?;
+                log::warn!("Could not list the Apple Music playlists for the song list: {error}");
+                unread = Some(error);
+                Vec::new()
+            }
         };
 
         // Owned ids: closures taking borrowed items here fail the compiler's Send check.
@@ -1903,19 +1914,13 @@ impl AppleMusicBinding {
             .collect()
             .await;
         let mut extra = Vec::new();
-        let mut unread = None;
         for songs in read {
             let error = match songs {
                 Ok(songs) => {
                     extra.extend(songs);
                     continue;
                 }
-                // An expired sign-in stops the read; Apple refusing this playlist alone does not.
-                Err(error) if rejects_tokens(&error) => match self.judged(error).await {
-                    AppleError::SignedOut => return Err(AppleError::SignedOut),
-                    refused => refused,
-                },
-                Err(error) => classified(&error),
+                Err(error) => self.playlist_failure(error).await?,
             };
             // One playlist that cannot be read does not cost a first song list.
             log::warn!("Skipped an Apple Music playlist that could not be read: {error}");
@@ -1958,6 +1963,18 @@ impl AppleMusicBinding {
             list.push(song);
         }
         Ok(list)
+    }
+
+    /// What a failed read of the playlists for the song list is: an expired sign-in stops the
+    /// whole read, as its error; Apple refusing the playlists alone does not, and is answered.
+    async fn playlist_failure(&self, error: AppleApiError) -> Result<AppleError, AppleError> {
+        if !rejects_tokens(&error) {
+            return Ok(classified(&error));
+        }
+        match self.judged(error).await {
+            AppleError::SignedOut => Err(AppleError::SignedOut),
+            refused => Ok(refused),
+        }
     }
 
     /// The songs of a library playlist; none for an empty one.
