@@ -1414,6 +1414,9 @@ async fn apple_fake(
 /// A clock a test moves on by hand, so what the libraries keep ages without waiting.
 struct TestClock {
     start: Instant,
+    /// The time of day at `start`. The time of day moves on from it with `now`, so a step of the
+    /// host's clock does not move it.
+    day_start: std::time::SystemTime,
     passed: Mutex<std::time::Duration>,
 }
 
@@ -1421,6 +1424,7 @@ impl TestClock {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             start: Instant::now(),
+            day_start: std::time::SystemTime::now(),
             passed: Mutex::default(),
         })
     }
@@ -1437,7 +1441,7 @@ impl Clock for TestClock {
     }
 
     fn system_time(&self) -> std::time::SystemTime {
-        std::time::SystemTime::now() + *self.passed.lock().unwrap()
+        self.day_start + self.now().saturating_duration_since(self.start)
     }
 }
 
