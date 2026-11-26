@@ -946,6 +946,33 @@ async fn a_search_finds_a_catalog_artist_the_list_lacks_and_opens_its_catalog_pa
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_lists_the_catalog_artists_it_finds_when_the_artist_list_fails() -> Result<()> {
+    const ARTISTS: &str = "/v1/me/library/artists";
+    let dir = tempfile::tempdir()?;
+    // Apple fails every read of the library's artists, so there is no artist list.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            respond: Some((ARTISTS, 500, r#"{"errors":[{"status":"500"}]}"#)),
+            import_unfinished: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let found = searched_artists(&apple).await?;
+    assert!(apple.fake.count(ARTISTS) > 0);
+    // Both catalog artists are answered as themselves, and open the catalog's page.
+    assert_eq!(
+        found
+            .iter()
+            .map(|id| apple.binding.resolve(AppleIdKind::Artist, *id))
+            .collect::<Result<Vec<_>>>()?,
+        ["catalog:300", "catalog:301"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_catalog_artist_that_is_not_on_the_list_still_opens_its_catalog_page() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
