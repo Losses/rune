@@ -5,4 +5,11 @@
     <queries>
         <package android:name="com.apple.android.music"/>
     </queries>
+    <application>
+        <!-- MusicKit gives this screen of its sign-in no theme, though it needs an AppCompat
+             one, which Rune's is not. It gets the theme of MusicKit's other screens. -->
+        <activity
+            android:name="com.apple.android.sdk.authentication.SDKUriHandlerActivity"
+            android:theme="@style/MusicKitAuthTheme"/>
+    </application>
 </manifest>
