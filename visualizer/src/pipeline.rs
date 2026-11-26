@@ -2101,6 +2101,10 @@ pub(crate) mod tests {
     }
 
     /// The RGB bytes of the center pixel in each frame drawn at `times`, in order.
+    ///
+    /// A read-back frame comes out of the call that drew it or of a later one, as the GPU has it
+    /// (Metal: the next call). So a frame is matched to its time by the order it was drawn in,
+    /// not by the call it came out of.
     fn center_pixels(pipeline: &mut Pipeline, times: &[f64]) -> Vec<[u8; 3]> {
         const MAX_READBACK_POLLS: usize = 50;
         let render = |pipeline: &mut Pipeline, time: f64| -> Option<[u8; 3]> {
@@ -2125,33 +2129,27 @@ pub(crate) mod tests {
                 .unwrap();
             pixel
         };
-        let frame_at = |pipeline: &mut Pipeline, time: f64| {
-            (0..MAX_READBACK_POLLS)
-                .find_map(|_| render(pipeline, time))
-                .unwrap_or_else(|| panic!("no readback frame became available at {time:.3}s"))
-        };
-        let mut pixels = Vec::new();
-        if let Some(&first_time) = times.first()
-            && matches!(
-                pipeline.transitions.running.as_ref(),
-                Some(running) if running.kind == Transition::Dissolve && running.pending.is_some()
-            )
-        {
-            // The dissolve first captures the old picture; include that held frame before sampling
-            // its timed blend, and poll at the same timestamp until readback returns it.
-            pixels.push(frame_at(pipeline, first_time));
-        }
-        if let Some(&first_time) = times.first()
-            && pipeline.transitions.forced == Forced::Wanted(Transition::Flash)
-        {
-            // A dressed cut waits for a held frame before the director cuts. Keep that frame in
-            // the sampled sequence before advancing the synthetic time.
-            pixels.push(frame_at(pipeline, first_time));
-            pixels.push(frame_at(pipeline, first_time));
-        }
+        // One frame is drawn per call, and the frames come out in the order they were drawn.
+        let mut pixels: Vec<[u8; 3]> = Vec::new();
         for &time in times {
-            pixels.push(frame_at(pipeline, time));
+            pixels.extend(render(pipeline, time));
         }
+        // The frames still on their way come out of later calls, which draw the last time again.
+        if let Some(&last_time) = times.last() {
+            for _ in 0..MAX_READBACK_POLLS {
+                if pixels.len() >= times.len() {
+                    break;
+                }
+                pixels.extend(render(pipeline, last_time));
+            }
+        }
+        assert!(
+            pixels.len() >= times.len(),
+            "{} of {} frames came out",
+            pixels.len(),
+            times.len()
+        );
+        pixels.truncate(times.len());
         pixels
     }
 

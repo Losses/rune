@@ -1598,11 +1598,17 @@ fn emoji_tunnel_keeps_answered_moments_until_the_move_ends() {
     let (update_probe, view_probe) = probe.split_once("fn shade").unwrap();
     fs::write(
         dir.join("state.wgsl"),
-        state.replace(
-            "struct State {",
-            "struct State {
+        state
+            .replace(
+                "struct State {",
+                "struct State {
   witness: array<vec2f, 3>,",
-        ),
+            )
+            // The probe says which emoji answers which moment (see its `hash`).
+            .replace(
+                "fn hash(p: vec2f) -> f32 {",
+                "fn scene_hash(p: vec2f) -> f32 {",
+            ),
     )
     .unwrap();
     fs::write(
