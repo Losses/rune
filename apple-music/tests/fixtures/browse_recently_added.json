@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "id": "l.alb2",
+      "type": "library-albums",
+      "href": "/v1/me/library/albums/l.alb2",
+      "attributes": {
+        "name": "Night Album",
+        "artistName": "Artist Two",
+        "trackCount": 1,
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/night/{w}x{h}bb.jpg"
+        },
+        "genreNames": [
+          "Ambient"
+        ],
+        "releaseDate": "2018-10-11",
+        "dateAdded": "2023-05-06T07:08:09Z",
+        "playParams": {
+          "id": "l.alb2",
+          "kind": "album",
+          "isLibrary": true
+        }
+      }
+    },
+    {
+      "id": "p.mine1",
+      "type": "library-playlists",
+      "href": "/v1/me/library/playlists/p.mine1",
+      "attributes": {
+        "name": "Road Trip",
+        "canEdit": true,
+        "hasCatalog": false,
+        "isPublic": false,
+        "playParams": {
+          "id": "p.mine1",
+          "kind": "playlist",
+          "isLibrary": true
+        },
+        "dateAdded": "2024-01-02T03:04:05Z"
+      }
+    }
+  ]
+}

@@ -192,6 +192,10 @@ RequestCapabilities snapshot({
     renameFileDialogEntryRequest: capability,
     fetchArtistPageRequest: capability,
     fetchArtistSectionAlbumsRequest: capability,
+    registerServiceLibraryRequest: capability,
+    signInServiceLibraryRequest: capability,
+    signOutServiceLibraryRequest: capability,
+    setOnlineLyricsRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,
@@ -515,6 +519,8 @@ void main() {
       CapabilityReason.accountRoleMissing:
           'Your account is not allowed to do this.',
       CapabilityReason.notAllowed: 'This device is not allowed to do that.',
+      CapabilityReason.deviceOnly:
+          'This library stays on this device, so no other device can play it.',
     });
   });
 

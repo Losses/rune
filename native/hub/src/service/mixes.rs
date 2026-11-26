@@ -5,6 +5,8 @@ use std::hash::Hash;
 
 use anyhow::{Error, Result};
 use database::actions::mixes::QueryOperator;
+use rand::Rng;
+use rand::seq::{SliceRandom, index};
 
 use crate::TypedRequest;
 use crate::messages::{MixQuery, PlayingItemRef, ResolveMixQueryRequest, ResolveMixQueryResponse};
@@ -111,6 +113,13 @@ pub(crate) enum Plan {
 pub(crate) struct QueryPlan {
     pub(crate) plan: Plan,
     pub(crate) cover_only: bool,
+}
+
+/// `count` distinct indexes below `len`, in random order, as `rng` draws them.
+pub(crate) fn sample_indices(rng: &mut impl Rng, len: usize, count: usize) -> Vec<usize> {
+    let mut picked = index::sample(rng, len, count.min(len)).into_vec();
+    picked.shuffle(rng);
+    picked
 }
 
 /// The plan for `queries`, or an unsupported error naming `request`. An album may come with
@@ -380,6 +389,25 @@ mod tests {
             .unwrap();
         assert_eq!(resolved.playing_items.len(), 2);
         assert_eq!(resolved.call_id, Some(3));
+    }
+
+    #[test]
+    fn samples_distinct_indexes_no_more_than_there_are_and_the_same_for_a_seed() {
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let picked = sample_indices(&mut rand::thread_rng(), 100, 10);
+        assert_eq!(picked.len(), 10);
+        assert!(picked.iter().all(|index| *index < 100));
+        assert_eq!(
+            picked.iter().collect::<HashSet<_>>().len(),
+            10,
+            "no repeats"
+        );
+        assert_eq!(sample_indices(&mut rand::thread_rng(), 3, 10).len(), 3);
+        assert!(sample_indices(&mut rand::thread_rng(), 3, 0).is_empty());
+        let seeded = |seed| sample_indices(&mut StdRng::seed_from_u64(seed), 100, 10);
+        assert_eq!(seeded(7), seeded(7));
     }
 
     #[test]

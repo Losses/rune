@@ -372,6 +372,16 @@ async fn probe_renderer(
         candidate.availability = RendererAvailability::NoControl;
         return Ok(Some(candidate));
     }
+    // No other device holds a library kept on this one, so its id is not sent to ask.
+    if let Some(kept) = library_ids
+        .iter()
+        .find(|library_id| node.access_policy.is_device_only(**library_id))
+    {
+        candidate.availability = RendererAvailability::CantPlay;
+        candidate.blocked_library_id = Some(kept.to_string());
+        candidate.library_state = Some(CastLibraryState::NotHeld);
+        return Ok(Some(candidate));
+    }
     if !library_ids.is_empty() {
         let raw_ids = library_ids.iter().map(Uuid::to_string).collect::<Vec<_>>();
         let response = match send_authenticated_request(

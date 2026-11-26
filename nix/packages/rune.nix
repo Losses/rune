@@ -103,7 +103,7 @@ let
     inherit version src;
     pname = "libhub";
 
-    cargoHash = "sha256-ZMRm/aEwJK7QgRjpo33OQ9tiiTMVmCMpUZt6PjOWUlg=";
+    cargoHash = "sha256-uqLUN7euMsAIHBw6HRWuNSwyRU6fgcjjhGdGWrmnaJY=";
 
     env = {
       FETCHCONTENT_SOURCE_DIR_UTFCPP = "${utfcppSource}";

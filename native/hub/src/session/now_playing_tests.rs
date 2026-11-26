@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    request_owner::CurrentPlayer, server::utils::device::RunMode, test_wait::wait_until,
-    utils::RinfRustSignal,
+    request_owner::CurrentPlayer, server::utils::device::RunMode, service::registry::ServiceSetup,
+    test_wait::wait_until, utils::RinfRustSignal,
 };
 use database::library_registry::ServiceKind;
 use playback::pcm_tap::PcmTap;
@@ -443,6 +443,143 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
     assert!(item_state.track_started);
     assert_eq!(service.started.load(Ordering::SeqCst), 0);
     assert_eq!(service.lookups.load(Ordering::SeqCst), 0);
+    node.shutdown().await?;
+    Ok(())
+}
+
+/// A library of `service` that holds the name of every track already.
+struct NamedService {
+    library_id: Uuid,
+    service: ServiceKind,
+}
+
+impl crate::macros::RequestTranslator for NamedService {}
+
+impl ServiceBinding for NamedService {
+    fn library_id(&self) -> Uuid {
+        self.library_id
+    }
+
+    fn slots(&self) -> crate::macros::RequestSlots {
+        crate::macros::RequestSlots::unimplemented()
+    }
+
+    fn service(&self) -> ServiceKind {
+        self.service
+    }
+
+    fn item_metadata<'a>(
+        &'a self,
+        _track: &'a str,
+        _with_cover: bool,
+    ) -> crate::service::ServiceFuture<'a, (PlayingItemMetadataSummary, Option<String>)> {
+        Box::pin(async { anyhow::bail!("named from what the binding holds") })
+    }
+
+    fn cached_summary(&self, track: &str) -> Option<PlayingItemMetadataSummary> {
+        Some(PlayingItemMetadataSummary {
+            item: PlayingItem::LibraryTrack {
+                library_id: self.library_id,
+                track: track.to_owned(),
+            },
+            title: "Late Name".to_owned(),
+            ..PlayingItemMetadataSummary::default()
+        })
+    }
+
+    fn visualizer_covers<'a>(
+        &'a self,
+        _track: &'a str,
+    ) -> crate::service::ServiceFuture<'a, (Option<String>, Vec<String>)> {
+        Box::pin(async { anyhow::bail!("no covers") })
+    }
+
+    fn playback_source<'a>(
+        &'a self,
+        _track: &'a str,
+    ) -> crate::service::ServiceFuture<'a, playback::player::ServiceTarget> {
+        Box::pin(async { anyhow::bail!("no playback") })
+    }
+}
+
+/// A track named late tells Rune's scrobblers it plays, unless its service counts the plays of
+/// its tracks itself, as it does for a track named at once.
+#[tokio::test]
+async fn a_track_named_late_goes_to_runes_scrobblers_unless_its_service_counts_its_plays()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    crate::test_node::disable_sync_listener(dir.path())?;
+    let path = dir.path().to_string_lossy();
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
+    let node = NodeContext::new(
+        &path,
+        &path,
+        broadcaster.clone(),
+        false,
+        RunMode::App,
+        Arc::new(Visualizer::new()),
+    )
+    .await?;
+    for (service, scrobbled) in [
+        (ServiceKind::Subsonic, true),
+        (ServiceKind::AppleMusic, false),
+    ] {
+        let library_id = Uuid::new_v4();
+        let binding: Arc<dyn ServiceBinding> = Arc::new(NamedService {
+            library_id,
+            service,
+        });
+        let item = PlayingItem::LibraryTrack {
+            library_id,
+            track: "late".to_owned(),
+        };
+        // The track went out unnamed, and its service has named it since.
+        let mut item_state = ItemEventState {
+            last_item: Some(item.clone()),
+            library: Some(ResolvedLibrary {
+                library_id,
+                fsio: None,
+                media_root: String::new(),
+                implementation: Implementation::Service(binding),
+            }),
+            track_started: true,
+            ..ItemEventState::default()
+        };
+        let (now_playing, mut told) = mpsc::unbounded_channel();
+
+        name_late_track(&mut item_state, &None, true).await;
+        handle_status_event(
+            &node,
+            PlayerStatus {
+                item: Some(item.clone()),
+                index: Some(0),
+                path: None,
+                position: Duration::ZERO,
+                state: PlaybackState::Playing,
+                playlist: vec![item.clone().into()],
+                unavailable: Vec::new(),
+                unavailable_reasons: HashMap::new(),
+                playback_mode: PlaybackMode::Sequential,
+                ready: true,
+                volume: 1.0,
+                hosted_by: None,
+            },
+            &mut item_state,
+            &None,
+            Some(&now_playing),
+            &broadcaster,
+            "test",
+        )
+        .await;
+
+        assert_eq!(item_state.metadata.title, "Late Name", "{service:?}");
+        let sent = told.try_recv().ok();
+        assert_eq!(
+            sent.is_some(),
+            scrobbled,
+            "{service:?} told Rune's scrobblers: {sent:?}"
+        );
+    }
     node.shutdown().await?;
     Ok(())
 }
@@ -991,6 +1128,7 @@ async fn a_report_after_the_barrier_answered_is_what_the_session_shows_again_wit
             played
         }),
         Arc::new(Visualizer::new()),
+        ServiceSetup::default(),
     )
     .await?;
     let hosted_told = |hosted: bool| {

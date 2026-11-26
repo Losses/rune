@@ -46,6 +46,8 @@ class MainFlutterWindow: BitsdojoWindow {
     SceneFiles.shared.attach(messenger: flutterViewController.engine.binaryMessenger)
     (NSApp.delegate as? FlutterAppDelegate)?.addApplicationLifecycleDelegate(SceneFiles.shared)
 
+    // Apple Music plays through MusicKit here. Dart only passes the hub's batches and events on.
+    AppleMusicHost.shared.attach(messenger: flutterViewController.engine.binaryMessenger)
     // Rune's volume control moves the system volume while a platform host plays.
     SystemVolume.shared.attach(messenger: flutterViewController.engine.binaryMessenger)
 

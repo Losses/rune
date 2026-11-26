@@ -1679,6 +1679,46 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             receiver: RequestReceiver::Library,
             routing: RequestRouting::OpenLibrary,
         },
+        RequestResponse {
+            request: "RegisterServiceLibraryRequest".to_string(),
+            response: Some("RegisterLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "SignInServiceLibraryRequest".to_string(),
+            response: Some("SignInServiceLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "SignOutServiceLibraryRequest".to_string(),
+            response: Some("SignOutServiceLibraryResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
+            request: "SetOnlineLyricsRequest".to_string(),
+            response: Some("SetOnlineLyricsResponse".to_string()),
+            scope: RequestScope::Node,
+            access: RequestAccess::NodeLocal,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: None,
+            receiver: RequestReceiver::NodeLoop,
+            routing: RequestRouting::OpenLibrary,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
@@ -1817,6 +1857,22 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         };
         let body_libraries = body_libraries_tokens(entry.body_libraries);
         let routed_by_item = entry.routing == RequestRouting::Item;
+        // Only a request another device serves can be forwarded there.
+        let forwarded_libraries = (entry.access != RequestAccess::NodeLocal).then(|| {
+            quote! {
+                fn visit_forwarded_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
+                    crate::rpc::NamedLibraries::visit_libraries(self, visit)
+                }
+
+                fn forwarded_lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+                    crate::rpc::NamedLibraries::lists_kept(self, kept)
+                }
+
+                fn leave_kept_out_of_forwarded(&mut self, kept: &dyn Fn(&str) -> bool) {
+                    crate::rpc::NamedLibraries::leave_out_kept(self, kept)
+                }
+            }
+        });
         quote! {
             impl TargetRequest for #request {
                 const SCOPE: RequestScope = #scope;
@@ -1828,6 +1884,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 fn slot(slots: &RequestSlots) -> Slot {
                     slots.#field
                 }
+
+                #forwarded_libraries
 
                 fn set_slot(slots: &mut RequestSlots, slot: Slot) {
                     slots.#field = slot;
@@ -2260,44 +2318,63 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 }
 
 /// Derive `NamedLibraries` from a message's fields: the message names a library when one
-/// of its fields does, and visiting it visits every field.
+/// of its fields does, and visiting it visits every field. The items it lists are those its
+/// fields list.
 #[proc_macro_derive(NamedLibraries)]
 pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
     let name = &input.ident;
     let named_libraries = quote! { crate::rpc::NamedLibraries };
-    let (field_types, visit) = match &input.data {
-        Data::Struct(data) => {
-            let members = data.fields.members();
-            (
-                data.fields
-                    .iter()
-                    .map(|field| &field.ty)
-                    .collect::<Vec<_>>(),
-                quote! { #(#named_libraries::visit_libraries(&self.#members, visit);)* },
-            )
-        }
-        Data::Enum(data) => {
-            let arms = data.variants.iter().map(|variant| {
-                let ident = &variant.ident;
-                let members = variant.fields.members();
-                let bindings: Vec<_> = (0..variant.fields.len())
-                    .map(|index| format_ident!("field_{index}"))
-                    .collect();
-                quote! {
-                    Self::#ident { #(#members: #bindings),* } => {
-                        #(#named_libraries::visit_libraries(#bindings, visit);)*
-                    }
+    // What each field, or each variant's fields, does for `visit`, `lists_kept` and
+    // `leave_out_kept`.
+    let each_field =
+        |mutable: bool, call: &dyn Fn(&proc_macro2::TokenStream) -> proc_macro2::TokenStream| {
+            match &input.data {
+                Data::Struct(data) => {
+                    let calls = data.fields.members().map(|member| {
+                        call(&if mutable {
+                            quote! { &mut self.#member }
+                        } else {
+                            quote! { &self.#member }
+                        })
+                    });
+                    quote! { #(#calls)* }
                 }
-            });
-            (
-                data.variants
-                    .iter()
-                    .flat_map(|variant| variant.fields.iter().map(|field| &field.ty))
-                    .collect(),
-                quote! { match self { #(#arms)* } },
-            )
-        }
+                Data::Enum(data) => {
+                    let arms = data.variants.iter().map(|variant| {
+                        let ident = &variant.ident;
+                        let members = variant.fields.members();
+                        let bindings: Vec<_> = (0..variant.fields.len())
+                            .map(|index| format_ident!("field_{index}"))
+                            .collect();
+                        let calls = bindings.iter().map(|binding| call(&quote! { #binding }));
+                        quote! { Self::#ident { #(#members: #bindings),* } => { #(#calls)* } }
+                    });
+                    quote! { match self { #(#arms)* } }
+                }
+                Data::Union(_) => quote! {},
+            }
+        };
+    let visit = each_field(false, &|field| {
+        quote! { #named_libraries::visit_libraries(#field, visit); }
+    });
+    let lists_kept = each_field(false, &|field| {
+        quote! { if #named_libraries::lists_kept(#field, kept) { return true; } }
+    });
+    let leave_out_kept = each_field(true, &|field| {
+        quote! { #named_libraries::leave_out_kept(#field, kept); }
+    });
+    let field_types = match &input.data {
+        Data::Struct(data) => data
+            .fields
+            .iter()
+            .map(|field| &field.ty)
+            .collect::<Vec<_>>(),
+        Data::Enum(data) => data
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter().map(|field| &field.ty))
+            .collect(),
         Data::Union(_) => {
             return Error::new_spanned(name, "NamedLibraries cannot be derived for a union")
                 .to_compile_error()
@@ -2317,6 +2394,7 @@ pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
         },
     };
     let unused_visit = seen.is_empty().then(|| quote! { let _ = visit; });
+    let unused_kept = seen.is_empty().then(|| quote! { let _ = kept; });
     quote! {
         impl #named_libraries for #name {
             const NAMES_LIBRARY: bool = #names_library;
@@ -2324,6 +2402,17 @@ pub fn derive_named_libraries(input: TokenStream) -> TokenStream {
             fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
                 #unused_visit
                 #visit
+            }
+
+            fn lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+                #unused_kept
+                #lists_kept
+                false
+            }
+
+            fn leave_out_kept(&mut self, kept: &dyn Fn(&str) -> bool) {
+                #unused_kept
+                #leave_out_kept
             }
         }
     }

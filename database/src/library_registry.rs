@@ -49,6 +49,9 @@ pub enum ProtocolAdapter {
         credential: CredentialRef,
         mode: SubsonicOpenMode,
     },
+    /// The user's Apple Music library. Its sign-in lives in memory only, so the record
+    /// carries no credential.
+    AppleMusic,
 }
 
 impl ProtocolAdapter {
@@ -57,6 +60,7 @@ impl ProtocolAdapter {
     pub fn service(&self) -> Option<ServiceKind> {
         match self {
             Self::SubsonicTranslate { .. } => Some(ServiceKind::Subsonic),
+            Self::AppleMusic => Some(ServiceKind::AppleMusic),
             Self::Native | Self::RuneForward { .. } => None,
         }
     }
@@ -65,7 +69,33 @@ impl ProtocolAdapter {
 /// A streaming service a library can belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceKind {
+    AppleMusic,
     Subsonic,
+}
+
+impl ServiceKind {
+    /// Every service.
+    pub const ALL: [Self; 2] = [Self::AppleMusic, Self::Subsonic];
+
+    /// Whether a library of the service signs in on this device with what the platform hands
+    /// over, kept in memory, rather than with a credential its record keeps. Such a sign-in
+    /// cannot be used from another device, so the library stays on this one, out of every
+    /// other device's reach, and it is signed in only while this device holds its binding.
+    pub fn signs_in_on_this_device(self) -> bool {
+        match self {
+            Self::AppleMusic => true,
+            Self::Subsonic => false,
+        }
+    }
+
+    /// Whether the service counts the plays of its tracks itself, so Rune's own scrobblers
+    /// leave them to it.
+    pub fn counts_its_own_plays(self) -> bool {
+        match self {
+            Self::AppleMusic => true,
+            Self::Subsonic => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -142,6 +172,7 @@ fn replica_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
 fn record_credential(record: &LibraryRecord) -> Option<CredentialRef> {
     match &record.protocol {
         ProtocolAdapter::SubsonicTranslate { credential, .. } => Some(*credential),
+        ProtocolAdapter::AppleMusic => None,
         _ => record.fs.iter().find_map(|adapter| match adapter {
             FsAdapter::WebDav { credential, .. } | FsAdapter::S3 { credential, .. } => {
                 Some(*credential)
@@ -343,6 +374,14 @@ impl LibraryRecord {
                     return Err(InvalidRecord::SubsonicInvalid);
                 }
             }
+            ProtocolAdapter::AppleMusic => {
+                if self.library_id.is_some()
+                    || !self.fs.is_empty()
+                    || self.catalog != CatalogPlacement::None
+                {
+                    return Err(InvalidRecord::ServiceInvalid);
+                }
+            }
         }
         if self.background_sync && self.catalog == CatalogPlacement::None {
             return Err(InvalidRecord::BackgroundSyncWithoutCatalog);
@@ -367,6 +406,8 @@ pub enum InvalidRecord {
     OpenDalInvalid,
     #[error("Two records share a catalog library id")]
     DuplicateLibraryId,
+    #[error("Streaming service record fields are invalid")]
+    ServiceInvalid,
 }
 /// The location of the database relative to the library.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1480,6 +1521,18 @@ mod tests {
         }
     }
 
+    fn apple_music_record() -> LibraryRecord {
+        LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "Apple Music".into(),
+            library_id: None,
+            protocol: ProtocolAdapter::AppleMusic,
+            fs: Vec::new(),
+            catalog: CatalogPlacement::None,
+            background_sync: false,
+        }
+    }
+
     fn write_v2_registry_fixture(dir: &Path) -> Vec<u8> {
         let data = br#"{
   "version": 2,
@@ -2009,6 +2062,7 @@ mod tests {
                 CredentialRef(Uuid::new_v4()),
                 SubsonicOpenMode::PlayOnThisDevice,
             ),
+            apple_music_record(),
         ];
         for record in records {
             assert_eq!(record.validate(), Ok(()));
@@ -2043,7 +2097,8 @@ mod tests {
             CredentialRef(Uuid::new_v4()),
             SubsonicOpenMode::RemoteControl,
         );
-        for record in [&native, &replica, &remote, &subsonic] {
+        let apple_music = apple_music_record();
+        for record in [&native, &replica, &remote, &subsonic, &apple_music] {
             assert_eq!(record.validate(), Ok(()));
         }
 
@@ -2074,6 +2129,13 @@ mod tests {
         assert_eq!(
             invalid_subsonic.validate(),
             Err(InvalidRecord::SubsonicInvalid)
+        );
+
+        let mut invalid_apple_music = apple_music.clone();
+        invalid_apple_music.library_id = Some(Uuid::new_v4());
+        assert_eq!(
+            invalid_apple_music.validate(),
+            Err(InvalidRecord::ServiceInvalid)
         );
 
         let opendal = LibraryRecord {
@@ -2346,6 +2408,34 @@ mod tests {
 
     fn record_id_of(value: &serde_json::Value) -> LibraryRecordId {
         serde_json::from_value(value["record_id"].clone()).unwrap()
+    }
+
+    #[test]
+    fn apple_music_record_has_the_shape_an_older_build_keeps() {
+        let record = apple_music_record();
+        let value = to_value(&record);
+        assert_eq!(
+            value["protocol"],
+            serde_json::json!({ "type": "apple_music" })
+        );
+        // A build without the variant hides the record by its id and writes it back as is.
+        assert_eq!(hidden_record_id(&value), Some(record.record_id));
+    }
+
+    #[test]
+    fn invalid_apple_music_record_is_reported_invalid() {
+        let dir = TempDir::new().unwrap();
+        let mut record = apple_music_record();
+        record.fs.push(FsAdapter::Local {
+            path: "/music".into(),
+        });
+        write_registry_values(dir.path(), vec![to_value(&record)], None);
+        let loaded = LibraryRegistry::load(dir.path()).unwrap();
+        assert!(loaded.libraries.is_empty());
+        assert_eq!(
+            loaded.invalid,
+            vec![(record.record_id, InvalidRecord::ServiceInvalid)]
+        );
     }
 
     #[test]

@@ -1,14 +1,23 @@
 //! What the hub needs from a streaming service's library, whichever service it is.
 
 pub(crate) mod covers;
+pub(crate) mod device_records;
 pub(crate) mod folder;
 pub(crate) mod home;
 pub(crate) mod ids;
 pub(crate) mod lists;
+pub(crate) mod lrclib;
 pub(crate) mod mixes;
+pub(crate) mod online_lyrics;
 pub(crate) mod positional_occurrences;
+pub(crate) mod reach;
+pub(crate) mod registry;
+pub(crate) mod rune_likes;
+pub(crate) mod rune_mixes;
+pub(crate) mod rune_playlists;
 pub(crate) mod store;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -21,15 +30,72 @@ use tokio::sync::watch;
 use uuid::Uuid;
 use visualizer::VisualizerInputs;
 
+use crate::apple_music_binding::{APPLE_MUSIC_HOST, hosted_target};
 use crate::macros::{RequestSlots, RequestTranslator};
+use crate::messages::GetLyricByTrackIdRequest;
+use crate::rpc::{Slot, UnsupportedReason};
 
 pub(crate) type ServiceFuture<'a, T> = BoxFuture<'a, Result<T>>;
 
-/// How `service` answers the requests routed by item about its own items, whichever library is
-/// open, as its request table declares. The slots of other requests mean nothing here.
-pub(crate) fn item_slots(service: ServiceKind) -> RequestSlots {
+/// Whether the lyrics of the songs of `service` come from an online lyrics database, which a
+/// library of it asks only once the user allowed that for the library on this device (see
+/// `online_lyrics`).
+pub(crate) fn looks_up_lyrics_online(service: ServiceKind) -> bool {
     match service {
+        ServiceKind::AppleMusic => true,
+        ServiceKind::Subsonic => false,
+    }
+}
+
+/// How a library of `service` answers the requests routed by item about its own items,
+/// whichever library is open, as its request table declares. A service whose lyrics come from
+/// an online database has none for a library the user has not allowed to ask it
+/// (`online_lyrics`). The slots of other requests mean nothing here.
+pub(crate) fn item_slots(service: ServiceKind, online_lyrics: bool) -> RequestSlots {
+    let mut slots = match service {
+        ServiceKind::AppleMusic => RequestSlots::apple_music_items(),
         ServiceKind::Subsonic => RequestSlots::subsonic_items(),
+    };
+    if looks_up_lyrics_online(service) && !online_lyrics {
+        slots.set::<GetLyricByTrackIdRequest>(Slot::Unsupported {
+            reason: UnsupportedReason::NotImplemented,
+        });
+    }
+    slots
+}
+
+/// The item slots of the library `library_id` of `service`, which this device holds no binding
+/// for: what its service declares, with what `config_dir` keeps of the user's choices for the
+/// library. It may read a file, so it blocks.
+pub(crate) fn unbound_item_slots(
+    config_dir: &Path,
+    service: ServiceKind,
+    library_id: Uuid,
+) -> RequestSlots {
+    let online_lyrics =
+        looks_up_lyrics_online(service) && online_lyrics::allowed(config_dir, library_id);
+    item_slots(service, online_lyrics)
+}
+
+/// The family of platform hosts that play the tracks of `service` on this device and report its
+/// network, as the host names itself. None for a service that plays through none.
+pub(crate) fn platform_host(service: ServiceKind) -> Option<&'static str> {
+    match service {
+        ServiceKind::AppleMusic => Some(APPLE_MUSIC_HOST),
+        ServiceKind::Subsonic => None,
+    }
+}
+
+/// How this device plays a track of `service` while it holds no binding for its library, as for
+/// a queue restored before the library signs in. A service whose platform host plays its tracks
+/// by their keys alone needs none. None for a service whose tracks need one.
+pub(crate) fn playback_source_without_binding(
+    service: ServiceKind,
+    track: &str,
+) -> Option<Result<ServiceTarget>> {
+    match service {
+        ServiceKind::AppleMusic => Some(hosted_target(track)),
+        ServiceKind::Subsonic => None,
     }
 }
 
@@ -45,6 +111,35 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
 
     /// The service the library belongs to, which declares what its items support.
     fn service(&self) -> ServiceKind;
+
+    /// Whether the binding holds a sign-in, without which the service answers nothing about
+    /// its items.
+    fn signed_in(&self) -> bool {
+        true
+    }
+
+    /// Whether the library may look its songs' lyrics up at an online lyrics database, for a
+    /// service whose lyrics come from one (see `looks_up_lyrics_online`). The default is that it
+    /// asks none.
+    fn online_lyrics(&self) -> bool {
+        false
+    }
+
+    /// The user allowed or stopped the lookups of lyrics online for the library, which is kept
+    /// on this device already. Only a binding of a service whose lyrics come from online has
+    /// anything to follow.
+    fn set_online_lyrics(&self, _allowed: bool) {}
+
+    /// Whether which of its tracks play depends on this device being online: offline, only
+    /// the tracks the device stores play, and the rest are unavailable. The library says so
+    /// itself. The default is that connectivity changes nothing.
+    fn availability_follows_connectivity(&self) -> bool {
+        false
+    }
+
+    /// The device went online or offline, or the tracks it stores changed. Called only for a
+    /// library that declares `availability_follows_connectivity`, which reloads its lists.
+    fn reach_changed(&self, _reach: &reach::Reach) {}
 
     /// The metadata of a track and, when `with_cover` is set, its cover if the cover is cached
     /// already.
@@ -86,6 +181,16 @@ pub(crate) trait ServiceBinding: RequestTranslator + Send + Sync {
     fn track_played_through<'a>(&'a self, _track: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
+
+    /// Reads together what the binding does not hold yet of `tracks`, so they can be named
+    /// without a request each, as the queued tracks of a library that just signed in. The
+    /// default reads nothing.
+    fn read_tracks(&self, _tracks: Vec<String>) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
+    /// The UI opened this library, so the binding may start reading what the UI will ask for.
+    fn opened(&self) {}
 
     /// The service's own player, when the library's tracks play there rather than on this
     /// device. None when this device plays them.

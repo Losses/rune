@@ -36,6 +36,7 @@ import '../../bindings/bindings.dart';
 
 import 'rune_stack.dart';
 import 'scale_fade_container.dart';
+import 'startup_open_ring.dart';
 
 class RuneRouterFrameImplementation extends StatefulWidget {
   const RuneRouterFrameImplementation({super.key, required this.child});
@@ -123,7 +124,9 @@ class _RuneRouterFrameImplementationState
     }
 
     if (!library.hasOpenLibrary) {
-      return Container();
+      return library.isOpeningAtStartup
+          ? const StartupOpenRing()
+          : Container();
     }
 
     final mainContent = FocusTraversalOrder(

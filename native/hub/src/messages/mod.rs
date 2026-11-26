@@ -1,5 +1,6 @@
 mod album;
 mod analyze;
+mod appended;
 mod artist;
 mod collection;
 mod connection;

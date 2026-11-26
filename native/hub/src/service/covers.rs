@@ -43,7 +43,7 @@ const MAX_WAITING_SCHEDULED: usize = 512;
 const CHANGE_WINDOW: Duration = Duration::from_millis(500);
 
 /// The largest cover a service may send.
-const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_COVER_BYTES: usize = 8 * 1024 * 1024;
 
 /// Where the cover cache of one service library lives: in the library's own folder.
 pub(crate) fn cover_cache_root(config_dir: &Path, library_id: Uuid) -> PathBuf {
@@ -767,8 +767,8 @@ mod tests {
     use tokio::time as tokio_time;
 
     use super::{
-        CoverCacheLimits, CoverSource, MAX_WAITING_SCHEDULED, ServiceCoverCache, evict_cover_cache,
-        keep_primary_color,
+        CoverCacheLimits, CoverSource, MAX_WAITING_SCHEDULED, ServiceCoverCache, Turn,
+        evict_cover_cache, keep_primary_color,
     };
     use crate::test_wait::wait_until;
     use crate::utils::{Broadcaster, RinfRustSignal};
@@ -1196,6 +1196,57 @@ mod tests {
                 assert_eq!(fs::read(path.unwrap()).unwrap(), vec![1; 4096]);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn closing_the_downloads_waits_for_a_cover_being_written_and_ends_them_all() {
+        let root = TempDir::new().unwrap();
+        let cache = cache_in(&root);
+        // A download holds its turn until its file is written.
+        let Turn::Ready(writing) = cache
+            .downloads
+            .enter("writing", &Arc::new(AtomicUsize::new(1)))
+        else {
+            panic!("a free turn was not given");
+        };
+        // Downloads waiting behind it are let go by the close, not left to wait for ever.
+        let source = Gated::new();
+        let waiting = cache.clone();
+        let asked = tokio::spawn({
+            let source = source.clone();
+            async move {
+                for index in 0..4 {
+                    waiting.schedule(source.clone(), format!("held-{index}"));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                waiting.ensure_cached(source, "waiting").await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let closed = tokio::spawn({
+            let cache = cache.clone();
+            async move { cache.close_and_wait_downloads().await }
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            !closed.is_finished(),
+            "the close did not wait for the write"
+        );
+        drop(writing);
+        closed.await.unwrap();
+        assert_eq!(asked.await.unwrap().unwrap(), None);
+        // Nobody gets a turn again, and no download reaches the source.
+        assert!(matches!(
+            cache
+                .downloads
+                .enter("late", &Arc::new(AtomicUsize::new(1))),
+            Turn::Closed
+        ));
+        assert_eq!(
+            cache.ensure_cached(source.clone(), "late").await.unwrap(),
+            None
+        );
+        assert!(!source.started().contains(&"late".to_owned()));
     }
 
     #[test]

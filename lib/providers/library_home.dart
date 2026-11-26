@@ -76,6 +76,7 @@ class LibraryHomeEntryWithValue {
         LibraryHomeDomain.artists => LibraryHomeQueryArtists(value: mode),
         LibraryHomeDomain.albums => LibraryHomeQueryAlbums(value: mode),
         LibraryHomeDomain.playlists => LibraryHomeQueryPlaylists(value: mode),
+        LibraryHomeDomain.mixes => LibraryHomeQueryMixes(value: mode),
         LibraryHomeDomain.tracks => LibraryHomeQueryTracks(value: mode),
         _ => throw FormatException('Mode is invalid for $domain'),
       };
@@ -107,6 +108,8 @@ class LibraryHomeEntryWithValue {
       (LibraryHomeDomain.albums, LibraryHomeQueryAlbums(:final value)) =>
         _storedMode(value),
       (LibraryHomeDomain.playlists, LibraryHomeQueryPlaylists(:final value)) =>
+        _storedMode(value),
+      (LibraryHomeDomain.mixes, LibraryHomeQueryMixes(:final value)) =>
         _storedMode(value),
       (LibraryHomeDomain.tracks, LibraryHomeQueryTracks(:final value)) =>
         _storedMode(value),

@@ -21,11 +21,25 @@ pub struct ExcludedItems {
     pub items: Vec<PlayingItemRef>,
 }
 
-/// Excluding the caller's queue reads nothing from those libraries, so it names none.
+/// Excluding the caller's queue reads nothing from those libraries, so it names none. It only
+/// lists their items.
 impl crate::rpc::NamedLibraries for ExcludedItems {
     const NAMES_LIBRARY: bool = false;
 
     fn visit_libraries<'a>(&'a self, _visit: &mut dyn FnMut(&'a str)) {}
+
+    fn lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+        self.items.iter().any(|item| of_kept_library(item, kept))
+    }
+
+    fn leave_out_kept(&mut self, kept: &dyn Fn(&str) -> bool) {
+        self.items.retain(|item| !of_kept_library(item, kept));
+    }
+}
+
+/// Whether `item` is a track of a library `kept` names.
+fn of_kept_library(item: &PlayingItemRef, kept: &dyn Fn(&str) -> bool) -> bool {
+    matches!(item, PlayingItemRef::LibraryTrack { library_id, .. } if kept(library_id))
 }
 
 /// The tracks of the caller's own player queue. A mix query reads the queue only to select
@@ -35,11 +49,20 @@ pub struct CallerQueue {
     pub items: Vec<PlayingItemRef>,
 }
 
-/// Listing the caller's queue reads nothing from those libraries, so it names none.
+/// Listing the caller's queue reads nothing from those libraries, so it names none. It only
+/// lists their items.
 impl crate::rpc::NamedLibraries for CallerQueue {
     const NAMES_LIBRARY: bool = false;
 
     fn visit_libraries<'a>(&'a self, _visit: &mut dyn FnMut(&'a str)) {}
+
+    fn lists_kept(&self, kept: &dyn Fn(&str) -> bool) -> bool {
+        self.items.iter().any(|item| of_kept_library(item, kept))
+    }
+
+    fn leave_out_kept(&mut self, kept: &dyn Fn(&str) -> bool) {
+        self.items.retain(|item| !of_kept_library(item, kept));
+    }
 }
 
 #[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]

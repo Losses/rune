@@ -140,6 +140,19 @@ pub enum LibraryTaskState {
 }
 
 impl LibraryTaskState {
+    /// The library record the task belongs to.
+    pub fn record_id(&self) -> &str {
+        match self {
+            Self::NotRunning { record_id, .. }
+            | Self::ScanRunning { record_id, .. }
+            | Self::ScanEnded { record_id, .. }
+            | Self::AnalysisRunning { record_id, .. }
+            | Self::AnalysisEnded { record_id, .. }
+            | Self::DeduplicationRunning { record_id, .. }
+            | Self::DeduplicationEnded { record_id, .. } => record_id,
+        }
+    }
+
     /// The run this state belongs to, for a task that has started.
     pub fn run_id(&self) -> Option<&str> {
         match self {

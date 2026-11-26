@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rune/l10n/app_localizations.dart';
+import 'package:rune/main.dart' show cafeMode;
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/search/search.dart';
 import 'package:rune/utils/storage_key_manager.dart';
@@ -29,6 +30,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory storage;
   setUpAll(() async {
+    // The search page follows the router, whose first page depends on cafe
+    // mode.
+    cafeMode = false;
     storage = await Directory.systemTemp.createTemp('rune-search-test');
     if (Platform.isWindows) {
       stdout.writeln('RUNE_SEARCH_TEST_STORAGE=${storage.path}');

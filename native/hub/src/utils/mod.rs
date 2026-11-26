@@ -61,7 +61,8 @@ use ::database::{
     error::NewerLibraryDatabase,
     library_registry::{
         CatalogPlacement, FsAdapter, InvalidRecord, LibraryRecord, LibraryRecordId,
-        LibraryRegistry, ProtocolAdapter, RuneForwardMode, SubsonicOpenMode, resolve_library,
+        LibraryRegistry, ProtocolAdapter, RuneForwardMode, ServiceKind, SubsonicOpenMode,
+        resolve_library,
     },
     playing_item::{MediaFileHandle, PlayingItemMetadataSummary},
 };
@@ -87,6 +88,7 @@ use crate::request_owner::Implementation;
 use crate::server::ServerManager;
 use crate::service::ServiceBinding;
 use crate::service::lists::delete_kept_lists;
+use crate::service::registry::VerifiedSignIn;
 use crate::subsonic_binding::SubsonicBinding;
 use subsonic::{SubsonicClient, SubsonicCredentials, SubsonicError, SubsonicServerError};
 use url::Url;
@@ -396,6 +398,17 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
         node: &NodeSlot,
         request: &SetLibraryBackgroundSyncRequest,
     ) -> impl Future<Output = Result<Option<SetLibraryBackgroundSyncResponse>>> + Send {
+        async move {
+            let node = node.current().await?;
+            request.handle(node, None, request).await
+        }
+    }
+
+    fn handle_set_online_lyrics_request(
+        &self,
+        node: &NodeSlot,
+        request: &SetOnlineLyricsRequest,
+    ) -> impl Future<Output = Result<Option<SetOnlineLyricsResponse>>> + Send {
         async move {
             let node = node.current().await?;
             request.handle(node, None, request).await
@@ -898,6 +911,62 @@ impl NodeRequestHandlers for ProductionNodeRequestHandlers {
                 .map_err(|_| credential_failure(RegisterLibraryFailureKind::Storage))?;
             replace_subsonic_credential_on_node(request, &node).await?;
             Ok(Some(ReplaceSubsonicCredentialResponse {
+                call_id: request.call_id,
+            }))
+        }
+    }
+
+    fn handle_register_service_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &RegisterServiceLibraryRequest,
+    ) -> impl Future<Output = Result<Option<RegisterLibraryResponse>>> + Send {
+        async move {
+            let node = node.current().await.map_err(|_| {
+                registration_failure(
+                    RegisterLibraryFailureKind::Storage,
+                    "Could not access library storage",
+                )
+            })?;
+            register_service_library_on_node(request, &node)
+                .await
+                .map(Some)
+        }
+    }
+
+    fn handle_sign_in_service_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &SignInServiceLibraryRequest,
+    ) -> impl Future<Output = Result<Option<SignInServiceLibraryResponse>>> + Send {
+        async move {
+            let node = node.current().await.map_err(|_| {
+                registration_failure(
+                    RegisterLibraryFailureKind::Storage,
+                    "Could not access library storage",
+                )
+            })?;
+            sign_in_service_library_on_node(request, &node).await?;
+            Ok(Some(SignInServiceLibraryResponse {
+                call_id: request.call_id,
+            }))
+        }
+    }
+
+    fn handle_sign_out_service_library_request(
+        &self,
+        node: &NodeSlot,
+        request: &SignOutServiceLibraryRequest,
+    ) -> impl Future<Output = Result<Option<SignOutServiceLibraryResponse>>> + Send {
+        async move {
+            let node = node.current().await.map_err(|_| {
+                registration_failure(
+                    RegisterLibraryFailureKind::Storage,
+                    "Could not access library storage",
+                )
+            })?;
+            sign_out_service_library_on_node(request, &node).await?;
+            Ok(Some(SignOutServiceLibraryResponse {
                 call_id: request.call_id,
             }))
         }
@@ -1889,6 +1958,219 @@ fn subsonic_probe_failure(error: SubsonicError) -> anyhow::Error {
     registration_failure(kind, detail)
 }
 
+/// Registers the library of a streaming service that signs in on this device, once the service
+/// accepts the platform's sign-in. The sign-in stays in memory: neither the record nor the
+/// credential store gets it. The service has one account on this device, so registering again
+/// signs the library registered before in.
+pub(crate) async fn register_service_library_on_node(
+    request: &RegisterServiceLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> Result<RegisterLibraryResponse> {
+    let protocol = ProtocolAdapter::from(request.service);
+    let Some(service) = protocol.service() else {
+        return Err(registration_failure(
+            RegisterLibraryFailureKind::InvalidSource,
+            "The record is not a streaming service's",
+        ));
+    };
+    // A sign-out of the library registered already that comes while its service checks the
+    // sign-in stands (see `sign_in_service_record`).
+    let registered = LibraryRegistry::load(Path::new(&*node.config_path))
+        .ok()
+        .and_then(|registry| {
+            registry
+                .libraries
+                .iter()
+                .find(|record| record.protocol.service() == Some(service))
+                .map(|record| record.record_id)
+        })
+        .map(|record_id| (record_id, node.services.sign_outs(record_id)));
+    let sign_in = verified_service_sign_in(node, service, &request.sign_in).await?;
+    let new_record = LibraryRecord {
+        record_id: LibraryRecordId(Uuid::new_v4()),
+        alias: request.alias.clone(),
+        library_id: None,
+        protocol,
+        fs: Vec::new(),
+        catalog: CatalogPlacement::None,
+        background_sync: false,
+    };
+    // No other device may reach the library, from the moment its record exists.
+    if service.signs_in_on_this_device() {
+        node.access_policy
+            .keep_on_this_device(new_record.record_id.0);
+    }
+    let (record, created) = LibraryRegistry::update(Path::new(&*node.config_path), |registry| {
+        if let Some(existing) = registry
+            .libraries
+            .iter()
+            .find(|record| record.protocol.service() == Some(service))
+        {
+            return Ok((existing.clone(), false));
+        }
+        registry.libraries.push(new_record.clone());
+        Ok((new_record, true))
+    })
+    .await
+    .map_err(|error| {
+        registration_failure(
+            RegisterLibraryFailureKind::Storage,
+            format!("Could not write library storage: {error:#}"),
+        )
+    })?;
+    let sign_outs = registered
+        .filter(|(record_id, _)| !created && *record_id == record.record_id)
+        .map(|(_, sign_outs)| sign_outs);
+    let signed_in = sign_in_service_record(node, record.record_id, sign_in, sign_outs).await;
+    // A record written here changes the list even when its sign-in then fails. A sign-in that
+    // worked has told the list itself.
+    if created
+        && signed_in.is_err()
+        && let Err(error) = publish_library_records_changed(node).await
+    {
+        log::warn!("Could not publish library record change: {error:#}");
+    }
+    signed_in?;
+    Ok(RegisterLibraryResponse {
+        call_id: None,
+        record: Some((&record).into()),
+        outcome: RegisterLibraryOutcome::Registered,
+    })
+}
+
+/// The service of the registered library of `record_id`, when its sign-in lives on this device.
+/// Failures are typed like a failed registration.
+fn service_signing_in_here(
+    node: &NodeContext,
+    record_id: &str,
+) -> Result<(LibraryRecordId, ServiceKind)> {
+    use RegisterLibraryFailureKind as Kind;
+    let Ok(record_id) = Uuid::parse_str(record_id).map(LibraryRecordId) else {
+        return Err(registration_failure(
+            Kind::InvalidRecord,
+            "The record id is invalid",
+        ));
+    };
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path)).map_err(|error| {
+        registration_failure(
+            Kind::Storage,
+            format!("Could not read library storage: {error:#}"),
+        )
+    })?;
+    match registry
+        .record(record_id)
+        .ok()
+        .and_then(|record| record.protocol.service())
+    {
+        Some(service) if service.signs_in_on_this_device() => Ok((record_id, service)),
+        _ => Err(registration_failure(
+            Kind::InvalidRecord,
+            "The record is not a registered library that signs in on this device",
+        )),
+    }
+}
+
+/// Signs the registered service library of the request's record in. Failures are typed like
+/// a failed registration.
+pub(crate) async fn sign_in_service_library_on_node(
+    request: &SignInServiceLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> Result<()> {
+    let (record_id, service) = service_signing_in_here(node, &request.record_id)?;
+    // A sign-out that comes while the service checks the sign-in stands.
+    let sign_outs = node.services.sign_outs(record_id);
+    let sign_in = verified_service_sign_in(node, service, &request.sign_in).await?;
+    sign_in_service_record(node, record_id, sign_in, Some(sign_outs)).await
+}
+
+/// Forgets the sign-in of the registered service library of the request's record. A library
+/// without a binding has no sign-in to forget.
+pub(crate) async fn sign_out_service_library_on_node(
+    request: &SignOutServiceLibraryRequest,
+    node: &Arc<NodeContext>,
+) -> Result<()> {
+    let (record_id, _) = service_signing_in_here(node, &request.record_id)?;
+    node.services.sign_out(record_id);
+    node.item_capabilities_changed();
+    publish_records_changed(node).await;
+    Ok(())
+}
+
+/// Tells the UI the list of records changed. The change itself is done, so a failure only
+/// leaves the UI to catch up with the next refresh.
+async fn publish_records_changed(node: &NodeContext) {
+    if let Err(error) = publish_library_records_changed(node).await {
+        log::warn!("Could not publish library record change: {error:#}");
+    }
+}
+
+/// Signs the service library of `record_id` in with a sign-in its service accepted, unless it
+/// was signed out since `sign_outs` were taken (see `ServiceRegistry::sign_in_since`). A removal
+/// writes the registry before it retires the binding, so the record is looked up again
+/// afterwards: a binding made for a record removed meanwhile must not stay signed in.
+async fn sign_in_service_record(
+    node: &NodeContext,
+    record_id: LibraryRecordId,
+    sign_in: VerifiedSignIn,
+    sign_outs: Option<u64>,
+) -> Result<()> {
+    let binding = match sign_outs {
+        Some(sign_outs) => node
+            .services
+            .sign_in_since(record_id, sign_in, sign_outs)
+            .ok_or_else(|| {
+                registration_failure(
+                    RegisterLibraryFailureKind::InvalidRecord,
+                    "The library was signed out during the sign-in",
+                )
+            })?,
+        None => node.services.sign_in(record_id, sign_in),
+    };
+    node.item_capabilities_changed();
+    // A registry that cannot be read proves nothing, so the binding stays as it is.
+    let registry = LibraryRegistry::load(Path::new(&*node.config_path)).map_err(|error| {
+        registration_failure(
+            RegisterLibraryFailureKind::Storage,
+            format!("Could not read library storage: {error:#}"),
+        )
+    })?;
+    if registry.record(record_id).is_ok() {
+        // The session may hold tracks of the library from before the sign-in, as after a
+        // restart. Now they can be named. Those the binding does not hold are read together
+        // first, off the session's event loop.
+        if let Ok(session) = node.session() {
+            tokio::spawn(async move {
+                let tracks = session.queued_tracks(record_id.0).await;
+                binding.read_tracks(tracks).await;
+                session.rename_queue();
+            });
+        }
+        publish_records_changed(node).await;
+        return Ok(());
+    }
+    node.services.retire(record_id).await;
+    node.item_capabilities_changed();
+    Err(registration_failure(
+        RegisterLibraryFailureKind::InvalidRecord,
+        "The record was removed during the sign-in",
+    ))
+}
+
+/// A platform sign-in to `service`, once the service accepted it.
+async fn verified_service_sign_in(
+    node: &NodeContext,
+    service: ServiceKind,
+    sign_in: &ServiceSignIn,
+) -> Result<VerifiedSignIn> {
+    node.services
+        .verify_sign_in(service, sign_in)
+        .await
+        .map_err(|failure| {
+            let (kind, detail) = failure.registration_failure();
+            registration_failure(kind, detail)
+        })
+}
+
 async fn open_library_by_record(
     node_slot: &NodeSlot,
     request: &OpenLibraryRequest,
@@ -2021,6 +2303,9 @@ pub(crate) async fn open_library_by_record_on_node(
                 *mode == SubsonicOpenMode::PlayOnThisDevice,
             )
             .await
+        }
+        protocol @ ProtocolAdapter::AppleMusic => {
+            open_held_service_record(&node, record.record_id, protocol).await
         }
     };
     match result {
@@ -2204,19 +2489,68 @@ fn check_subsonic_server(node: &Arc<NodeContext>, binding: &Arc<SubsonicBinding>
     });
 }
 
-/// The binding of the service library `library_id`: the open one, or one made from its record
-/// for this use.
+/// Opens the service library of `record_id`, whose sign-in lives in its binding, with the
+/// binding this device holds for it: the one its sign-in made, or else one made now, which
+/// answers from what it kept on disk until the platform signs it in, so the library opens
+/// offline too. A removal writes the registry before it retires the binding, so the record is
+/// looked up again once the binding is held: a binding made for a record removed meanwhile must
+/// not stay.
+async fn open_held_service_record(
+    node: &Arc<NodeContext>,
+    record_id: LibraryRecordId,
+    protocol: &ProtocolAdapter,
+) -> StdResult<u64, (OpenLibraryFailureKind, anyhow::Error)> {
+    let binding = protocol
+        .service()
+        .and_then(|service| node.services.hold(record_id, service));
+    let Some(binding) = binding else {
+        return Err((
+            OpenLibraryFailureKind::NotSupportedYet,
+            anyhow::anyhow!("The service's library is not opened by its binding"),
+        ));
+    };
+    // A registry that cannot be read proves nothing, so the binding stays as it is.
+    if let Ok(registry) = LibraryRegistry::load(Path::new(&*node.config_path))
+        && registry.record(record_id).is_err()
+    {
+        node.services.retire(record_id).await;
+        node.item_capabilities_changed();
+        return Err((
+            OpenLibraryFailureKind::RecordNotFound,
+            anyhow::anyhow!("The record was removed while it opened"),
+        ));
+    }
+    node.open_service_catalog(Some(record_id), binding)
+        .await
+        .map_err(|error| (OpenLibraryFailureKind::Storage, error))
+}
+
+/// The binding of the service library `library_id`: the open one, the one the node keeps, or one
+/// made from its record for this use.
 pub(crate) async fn service_binding_for_library(
     node: &NodeContext,
     library_id: Uuid,
 ) -> Result<Arc<dyn ServiceBinding>> {
-    if let Some(binding) = node.service_binding(library_id)? {
+    if let Some(binding) = held_service_binding(node, library_id)? {
         return Ok(binding);
     }
     let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
     let record = registry
         .record(LibraryRecordId(library_id))
         .map_err(|_| Error::new(RemoteAudioError::LibraryUnavailable))?;
+    // A library whose sign-in lives in its binding, neither opened nor signed in since the app
+    // started, has none: a request about one of its items waits for the sign-in the platform
+    // makes, a typed failure the UI takes as such, never an internal one.
+    if record
+        .protocol
+        .service()
+        .is_some_and(ServiceKind::signs_in_on_this_device)
+    {
+        return Err(ExpectedRequestError::ServiceSignInRequired {
+            record_id: record.record_id.0.to_string(),
+        }
+        .into());
+    }
     match &record.protocol {
         ProtocolAdapter::SubsonicTranslate {
             endpoint,
@@ -2225,10 +2559,27 @@ pub(crate) async fn service_binding_for_library(
         } => Ok(
             subsonic_binding_from_record(node, library_id, endpoint, *credential, *mode).await?,
         ),
-        ProtocolAdapter::Native | ProtocolAdapter::RuneForward { .. } => {
-            Err(Error::new(RemoteAudioError::LibraryUnavailable))
-        }
+        ProtocolAdapter::Native
+        | ProtocolAdapter::RuneForward { .. }
+        | ProtocolAdapter::AppleMusic => Err(Error::new(RemoteAudioError::LibraryUnavailable)),
     }
+}
+
+/// The library records of this node, as they are on disk now.
+pub(crate) fn load_registry(node: &NodeContext) -> Result<LibraryRegistry> {
+    LibraryRegistry::load(Path::new(&*node.config_path))
+}
+
+/// The binding this device holds for the service library `library_id`: the open one, or the one
+/// the node keeps, signed in or not yet. None when it holds none, as for a library neither
+/// opened nor signed in since the app started.
+pub(crate) fn held_service_binding(
+    node: &NodeContext,
+    library_id: Uuid,
+) -> Result<Option<Arc<dyn ServiceBinding>>> {
+    Ok(node
+        .service_binding(library_id)?
+        .or_else(|| node.services.held(LibraryRecordId(library_id))))
 }
 
 /// A new binding for the Subsonic library `library_id`, made from its record's fields.

@@ -1071,6 +1071,7 @@ mod lifecycle_tests {
     use crate::request_error::{ExpectedRequestError, request_failure_cause};
     use crate::server::api::{add_trusted_server, edit_trusted_hosts};
     use crate::server::sync::client::sync_library;
+    use crate::service::registry::ServiceSetup;
     use crate::test_wait::{TEST_DEADLINE, wait_until};
     use database::sync::model::RuneModel;
     use futures::{SinkExt, StreamExt};
@@ -1086,6 +1087,11 @@ mod lifecycle_tests {
 
     mod gui_listener_tests {
         include!("gui_listener_tests.rs");
+    }
+
+    mod apple_music_browse_tests {
+        use super::*;
+        include!("apple_music_browse_tests.rs");
     }
 
     struct Quiet;
@@ -1263,6 +1269,45 @@ mod lifecycle_tests {
         run_mode: RunMode,
         wrap_player: crate::session::PlayerWrap,
     ) -> Result<Fixture> {
+        fixture_with_setup(
+            dir,
+            library_id,
+            idle_timeout,
+            broadcaster,
+            reconnect_config,
+            (run_mode, wrap_player),
+            ServiceSetup::default(),
+        )
+        .await
+    }
+
+    /// A fixture whose streaming service libraries reach their services as `services` says.
+    async fn fixture_with_services(
+        dir: &Path,
+        broadcaster: Arc<dyn Broadcaster>,
+        services: ServiceSetup,
+    ) -> Result<Fixture> {
+        fixture_with_setup(
+            dir,
+            Uuid::new_v4(),
+            Duration::from_secs(300),
+            broadcaster,
+            ReconnectConfig::default(),
+            (RunMode::App, crate::session::PlayerSession::real_player()),
+            services,
+        )
+        .await
+    }
+
+    async fn fixture_with_setup(
+        dir: &Path,
+        library_id: Uuid,
+        idle_timeout: Duration,
+        broadcaster: Arc<dyn Broadcaster>,
+        reconnect_config: ReconnectConfig,
+        (run_mode, wrap_player): (RunMode, crate::session::PlayerWrap),
+        services: ServiceSetup,
+    ) -> Result<Fixture> {
         use database::credentials::CredentialStore;
 
         fs::create_dir_all(dir.join(".rune"))?;
@@ -1302,6 +1347,7 @@ mod lifecycle_tests {
             reconnect_config,
             wrap_player,
             Arc::new(Visualizer::new()),
+            services,
         )
         .await?;
         fixture_from_library(node_context, library).await
@@ -1485,6 +1531,7 @@ mod lifecycle_tests {
         for name in [
             "ListLocalLibrariesRequest",
             "SetLibraryBackgroundSyncRequest",
+            "SetOnlineLyricsRequest",
             "ListPeerLibrariesRequest",
             "AddRemoteLibraryRequest",
             "ListControllersRequest",
@@ -2134,6 +2181,7 @@ mod lifecycle_tests {
         let request = RemoveLibraryRecordRequest {
             call_id: None,
             record_id: record.record_id.0.to_string(),
+            delete_device_data: false,
         };
         request
             .handle(owner.global_params.node.clone(), None, &request)

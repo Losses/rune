@@ -77,6 +77,7 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
         call_id: None,
         collection_type: T::collection_type().into(),
         groups: collection_groups,
+        reserved_groups: Vec::new(),
     }))
 }
 

@@ -1961,6 +1961,7 @@ mod access_policy_tests {
                     query_str: "a".into(),
                     fields: Vec::new(),
                     n: 10,
+                    refresh: false,
                 })?,
                 library_id,
             )
@@ -1986,6 +1987,7 @@ mod access_policy_tests {
                         query_str: "a".into(),
                         fields: Vec::new(),
                         n: 10,
+                        refresh: false,
                     })?,
                 ),
             ] {
@@ -2603,6 +2605,10 @@ mod access_policy_tests {
             "FetchServerCertificateRequest" => RequestAccess::NodeLocal,
             "FetchRemoteFileRequest" => RequestAccess::NodeLocal,
             "RemoveItemFromPlaylistRequest" => RequestAccess::ConnectionEdit,
+            "RegisterServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SignInServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SignOutServiceLibraryRequest" => RequestAccess::NodeLocal,
+            "SetOnlineLyricsRequest" => RequestAccess::NodeLocal,
             "GetOpenLibraryRequest" => RequestAccess::Control,
             _ => return None,
         })

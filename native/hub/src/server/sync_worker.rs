@@ -9,9 +9,10 @@ use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
 use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
+use crate::service::playback_source_without_binding;
 #[cfg(test)]
 use crate::utils::GlobalParams;
-use crate::utils::service_binding_for_library;
+use crate::utils::{held_service_binding, load_registry, service_binding_for_library};
 use crate::{library_pool::LibraryHandle, node::NodeContext};
 use anyhow::Error;
 use anyhow::{Context, Result, ensure};
@@ -2606,6 +2607,19 @@ impl PlaybackSourceResolver for PairedAudioResolver {
         let node = self.0.clone();
         Box::pin(async move {
             let owner = node.upgrade().context("Node stopped")?;
+            if let Some(binding) = held_service_binding(&owner, item.library_id)? {
+                return binding.playback_source(&item.track).await;
+            }
+            // A service whose platform host plays its tracks by their keys alone needs no
+            // binding, so a queue restored before its library signs in keeps its place.
+            let unbound = load_registry(&owner)?
+                .record(LibraryRecordId(item.library_id))
+                .ok()
+                .and_then(|record| record.protocol.service())
+                .and_then(|service| playback_source_without_binding(service, &item.track));
+            if let Some(source) = unbound {
+                return source;
+            }
             let binding = service_binding_for_library(&owner, item.library_id).await?;
             binding.playback_source(&item.track).await
         })

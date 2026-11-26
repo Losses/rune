@@ -17,7 +17,7 @@ use crate::request_error::classify;
 use crate::service::ServiceFuture;
 
 /// How many entries a group holds, as for a local library.
-const GROUP_LIMIT: usize = 25;
+pub(crate) const GROUP_LIMIT: usize = 25;
 
 /// How long a random group keeps its entries, which lets covers settle.
 const SEED_SECONDS: u64 = 600;
@@ -38,7 +38,7 @@ pub(crate) fn rotating_seed(base: u64) -> u64 {
 
 /// Whether the error says the account may not read the library, as when the service rejects
 /// its sign-in or needs a new one: the caller needs to hear of it.
-fn denies_the_account(error: &Error) -> bool {
+pub(crate) fn denies_the_account(error: &Error) -> bool {
     classify(error) == RequestErrorKind::PermissionDenied
 }
 
@@ -48,6 +48,17 @@ pub(crate) struct HomeItem {
     pub(crate) id: i32,
     pub(crate) name: String,
     pub(crate) cover: Option<String>,
+}
+
+/// A mix, with the queries that list its tracks: one the service recommends, which is its own and
+/// locked, or one of Rune's kept beside them, as [`HomeSource::readonly`] tells.
+#[derive(Clone)]
+pub(crate) struct HomeMix {
+    pub(crate) id: i32,
+    pub(crate) name: String,
+    /// Its covers, each by an id of its own, as a mix's tile turns through several.
+    pub(crate) covers: Vec<(i32, String)>,
+    pub(crate) queries: Vec<MixQuery>,
 }
 
 /// A track as listed, not numbered yet: only the tracks a group shows are.
@@ -69,6 +80,12 @@ pub(crate) trait HomeSource: Send + Sync {
     /// Whether the user can rename and remove the albums, artists or playlists of the type, as
     /// the service's own pages let them.
     fn editable(&self, collection_type: CollectionType) -> bool;
+
+    /// Whether the album, artist, playlist or mix `id` of the type cannot be changed here. By
+    /// default the type tells, but a library may hold some of Rune's beside the service's own.
+    fn readonly(&self, collection_type: CollectionType, _id: i32) -> bool {
+        !self.editable(collection_type)
+    }
 
     /// The `limit` newest albums, artists or playlists, newest first, when the service can list
     /// them so without reading every one. None leaves the home to read every one and reverse
@@ -93,6 +110,12 @@ pub(crate) trait HomeSource: Send + Sync {
     /// The tracks the user likes.
     fn liked(&self) -> ServiceFuture<'_, Vec<HomeTrack>>;
 
+    /// The mixes: Rune's own kept beside the service's, then those the service recommends, in
+    /// its order. A service without either has none.
+    fn mixes(&self) -> ServiceFuture<'_, Vec<HomeMix>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     /// The ids of the tracks, which are numbered if they were not.
     fn number(&self, tracks: Vec<HomeTrack>) -> Result<Vec<HomeItem>>;
 
@@ -102,6 +125,19 @@ pub(crate) trait HomeSource: Send + Sync {
     /// A number that stays the same for a while, so a random group shows the same entries
     /// each time the home is read, and changes now and then. `rotating_seed` makes it.
     fn random_seed(&self) -> u64;
+
+    /// Whether the source holds its sign-in. One that does not yet answers from what it kept,
+    /// so a group that needs the sign-in is empty, as one that fails for any other reason is,
+    /// rather than failing the home.
+    fn holds_sign_in(&self) -> bool {
+        true
+    }
+}
+
+/// Whether a failure to read a group fails the whole home: one that denies an account the
+/// source holds, which the caller needs to hear of.
+fn fails_the_home(source: &dyn HomeSource, error: &Error) -> bool {
+    denies_the_account(error) && source.holds_sign_in()
 }
 
 /// The entries a group shows, taken from `items` as the list mode asks.
@@ -152,16 +188,59 @@ async fn collection_entries(
         ),
     };
     let covers = source.cover_paths(cover_pairs(&items)).await?;
-    let readonly = !source.editable(collection_type);
     Ok(items
         .into_iter()
         .map(|item| ComplexQueryEntry {
             queries: vec![query_of(operator, item.id)],
             cover_art_map: cover_of(&covers, item.id),
+            readonly: source.readonly(collection_type, item.id),
             id: item.id,
             name: item.name,
             collection_type,
-            readonly,
+        })
+        .collect())
+}
+
+/// Entries for the mixes, each opening its own queries. They are an extra: when they cannot be
+/// read, the group is empty and does not count as a failure of the home, unless the account
+/// may not read the library (see `fails_the_home`).
+async fn mix_entries(
+    source: &dyn HomeSource,
+    mode: LibraryHomeListMode,
+) -> Result<Vec<ComplexQueryEntry>> {
+    let mixes = match source.mixes().await {
+        Ok(mixes) => mixes,
+        Err(error) if fails_the_home(source, &error) => return Err(error),
+        Err(error) => {
+            log::warn!("Could not read the mixes: {error:#}");
+            return Ok(Vec::new());
+        }
+    };
+    if mixes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mixes = pick(mixes, mode, source.random_seed(), |mix| &mix.name);
+    let covers = source
+        .cover_paths(
+            mixes
+                .iter()
+                .flat_map(|mix| mix.covers.iter().cloned())
+                .collect(),
+        )
+        .await?;
+    Ok(mixes
+        .into_iter()
+        .map(|mix| ComplexQueryEntry {
+            cover_art_map: mix
+                .covers
+                .iter()
+                .filter_map(|(id, _)| covers.get(id).map(|path| (*id, path.clone())))
+                .collect(),
+            readonly: source.readonly(CollectionType::Mix, mix.id),
+            id: mix.id,
+            name: mix.name,
+            queries: mix.queries,
+            collection_type: CollectionType::Mix,
         })
         .collect())
 }
@@ -242,14 +321,14 @@ async fn group_entries(
         LibraryHomeQuery::Liked => {
             track_entries(source, source.liked().await?, LibraryHomeListMode::Forward).await
         }
-        LibraryHomeQuery::Genres(_) | LibraryHomeQuery::Mixes(_) | LibraryHomeQuery::Most => {
-            Ok(Vec::new())
-        }
+        LibraryHomeQuery::Mixes(mode) => mix_entries(source, mode).await,
+        LibraryHomeQuery::Genres(_) | LibraryHomeQuery::Most => Ok(Vec::new()),
     }
 }
 
-/// Whether a home group asks the service. Genres, mixes and the most played are left empty
-/// without asking it.
+/// Whether a home group's answer tells that the service answered. Genres and the most played are
+/// left empty without asking it, and mixes are an extra that a failure leaves empty (see
+/// `mix_entries`).
 fn asks_the_service(query: LibraryHomeQuery) -> bool {
     !matches!(
         query,
@@ -258,10 +337,11 @@ fn asks_the_service(query: LibraryHomeQuery) -> bool {
 }
 
 /// Answers every group asked for, in order. A group the service cannot answer is empty and
-/// logged. A failure that denies the account fails the whole request, and so does a failure
-/// when no group that asks the service got an answer: the groups that never ask it, such as
-/// mixes, would otherwise hide an unreachable server. An answer with nothing in it still counts,
-/// so an empty library has an empty home.
+/// logged. A failure that denies the account fails the whole request (see `fails_the_home`),
+/// and so does a failure when no group that asks the service got an answer: the groups that
+/// never ask it, such as genres, and the mixes, which are an extra, would otherwise hide an
+/// unreachable server. An answer with nothing in it still counts, so an empty library has an
+/// empty home.
 pub(crate) async fn complex_query(
     source: &dyn HomeSource,
     request: &ComplexQueryRequest,
@@ -269,7 +349,7 @@ pub(crate) async fn complex_query(
     let groups = request.queries.iter().map(|query| async move {
         let (entries, failure) = match group_entries(source, query.query).await {
             Ok(entries) => (entries, None),
-            Err(error) if denies_the_account(&error) => return Err(error),
+            Err(error) if fails_the_home(source, &error) => return Err(error),
             Err(error) => {
                 log::warn!("Could not list the home group {}: {error:#}", query.title);
                 (Vec::new(), Some(error))
@@ -361,8 +441,21 @@ mod tests {
         Unreachable,
     }
 
+    /// What a source's mixes do: there are none, or two, or reading them fails as the variant
+    /// says.
+    #[derive(Clone, Copy)]
+    enum Mixes {
+        None,
+        Answer,
+        SignedOut,
+        Unreachable,
+    }
+
     struct Failing {
         artists: Artists,
+        mixes: Mixes,
+        /// Whether the source holds its sign-in.
+        signed_in: bool,
     }
 
     impl HomeSource for Failing {
@@ -403,16 +496,50 @@ mod tests {
             Box::pin(async { Ok(Vec::new()) })
         }
 
+        fn mixes(&self) -> ServiceFuture<'_, Vec<HomeMix>> {
+            let mixes = self.mixes;
+            Box::pin(async move {
+                let mix = |id: i32, name: &str| HomeMix {
+                    id,
+                    name: name.into(),
+                    covers: vec![(id, format!("cover-{id}"))],
+                    queries: vec![query_of("lib::album", id * 10)],
+                };
+                match mixes {
+                    Mixes::None => Ok(Vec::new()),
+                    Mixes::Answer => Ok(vec![mix(7, "Morning"), mix(8, "Evening")]),
+                    Mixes::SignedOut => Err(ExpectedRequestError::ServiceSignInRequired {
+                        record_id: "record".into(),
+                    }
+                    .into()),
+                    Mixes::Unreachable => Err(anyhow!("the service is unreachable")),
+                }
+            })
+        }
+
         fn number(&self, _: Vec<HomeTrack>) -> Result<Vec<HomeItem>> {
             Ok(Vec::new())
         }
 
-        fn cover_paths(&self, _: Vec<(i32, String)>) -> ServiceFuture<'_, HashMap<i32, String>> {
-            Box::pin(async { Ok(HashMap::new()) })
+        /// Every cover is cached, at a path named after its address.
+        fn cover_paths(
+            &self,
+            covers: Vec<(i32, String)>,
+        ) -> ServiceFuture<'_, HashMap<i32, String>> {
+            Box::pin(async move {
+                Ok(covers
+                    .into_iter()
+                    .map(|(id, url)| (id, format!("/cache/{url}")))
+                    .collect())
+            })
         }
 
         fn random_seed(&self) -> u64 {
             0
+        }
+
+        fn holds_sign_in(&self) -> bool {
+            self.signed_in
         }
     }
 
@@ -438,6 +565,8 @@ mod tests {
         let response = complex_query(
             &Failing {
                 artists: Artists::Answer,
+                mixes: Mixes::None,
+                signed_in: true,
             },
             &asks(),
         )
@@ -453,6 +582,8 @@ mod tests {
         let error = complex_query(
             &Failing {
                 artists: Artists::SignedOut,
+                mixes: Mixes::None,
+                signed_in: true,
             },
             &asks(),
         )
@@ -468,7 +599,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_service_that_answers_no_group_fails_the_request() {
-        // A group that never asks the service, like mixes, does not hide the failure.
+        // The mixes are an extra, which does not count as an answer, so they do not hide the
+        // failure.
         let mut request = asks();
         request.queries.push(ComplexQuery {
             title: "Mixes".into(),
@@ -477,6 +609,8 @@ mod tests {
         let error = complex_query(
             &Failing {
                 artists: Artists::Unreachable,
+                mixes: Mixes::None,
+                signed_in: true,
             },
             &request,
         )
@@ -491,12 +625,152 @@ mod tests {
         let response = complex_query(
             &Failing {
                 artists: Artists::Nothing,
+                mixes: Mixes::None,
+                signed_in: true,
             },
             &asks(),
         )
         .await
         .unwrap();
         assert!(response.result.iter().all(|group| group.entries.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn a_source_not_signed_in_yet_answers_what_it_kept_and_fails_only_when_nothing() {
+        let mut request = asks();
+        request.queries.push(ComplexQuery {
+            title: "Playlists".into(),
+            query: LibraryHomeQuery::Playlists(LibraryHomeListMode::Forward),
+        });
+        // The artists answer from what was kept, and the groups that need the sign-in are
+        // empty.
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::None,
+            signed_in: false,
+        };
+        let response = complex_query(&source, &request).await.unwrap();
+        assert!(response.result[0].entries.is_empty());
+        assert_eq!(response.result[1].entries[0].name, "Artist");
+        // With nothing kept, the home fails with the sign-in it waits for.
+        let source = Failing {
+            artists: Artists::SignedOut,
+            mixes: Mixes::None,
+            signed_in: false,
+        };
+        request.queries.remove(0);
+        let error = complex_query(&source, &request).await.err().unwrap();
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::ServiceSignInRequired { .. })
+        ));
+    }
+
+    fn mixes_only(mode: LibraryHomeListMode) -> ComplexQueryRequest {
+        ComplexQueryRequest {
+            queries: vec![ComplexQuery {
+                title: "Mixes".into(),
+                query: LibraryHomeQuery::Mixes(mode),
+            }],
+            call_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn mixes_are_entries_in_the_order_asked_with_their_covers() {
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::Answer,
+            signed_in: true,
+        };
+        let forward = complex_query(&source, &mixes_only(LibraryHomeListMode::Forward))
+            .await
+            .unwrap();
+        let entries = &forward.result[0].entries;
+        let listed: Vec<_> = entries
+            .iter()
+            .map(|entry| (entry.id, entry.name.as_str()))
+            .collect();
+        assert_eq!(listed, [(7, "Morning"), (8, "Evening")]);
+        for entry in entries {
+            assert_eq!(entry.collection_type, CollectionType::Mix);
+            // The source tells nothing can be changed here.
+            assert!(entry.readonly);
+            assert_eq!(entry.queries[0].operator, "lib::album");
+            assert_eq!(entry.queries[0].parameter, (entry.id * 10).to_string());
+            assert_eq!(
+                entry.cover_art_map,
+                HashMap::from([(entry.id, format!("/cache/cover-{}", entry.id))])
+            );
+        }
+        let reverse = complex_query(&source, &mixes_only(LibraryHomeListMode::Reverse))
+            .await
+            .unwrap();
+        assert_eq!(reverse.result[0].entries[0].name, "Evening");
+    }
+
+    #[tokio::test]
+    async fn a_source_without_mixes_has_an_empty_mixes_group() {
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::None,
+            signed_in: true,
+        };
+        let mut request = mixes_only(LibraryHomeListMode::Forward);
+        request.queries.extend(asks().queries);
+        let response = complex_query(&source, &request).await.unwrap();
+        assert!(response.result[0].entries.is_empty());
+        assert_eq!(response.result[2].entries[0].name, "Artist");
+    }
+
+    #[tokio::test]
+    async fn mixes_that_cannot_be_read_are_empty_and_fail_no_home() {
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::Unreachable,
+            signed_in: true,
+        };
+        let mut request = mixes_only(LibraryHomeListMode::Forward);
+        request.queries.extend(asks().queries);
+        let response = complex_query(&source, &request).await.unwrap();
+        assert_eq!(response.result[0].title, "Mixes");
+        assert!(response.result[0].entries.is_empty());
+        assert_eq!(response.result[2].entries[0].name, "Artist");
+        // They count as no answer of the service, so they hide no failure of the others.
+        let source = Failing {
+            artists: Artists::Unreachable,
+            mixes: Mixes::Unreachable,
+            signed_in: true,
+        };
+        let error = complex_query(&source, &request).await.err().unwrap();
+        assert!(format!("{error:#}").contains("unreachable"));
+    }
+
+    #[tokio::test]
+    async fn a_sign_in_failure_on_the_mixes_fails_the_whole_request_unless_none_is_held() {
+        let mut request = asks();
+        request
+            .queries
+            .extend(mixes_only(LibraryHomeListMode::Forward).queries);
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::SignedOut,
+            signed_in: true,
+        };
+        let error = complex_query(&source, &request).await.err().unwrap();
+        assert!(matches!(
+            error.downcast_ref::<ExpectedRequestError>(),
+            Some(ExpectedRequestError::ServiceSignInRequired { .. })
+        ));
+        // A source that holds no sign-in yet answers what it kept, without the mixes.
+        let source = Failing {
+            artists: Artists::Answer,
+            mixes: Mixes::SignedOut,
+            signed_in: false,
+        };
+        let response = complex_query(&source, &request).await.unwrap();
+        assert_eq!(response.result[1].entries[0].name, "Artist");
+        assert!(response.result[2].entries.is_empty());
     }
 
     #[test]

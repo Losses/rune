@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use database::library_registry::{
-    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode,
+    LibraryRecordId, LibraryRegistry, ProtocolAdapter, RuneForwardMode, ServiceKind,
 };
 use log::warn;
 use uuid::Uuid;
@@ -16,11 +16,14 @@ use crate::{
         ListLibraryRecordsResponse, ListLocalLibrariesRequest, ListLocalLibrariesResponse,
         LocalLibrary, OpenRecord, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
         RemoveLibraryRecordResponse, SetLibraryBackgroundSyncRequest,
-        SetLibraryBackgroundSyncResponse,
+        SetLibraryBackgroundSyncResponse, SetOnlineLyricsRequest, SetOnlineLyricsResponse,
     },
     node::NodeContext,
-    service::folder::delete_service_library_folder,
-    utils::{GlobalParams, ParamsExtractor},
+    service::{
+        folder::{delete_left_service_library_folders, delete_service_library_folder},
+        looks_up_lyrics_online, online_lyrics,
+    },
+    utils::{GlobalParams, ParamsExtractor, held_service_binding},
 };
 
 async fn record_summaries(
@@ -60,6 +63,31 @@ async fn record_summaries(
                     record.record_id.0
                 ),
             }
+        }
+        // A library whose sign-in lives in its binding is signed in only while this device
+        // holds a binding that holds one.
+        if record
+            .protocol
+            .service()
+            .is_some_and(ServiceKind::signs_in_on_this_device)
+        {
+            summary.signed_in = Some(
+                node.services
+                    .held(record.record_id)
+                    .is_some_and(|binding| binding.signed_in()),
+            );
+        }
+        // A library whose lyrics come from online says whether the user allowed it to look them
+        // up, which is kept on this device.
+        if record
+            .protocol
+            .service()
+            .is_some_and(looks_up_lyrics_online)
+        {
+            summary.online_lyrics = Some(online_lyrics::allowed(
+                Path::new(&*node.config_path),
+                record.record_id.0,
+            ));
         }
         match &mut summary.kind {
             LibraryRecordKindSummary::Replica {
@@ -228,17 +256,50 @@ impl Signal for RemoveLibraryRecordRequest {
             // Cancel any active cover downloads before deleting the cache
             node.cancel_cover_downloads_for_library(library_id).await;
         }
+        // A removed service library's binding and sign-in go with it, before what it kept on
+        // this device is deleted. What the user made in Rune stays, unless the request asks for
+        // it to go too.
+        node.services.retire(LibraryRecordId(id)).await;
         // The record is gone, so a folder left behind only takes room: the removal still answers,
         // and the UI hears of it.
         if let Some(library_id) = service_library_id
-            && let Err(error) = delete_service_library_folder(config, library_id).await
+            && let Err(error) =
+                delete_service_library_folder(config, library_id, !request.delete_device_data).await
         {
             warn!("Could not delete the folder of service library {library_id}: {error}");
+        }
+        // A reset also deletes what the user made in Rune in the service libraries removed
+        // before, which outlived their library records.
+        if request.delete_device_data {
+            delete_left_device_data(config).await;
         }
         // The item playing here may belong to the library that went away.
         node.item_capabilities_changed();
         publish_library_records_changed(&node).await?;
         Ok(Some(RemoveLibraryRecordResponse { call_id: None }))
+    }
+}
+
+/// Deletes the records the service libraries removed before left, those of no library the
+/// registry in `config` still holds. What cannot be deleted is only logged, as the removal that
+/// asked for it is done.
+async fn delete_left_device_data(config: &Path) {
+    let registry = match LibraryRegistry::load(config) {
+        Ok(registry) => registry,
+        Err(error) => {
+            warn!("Could not read the library registry to delete the records left: {error:#}");
+            return;
+        }
+    };
+    let known = registry
+        .libraries
+        .iter()
+        .chain(registry.invalid_records().map(|(record, _)| record))
+        .flat_map(|record| [Some(record.record_id.0), record.catalog_library_id()])
+        .flatten()
+        .collect();
+    if let Err(error) = delete_left_service_library_folders(config, known).await {
+        warn!("Could not delete the records removed service libraries left: {error}");
     }
 }
 
@@ -317,6 +378,59 @@ impl Signal for SetLibraryBackgroundSyncRequest {
         .await?;
         publish_library_records_changed(&node).await?;
         Ok(Some(SetLibraryBackgroundSyncResponse { call_id: None }))
+    }
+}
+
+impl ParamsExtractor for SetOnlineLyricsRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for SetOnlineLyricsRequest {
+    type Params = Arc<NodeContext>;
+    type Response = SetOnlineLyricsResponse;
+
+    /// Keeps whether the service library of the record may look its songs' lyrics up online,
+    /// for a library whose lyrics come from there. A binding this device holds for it follows
+    /// at once, and the UI hears what the library's items support now and the records again.
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let record_id = Uuid::parse_str(&request.record_id)
+            .map(LibraryRecordId)
+            .map_err(|error| {
+                ExpectedRequestError::invalid_input(format!("invalid record UUID: {error}"))
+            })?;
+        let config_dir = Path::new(&*node.config_path).to_owned();
+        let registry = LibraryRegistry::load(&config_dir)?;
+        let offered = registry
+            .record(record_id)
+            .ok()
+            .and_then(|record| record.protocol.service())
+            .is_some_and(looks_up_lyrics_online);
+        if !offered {
+            return Err(ExpectedRequestError::invalid_input(
+                "The record is not a library whose lyrics come from online",
+            )
+            .into());
+        }
+        let enabled = request.enabled;
+        tokio::task::spawn_blocking(move || {
+            online_lyrics::set_allowed(&config_dir, record_id.0, enabled)
+        })
+        .await??;
+        if let Some(binding) = held_service_binding(&node, record_id.0)? {
+            binding.set_online_lyrics(enabled);
+        }
+        node.item_capabilities_changed();
+        publish_library_records_changed(&node).await?;
+        Ok(Some(SetOnlineLyricsResponse { call_id: None }))
     }
 }
 

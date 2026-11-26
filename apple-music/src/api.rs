@@ -549,6 +549,31 @@ impl AppleMusicClient {
         Ok(pages.into_iter().flat_map(|page| page.data).collect())
     }
 
+    /// `GET /v1/catalog/{storefront}/songs?ids=...&include=albums`: catalog songs by id with
+    /// their catalog albums, in batches of 300 read [`CATALOG_SONG_READS`] at a time and joined
+    /// in order. Ids the catalog does not know are absent from the result.
+    pub async fn catalog_songs_with_albums(&self, ids: &[String]) -> Result<Vec<Song>> {
+        let storefront = self.storefront().await?;
+        let path = format!("/v1/catalog/{}/songs", segment(&storefront));
+        // Owned targets: closures taking borrowed batches here fail the callers' Send checks.
+        let targets: Vec<String> = ids
+            .chunks(CATALOG_SONGS_BATCH)
+            .map(|chunk| {
+                let q = [("ids", chunk.join(",")), ("include", "albums".to_owned())];
+                target(&path, &q)
+            })
+            .collect();
+        let pages: Vec<Page<Song>> = stream::iter(targets)
+            .map(|target| async move {
+                self.execute_json(Method::GET, &target, None, Auth::Developer)
+                    .await
+            })
+            .buffered(CATALOG_SONG_READS)
+            .try_collect()
+            .await?;
+        Ok(pages.into_iter().flat_map(|page| page.data).collect())
+    }
+
     /// `GET /v1/catalog/{storefront}/albums?ids=...&include=artists`: catalog albums by id with
     /// their catalog artists, in batches of [`CATALOG_ALBUMS_BATCH`], one after the other. Ids
     /// the catalog does not know are absent from the result.

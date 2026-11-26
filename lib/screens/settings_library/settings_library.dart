@@ -4,8 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/apple_music_sign_in.dart';
 import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
+import '../../utils/library_sign_in.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
@@ -25,6 +26,7 @@ import '../../utils/api/request_failure.dart';
 import '../../utils/library_ui/library_ui_state.dart';
 import '../../utils/dialogs/information/error.dart';
 
+import 'utils/show_online_lyrics_dialog.dart';
 import 'utils/show_reset_library_dialog.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
@@ -121,7 +123,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
             LibraryRecordKindSummaryLocal() ||
             LibraryRecordKindSummaryReplica() ||
             LibraryRecordKindSummarySubsonic() ||
-            LibraryRecordKindSummaryOpenDal() => true,
+            LibraryRecordKindSummaryOpenDal() ||
+            LibraryRecordKindSummaryAppleMusic() => true,
             _ => false,
           },
         )
@@ -156,7 +159,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       if (result != true) return;
 
                       for (final record in registry.records.toList()) {
-                        await registry.remove(record.recordId);
+                        await registry.remove(
+                          record.recordId,
+                          deleteDeviceData: true,
+                        );
                       }
                       $$replace("/");
                     },
@@ -250,6 +256,13 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                           // path.
                           LibraryRecordKindSummaryOpenDal(:final endpoint) =>
                             LibraryRowState(null, endpoint),
+                          // An Apple Music library keeps no catalog on this
+                          // device either. Its row says where it plays.
+                          LibraryRecordKindSummaryAppleMusic() =>
+                            LibraryRowState(
+                              null,
+                              appleMusicSubtitleText(S.of(context)),
+                            ),
                           _ => libraryRowState(
                             itemPath,
                             registeredLibraries,
@@ -285,7 +298,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         String fileName = switch (record.kind) {
                           LibraryRecordKindSummaryReplica() ||
                           LibraryRecordKindSummarySubsonic() ||
-                          LibraryRecordKindSummaryOpenDal() => record.alias,
+                          LibraryRecordKindSummaryOpenDal() ||
+                          LibraryRecordKindSummaryAppleMusic() => record.alias,
                           _ => localFolderName(itemPath),
                         };
 
@@ -302,7 +316,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         return ListTile.selectable(
                           title: SettingsTileTitle(
                             icon: switch (record.kind) {
-                              LibraryRecordKindSummarySubsonic() =>
+                              LibraryRecordKindSummarySubsonic() ||
+                              LibraryRecordKindSummaryAppleMusic() =>
                                 Symbols.music_note,
                               LibraryRecordKindSummaryOpenDal() =>
                                 Symbols.cloud,
@@ -319,11 +334,15 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                 Button(
                                   onPressed: whileWorking(() async {
                                     try {
-                                      await openLibraryWithSubsonicRelogin(
+                                      // A sign-in the user was told about
+                                      // and closed leaves them here.
+                                      if (!await openLibraryWithSignIn(
                                         context,
                                         registry,
                                         record.recordId,
-                                      );
+                                      )) {
+                                        return;
+                                      }
                                     } catch (error) {
                                       if (!context.mounted) return;
                                       await showFailedToInitializeLibrary(
@@ -342,6 +361,23 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   }),
                                   child: Text(S.of(context).switchTo),
                                 ),
+                                // A library whose lyrics come from online
+                                // says whether the user allowed it to look
+                                // them up, which the user changes here.
+                                if (record.onlineLyrics
+                                    case final onlineLyrics?)
+                                  Button(
+                                    onPressed: () => showOnlineLyricsDialog(
+                                      context,
+                                      enabled: onlineLyrics,
+                                      onChanged: (enabled) =>
+                                          registry.setOnlineLyrics(
+                                            record.recordId,
+                                            enabled,
+                                          ),
+                                    ),
+                                    child: Text(S.of(context).lyrics),
+                                  ),
                                 Button(
                                   onPressed:
                                       (initializing &&

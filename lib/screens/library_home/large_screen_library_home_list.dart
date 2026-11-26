@@ -31,6 +31,7 @@ const groupTitleLinks = <LibraryHomeDomain, String>{
   LibraryHomeDomain.artists: "artists",
   LibraryHomeDomain.albums: "albums",
   LibraryHomeDomain.playlists: "playlists",
+  LibraryHomeDomain.mixes: "mixes",
   LibraryHomeDomain.tracks: "tracks",
 };
 

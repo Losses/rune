@@ -1,0 +1,126 @@
+{
+  "data": [
+    {
+      "id": "i.lib2",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.lib2",
+      "attributes": {
+        "name": "Second Wind",
+        "albumName": "Dawn Album",
+        "artistName": "Artist One",
+        "trackNumber": 2,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.lib2",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "1002",
+          "reporting": true,
+          "reportingId": "1002"
+        },
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        }
+      }
+    },
+    {
+      "id": "i.pl1",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/i.pl1",
+      "attributes": {
+        "name": "Playlist Only",
+        "albumName": "Side Album",
+        "artistName": "Artist Three",
+        "trackNumber": 7,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.pl1",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "2001",
+          "reporting": true,
+          "reportingId": "2001"
+        },
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/side/{w}x{h}bb.jpg"
+        }
+      }
+    },
+    {
+      "id": "a.1001",
+      "type": "library-songs",
+      "href": "/v1/me/library/songs/a.1001",
+      "attributes": {
+        "name": "First Light",
+        "albumName": "Dawn Album",
+        "artistName": "Artist One",
+        "trackNumber": 1,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "a.1001",
+          "kind": "song",
+          "isLibrary": true,
+          "catalogId": "1001",
+          "reporting": true,
+          "reportingId": "1001"
+        },
+        "artwork": {
+          "width": 1400,
+          "height": 1400,
+          "url": "http://artwork.invalid/dawn/{w}x{h}bb.jpg"
+        }
+      }
+    },
+    {
+      "id": "i.video1",
+      "type": "library-music-videos",
+      "href": "/v1/me/library/music-videos/i.video1",
+      "attributes": {
+        "name": "A Music Video",
+        "albumName": "Clips",
+        "artistName": "Artist One",
+        "trackNumber": 1,
+        "discNumber": 1,
+        "durationInMillis": 200000,
+        "genreNames": [
+          "Pop",
+          "Music"
+        ],
+        "hasLyrics": false,
+        "playParams": {
+          "id": "i.video1",
+          "kind": "musicVideo",
+          "isLibrary": true,
+          "catalogId": "5001",
+          "reporting": true,
+          "reportingId": "5001"
+        }
+      }
+    }
+  ],
+  "meta": {
+    "total": 4
+  }
+}

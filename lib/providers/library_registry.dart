@@ -71,6 +71,14 @@ class LibraryRegistryProvider extends ChangeNotifier {
     registerLocal,
     Future<RegisterLibraryResponse> Function(String fingerprint, String alias)?
     registerRemote,
+    Future<RegisterLibraryResponse> Function(
+      StreamingService service,
+      String alias,
+      ServiceSignIn signIn,
+    )?
+    registerService,
+    Future<void> Function(String recordId, ServiceSignIn signIn)? signInService,
+    Future<void> Function(String recordId, bool enabled)? setOnlineLyrics,
     Future<void> Function(String path)? saveBookmark,
     Future<void> Function()? closeRecord,
     Future<RemoveLibraryRecordResponse> Function(String recordId)? removeRecord,
@@ -80,6 +88,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
        _replaceCredential = replaceCredential,
        _registerLocal = registerLocal,
        _registerRemote = registerRemote,
+       _registerService = registerService,
+       _signInService = signInService,
+       _setOnlineLyrics = setOnlineLyrics,
        _saveBookmark = saveBookmark,
        _closeRecord = closeRecord,
        _removeRecord = removeRecord {
@@ -119,6 +130,14 @@ class LibraryRegistryProvider extends ChangeNotifier {
   _registerLocal;
   final Future<RegisterLibraryResponse> Function(String, String)?
   _registerRemote;
+  final Future<RegisterLibraryResponse> Function(
+    StreamingService,
+    String,
+    ServiceSignIn,
+  )?
+  _registerService;
+  final Future<void> Function(String, ServiceSignIn)? _signInService;
+  final Future<void> Function(String, bool)? _setOnlineLyrics;
   final Future<void> Function(String)? _saveBookmark;
   final Future<void> Function()? _closeRecord;
   final Future<RemoveLibraryRecordResponse> Function(String)? _removeRecord;
@@ -250,6 +269,34 @@ class LibraryRegistryProvider extends ChangeNotifier {
     return _acceptRegisterResponse(response);
   }
 
+  /// Registers the library of a streaming service, signed in with [signIn]. A
+  /// service this device already has keeps its record, which comes back signed
+  /// in again.
+  Future<RegisterLibraryResponse> registerServiceLibrary(
+    StreamingService service,
+    String alias,
+    ServiceSignIn signIn,
+  ) async {
+    final response = _registerService == null
+        ? await library_api.registerServiceLibrary(service, alias, signIn)
+        : await _registerService(service, alias, signIn);
+    return _acceptRegisterResponse(response);
+  }
+
+  /// Signs the streaming service library of [recordId] in with [signIn].
+  Future<void> signInServiceLibrary(String recordId, ServiceSignIn signIn) =>
+      _signInService == null
+      ? library_api.signInServiceLibrary(recordId, signIn)
+      : _signInService(recordId, signIn);
+
+  /// Allows or stops looking the lyrics of the songs of the streaming service
+  /// library of [recordId] up online. The hub tells the new state with the
+  /// records.
+  Future<void> setOnlineLyrics(String recordId, bool enabled) =>
+      _setOnlineLyrics == null
+      ? library_api.setOnlineLyrics(recordId, enabled)
+      : _setOnlineLyrics(recordId, enabled);
+
   Future<RegisterLibraryResponse> _register(
     String request,
     Stream<RustSignalPack<RegisterLibraryResponse>> responses,
@@ -277,7 +324,9 @@ class LibraryRegistryProvider extends ChangeNotifier {
     return response;
   }
 
-  Future<void> remove(String recordId) async {
+  /// Removes the record. With [deleteDeviceData], as a reset does, what the
+  /// library keeps only on this device goes with it too.
+  Future<void> remove(String recordId, {bool deleteDeviceData = false}) async {
     if (_openRecordId == recordId) {
       if (_closeRecord != null) {
         await _closeRecord();
@@ -301,6 +350,7 @@ class LibraryRegistryProvider extends ChangeNotifier {
         send: (callId) => RemoveLibraryRecordRequest(
           recordId: recordId,
           callId: callId,
+          deleteDeviceData: deleteDeviceData,
         ).sendSignalToRust(),
       );
     } else {

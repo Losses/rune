@@ -39,6 +39,7 @@ scrobbling = { path = "../../scrobbling" }
 metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }
 subsonic = { path = "../../subsonic" }
+apple-music = { path = "../../apple-music" }
 lazy_static = "1.5.0"
 log = "0.4.22"
 tracing-subscriber = { version = "0.3.20", features = ["chrono", "registry"] }
@@ -123,6 +124,7 @@ swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
 md5 = "0.7.0"
+apple-music = { path = "../../apple-music", features = ["test-fixtures"] }
 database = { path = "../../database", features = ["test-fixtures"] }
 fsio = { path = "../../fsio", features = ["test-fixtures"] }
 playback = { path = "../../playback", features = ["test-output"] }

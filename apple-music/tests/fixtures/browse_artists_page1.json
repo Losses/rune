@@ -1,0 +1,16 @@
+{
+  "next": "/v1/me/library/artists?offset=1",
+  "data": [
+    {
+      "id": "r.art1",
+      "type": "library-artists",
+      "href": "/v1/me/library/artists/r.art1",
+      "attributes": {
+        "name": "Artist One"
+      }
+    }
+  ],
+  "meta": {
+    "total": 2
+  }
+}

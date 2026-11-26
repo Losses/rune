@@ -1,4 +1,4 @@
-use crate::access_policy::Action;
+use crate::access_policy::{Action, RuneAccessPolicy};
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
@@ -25,7 +25,9 @@ use crate::{
     Session,
     backends::remote::{decode_message, decode_message_with_library_id, encode_message},
     macros::capability_snapshot,
-    messages::{RemoteRequestFailed, RequestCapabilities, RequestCapability},
+    messages::{
+        LibraryTaskStateChanged, RemoteRequestFailed, RequestCapabilities, RequestCapability,
+    },
     node::NodeContext,
     request_error::{FailedCall, classify, request_failure_cause},
     server::{ServerState, sync_auth::AuthenticatedFingerprint},
@@ -74,8 +76,23 @@ fn tailor_capability_message(
     }
 }
 
-fn is_capability_message(message: &[u8]) -> bool {
-    decode_message(message).is_some_and(|(name, _, _)| name == "RequestCapabilities")
+/// Whether a broadcast must not reach a paired device because it tells about a library kept on
+/// this device. Only the task state names its library, by record. Content changes name none:
+/// the bindings of such libraries broadcast to this device's own UI only, so they never get here.
+/// A message that cannot be read is withheld.
+pub(crate) fn withheld_library_event(
+    access_policy: &RuneAccessPolicy,
+    name: &str,
+    payload: &[u8],
+) -> bool {
+    if name != "LibraryTaskStateChanged" {
+        return false;
+    }
+    let Ok(changed) = rinf::deserialize::<LibraryTaskStateChanged>(payload) else {
+        return true;
+    };
+    uuid::Uuid::parse_str(changed.state.record_id())
+        .is_ok_and(|record| access_policy.is_device_only(record))
 }
 
 pub async fn websocket_handler(
@@ -368,7 +385,16 @@ pub async fn handle_socket(
             {
                 continue;
             }
-            let is_capability = is_capability_message(&message);
+            let (is_capability, withheld) = match decode_message(&message) {
+                Some((name, payload, _)) => (
+                    name == "RequestCapabilities",
+                    withheld_library_event(&outgoing_policy, &name, &payload),
+                ),
+                None => (false, false),
+            };
+            if withheld {
+                continue;
+            }
             let Some(node) = outgoing_node.upgrade() else {
                 break;
             };

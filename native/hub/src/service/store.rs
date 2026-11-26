@@ -279,7 +279,7 @@ fn write_atomically(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Makes the folder, readable by its owner only: what it keeps is the user's library. Its parent
 /// is not made.
-fn create_private_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn create_private_dir(dir: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -293,7 +293,7 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Makes a file readable by its owner only.
-fn create_private_file(path: &Path) -> io::Result<fs::File> {
+pub(crate) fn create_private_file(path: &Path) -> io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]

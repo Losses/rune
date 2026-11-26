@@ -24,7 +24,10 @@ import 'utils/display_blank_option.dart';
 import 'utils/l10n.dart';
 import 'utils/api/close_library.dart';
 import 'utils/api/request_failure.dart';
+import 'utils/device_sign_in.dart';
+import 'utils/library_sign_in.dart';
 import 'utils/dialogs/failed_to_initialize_library.dart';
+import 'utils/dialogs/device_sign_in/device_sign_in_dialog.dart';
 import 'utils/remote_connection_messages.dart';
 import 'utils/share_sync_messages.dart';
 import 'utils/router/navigation.dart';
@@ -87,6 +90,7 @@ import 'providers/library_open_state.dart';
 import 'providers/library_registry.dart';
 import 'utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
 import 'utils/hosted_player/hosted_player.dart';
+import 'utils/hosted_player/platform_hosts.dart';
 import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/local_folder_picker.dart';
@@ -288,6 +292,7 @@ void main(List<String> arguments) async {
 
   initialPath = await getInitialPath();
   libraryRegistry = LibraryRegistryProvider();
+  registerPlatformHosts();
   try {
     await libraryRegistry.ready;
   } on Object catch (error) {
@@ -441,11 +446,22 @@ void mainLoop(
         ),
         ChangeNotifierProvider.value(value: libraryRegistry),
         Provider(create: (_) => LocalFolderPickerProvider()),
+        // The hub keeps the sign-ins made on this device in memory only, so
+        // they are made again at every start, before the library open last is
+        // opened again.
+        Provider(
+          lazy: false,
+          create: (context) => DeviceSignIns(
+            context.read<LibraryRegistryProvider>(),
+            methods: platformSignInMethods,
+          )..signInAtStartup(),
+        ),
         ChangeNotifierProvider(
           lazy: false,
           create: (context) => LibraryOpenStateProvider(
             initialPath,
             context.read<LibraryRegistryProvider>(),
+            beforeOpen: context.read<DeviceSignIns>().readyForStartup,
           ),
         ),
         ChangeNotifierProxyProvider<ScreenSizeProvider, ResponsiveProvider>(
@@ -653,6 +669,8 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   StreamSubscription<RustSignalPack<RequestFailedResponse>>?
   _requestFailureSubscription;
   bool _subsonicReloginOpen = false;
+  late final AutomaticDeviceSignIn _automaticSignIn;
+  final _hostSubscriptions = <StreamSubscription<void>>[];
   bool _startupOpenChecked = false;
 
   @override
@@ -660,16 +678,29 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     super.initState();
 
     final registry = context.read<LibraryRegistryProvider>();
+    _automaticSignIn = AutomaticDeviceSignIn(
+      signIns: context.read<DeviceSignIns>(),
+      dialogContext: () =>
+          mounted ? rootNavigatorKey.currentState?.overlay?.context : null,
+      leaveLibrary: () async {
+        if (!mounted) return;
+        await closeLibrary(context);
+        $$replace('/');
+        // The library chooser is there once the current frame is out.
+        await WidgetsBinding.instance.endOfFrame;
+      },
+      showLibrary: () => $$replace(cafeMode ? '/cover_wall' : '/library'),
+    );
     _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
       (signal) {
         final failure = signal.message;
         if (failure.cause
             case RequestFailureCauseServiceSignInRequired(:final recordId)) {
+          // A library whose sign-in lives on this device signs in by itself.
+          if (_automaticSignIn.needsSignIn(recordId)) return;
           if (_subsonicReloginOpen) return;
           final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
-          // A record of another device, as one a renderer plays from, signs in
-          // there.
-          if (!registry.records.any((record) => record.recordId == recordId) ||
+          if (!signsInWithKeptCredential(registry.records, recordId) ||
               dialogContext == null ||
               !mounted ||
               !dialogContext.mounted) {
@@ -701,6 +732,18 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     );
 
     _hostedPlayer = HostedPlayerBridge.attached();
+    for (final MapEntry(key: family, value: host) in platformHosts.entries) {
+      if (host is AuthorizingHost) {
+        _hostSubscriptions.add(
+          host.accessLost.listen((_) => _automaticSignIn.accessLost(family)),
+        );
+      }
+      if (host is NetworkReportingHost) {
+        _hostSubscriptions.add(
+          host.networkBack.listen((_) => _automaticSignIn.networkBack()),
+        );
+      }
+    }
 
     _remoteReconnect = RemoteLibraryReconnectNotice(
       reconnecting: RemoteLibraryReconnecting.rustSignalStream.map(
@@ -822,9 +865,21 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         $$replace('/');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           final rootContext = rootNavigatorKey.currentContext;
-          if (rootContext != null) {
-            showFailedToInitializeLibrary(rootContext, message);
+          if (rootContext == null) return;
+          final recordId = registry.lastOpenRecordId;
+          if (failure is DeviceSignInFailure && recordId != null) {
+            // The sign-in needs the user, who can try it again from here.
+            reopenAfterDeviceSignIn(
+              rootContext,
+              _automaticSignIn.signIns,
+              recordId,
+              failure,
+              showLibrary: () =>
+                  $$replace(cafeMode ? '/cover_wall' : '/library'),
+            );
+            return;
           }
+          showFailedToInitializeLibrary(rootContext, message);
         });
       },
     );
@@ -869,6 +924,9 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _shareSyncNotice.dispose();
     _hostedPlayer.dispose();
     _requestFailureSubscription?.cancel();
+    for (final subscription in _hostSubscriptions) {
+      subscription.cancel();
+    }
     _libraryState?.removeListener(_libraryChanged);
     _remoteReconnect.dispose();
     license.removeListener(_updateLicense);

@@ -23,6 +23,7 @@ use database::{
     },
     connection::MainDbConnection,
     error::ExpectedError,
+    library_registry::LibraryRecordId,
     playing_item::{PlayingItemMetadataSummary, dispatcher::PlayingItemActionDispatcher},
 };
 use discovery::access_policy::{AccessPolicy, PeerIdentity};
@@ -109,6 +110,8 @@ pub struct PlayerSession {
     show_requests: mpsc::UnboundedSender<ShowRequest>,
     /// Wakes the event loop to name the current track again.
     rename_items: Arc<Notify>,
+    /// Wakes the event loop to name the current track and the queue again.
+    rename_queue: Arc<Notify>,
     /// Wakes the event loop to tell the UI again what the current item supports.
     item_capabilities_changed: Arc<Notify>,
     /// Wakes the persistence task when the playback owner changes, so the owner reaches the
@@ -693,8 +696,33 @@ impl PlayerSession {
         (status_after_pending.await, revision)
     }
 
+    /// The tracks of `library_id` in the queue, by the keys they carry.
+    pub(crate) async fn queued_tracks(&self, library_id: Uuid) -> Vec<String> {
+        self.player
+            .lock()
+            .await
+            .get_playlist()
+            .into_iter()
+            .filter_map(|item| match item {
+                PlayingItem::LibraryTrack {
+                    library_id: item_library,
+                    track,
+                } if item_library == library_id => Some(track),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Names the current track and the queue again, for a library that signed in since they
+    /// were last named. The player bar and the queue are sent anew from the event loop, which
+    /// keeps what it found for the track playing.
+    pub(crate) fn rename_queue(&self) {
+        self.rename_queue.notify_one();
+    }
+
     /// Tells the UI anew what the current item supports, for what it depends on that changed
-    /// without a status: the library the UI opened or closed.
+    /// without a status: a service library that signed in or lost its sign-in, or the library
+    /// the UI opened or closed.
     pub(crate) fn item_capabilities_changed(&self) {
         self.item_capabilities_changed.notify_one();
     }
@@ -873,6 +901,7 @@ impl PlayerSession {
             attached_controllers: StdMutex::new(Vec::new()),
             show_requests,
             rename_items: Arc::new(Notify::new()),
+            rename_queue: Arc::new(Notify::new()),
             item_capabilities_changed: Arc::new(Notify::new()),
             playback_owner_changed: Arc::new(Notify::new()),
         });
@@ -941,6 +970,7 @@ impl PlayerSession {
         let cancel = self.cancel.clone();
         let session_id = self.state.lock().await.session_id.to_string();
         let rename_items = self.rename_items.clone();
+        let rename_queue = self.rename_queue.clone();
         let item_capabilities_changed = self.item_capabilities_changed.clone();
         let (persist_status_tx, mut persist_status_rx) = mpsc::channel(32);
         let (persist_playlist_tx, mut persist_playlist_rx) = mpsc::channel(32);
@@ -976,6 +1006,9 @@ impl PlayerSession {
             // again on it.
             let mut last_status: Option<PlayerStatus> = None;
             let mut late_name = false;
+            // The queue the loop handled last, and whether it waits to go out again, named anew.
+            let mut last_playlist: Option<PlaylistStatus> = None;
+            let mut late_queue = false;
             loop {
                 tokio::select! {
                     biased;
@@ -1020,6 +1053,7 @@ impl PlayerSession {
                     }
                     Ok(value) = playlist.recv() => {
                         if persist_playlist_tx.send(value.clone()).await.is_err() { return; }
+                        last_playlist = Some(value.clone());
                         if let Some(node) = weak.upgrade() {
                             // The player stamped the snapshot with the revision of the edit that
                             // produced it, where the edit was applied, so the queue and the
@@ -1068,6 +1102,14 @@ impl PlayerSession {
                             handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                         }
                     }
+                    // The queue goes out again the same way, as handled last, once no report waits.
+                    _ = ready(()), if late_queue => {
+                        late_queue = false;
+                        let Some(node) = weak.upgrade() else { return };
+                        if let Some(playlist) = last_playlist.clone() {
+                            handle_playlist_event(&node, playlist, broadcaster.as_ref(), &session_id).await;
+                        }
+                    }
                     Ok(value) = fft.recv() => broadcaster.broadcast(&RealtimeFFT { value }),
                     Ok(detail) = crash.recv() => broadcaster.broadcast(&CrashResponse { detail }),
                     Ok(error) = logs.recv() => {
@@ -1083,6 +1125,13 @@ impl PlayerSession {
                     // waits: the queue names its tracks as it is read, and reading it again would
                     // ask the service about every queued track.
                     _ = rename_items.notified() => late_name = true,
+                    // A library signed in, and the tracks of it in the queue were read together
+                    // first. The queue goes out again too, its rows of the library named from what
+                    // the library's binding holds now, without a request each.
+                    _ = rename_queue.notified() => {
+                        late_name = true;
+                        late_queue = true;
+                    }
                     _ = item_capabilities_changed.notified() => {
                         let Some(node) = weak.upgrade() else { return };
                         item_capabilities::changed(&node, &mut item_state, broadcaster.as_ref()).await;
@@ -1610,7 +1659,7 @@ async fn name_late_track(
     };
     item_state.metadata = metadata;
     item_state.metadata_found = true;
-    item_state.now_playing_pending = now_playing;
+    item_state.now_playing_pending = now_playing && scrobbled_here(item_state.library.as_ref());
     if let Some(late_covers) = &item_state.late_covers {
         fetch_late_cover(&binding, &item, track, late_covers);
     }
@@ -1691,7 +1740,8 @@ async fn handle_status_event(
                 item_state.metadata = metadata;
                 item_state.cover = cover;
                 item_state.metadata_found = true;
-                item_state.now_playing_pending = now_playing.is_some();
+                item_state.now_playing_pending =
+                    now_playing.is_some() && scrobbled_here(item_state.library.as_ref());
             }
         }
         playing_cover_changed(node, value.item.as_ref(), item_state.cover.as_deref());
@@ -1933,6 +1983,15 @@ async fn handle_playlist_event(
     send_playlist(node, &value, broadcaster, session_id).await;
 }
 
+/// Whether Rune's own scrobblers hear of the track of `library`: not when the library's service
+/// counts the plays of its tracks itself.
+fn scrobbled_here(library: Option<&ResolvedLibrary>) -> bool {
+    !matches!(
+        library.map(|library| &library.implementation),
+        Some(Implementation::Service(binding)) if binding.service().counts_its_own_plays()
+    )
+}
+
 async fn handle_played_event(
     node: &NodeContext,
     played: PlayedThrough,
@@ -2111,9 +2170,18 @@ async fn send_playlist(
     let dispatcher = PlayingItemActionDispatcher::new();
     let mut metadata = HashMap::<PlayingItem, PlayingItemMetadataSummary>::new();
     for entry in &playlist.items {
-        if matches!(entry.item, PlayingItem::LibraryTrack { .. })
-            && let Ok((summary, _)) = library_item_metadata(node, &entry.item, false).await
-        {
+        let PlayingItem::LibraryTrack { library_id, track } = &entry.item else {
+            continue;
+        };
+        // A service library whose binding this device keeps names its rows from what the
+        // binding holds, without a request each.
+        if let Some(binding) = node.services.held(LibraryRecordId(*library_id)) {
+            if let Some(summary) = binding.cached_summary(track) {
+                metadata.insert(entry.item.clone(), summary);
+            }
+            continue;
+        }
+        if let Ok((summary, _)) = library_item_metadata(node, &entry.item, false).await {
             metadata.insert(entry.item.clone(), summary);
         }
     }
@@ -2389,6 +2457,78 @@ mod system_now_playing_tests {
             ]),
             [NOTHING, PROGRESS]
         );
+    }
+}
+
+#[cfg(test)]
+mod scrobbled_here_tests {
+    use std::sync::Arc;
+
+    use database::library_registry::ServiceKind;
+    use database::playing_item::PlayingItemMetadataSummary;
+    use playback::player::ServiceTarget;
+    use uuid::Uuid;
+
+    use super::{ResolvedLibrary, scrobbled_here};
+    use crate::macros::{RequestSlots, RequestTranslator};
+    use crate::request_owner::Implementation;
+    use crate::service::{ServiceBinding, ServiceFuture};
+
+    /// A binding of a library of the service that answers nothing.
+    struct Bound(ServiceKind);
+
+    impl RequestTranslator for Bound {}
+
+    impl ServiceBinding for Bound {
+        fn library_id(&self) -> Uuid {
+            Uuid::nil()
+        }
+
+        fn slots(&self) -> RequestSlots {
+            RequestSlots::unimplemented()
+        }
+
+        fn service(&self) -> ServiceKind {
+            self.0
+        }
+
+        fn item_metadata<'a>(
+            &'a self,
+            _track: &'a str,
+            _with_cover: bool,
+        ) -> ServiceFuture<'a, (PlayingItemMetadataSummary, Option<String>)> {
+            Box::pin(async { anyhow::bail!("no metadata") })
+        }
+
+        fn visualizer_covers<'a>(
+            &'a self,
+            _track: &'a str,
+        ) -> ServiceFuture<'a, (Option<String>, Vec<String>)> {
+            Box::pin(async { anyhow::bail!("no covers") })
+        }
+
+        fn playback_source<'a>(&'a self, _track: &'a str) -> ServiceFuture<'a, ServiceTarget> {
+            Box::pin(async { anyhow::bail!("no playback") })
+        }
+    }
+
+    fn resolved(implementation: Implementation) -> ResolvedLibrary {
+        ResolvedLibrary {
+            library_id: Uuid::nil(),
+            fsio: None,
+            media_root: String::new(),
+            implementation,
+        }
+    }
+
+    #[test]
+    fn rune_scrobblers_leave_the_tracks_of_a_service_that_counts_its_plays_to_it() {
+        let service = |kind| resolved(Implementation::Service(Arc::new(Bound(kind))));
+        assert!(!scrobbled_here(Some(&service(ServiceKind::AppleMusic))));
+        // A Subsonic track goes to Rune's scrobblers as before, and so does a local one.
+        assert!(scrobbled_here(Some(&service(ServiceKind::Subsonic))));
+        assert!(scrobbled_here(Some(&resolved(Implementation::Local))));
+        assert!(scrobbled_here(None));
     }
 }
 

@@ -178,6 +178,26 @@ mod node_request_loop_tests {
             TestLibraryInitializedResponse
         );
         error_handler!(
+            handle_register_service_library_request,
+            RegisterServiceLibraryRequest,
+            RegisterLibraryResponse
+        );
+        error_handler!(
+            handle_sign_in_service_library_request,
+            SignInServiceLibraryRequest,
+            SignInServiceLibraryResponse
+        );
+        error_handler!(
+            handle_sign_out_service_library_request,
+            SignOutServiceLibraryRequest,
+            SignOutServiceLibraryResponse
+        );
+        error_handler!(
+            handle_set_online_lyrics_request,
+            SetOnlineLyricsRequest,
+            SetOnlineLyricsResponse
+        );
+        error_handler!(
             handle_set_mix_with_others_request,
             SetMixWithOthersRequest,
             ()
@@ -468,6 +488,10 @@ mod node_request_loop_tests {
         let (_detect_share_tx, detect_share_rx) = signal_channel();
         let (open_tx, open_rx) = signal_channel();
         let (_get_open_library_tx, get_open_library_rx) = signal_channel();
+        let (_register_service_tx, register_service_rx) = signal_channel();
+        let (_sign_in_service_tx, sign_in_service_rx) = signal_channel();
+        let (_sign_out_service_tx, sign_out_service_rx) = signal_channel();
+        let (_online_lyrics_tx, online_lyrics_rx) = signal_channel();
         let (output_tx, mut output_rx) = mpsc::unbounded_channel();
         let emit = move |signal: &dyn RinfRustSignal| {
             output_tx
@@ -532,6 +556,10 @@ mod node_request_loop_tests {
                 detect_open_dal_share_data_request_receiver: detect_share_rx,
                 open_library_request_receiver: open_rx,
                 get_open_library_request_receiver: get_open_library_rx,
+                register_service_library_request_receiver: register_service_rx,
+                sign_in_service_library_request_receiver: sign_in_service_rx,
+                sign_out_service_library_request_receiver: sign_out_service_rx,
+                set_online_lyrics_request_receiver: online_lyrics_rx,
             },
         ));
 
@@ -1026,6 +1054,7 @@ mod node_request_loop_tests {
             message: RemoveLibraryRecordRequest {
                 call_id: None,
                 record_id: "invalid".into(),
+                delete_device_data: false,
             },
             binary: Vec::new(),
         });

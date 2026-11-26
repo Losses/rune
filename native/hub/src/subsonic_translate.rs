@@ -1870,6 +1870,7 @@ pub(crate) async fn fetch_collection_group_summary_request(
             .into_iter()
             .map(|(group_title, count)| CollectionGroupSummary { group_title, count })
             .collect(),
+        reserved_groups: Vec::new(),
     }))
 }
 
@@ -3497,6 +3498,7 @@ mod tests {
                 query_str: "song".into(),
                 fields: vec![SearchField::Track],
                 n: 10,
+                refresh: false,
             },
         )
         .await
@@ -3579,6 +3581,7 @@ mod tests {
                 query_str: "song".into(),
                 fields: vec![SearchField::Track],
                 n: 10,
+                refresh: false,
             },
         )
         .await
@@ -4312,6 +4315,7 @@ mod tests {
             query_str: query_str.into(),
             fields,
             n,
+            refresh: false,
         };
 
         let everything = search_for_request(&binding, &search("ROA*", Vec::new(), 10))
