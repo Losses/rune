@@ -1319,6 +1319,44 @@ async fn a_library_page_is_titled_in_the_language_or_not_at_all_and_never_mixed(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_section_titles_are_read_again_after_a_sign_out_and_a_sign_in() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(dir.path(), kinds()).await?;
+    let artist = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    wait_synced(&apple, &KINDS_ALBUMS).await?;
+    keep_views(&apple, &ARTIST_ONE_VIEWS, now(&apple)).await;
+    let library_page = [
+        (ArtistSectionKind::Albums, 1),
+        (ArtistSectionKind::Singles, 2),
+        (ArtistSectionKind::Compilations, 1),
+    ];
+    let page = wait_titled(&apple, artist, "en").await?;
+    assert_eq!(section_counts(&page), library_page);
+    let read = apple.fake.count_containing("&l=en-GB");
+    assert!(read >= 1);
+
+    // The sign-out forgets the titles with the rest.
+    apple.binding.sign_out();
+    assert!(classes(&apple).await.titles_for("en").is_none());
+    apple
+        .binding
+        .sign_in(Tokens::new(DEVELOPER_TOKEN, USER_TOKEN).context("tokens")?);
+    // Signed in again, the list, the facts and the views come as before, and the library's
+    // page of the artist reads the titles again.
+    wait_until("the artist to be listed by its catalog artist", || async {
+        let listed = all_artists(&apple).await?;
+        Ok((artist_named(&listed, "Artist One")? == artist).then_some(()))
+    })
+    .await?;
+    wait_synced(&apple, &KINDS_ALBUMS).await?;
+    keep_views(&apple, &ARTIST_ONE_VIEWS, now(&apple)).await;
+    let page = wait_titled(&apple, artist, "en").await?;
+    assert_eq!(section_counts(&page), library_page);
+    assert!(apple.fake.count_containing("&l=en-GB") > read);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_held_album_the_catalog_does_not_know_goes_into_the_albums() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple_with(dir.path(), lost_tape()).await?;

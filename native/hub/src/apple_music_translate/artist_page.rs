@@ -778,8 +778,9 @@ fn arranged(
 /// Reads the titles of the sections in the client's `language` in the background, from the
 /// pages of `artists` (catalog ids) until every section has one, when the storefront supports
 /// the language, and keeps them with the storefront's languages. The lists reload once if
-/// that changed what pages show. It asks once per language and first artist, and a failed
-/// read is only logged, so the next page asks again.
+/// that changed what pages show. It asks once per language and first artist under a sign-in,
+/// whose sign-out forgets the titles, and a failed read is only logged, so the next page asks
+/// again.
 fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Vec<String>) {
     let Some(first) = artists.first() else {
         return;
@@ -790,7 +791,7 @@ fn titles_in_background(binding: &AppleMusicBinding, language: &str, artists: Ve
     let Some(binding) = binding.strong() else {
         return;
     };
-    let key = format!("titles:{language}:{first}");
+    let key = format!("titles:{}:{language}:{first}", binding.classes.generation());
     if binding.classes.claim(vec![key.clone()]).is_empty() {
         return;
     }
