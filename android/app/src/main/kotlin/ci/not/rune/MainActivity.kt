@@ -17,6 +17,7 @@ import kotlin.concurrent.thread
 class MainActivity: FlutterActivity() {
     private var popChannel: MethodChannel? = null
     private var sceneChannel: MethodChannel? = null
+    private var systemVolume: SystemVolume? = null
 
     // Scene file paths received before Dart called takePending.
     private val pendingSceneFiles = mutableListOf<String>()
@@ -47,6 +48,11 @@ class MainActivity: FlutterActivity() {
         }
         popChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ci.not.rune/pop")
 
+        // The system volume, which Rune's volume control stands for while a platform host plays.
+        systemVolume = SystemVolume(applicationContext).also {
+            it.attach(flutterEngine.dartExecutor.binaryMessenger)
+        }
+
         // Scene files: paths queue until Dart has called takePending once, then they are sent
         // with "open".
         sceneChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ci.not.rune/scene_files")
@@ -65,6 +71,12 @@ class MainActivity: FlutterActivity() {
         }
         // The file that launched the app.
         handleSceneIntent(intent)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        systemVolume?.detach()
+        systemVolume = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onNewIntent(intent: Intent) {

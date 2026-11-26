@@ -175,6 +175,24 @@ void main() {
     },
   );
 
+  test(
+    'Android sets the system volume with the slider, without a view',
+    () async {
+      final rig = _Rig(platform: TargetPlatform.android);
+      addTearDown(rig.dispose);
+      await rig.host('host');
+      expect(rig.provider.usesSystemVolume, isTrue);
+      expect(rig.provider.showsSystemVolumeView, isFalse);
+      expect(rig.provider.adjustable, isTrue);
+      expect(rig.provider.volume, 0.4);
+
+      rig.provider.updateVolume(0.8);
+      await rig.pump();
+      expect(rig.system.setCalls, [0.8]);
+      expect(rig.sent, isEmpty);
+    },
+  );
+
   test('starts in system mode when the host already plays', () async {
     final system = _FakeSystemVolume();
     final provider = VolumeProvider(
@@ -314,11 +332,7 @@ void main() {
   );
 
   test('other platforms never use the system volume', () async {
-    for (final platform in [
-      TargetPlatform.windows,
-      TargetPlatform.linux,
-      TargetPlatform.android,
-    ]) {
+    for (final platform in [TargetPlatform.windows, TargetPlatform.linux]) {
       final rig = _Rig(platform: platform);
       await rig.host('host');
       expect(rig.provider.usesSystemVolume, isFalse, reason: platform.name);

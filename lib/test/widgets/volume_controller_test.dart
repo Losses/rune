@@ -84,4 +84,21 @@ void main() {
     expect(provider.usesSystemVolume, isTrue);
     debugDefaultTargetPlatformOverride = null;
   });
+
+  testWidgets(
+    'the slider stays on Android while hosted, and drives the system',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final provider = await _pump(
+        tester,
+        hosted: true,
+        platform: TargetPlatform.android,
+      );
+      expect(find.byType(UiKitView), findsNothing);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(provider.usesSystemVolume, isTrue);
+      expect(provider.adjustable, isTrue);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 }

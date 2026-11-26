@@ -95,7 +95,7 @@ class VolumeProvider with ChangeNotifier {
   int _userVolumeGeneration = 0;
 
   /// [platform] is the one Rune runs on. [systemVolume] and [hosted] default to the runner's
-  /// and the hub's, and the system volume applies on macOS and iOS only.
+  /// and the hub's, and the system volume applies on macOS, iOS and Android only.
   VolumeProvider({
     Future<double?> Function()? readStoredVolume,
     Future<void> Function(double volume)? writeStoredVolume,
@@ -135,7 +135,9 @@ class VolumeProvider with ChangeNotifier {
 
   static bool _systemVolumeOn(TargetPlatform platform) =>
       !kIsWeb &&
-      (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS);
+      (platform == TargetPlatform.iOS ||
+          platform == TargetPlatform.macOS ||
+          platform == TargetPlatform.android);
 
   void _updateMode() {
     final systemMode =
