@@ -932,6 +932,7 @@ mod lifecycle_tests {
     use reqwest::StatusCode;
     use reqwest::header;
     use std::fs;
+    use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::net::TcpListener;
@@ -1146,6 +1147,46 @@ mod lifecycle_tests {
         .await?;
         anyhow::ensure!(opened.record_id == record_id, "opened another record");
         node.current_ui().await
+    }
+
+    /// How a connection to a bound socket that never listens ends. Linux and Windows refuse it.
+    /// macOS answers it with nothing, so the attempt ends when the kernel gives up.
+    #[cfg(not(target_os = "macos"))]
+    const UNSERVED_CONNECTION: ErrorKind = ErrorKind::ConnectionRefused;
+    #[cfg(target_os = "macos")]
+    const UNSERVED_CONNECTION: ErrorKind = ErrorKind::TimedOut;
+
+    /// The error of a connection to `addr`, which nothing serves (see [`UNSERVED_CONNECTION`]).
+    async fn connect_to_unserved(addr: SocketAddr) -> Result<io::Error> {
+        let socket = TcpSocket::new_v4()?;
+        // The kernel gives up after 75 seconds unless the socket says otherwise.
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd;
+
+            /// `TCP_CONNECTIONTIMEOUT` of `<netinet/tcp.h>`, which the libc crate does not have:
+            /// the seconds after which a connection attempt is given up.
+            const TCP_CONNECTIONTIMEOUT: libc::c_int = 0x20;
+            let seconds: libc::c_int = 1;
+            // SAFETY: the descriptor is that of `socket`, which is open, and the option reads
+            // a `c_int` of the size given.
+            let set = unsafe {
+                libc::setsockopt(
+                    socket.as_raw_fd(),
+                    libc::IPPROTO_TCP,
+                    TCP_CONNECTIONTIMEOUT,
+                    (&raw const seconds).cast(),
+                    size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            if set != 0 {
+                return Err(io::Error::last_os_error()).context("limit the connection attempt");
+            }
+        }
+        match socket.connect(addr).await {
+            Ok(_) => anyhow::bail!("{addr} unexpectedly accepted a connection"),
+            Err(error) => Ok(error),
+        }
     }
 
     async fn peer_step<T>(
@@ -6844,7 +6885,7 @@ mod lifecycle_tests {
         )
         .await?;
         let a_addr = a.get_address().await.context("first server address")?;
-        // A bound socket that has not called listen refuses connections and
+        // A bound socket that has not called listen serves no connection and
         // keeps another fixture from claiming the offline peer's port.
         let offline_socket = TcpSocket::new_v4()?;
         offline_socket.bind(([127, 0, 0, 1], 0).into())?;
@@ -6855,11 +6896,8 @@ mod lifecycle_tests {
         )
         .await?;
         assert_eq!(
-            TcpStream::connect(offline_addr)
-                .await
-                .expect_err("offline peer unexpectedly accepted a connection")
-                .kind(),
-            ErrorKind::ConnectionRefused
+            connect_to_unserved(offline_addr).await?.kind(),
+            UNSERVED_CONNECTION
         );
         peer_step(
             "start second server",
