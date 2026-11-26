@@ -938,8 +938,8 @@ final class MusicKitPlayback {
     #endif
   }
 
-  /// Runs the periodic check while the host holds entries. The common modes keep the timer
-  /// running during window resizes, open menus and scrolling.
+  /// Runs the periodic check while the host holds entries and its queue has not ended. The
+  /// common modes keep the timer running during window resizes, open menus and scrolling.
   private func startTimer() {
     guard timer == nil else { return }
     let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -1189,8 +1189,8 @@ final class MusicKitPlayback {
     for id in ids {
       let entry = Entry(id: id)
       entries.append(entry)
-      startTimer()
       if !ended {
+        startTimer()
         lookUp(entry, epoch: epoch)
       }
     }
@@ -1296,11 +1296,12 @@ final class MusicKitPlayback {
   }
 
   private func start(epoch: Int, deadline: ContinuousClock.Instant) async {
+    // After the end nothing plays until the next `set`, so nothing is held for it either.
+    guard !ended else { return }
     wantPlaying = true
     // An entry that played out is not started again: MusicKit, or the host, moves on from it
     // and plays on.
-    guard !ended, stalledSince == nil, !advancing, let entry = currentEntry, entry.queued,
-      !entry.failed
+    guard stalledSince == nil, !advancing, let entry = currentEntry, entry.queued, !entry.failed
     else { return }
     if !isPlaying {
       sawPlaying = false
@@ -1550,6 +1551,7 @@ final class MusicKitPlayback {
     }
     guard let song = next.song, !next.failed else {
       finish()
+      sendStatus()
       return
     }
     // Nothing plays any more, so a fresh queue costs no gap.
@@ -1947,12 +1949,19 @@ final class MusicKitPlayback {
     }
   }
 
-  /// The last entry finished, and nothing playable follows it.
+  /// The last entry finished, and nothing playable follows it, which is reported. The entry
+  /// stays current where it ended, for the status that the caller sends. Until the next `set`
+  /// nothing plays, so neither the periodic check nor, on macOS, the activity is kept.
   private func finish() {
     ended = true
     stalledSince = nil
+    wantPlaying = false
+    stopTimer()
+    #if os(iOS)
+      // Nothing more goes to MusicKit, and the periodic check no longer lets the app go.
+      releaseHoldIfSettled()
+    #endif
     sendEnded()
-    sendStatus()
   }
 
   // MARK: - Catching up after a suspension
@@ -2015,8 +2024,7 @@ final class MusicKitPlayback {
       stalledSince = .now
       advanceByHand(to: next)
     } else {
-      ended = true
-      sendEnded()
+      finish()
     }
   }
 
