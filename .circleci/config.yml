@@ -146,7 +146,7 @@ jobs:
             nix --extra-experimental-features "nix-command flakes" develop . --command bash ./android/build.sh
 
       - run:
-          name: Verify network permission in release APKs
+          name: Verify permissions in release APKs
           command: |
             nix --extra-experimental-features "nix-command flakes" develop . --command bash android/tests/release-permissions.sh build/app/outputs/flutter-apk/*-release.apk
 
