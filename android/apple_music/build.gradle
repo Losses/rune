@@ -1,0 +1,81 @@
+// Apple Music through Apple's MusicKit for Android. This module holds the host and is the only
+// code that refers to the SDK. It is only part of a build that is given the folder holding the
+// SDK's AARs (see settings.gradle), which are used from there and never copied into the
+// repository: Apple's licence does not let them be redistributed.
+//
+// The developer token is read from the file that the Gradle property `runeAppleMusicTokenFile`
+// (or the environment variable `ORG_GRADLE_PROJECT_runeAppleMusicTokenFile`) names, and compiled
+// into BuildConfig. Without it the host reports that it cannot play.
+plugins {
+    id "com.android.library"
+    id "kotlin-android"
+}
+
+def sdkDir = file(providers.gradleProperty("runeAppleMusicSdkDir").get())
+def sdkArchives = ["MediaPlayback-release-1.1.4.aar", "MusicKitAuth-release-1.1.5.aar"].collect {
+    def archive = new File(sdkDir, it)
+    if (!archive.isFile()) {
+        throw new GradleException("runeAppleMusicSdkDir has no $it")
+    }
+    archive
+}
+
+def developerToken = ""
+def tokenPath = providers.gradleProperty("runeAppleMusicTokenFile").getOrNull()
+if (tokenPath != null) {
+    def tokenFile = file(tokenPath)
+    if (!tokenFile.isFile()) {
+        throw new GradleException("runeAppleMusicTokenFile names no file")
+    }
+    developerToken = tokenFile.text.trim()
+    // A JWT is base64url text in three parts. Anything else would not survive as a Java string
+    // literal, and its text is never printed.
+    if (!(developerToken ==~ /[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/)) {
+        throw new GradleException("runeAppleMusicTokenFile does not hold a JWT")
+    }
+}
+
+android {
+    namespace = "ci.not.rune.applemusic"
+    compileSdk = rootProject.project(":app").android.compileSdk
+
+    defaultConfig {
+        minSdk = rootProject.project(":app").android.defaultConfig.minSdk
+        consumerProguardFiles "consumer-rules.pro"
+        buildConfigField "String", "DEVELOPER_TOKEN", "\"$developerToken\""
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+// The module only serves the app in this build. `flutter build` assembles every project, but an
+// AAR of this one could not hold the SDK's AARs, and none is made.
+tasks.configureEach { task ->
+    if (task.name ==~ /bundle\w*Aar/) {
+        task.enabled = false
+    }
+}
+
+dependencies {
+    implementation files(sdkArchives)
+    // The AARs declare no dependencies. These are what their classes use: AppCompat for the
+    // sign-in screens, Gson and coroutines for the player.
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "com.google.code.gson:gson:2.10.1"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+
+    testImplementation "junit:junit:4.12"
+    // The JVM tests run without Android, whose org.json is only a stub there.
+    testImplementation "org.json:json:20180813"
+}

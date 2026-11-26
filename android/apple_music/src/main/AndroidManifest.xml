@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The host tells the hub whether the device is online. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Sign-in goes through the Apple Music app, which the host looks for first. -->
+    <queries>
+        <package android:name="com.apple.android.music"/>
+    </queries>
+</manifest>
