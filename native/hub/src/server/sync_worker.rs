@@ -562,7 +562,7 @@ async fn run_share_worker(
             let operation = async {
                 let Some(library) = global
                     .library_pool
-                    .acquire_served(id)
+                    .acquire_served_background(id)
                     .await
                     .map_err(|_| ShareSyncFailure::StoreUnavailable)?
                 else {
@@ -699,7 +699,7 @@ async fn flush_share_worker(
         let Some(session) = sessions.get(&id) else {
             continue;
         };
-        let Ok(Some(library)) = global.library_pool.acquire_served(id).await else {
+        let Ok(Some(library)) = global.library_pool.acquire_served_background(id).await else {
             continue;
         };
         if !matches!(library.descriptor.catalog, CatalogPlacement::InShare(_)) {
