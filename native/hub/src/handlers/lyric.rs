@@ -140,7 +140,7 @@ async fn load_lyric_lines(
             }
         }
 
-        match parse_audio_lyrics(worker_path) {
+        match parse_audio_lyrics(&worker_fsio, worker_path) {
             Some(Ok(x)) => Ok(Some(x)),
             Some(Err(err)) => Err(err.context("Unable to parse sidecar lyric")),
             None => Ok(None),

@@ -4438,6 +4438,7 @@ dependencies = [
  "anyhow",
  "chardetng",
  "encoding_rs",
+ "fsio",
  "log",
  "once_cell",
  "regex",
