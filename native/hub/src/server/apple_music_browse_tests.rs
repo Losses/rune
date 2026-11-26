@@ -1887,6 +1887,30 @@ async fn apple_music_home_lists_its_groups_and_leaves_the_rest_empty() -> Result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_tracks_page_asks_apple_for_the_songs_when_online() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let read = apple.fake.count("/v1/me/library/songs");
+    let resolved = apple
+        .run(&ResolveMixQueryRequest {
+            queries: vec![MixQuery {
+                operator: "lib::all".into(),
+                parameter: "true".into(),
+            }],
+            hint_position: 0,
+            initial_playback_item: Some(song_ref(&apple, "i.s2")),
+            instantly_play: true,
+            fallback_playing_items: Vec::new(),
+            excluded: ExcludedItems::default(),
+            call_id: None,
+        })
+        .await?;
+    assert_eq!(resolved.start_index, Some(1));
+    assert!(apple.fake.count("/v1/me/library/songs") > read);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn apple_music_takes_the_queries_the_tracks_and_album_pages_send() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
@@ -3617,6 +3641,29 @@ async fn an_apple_library_opens_offline_from_what_it_kept_and_waits_for_its_sign
     }
     let (summary, _) = binding.item_metadata("i.s2", false).await?;
     assert_eq!(summary.title, "Second Wind");
+    assert_eq!(restarted.fake.total(), asked);
+
+    // The Tracks page resolves the song it shows as playable from the same kept list.
+    let tracks_page = ResolveMixQueryRequest {
+        queries: vec![MixQuery {
+            operator: "lib::all".into(),
+            parameter: "true".into(),
+        }],
+        hint_position: 0,
+        initial_playback_item: Some(PlayingItemRef::LibraryTrack {
+            library_id: restarted.record.0.to_string(),
+            track: "i.s2".into(),
+        }),
+        instantly_play: true,
+        fallback_playing_items: Vec::new(),
+        excluded: ExcludedItems::default(),
+        call_id: None,
+    };
+    let resolved = dispatch_gui_request(&ui, &tracks_page)
+        .await?
+        .context("the Tracks page offline")?;
+    assert_eq!(resolved.start_index, Some(1));
+    assert_eq!(resolved.playing_items.len(), 3);
     assert_eq!(restarted.fake.total(), asked);
 
     // A read that needs Apple fails as every request does offline.

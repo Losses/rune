@@ -1804,7 +1804,18 @@ impl MixSource for AppleMusicBinding {
 
     fn all_tracks(&self, limit: usize) -> ServiceFuture<'_, Vec<String>> {
         Box::pin(async move {
-            let list = self.current_songs().await?;
+            let list = match self.current_songs().await {
+                Ok(list) => list,
+                // Without a way to reach Apple or a sign-in, the Tracks page lists the kept
+                // songs, so the songs it shows as playable resolve from the same list.
+                Err(error) => match error.downcast_ref::<ExpectedRequestError>() {
+                    Some(
+                        ExpectedRequestError::Unavailable { .. }
+                        | ExpectedRequestError::ServiceSignInRequired { .. },
+                    ) => self.kept_songs().await.ok_or(error)?,
+                    _ => return Err(error),
+                },
+            };
             Ok(list
                 .entries()
                 .take(limit)
