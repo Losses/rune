@@ -669,7 +669,7 @@ impl AppleFake {
                     "top-songs": page("top-songs", &["ci.s1", "3001"], true, Some(2)),
                 },
             }]})),
-            "310/view/full-albums" => Some(page(
+            "310/view/full-albums" if offset == Some(2) => Some(page(
                 "full-albums",
                 &["2003"],
                 false,
@@ -678,7 +678,9 @@ impl AppleFake {
             "310/view/top-songs" if offset == Some(2) => {
                 Some(page("top-songs", &["3002", "3003"], true, Some(4)))
             }
-            "310/view/top-songs" => Some(page("top-songs", &["3004"], true, looping.then_some(4))),
+            "310/view/top-songs" if offset == Some(4) => {
+                Some(page("top-songs", &["3004"], true, looping.then_some(4)))
+            }
             _ => None,
         }
     }
@@ -772,8 +774,12 @@ impl AppleFake {
                     "top-songs": page("top-songs", &["ci.e2", "8001"], true, Some(2)),
                 },
             }]})),
-            "300/view/full-albums" => Some(page("full-albums", &["4002"], false, None)),
-            "300/view/appears-on-albums" => Some(page("appears-on-albums", &[], false, None)),
+            "300/view/full-albums" if offset == Some(1) => {
+                Some(page("full-albums", &["4002"], false, None))
+            }
+            "300/view/appears-on-albums" if offset == Some(1) => {
+                Some(page("appears-on-albums", &[], false, None))
+            }
             "300/view/top-songs" if offset == Some(2) => {
                 Some(page("top-songs", &["ci.s1", "ci.b3"], true, None))
             }
@@ -821,6 +827,11 @@ impl AppleFake {
                     "next": "/v1/catalog/it/artists/330/albums?offset=1",
                 })
             });
+        }
+        // A page of a view of "Viewed Artist" or "Artist One" is had only at the offset its
+        // previous page names.
+        if rest.starts_with("310/view/") || self.kinds && rest.starts_with("300/view/") {
+            return None;
         }
         if rest.contains("/view/") {
             return Some(json!({"data": []}));
