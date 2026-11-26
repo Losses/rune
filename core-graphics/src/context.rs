@@ -163,10 +163,12 @@ impl CGContext {
     ///
     /// # Safety
     ///
-    /// `data` must be null, for storage Core Graphics allocates, or point to at least
-    /// `height * bytes_per_row` bytes. Those bytes must stay valid, and nothing but Core Graphics
-    /// may read or write them, for as long as the context or any clone of it lives. A safe caller
-    /// cannot promise that for a pointer:
+    /// `data` must be null, for storage Core Graphics allocates, or point to `height` rows of
+    /// initialized bytes. A row is `bytes_per_row` bytes, or, when that is 0, as many as Core
+    /// Graphics then chooses and the context reports ([`CGContextRef::bytes_per_row`]). Those
+    /// bytes must stay valid for as long as the context or any clone of it lives, and until then
+    /// nothing may read or write them but Core Graphics and a slice from [`CGContext::data`]. A
+    /// safe caller cannot promise that for a pointer:
     ///
     /// ```compile_fail
     /// use core_graphics::base::kCGImageAlphaPremultipliedLast;
@@ -241,6 +243,10 @@ impl CGContext {
             return None;
         }
         let len = self.height().checked_mul(self.bytes_per_row())?;
+        // A slice is never longer than this.
+        if len > isize::MAX as usize {
+            return None;
+        }
         Some(slice::from_raw_parts_mut(data, len))
     }
 }
