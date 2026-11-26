@@ -622,6 +622,16 @@ private final class Entry {
       }
     }
 
+    /// How long a check that does not repeat waits before it looks again whether the hold can
+    /// go: until the settle time after the latest batch, or once that passed, `recheck`, as the
+    /// work may not have settled, but never past the limit. Nil when nothing is held.
+    func untilDone(recheck: Duration) -> Duration? {
+      guard task != .invalid else { return nil }
+      let now = ContinuousClock.now
+      let settles = lastBatch + Self.settle
+      return min(settles > now ? settles : now + recheck, began + Self.limit) - now
+    }
+
     /// Lets the app be suspended again.
     func release() {
       guard task != .invalid else { return }
@@ -911,6 +921,8 @@ final class MusicKitPlayback {
   private let lookups = SongLookups()
   #if os(iOS)
     private let hold = HandOverHold()
+    /// The next look at the hold while the periodic check does not run.
+    private var holdCheck: Task<Void, Never>?
     private var activityObservers: [NSObjectProtocol] = []
   #endif
 
@@ -1961,7 +1973,7 @@ final class MusicKitPlayback {
     wantPlaying = false
     stopTimer()
     #if os(iOS)
-      // Nothing more goes to MusicKit, and the periodic check no longer lets the app go.
+      // Nothing more goes to MusicKit, so the hold goes once settled, without the periodic check.
       releaseHoldIfSettled()
     #endif
     sendEnded()
@@ -2079,10 +2091,24 @@ final class MusicKitPlayback {
       return entries.dropFirst(current + 1).contains { !$0.queued && !$0.failed }
     }
 
+    /// How soon a hold that waits for the work to settle is looked at again without the
+    /// periodic check, as often as that check runs.
+    private static let holdRecheck: Duration = .milliseconds(500)
+
     /// Lets the app go once no batch is being applied and every entry after the current one
-    /// reached MusicKit or failed.
+    /// reached MusicKit or failed. While the periodic check does not run, as after the end, a
+    /// hold that cannot go yet is looked at again once it may, at its limit at the latest,
+    /// until it goes or the periodic check runs again and takes over.
     private func releaseHoldIfSettled() {
+      holdCheck?.cancel()
+      holdCheck = nil
       hold.releaseIfDone(settled: !applying && !pendingAhead)
+      guard timer == nil, let wait = hold.untilDone(recheck: Self.holdRecheck) else { return }
+      holdCheck = Task { [weak self] in
+        try? await Task.sleep(for: wait)
+        guard !Task.isCancelled else { return }
+        self?.releaseHoldIfSettled()
+      }
     }
   #endif
 }
