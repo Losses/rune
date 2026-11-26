@@ -1034,8 +1034,12 @@ pub(crate) struct PlayerInternal {
     playback_mode: PlaybackMode,
     playback_strategy: Box<dyn PlaybackStrategy>,
     volume: f32,
-    stream_error_sender: mpsc::UnboundedSender<String>,
-    stream_error_receiver: mpsc::UnboundedReceiver<String>,
+    stream_error_sender: mpsc::UnboundedSender<(u64, String)>,
+    stream_error_receiver: mpsc::UnboundedReceiver<(u64, String)>,
+    // The number of the output that opened last, which `_stream` holds while it is open. Each
+    // output reports its errors with its own number, since a stream that failed can go on
+    // reporting long after another output replaced it.
+    output_generation: u64,
     adaptive_switching: bool,
     // iOS: other apps keep playing while this one does. The audio session reads it; elsewhere it
     // is only kept.
@@ -1142,6 +1146,7 @@ impl PlayerInternal {
             pcm_tap,
             stream_error_sender,
             stream_error_receiver,
+            output_generation: 0,
             adaptive_switching: false,
             mix_with_others: false,
             restore_position: None,
@@ -1704,8 +1709,8 @@ impl PlayerInternal {
                     self.debounce_timer = None;
                     self.send_playlist_updated()?;
                 },
-                Some(error_message) = self.stream_error_receiver.recv() => {
-                    self.stream_failed(&error_message)?;
+                Some((generation, error_message)) = self.stream_error_receiver.recv() => {
+                    self.stream_failed(generation, &error_message)?;
                 },
                 _ = self.cancellation_token.cancelled() => {
                     debug!("Cancellation token triggered, exiting run loop");
@@ -2050,7 +2055,7 @@ impl PlayerInternal {
         }
     }
 
-    fn open_output(&self) -> Result<(RuneOutputStream, RuneOutputStreamHandle)> {
+    fn open_output(&mut self) -> Result<(RuneOutputStream, RuneOutputStreamHandle)> {
         // Whatever asked to play, the session is set up and active again before a stream starts:
         // an interruption or a reset of the media services leaves it inactive. A session that
         // cannot be activated, as during a call, fails the open, and the track waits paused for
@@ -2059,10 +2064,12 @@ impl PlayerInternal {
         if !crate::ios_session::activate(self.mix_with_others) {
             bail!("the audio session could not be activated");
         }
+        self.output_generation = self.output_generation.wrapping_add(1);
+        let generation = self.output_generation;
         let error_sender = self.stream_error_sender.clone();
         self.outputs
             .open(Arc::new(move |error| {
-                let _ = error_sender.send(error.to_string());
+                let _ = error_sender.send((generation, error.to_string()));
             }))
             .context("Failed to create output stream")
     }
@@ -2428,14 +2435,20 @@ impl PlayerInternal {
     }
 
     // The output stream reported an error, such as headphones that were disconnected. The track
-    // pauses in place rather than playing on through another device. A stream that fails tends
-    // to report it more than once, and a stale stream is done with already.
-    fn stream_failed(&mut self, error: &str) -> Result<()> {
+    // pauses in place rather than playing on through another device. The stream plays nothing
+    // more, so it is closed at once: as long as it is open, a failed stream goes on reporting, on
+    // Linux as fast as it can. A stale stream is done with already, and a stream that was
+    // replaced, whose reports can come long after it, says nothing about the output that plays.
+    fn stream_failed(&mut self, generation: u64, error: &str) -> Result<()> {
         error!("The audio output failed: {error}");
-        if self.sink.is_none() || self.output_stale {
+        if generation != self.output_generation {
             return Ok(());
         }
-        self.output_lost()
+        if self.sink.is_some() && !self.output_stale {
+            self.output_lost()?;
+        }
+        self._stream = None;
+        Ok(())
     }
 
     fn mark_output_stale(&mut self) {
@@ -5021,7 +5034,8 @@ mod playback_state_tests {
 
     /// The outputs of these tests: fake ones that stop when suspended, as on iOS. They count how
     /// often the player opens, stops and starts an output again, and fail as many of the next
-    /// opens and restarts as they are told to.
+    /// opens and restarts as they are told to. They keep every output they open, so that a test
+    /// can make one of them report a failure and see whether it is still open.
     #[derive(Default)]
     struct TestOutputs {
         failing_opens: Arc<AtomicUsize>,
@@ -5029,12 +5043,40 @@ mod playback_state_tests {
         suspends: Arc<AtomicUsize>,
         resumes: Arc<AtomicUsize>,
         failing_resumes: Arc<AtomicUsize>,
+        opened: OpenedOutputs,
+    }
+
+    /// The outputs a [`TestOutputs`] opened, in the order they opened.
+    #[derive(Clone, Default)]
+    struct OpenedOutputs(Arc<Mutex<Vec<OpenedOutput>>>);
+
+    struct OpenedOutput {
+        on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+        handle: RuneOutputStreamHandle,
+    }
+
+    impl OpenedOutputs {
+        /// Makes the output that opened `nth`, from 0, report that its device went away, as a
+        /// device stream does whether or not the player still uses it.
+        fn fail(&self, nth: usize) {
+            let on_error = self.0.lock().unwrap()[nth].on_error.clone();
+            on_error(cpal::StreamError::DeviceNotAvailable);
+        }
+
+        /// Whether the output that opened `nth`, from 0, is still open, that is, still takes
+        /// something to play.
+        fn is_open(&self, nth: usize) -> bool {
+            self.0.lock().unwrap()[nth]
+                .handle
+                .play_raw(rodio::source::Empty::<f32>::new())
+                .is_ok()
+        }
     }
 
     impl Outputs for TestOutputs {
         fn open(
             &self,
-            _: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+            on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
         ) -> result::Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError> {
             self.opens.fetch_add(1, Ordering::SeqCst);
             if self
@@ -5044,7 +5086,12 @@ mod playback_state_tests {
             {
                 return Err(StreamError::NoDevice);
             }
-            RuneOutputStream::fake(FakeSuspend::Stops)
+            let (stream, handle) = RuneOutputStream::fake(FakeSuspend::Stops)?;
+            self.opened.0.lock().unwrap().push(OpenedOutput {
+                on_error,
+                handle: handle.clone(),
+            });
+            Ok((stream, handle))
         }
 
         fn suspend(&self, stream: &RuneOutputStream) -> result::Result<(), cpal::PauseStreamError> {
@@ -6654,7 +6701,7 @@ mod playback_state_tests {
         let file_uuid = Uuid::new_v4();
         let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
         let opens = internal.test_outputs().opens.clone();
-        let stream_errors = internal.stream_error_sender.clone();
+        let outputs = internal.test_outputs().opened.clone();
         let local = LocalSet::new();
         local
             .run_until(async move {
@@ -6663,8 +6710,8 @@ mod playback_state_tests {
                     let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
                     let playing_at = next_progress(&mut events).await?;
                     // A failing stream tends to say so more than once.
-                    stream_errors.send("the device is no longer available".into())?;
-                    stream_errors.send("the device is no longer available".into())?;
+                    outputs.fail(0);
+                    outputs.fail(0);
                     let paused_at = expect_paused(&mut events, &track).await?;
                     assert_about(paused_at, playing_at);
                     tokio_time::sleep(Duration::from_millis(150)).await;
@@ -6682,6 +6729,194 @@ mod playback_state_tests {
                     commands_sender.send(PlayerCommand::Play)?;
                     assert_about(expect_playing(&mut events, &track).await?, paused_at);
                     assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    // Waits until the track that plays has played to `target`, and fails as soon as it stops
+    // playing before that: it pauses, comes up paused or stops.
+    async fn plays_on_to(
+        events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
+        target: Duration,
+    ) -> Result<Duration> {
+        tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match events.recv().await {
+                    Some(PlayerEvent::Progress {
+                        position,
+                        ready: true,
+                        ..
+                    }) if position >= target => return Ok(position),
+                    Some(
+                        event @ (PlayerEvent::Paused { .. }
+                        | PlayerEvent::Loaded { .. }
+                        | PlayerEvent::Stopped),
+                    ) => panic!("the track stopped playing before {target:?}: {event:?}"),
+                    Some(_) => {}
+                    None => bail!("player events closed"),
+                }
+            }
+        })
+        .await?
+    }
+
+    #[tokio::test]
+    async fn late_errors_of_a_failed_output_stop_neither_its_replacement_nor_the_next_track()
+    -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let opens = internal.test_outputs().opens.clone();
+        let outputs = internal.test_outputs().opened.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let tracks = file_uuids.map(|file_uuid| library_item(library_id, file_uuid));
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &tracks[0]).await?;
+                    let playing_at =
+                        progress_at_or_after(&mut events, Duration::from_millis(300)).await?;
+
+                    // The device goes away while the track plays, and the track pauses there.
+                    outputs.fail(0);
+                    let paused_at = expect_paused(&mut events, &tracks[0]).await?;
+                    assert_about(paused_at, playing_at);
+
+                    // Once the device is back, play opens a new output where the track stood. The
+                    // failed stream reported its failure over and over, and those reports still
+                    // arrive after the new output plays. They stop neither it nor the output of
+                    // the next track.
+                    commands_sender.send(PlayerCommand::Play)?;
+                    assert_about(expect_playing(&mut events, &tracks[0]).await?, paused_at);
+                    assert_eq!(opens.load(Ordering::SeqCst), 2);
+                    outputs.fail(0);
+                    plays_on_to(&mut events, paused_at + Duration::from_millis(500)).await?;
+
+                    commands_sender.send(PlayerCommand::Switch(1))?;
+                    expect_playing(&mut events, &tracks[1]).await?;
+                    outputs.fail(0);
+                    outputs.fail(1);
+                    plays_on_to(&mut events, Duration::from_millis(500)).await?;
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn play_without_an_output_fails_and_a_later_play_plays_where_the_track_was_paused()
+    -> Result<()> {
+        let file_uuids = [Uuid::new_v4(), Uuid::new_v4()];
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&file_uuids);
+        let failing_opens = internal.test_outputs().failing_opens.clone();
+        let outputs = internal.test_outputs().opened.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let library_id = Uuid::new_v4();
+                    let tracks = file_uuids.map(|file_uuid| library_item(library_id, file_uuid));
+                    commands_sender.send(add_library_tracks(library_id, &file_uuids))?;
+                    commands_sender.send(PlayerCommand::Switch(0))?;
+                    expect_playing(&mut events, &tracks[0]).await?;
+                    progress_at_or_after(&mut events, Duration::from_millis(300)).await?;
+                    commands_sender.send(PlayerCommand::Pause)?;
+                    let paused_at = expect_paused(&mut events, &tracks[0]).await?;
+
+                    // The device goes away while the track is paused, and the track stays there.
+                    outputs.fail(0);
+                    assert_about(expect_paused(&mut events, &tracks[0]).await?, paused_at);
+
+                    // Play while there is no device fails with the reason, and the track waits
+                    // where it was.
+                    failing_opens.store(1, Ordering::SeqCst);
+                    let play = completed_command(&commands_sender, PlayerCommand::Play);
+                    assert_about(expect_loaded(&mut events, &tracks[0]).await?, paused_at);
+                    assert_eq!(
+                        tokio_time::timeout(TEST_DEADLINE, play).await??,
+                        Err(PlayerCommandError::OutputUnavailable)
+                    );
+
+                    // Once the device is back, play opens an output there. The late reports of
+                    // the failed stream stop neither it nor the output of the next track.
+                    let play = completed_command(&commands_sender, PlayerCommand::Play);
+                    assert_about(expect_playing(&mut events, &tracks[0]).await?, paused_at);
+                    assert_eq!(tokio_time::timeout(TEST_DEADLINE, play).await??, Ok(()));
+                    outputs.fail(0);
+                    plays_on_to(&mut events, paused_at + Duration::from_millis(500)).await?;
+
+                    commands_sender.send(PlayerCommand::Switch(1))?;
+                    expect_playing(&mut events, &tracks[1]).await?;
+                    outputs.fail(0);
+                    outputs.fail(1);
+                    plays_on_to(&mut events, Duration::from_millis(500)).await?;
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
+    // Waits until the output that opened `nth`, from 0, has closed. A fake output closes on a
+    // thread of its own, which this polls.
+    async fn output_closes(outputs: &OpenedOutputs, nth: usize) -> Result<()> {
+        tokio_time::timeout(TEST_DEADLINE, async {
+            while outputs.is_open(nth) {
+                tokio_time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .with_context(|| format!("the output that opened {nth} failed and is still open"))
+    }
+
+    #[tokio::test]
+    async fn an_output_that_failed_is_closed_at_once() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let outputs = internal.test_outputs().opened.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    // A device stream that failed plays nothing more, and goes on reporting its
+                    // failure for as long as it is open, on Linux a million times a second. So
+                    // it is not kept while its track waits paused for the next play...
+                    let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
+                    outputs.fail(0);
+                    expect_paused(&mut events, &track).await?;
+                    output_closes(&outputs, 0).await?;
+
+                    // ...nor once playback stopped, until a track plays again.
+                    commands_sender.send(PlayerCommand::Play)?;
+                    expect_playing(&mut events, &track).await?;
+                    commands_sender.send(PlayerCommand::Stop)?;
+                    tokio_time::timeout(TEST_DEADLINE, async {
+                        while !matches!(events.recv().await, Some(PlayerEvent::Stopped) | None) {}
+                    })
+                    .await?;
+                    outputs.fail(1);
+                    output_closes(&outputs, 1).await?;
 
                     runner.abort();
                     let _ = fs::remove_file(wav_path);
