@@ -31,7 +31,9 @@ use super::{
     CATALOG_PREFIX, Listed, album_artwork, album_name, album_songs_from_list,
     artist_songs_by_album, is_not_found,
 };
-use crate::apple_music_artists::{CATALOG_ARTIST, NamedArtist, artist_key, is_named_artist};
+use crate::apple_music_artists::{
+    CATALOG_ARTIST, NamedArtist, NamedArtists, artist_key, is_named_artist,
+};
 use crate::apple_music_binding::{
     AppleError, AppleIdKind, AppleMusicBinding, AppleSong, CatalogCollection, catalog_track,
     cover_url, release_year,
@@ -586,27 +588,36 @@ async fn library_albums(
     artist: &NamedArtist,
 ) -> Result<Vec<LibraryAlbum>> {
     let albums = binding.albums().await?;
-    Ok(albums_of_artist(&albums, artist))
+    let named = binding.named_artists().await?;
+    Ok(albums_of_artist(&albums, artist, &named))
 }
 
-/// The albums of `albums` that `artist` is the artist of, newest first: those of a library
-/// artist that is it, and those whose artist is credited by its name or another spelling.
-fn albums_of_artist(albums: &[LibraryAlbum], artist: &NamedArtist) -> Vec<LibraryAlbum> {
+/// The albums of `albums` that `artist`, an artist of the list `named`, is the artist of,
+/// newest first: those of a library artist that is it, and those credited by its name or
+/// another spelling whose library artist is no artist of the list. An album of a library
+/// artist that is another artist of the list is that artist's, whatever its name.
+fn albums_of_artist(
+    albums: &[LibraryAlbum],
+    artist: &NamedArtist,
+    named: &NamedArtists,
+) -> Vec<LibraryAlbum> {
     let names: Vec<String> = std::iter::once(&artist.name)
         .chain(&artist.aliases)
         .map(|name| artist_key(name))
         .collect();
+    let listed: HashSet<&str> = named
+        .iter()
+        .flat_map(|each| each.credits.iter().map(String::as_str))
+        .collect();
     let mut found: Vec<LibraryAlbum> = albums
         .iter()
-        .filter(|album| {
-            album
-                .artist_id()
-                .is_some_and(|id| artist.credits.iter().any(|credit| credit == id))
-                || album
-                    .attributes
-                    .as_ref()
-                    .and_then(|attributes| attributes.artist_name.as_deref())
-                    .is_some_and(|name| names.contains(&artist_key(name)))
+        .filter(|album| match album.artist_id() {
+            Some(id) if listed.contains(id) => artist.credits.iter().any(|credit| credit == id),
+            _ => album
+                .attributes
+                .as_ref()
+                .and_then(|attributes| attributes.artist_name.as_deref())
+                .is_some_and(|name| names.contains(&artist_key(name))),
         })
         .cloned()
         .collect();
@@ -631,7 +642,8 @@ async fn held_albums(
     artist: &NamedArtist,
 ) -> Result<Vec<LibraryAlbum>> {
     let albums = binding.albums().await?;
-    let mut found = albums_of_artist(&albums, artist);
+    let named = binding.named_artists().await?;
+    let mut found = albums_of_artist(&albums, artist, &named);
     let list = binding.songs().await?;
     let credited: HashSet<&str> = list
         .library_entries()
@@ -1535,4 +1547,64 @@ pub(super) async fn listing_page(
             page(library_tracks(binding, &artist).await?)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use apple_music::models::{LibraryAlbum, LibraryArtist};
+    use serde_json::json;
+
+    use super::albums_of_artist;
+    use crate::apple_music_artists::tests::catalog;
+    use crate::apple_music_artists::{NamedArtists, SongArtists};
+
+    fn library_artist(id: &str, catalog_id: &str) -> LibraryArtist {
+        serde_json::from_value(json!({
+            "id": id,
+            "type": "library-artists",
+            "attributes": {"name": "Atlas"},
+            "relationships": {"catalog": {"data": [catalog(catalog_id, "Atlas")]}},
+        }))
+        .unwrap()
+    }
+
+    /// An album credited "Atlas", of the library artist `artist` when it names one.
+    fn album(id: &str, artist: Option<&str>) -> LibraryAlbum {
+        let mut album = json!({
+            "id": id,
+            "type": "library-albums",
+            "attributes": {"name": id, "artistName": "Atlas"},
+        });
+        if let Some(artist) = artist {
+            album["relationships"] =
+                json!({"artists": {"data": [{"id": artist, "type": "library-artists"}]}});
+        }
+        serde_json::from_value(album).unwrap()
+    }
+
+    #[test]
+    fn an_album_of_another_artist_of_the_same_name_is_not_on_the_page() {
+        // Two catalog artists are called "Atlas", each the catalog artist of a library artist.
+        let named = NamedArtists::new(
+            &[library_artist("r.1", "111"), library_artist("r.2", "222")],
+            &[],
+            &SongArtists::default(),
+        );
+        let albums = [
+            album("a.first", Some("r.1")),
+            album("a.second", Some("r.2")),
+            // By no library artist, or by one that is no artist of the list: the name decides.
+            album("a.loose", None),
+            album("a.orphan", Some("r.gone")),
+        ];
+        let ids = |remote: &str| -> Vec<String> {
+            let artist = named.get(remote).expect("an artist of the list");
+            albums_of_artist(&albums, artist, &named)
+                .into_iter()
+                .map(|album| album.id)
+                .collect()
+        };
+        assert_eq!(ids("artist:111"), ["a.first", "a.loose", "a.orphan"]);
+        assert_eq!(ids("artist:222"), ["a.loose", "a.orphan", "a.second"]);
+    }
 }

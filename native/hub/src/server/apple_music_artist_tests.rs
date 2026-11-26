@@ -2148,6 +2148,35 @@ async fn a_catalog_artist_only_a_rune_mix_names_is_listed_and_opens_its_catalog_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_catalog_artist_a_rune_mix_names_is_listed_beside_another_of_the_same_name() -> Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple(dir.path()).await?;
+    let own = artist_named(&all_artists(&apple).await?, "Artist One")?;
+    assert_eq!(apple.binding.resolve(AppleIdKind::Artist, own)?, "artist:300");
+    // A mix names another catalog artist called "Artist One".
+    let other = apple.binding.intern(AppleIdKind::Artist, "catalog:303")?;
+    create_mix(&apple, "Other", vec![query("lib::artist", other)]).await?;
+
+    // The list holds both, each by its own catalog artist.
+    let mut ids = wait_until("the other artist to be listed", || async {
+        let ids: Vec<i32> = all_artists(&apple)
+            .await?
+            .into_iter()
+            .filter(|(name, _)| name == "Artist One")
+            .map(|(_, id)| id)
+            .collect();
+        Ok((ids.len() == 2).then_some(ids))
+    })
+    .await?;
+    ids.sort_unstable();
+    let mut wanted = vec![own, other];
+    wanted.sort_unstable();
+    assert_eq!(ids, wanted);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_catalog_artist_in_a_rune_mix_brings_the_songs_of_its_albums_once() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple_with(

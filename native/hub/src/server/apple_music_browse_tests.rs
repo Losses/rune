@@ -527,10 +527,11 @@ impl AppleFake {
     }
 
     /// A catalog artist the fake knows, with the ids of their albums: "300" has the name of
-    /// the library's "Artist One".
+    /// the library's "Artist One", and "303" is another artist of that name.
     fn catalog_artist(id: &str) -> Option<(Value, &'static [&'static str])> {
         let (name, albums): (_, &'static [&'static str]) = match id {
             "300" => ("Artist One", &["1500"]),
+            "303" => ("Artist One", &[]),
             "301" => ("Dawn Singer", &["1600"]),
             "302" => ("Guest", &["1900"]),
             "330" => ("Twin Artist", &["1950", "1951"]),

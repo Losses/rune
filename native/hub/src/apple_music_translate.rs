@@ -167,11 +167,13 @@ async fn entries(
             // A catalog artist a Rune mix names that the list does not hold, by its catalog
             // artist or by its name, is listed by the id the catalog gives it, so it opens the
             // catalog's page, as from a search: the library holds none of its songs yet. Once
-            // they are read, they credit it, and the list holds it with its library page.
+            // they are read, they credit it, and the list holds it with its library page. An
+            // artist of the list of that name with another catalog artist is another artist.
             for artist in apple_music_held::held(binding).await.artists() {
                 let listed = named.get(&catalog_artist_remote(&artist.id)).is_some()
                     || named_artist_remote(&artist.name)
-                        .is_some_and(|remote| named.get(&remote).is_some());
+                        .and_then(|remote| named.get(&remote))
+                        .is_some_and(|listed| listed.catalog_id().is_none());
                 if !listed {
                     add(
                         &format!("{CATALOG_PREFIX}{}", artist.id),
