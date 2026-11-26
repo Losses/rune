@@ -177,14 +177,21 @@ impl FileStream for fs::File {
     }
 }
 
+/// The longest step in which a filesystem a library is likely to be on records
+/// modification times: FAT volumes store them in two-second steps.
+const MODIFICATION_TIME_STEP_SECS: u64 = 2;
+
 /// The change token for a modification time in whole seconds.
 ///
-/// A file modified during the current second can change again without its
-/// time moving, so that second vouches for nothing until it has passed. A time
-/// in the future stays a token: a file with a wrong timestamp would otherwise
-/// be scanned again on every scan.
+/// A file can change again within the step its time was recorded in without
+/// that time moving, so the time vouches for nothing until the step has
+/// passed. A time in the future stays a token: a file with a wrong timestamp
+/// would otherwise be scanned again on every scan.
 fn modification_time_token(modified_secs: u64, now_secs: u64) -> Option<String> {
-    (modified_secs != now_secs).then(|| modified_secs.to_string())
+    let step_has_passed = now_secs
+        .checked_sub(modified_secs)
+        .is_none_or(|age| age >= MODIFICATION_TIME_STEP_SECS);
+    step_has_passed.then(|| modified_secs.to_string())
 }
 
 #[async_trait]
@@ -255,11 +262,10 @@ pub trait FileIo: Send + Sync {
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError>;
     /// Stable backend-provided signal used to skip unchanged files during scans.
     /// Backends without a stronger signal use modification time, which is no
-    /// signal while the second of the modification is still running. `None`
-    /// means the backend offers no signal, so the file must be treated as
-    /// changed.
+    /// signal until the step it was recorded in has passed. `None` means the
+    /// backend offers no signal, so the file must be treated as changed.
     fn change_token(&self, path: &Path) -> Result<Option<String>, FileIoError> {
-        // The clock is read after the file, so a second that it reports as
+        // The clock is read after the file, so a step that it reports as
         // passed cannot be given to a later modification.
         let modified = self.modified_time(path)?;
         let now = time::SystemTime::now()
@@ -383,9 +389,10 @@ mod tests {
     use super::modification_time_token;
 
     #[test]
-    fn modification_time_is_a_token_only_outside_the_current_second() {
+    fn modification_time_is_a_token_only_once_its_step_has_passed() {
         assert_eq!(modification_time_token(100, 100), None);
-        assert_eq!(modification_time_token(99, 100), Some("99".to_string()));
+        assert_eq!(modification_time_token(100, 101), None);
+        assert_eq!(modification_time_token(100, 102), Some("100".to_string()));
         assert_eq!(modification_time_token(101, 100), Some("101".to_string()));
     }
 }

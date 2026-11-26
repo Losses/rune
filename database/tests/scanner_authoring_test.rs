@@ -359,6 +359,12 @@ async fn ordinary_scan_retries_failed_album_indexing() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("song.ogg");
     fs::copy(fixtures::audio_fixture(), &path)?;
+    // A file modified moments ago has no change token yet and is scanned again, so the
+    // file gets a settled time, earlier than the replacement's so the two tokens differ.
+    File::options()
+        .write(true)
+        .open(&path)?
+        .set_modified(std_time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))?;
     let node = Uuid::new_v4();
     let db = fixtures::memory_database(node).await?;
     let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
