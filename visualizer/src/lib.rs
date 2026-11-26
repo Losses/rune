@@ -715,14 +715,27 @@ impl Visualizer {
     }
 
     /// Follow the player: while the music is paused or stopped the visualizer draws nothing and
-    /// its clock stops, so scenes resume where they were.
+    /// its clock stops, so scenes resume where they were. Ignored while a remote feed owns the
+    /// playback (see [`Self::set_feed_playback`]), which reports its playing state itself.
     pub fn set_playing(&self, playing: bool) {
+        // The store stays inside the lock so a feed report cannot slip between the ownership
+        // check and the write.
+        let playback = lock(&self.shared.playback);
+        if playback.source.is_remote() {
+            return;
+        }
         self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
     /// Follow the player's file source and position (call it with every progress report). The file
     /// is analysed in the background; once that is done, scenes get
     /// the beats, bars and sections from the chart.
+    ///
+    /// This device's session reports it even while another player is current, where it holds a
+    /// paused track the visualizer must not show. So while a remote feed owns the playback the
+    /// report is ignored: taking it would jump the clock between two unrelated positions. The
+    /// hub ends that ownership with [`Self::release_feed`] when this device's player is current
+    /// again, and the next report takes over.
     pub fn set_playback(
         &self,
         path: Option<&Path>,
@@ -730,7 +743,36 @@ impl Visualizer {
         playing: bool,
         fsio: Option<Arc<FsIo>>,
     ) {
-        let mut playback = lock(&self.shared.playback);
+        // The ownership check and the write share one lock acquisition, so a feed report
+        // cannot install a remote source between them.
+        let playback = lock(&self.shared.playback);
+        if playback.source.is_remote() {
+            return;
+        }
+        self.take_local_playback(playback, path, position, playing, fsio);
+    }
+
+    /// End the remote feed's ownership of the playback, as when this device's player becomes
+    /// current again: the feed's source, covers and spectrum go, and the next
+    /// [`Self::set_playback`] report of this device's player takes the clock over.
+    pub fn release_feed(&self) {
+        let playback = lock(&self.shared.playback);
+        if !playback.source.is_remote() {
+            return;
+        }
+        self.take_local_playback(playback, None, Duration::ZERO, false, None);
+    }
+
+    /// The local write behind [`Self::set_playback`], where the caller has decided that this
+    /// device's player owns the playback and already holds the playback lock.
+    fn take_local_playback(
+        &self,
+        mut playback: MutexGuard<'_, Playback>,
+        path: Option<&Path>,
+        position: Duration,
+        playing: bool,
+        fsio: Option<Arc<FsIo>>,
+    ) {
         let leaving_feed = playback.source.is_remote();
         let previous_path = match &playback.source {
             ChartSource::LocalFile { path, .. } => Some(path.as_path()),
@@ -751,14 +793,24 @@ impl Visualizer {
         playback.position = position;
         playback.playing = playing;
         playback.at = Some(Instant::now());
-        drop(playback);
+        // The render thread's flag follows the owner's write, here under the playback lock so
+        // a feed report cannot interleave. The release path passes `false`, so it stops the
+        // clock until this device's player reports again.
+        self.shared.playing.store(playing, Ordering::Relaxed);
+        // The feed's covers go under the same lock as its source: a feed report slipping into
+        // the gap would install covers the old release then wiped. `clear_covers` locks only
+        // the covers states, which nothing takes before the playback lock, so this order is
+        // safe. The covers request is user code and runs after the lock.
         if leaving_feed {
             *lock(&self.shared.feed_covers) = None;
             self.shared.clear_covers();
         }
-        if leaving_feed
-            && self.wants_covers()
-            && let Some(request) = lock(&self.shared.covers_requester).clone()
+        let request_covers = leaving_feed
+            .then(|| lock(&self.shared.covers_requester).clone())
+            .flatten();
+        drop(playback);
+        if self.wants_covers()
+            && let Some(request) = request_covers
         {
             request();
         }
@@ -789,6 +841,9 @@ impl Visualizer {
         playback.position = position;
         playback.playing = playing;
         playback.at = Some(Instant::now());
+        // The render thread's flag follows the feed's own report, under the same lock as the
+        // source write so a release cannot be overwritten by a late store.
+        self.shared.playing.store(playing, Ordering::Relaxed);
         let current_item = match &playback.source {
             ChartSource::Remote { item, .. } => Some(item.clone()),
             ChartSource::None | ChartSource::LocalFile { .. } | ChartSource::RemoteWithoutItem => {
@@ -805,7 +860,6 @@ impl Visualizer {
         {
             *lock(&self.shared.feed_covers) = None;
         }
-        self.shared.playing.store(playing, Ordering::Relaxed);
     }
 
     /// A realtime spectrum frame reached this visualizer from the player feed.
@@ -2442,11 +2496,47 @@ mod tests {
     }
 
     #[test]
-    fn local_playback_ends_the_feed() {
+    fn the_feed_keeps_the_playback_clock_from_local_reports_until_it_is_released() {
         let visualizer = Visualizer::new();
-        visualizer.set_feed_playback(Some(feed_item("first")), Duration::ZERO, true);
+        let remote = feed_item("remote");
+        visualizer.set_feed_playback(Some(remote.clone()), Duration::from_secs(30), true);
         assert!(visualizer.is_feed_playback());
-        visualizer.set_playback(None, Duration::ZERO, false, None);
+
+        // This device's paused session keeps reporting its frozen position; it is not the
+        // current player, so it must not move the clock or replace the remote source.
+        let local = Path::new("/music/paused.flac");
+        visualizer.set_playback(Some(local), Duration::from_secs(9), false, None);
+        visualizer.set_playing(false);
+        let playback = lock(&visualizer.shared.playback);
+        assert!(matches!(
+            playback.source,
+            ChartSource::Remote { ref item, .. } if item == &remote
+        ));
+        assert_eq!(playback.position, Duration::from_secs(30));
+        assert!(playback.playing);
+        drop(playback);
+        assert!(visualizer.shared.playing.load(Ordering::Relaxed));
+
+        // The feed goes on owning the clock.
+        visualizer.set_feed_playback(Some(remote.clone()), Duration::from_secs(36), true);
+        assert_eq!(
+            lock(&visualizer.shared.playback).position,
+            Duration::from_secs(36)
+        );
+
+        // Once the hub says this device's player is current again, its reports take over, and
+        // the release stops the clock the feed left playing.
+        visualizer.release_feed();
+        assert!(!visualizer.shared.playing.load(Ordering::Relaxed));
+        assert!(!lock(&visualizer.shared.playback).playing);
+        visualizer.set_playback(Some(local), Duration::from_secs(9), false, None);
+        let playback = lock(&visualizer.shared.playback);
+        assert!(matches!(
+            playback.source,
+            ChartSource::LocalFile { ref path, .. } if path == local
+        ));
+        assert_eq!(playback.position, Duration::from_secs(9));
+        drop(playback);
         assert!(!visualizer.is_feed_playback());
     }
 

@@ -3031,6 +3031,811 @@ mod lifecycle_tests {
         Ok(())
     }
 
+    /// The load a controller sends to start playback on the paired player.
+    async fn controller_load_playing(
+        player: &Fixture,
+        controller: &Fixture,
+    ) -> Result<(
+        SocketAddr,
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+    )> {
+        use ::database::actions::file::file_uuids_by_id;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+
+        let library_id = player
+            .global_params
+            .library_id
+            .context("player library id")?;
+        let track = scan_held_track(player, library_id, "revoked-playback.ogg").await?;
+        let file_uuid = file_uuids_by_id(&player.global_params.test_library().main_db, &[track.id])
+            .await?
+            .get(&track.id)
+            .copied()
+            .context("scanned track uuid")?;
+        let addr = paired_full(player, controller).await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        let load = LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: file_uuid.to_string(),
+            }],
+            start_index: Some(0),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: None,
+            playback_mode: Some(PlaybackMode::RepeatAll),
+            position_seconds: None,
+            play: LoadPlay::Play,
+        };
+        let (name, payload) = socket_request(
+            &mut socket,
+            "LoadResolvedItemsRequest",
+            &rinf::serialize(&load)?,
+        )
+        .await?;
+        assert_eq!(name, "LoadResolvedItemsResponse");
+        let response: LoadResolvedItemsResponse = rinf::deserialize(&payload)?;
+        assert!(response.result.left_out_items.is_empty());
+        wait_until("controller-started playback", || async {
+            let status = player.global_params.player.lock().await.get_status();
+            Ok((status.state == PlayerPlaybackState::Playing).then_some(()))
+        })
+        .await?;
+        Ok((addr, socket))
+    }
+
+    async fn revoke_and_assert_playback_stops(remove: bool) -> Result<()> {
+        use futures::StreamExt;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        let (_addr, mut socket) = controller_load_playing(&player, &controller).await?;
+        if remove {
+            player
+                .global_params
+                .permission_manager
+                .read()
+                .await
+                .remove_user(&fingerprint)
+                .await?;
+        } else {
+            let mut changes = player
+                .global_params
+                .permission_manager
+                .read()
+                .await
+                .changes();
+            PermissionManager::new(player.global_params.config_path.as_str())?
+                .change_user_status(&fingerprint, UserStatus::Blocked)
+                .await?;
+            tokio_time::timeout(TEST_DEADLINE, changes.changed())
+                .await
+                .context("file-driven client block was not applied")??;
+        }
+        // The revocation close frame is the barrier: the server has detached the controller by
+        // the time it arrives, so the playback the controller started must be stopping too.
+        tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match socket
+                    .next()
+                    .await
+                    .context("socket closed without a revocation close frame")??
+                {
+                    Message::Close(Some(frame))
+                        if u16::from(frame.code) == 4403 && frame.reason == "revoked" =>
+                    {
+                        break;
+                    }
+                    Message::Close(frame) => {
+                        anyhow::bail!("unexpected revocation close frame: {frame:?}");
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("revocation close frame was not received")??;
+        wait_until(
+            "playback the revoked controller started to stop",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok((status.state == PlayerPlaybackState::Paused).then_some(()))
+            },
+        )
+        .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_stops_when_starting_controller_is_removed() -> Result<()> {
+        revoke_and_assert_playback_stops(true).await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_stops_when_starting_controller_is_blocked() -> Result<()> {
+        revoke_and_assert_playback_stops(false).await
+    }
+
+    /// Revoking the controller must only stop the playback that controller started: once the
+    /// device itself has loaded its own playback, the revoked controller no longer owns it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn local_playback_survives_revoking_the_controller_it_replaced() -> Result<()> {
+        use ::database::actions::file::file_uuids_by_id;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        let (_addr, socket) = controller_load_playing(&player, &controller).await?;
+        // The device itself loads its own track, taking playback over from the controller.
+        let library_id = player
+            .global_params
+            .library_id
+            .context("player library id")?;
+        let track = scan_held_track(&player, library_id, "local-takeover.ogg").await?;
+        let file_uuid = file_uuids_by_id(&player.global_params.test_library().main_db, &[track.id])
+            .await?
+            .get(&track.id)
+            .copied()
+            .context("takeover track uuid")?;
+        let load = LoadResolvedItemsRequest {
+            call_id: None,
+            items: vec![PlayingItemRef::LibraryTrack {
+                library_id: library_id.to_string(),
+                track: file_uuid.to_string(),
+            }],
+            start_index: Some(0),
+            mode: PlaylistOperateMode::Replace,
+            expected_revision: None,
+            playback_mode: Some(PlaybackMode::RepeatAll),
+            position_seconds: None,
+            play: LoadPlay::Play,
+        };
+        load.handle(load.extract_params(&player.global_params), None, &load)
+            .await?;
+        wait_until("locally loaded playback", || async {
+            let status = player.global_params.player.lock().await.get_status();
+            Ok((status.state == PlayerPlaybackState::Playing).then_some(()))
+        })
+        .await?;
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&fingerprint)
+            .await?;
+        // The detached controller is the barrier: the revocation has finished acting on the
+        // playback owner by the time the controller leaves the list, so playback still running
+        // then is playback the revocation did not stop.
+        wait_until("revoked controller to detach", || async {
+            Ok(player
+                .global_params
+                .node
+                .session()?
+                .attached_controllers()
+                .iter()
+                .all(|controller| controller.fingerprint != fingerprint)
+                .then_some(()))
+        })
+        .await?;
+        let status = player.global_params.player.lock().await.get_status();
+        assert_eq!(
+            status.state,
+            PlayerPlaybackState::Playing,
+            "local playback must survive the controller's revocation"
+        );
+        drop(socket);
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// The revocation watch must also reach playback started before the controller
+    /// reconnected: ownership belongs to the device, not to one socket.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_stops_when_controller_revoked_after_reconnect() -> Result<()> {
+        use futures::StreamExt;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        let (addr, socket) = controller_load_playing(&player, &controller).await?;
+        // The controller disconnects and connects again; the playback it started runs on.
+        drop(socket);
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&fingerprint)
+            .await?;
+        tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match socket
+                    .next()
+                    .await
+                    .context("socket closed without a revocation close frame")??
+                {
+                    Message::Close(Some(frame))
+                        if u16::from(frame.code) == 4403 && frame.reason == "revoked" =>
+                    {
+                        break;
+                    }
+                    Message::Close(frame) => {
+                        anyhow::bail!("unexpected revocation close frame: {frame:?}");
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("revocation close frame was not received")??;
+        wait_until(
+            "playback the revoked controller started to stop",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok((status.state == PlayerPlaybackState::Paused).then_some(()))
+            },
+        )
+        .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// Revoking a controller that did not start the playback leaves it alone; only the
+    /// revocation of the controller that started it stops it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_survives_revoking_a_controller_that_did_not_start_it() -> Result<()> {
+        use futures::StreamExt;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let player_dir = tempfile::tempdir()?;
+        let starter_dir = tempfile::tempdir()?;
+        let bystander_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let starter = fixture(starter_dir.path()).await?;
+        let bystander = fixture(bystander_dir.path()).await?;
+        let starter_fingerprint = info(&starter).await?.fingerprint;
+        let bystander_fingerprint = info(&bystander).await?.fingerprint;
+        let (_addr, mut socket) = controller_load_playing(&player, &starter).await?;
+        // The player's server is already running from the starter's load, so the bystander is
+        // only granted access both ways instead of pairing through the server start.
+        pair(&player, &bystander).await?;
+        pair(&bystander, &player).await?;
+        // The bystander's removal is applied before the assertion reads the state.
+        let mut changes = player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .changes();
+        PermissionManager::new(player.global_params.config_path.as_str())?
+            .remove_user(&bystander_fingerprint)
+            .await?;
+        tokio_time::timeout(TEST_DEADLINE, changes.changed())
+            .await
+            .context("bystander removal was not applied")??;
+        let status = player.global_params.player.lock().await.get_status();
+        assert_eq!(
+            status.state,
+            PlayerPlaybackState::Playing,
+            "playback must survive revoking a controller that did not start it"
+        );
+        // Revoking the starter still stops the playback it started.
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&starter_fingerprint)
+            .await?;
+        tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match socket
+                    .next()
+                    .await
+                    .context("socket closed without a revocation close frame")??
+                {
+                    Message::Close(Some(frame))
+                        if u16::from(frame.code) == 4403 && frame.reason == "revoked" =>
+                    {
+                        break;
+                    }
+                    Message::Close(frame) => {
+                        anyhow::bail!("unexpected revocation close frame: {frame:?}");
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("revocation close frame was not received")??;
+        wait_until(
+            "playback the revoked controller started to stop",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok((status.state == PlayerPlaybackState::Paused).then_some(()))
+            },
+        )
+        .await?;
+        player.global_params.node.token.cancel();
+        starter.global_params.node.token.cancel();
+        bystander.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// The playback stays the controller's own across a server restart: the persisted owner
+    /// survives with the queue it names, so revoking the controller still stops the playback
+    /// the restart resumed. Resuming what the queue already held is no new start and does not
+    /// take the playback over.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_stops_when_controller_revoked_after_server_restart() -> Result<()> {
+        use futures::StreamExt;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        let (_addr, socket) = controller_load_playing(&player, &controller).await?;
+        drop(socket);
+        // The server restarts; the persisted session holds the queue the controller loaded.
+        let player = reopen_fixture(&player).await?;
+        let addr = paired_full(&player, &controller).await?;
+        // The user resumes the queue the restart restored; the playback is still the
+        // controller's own, because a resume starts nothing new.
+        let resume = PlayRequest { call_id: None };
+        resume
+            .handle(resume.extract_params(&player.global_params), None, &resume)
+            .await?;
+        wait_until("resumed playback after the restart", || async {
+            let status = player.global_params.player.lock().await.get_status();
+            Ok((status.state == PlayerPlaybackState::Playing).then_some(()))
+        })
+        .await?;
+        let mut socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            controller.global_params.cert_validator.read().await.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&fingerprint)
+            .await?;
+        tokio_time::timeout(TEST_DEADLINE, async {
+            loop {
+                match socket
+                    .next()
+                    .await
+                    .context("socket closed without a revocation close frame")??
+                {
+                    Message::Close(Some(frame))
+                        if u16::from(frame.code) == 4403 && frame.reason == "revoked" =>
+                    {
+                        break;
+                    }
+                    Message::Close(frame) => {
+                        anyhow::bail!("unexpected revocation close frame: {frame:?}");
+                    }
+                    _ => {}
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("revocation close frame was not received")??;
+        wait_until(
+            "playback the revoked controller started to stop",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok((status.state == PlayerPlaybackState::Paused).then_some(()))
+            },
+        )
+        .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// An ownership change reaches the session store by itself, checked before any clean
+    /// shutdown could flush it: the recording of the owner marks the store dirty even though
+    /// the load issued no player command that would, and so does the revocation that releases
+    /// the owner, which emits no player event at all.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_owner_reaches_the_store_before_a_clean_shutdown() -> Result<()> {
+        use discovery::access_policy::PeerIdentity;
+
+        use crate::session::store::SessionState;
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let store_path =
+            std::path::Path::new(&*player.global_params.config_path).join("sessions/local.json");
+        let read_owner = |path: &std::path::Path| {
+            SessionState::read(path)
+                .ok()
+                .and_then(|state| state.playback_owner.map(|owner| owner.fingerprint))
+        };
+        // The ownership is recorded without any load: the edit changes nothing and issues no
+        // command, so no queue or status report can carry the owner to the store.
+        player
+            .global_params
+            .node
+            .session()?
+            .edit_queue_with_load(
+                None,
+                Some(PeerIdentity {
+                    fingerprint: fingerprint.clone(),
+                    public_key: String::new(),
+                }),
+                |_player, _started_report| (false, true, false, None),
+            )
+            .await?;
+        wait_until("the recorded owner to reach the session store", || async {
+            Ok((read_owner(&store_path).as_deref() == Some(fingerprint.as_str())).then_some(()))
+        })
+        .await
+        .context("recording the owner did not persist it before a clean shutdown")?;
+        // The revocation releases the owner without any player event, and the release must
+        // reach the store just the same.
+        player
+            .global_params
+            .permission_manager
+            .read()
+            .await
+            .remove_user(&fingerprint)
+            .await?;
+        wait_until("the released owner to leave the session store", || async {
+            Ok((read_owner(&store_path).is_none()).then_some(()))
+        })
+        .await
+        .context("releasing the owner did not persist before a clean shutdown")?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// A load whose explicit `EditPlaylist` completion fails hands the ownership back to the
+    /// playback it interrupted: the owner is written before the load's commands go out, and
+    /// only the command's own failure — not only the player thread's — may roll it back.
+    /// Here the second controller's load asks for an index beyond the playlist it just
+    /// replaced, so the player thread answers the command with `CannotApply` for certain.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn failed_load_hands_playback_ownership_back() -> Result<()> {
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement};
+
+        let player_dir = tempfile::tempdir()?;
+        let first_dir = tempfile::tempdir()?;
+        let second_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let first = fixture(first_dir.path()).await?;
+        let second = fixture(second_dir.path()).await?;
+        let first_fingerprint = info(&first).await?.fingerprint;
+        let second_fingerprint = info(&second).await?.fingerprint;
+        paired_full(&player, &first).await?;
+        // The player's server is already running, so the second controller is only granted
+        // access both ways instead of pairing through the server start.
+        pair(&player, &second).await?;
+        pair(&second, &player).await?;
+        let session = player.global_params.node.session()?;
+        let owner_of = |fingerprint: &str| {
+            Some(PeerIdentity {
+                fingerprint: fingerprint.to_owned(),
+                public_key: String::new(),
+            })
+        };
+        // The first controller owns the playback.
+        session
+            .edit_queue_with_load(
+                None,
+                owner_of(&first_fingerprint),
+                |_player, _started_report| (false, true, false, None),
+            )
+            .await?;
+        assert_eq!(
+            session
+                .playback_owner_for_test()
+                .await
+                .map(|owner| owner.fingerprint),
+            Some(first_fingerprint.clone())
+        );
+        // The second controller's load goes out and fails its own completion: the track list
+        // is replaced with one entry while the load asks for index 99.
+        let error = session
+            .edit_queue_with_load(
+                None,
+                owner_of(&second_fingerprint),
+                |player, _started_report| {
+                    let completion = Some(player.command_with_completion(
+                        playback::PlayerCommand::EditPlaylist(
+                            PlaylistEdit {
+                                tracks: vec![(
+                                    PlayingItem::IndependentFile("missing-load-track.ogg".into()),
+                                    playback::player::PlaybackSource::Local(
+                                        "missing-load-track.ogg".into(),
+                                    ),
+                                )],
+                                placement: PlaylistPlacement::Replace,
+                                playback_mode: None,
+                                load: Some(PlaylistLoad {
+                                    start_index: 99,
+                                    position: Duration::ZERO,
+                                    play: true,
+                                }),
+                                block: None,
+                                started_playback: None,
+                            },
+                            None,
+                        ),
+                    ));
+                    (true, true, true, completion)
+                },
+            )
+            .await
+            .expect_err("a load past the end of the playlist cannot apply");
+        assert!(
+            error.chain().any(
+                |cause| cause.downcast_ref::<ExpectedRequestError>().is_some_and(
+                    |expected| matches!(expected, ExpectedRequestError::PlayerCommandCannotApply)
+                )
+            ),
+            "the failing load should surface the player command error: {error:?}"
+        );
+        // The ownership is the first controller's again, not the failed load's.
+        assert_eq!(
+            session
+                .playback_owner_for_test()
+                .await
+                .map(|owner| owner.fingerprint),
+            Some(first_fingerprint.clone()),
+            "the failed load must hand the ownership back"
+        );
+        player.global_params.node.token.cancel();
+        first.global_params.node.token.cancel();
+        second.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// A load whose controller loses control access while the load is still in flight must not
+    /// leave playback running ownerless: the revocation pass over the owner has no owner to see
+    /// yet when the load's commands go out, so the ownership write itself pauses the playback
+    /// behind them. Here the revocation is applied inside the edit closure, after the load's
+    /// command has gone out and before the ownership is written, which is exactly the landing
+    /// the revocation pass cannot cover.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn playback_pauses_when_starting_controller_is_revoked_mid_load() -> Result<()> {
+        use crate::access_policy::Action;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{
+            PlaybackState as PlayerPlaybackState, PlayingItem, PlaylistEdit, PlaylistLoad,
+            PlaylistPlacement,
+        };
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let session = player.global_params.node.session()?;
+        let track_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        let track = (
+            PlayingItem::IndependentFile(track_path.to_string_lossy().into_owned()),
+            playback::player::PlaybackSource::Local(track_path),
+        );
+        let access_policy = player.global_params.node.access_policy.clone();
+        let peer = PeerIdentity {
+            fingerprint: fingerprint.clone(),
+            public_key: String::new(),
+        };
+        // The controller still controls its playback when the load begins; the access is cut
+        // after the load's command is already on its way to the player thread.
+        assert!(
+            access_policy.check(&peer, &Action::Control).is_ok(),
+            "the paired controller must control the player before the load"
+        );
+        let revoke_fingerprint = fingerprint.clone();
+        let edit_result = session
+            .edit_queue_with_load(None, Some(peer), move |player, _started_report| {
+                let completion = Some(player.command_with_completion(
+                    playback::PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: vec![track],
+                            placement: PlaylistPlacement::Replace,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 0,
+                                position: Duration::ZERO,
+                                play: true,
+                            }),
+                            block: None,
+                            started_playback: None,
+                        },
+                        None,
+                    ),
+                ));
+                let mut grants = access_policy
+                    .grants(&revoke_fingerprint)
+                    .expect("paired controller grants");
+                grants.control = false;
+                access_policy
+                    .set(&revoke_fingerprint, grants)
+                    .expect("revoking the controller mid-load");
+                (true, true, true, completion)
+            })
+            .await;
+        // Which answer the edit gets depends on where the revocation pass lands: a pause that
+        // arrives while the track still loads supersedes the play-through completion, one that
+        // arrives after it came up does not. Anything but those two answers is a failure.
+        if let Err(error) = &edit_result {
+            assert!(
+                format!("{error:?}").contains("superseded"),
+                "the edit may only fail superseded by the revocation pause, got: {error:?}"
+            );
+        }
+        // Whichever side the pause landed on, the playback the revoked controller's load
+        // started settles paused on the track the load put up — never playing, and never the
+        // interrupted playback from before it — and the revoked controller owns nothing.
+        wait_until(
+            "in-flight revoked playback to pause on the loaded track",
+            || async {
+                let status = player.global_params.player.lock().await.get_status();
+                Ok(
+                    (status.state == PlayerPlaybackState::Paused && status.index == Some(0))
+                        .then_some(()),
+                )
+            },
+        )
+        .await?;
+        wait_until("the revoked controller to own nothing", || async {
+            Ok((session.playback_owner_for_test().await.is_none()).then_some(()))
+        })
+        .await?;
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
+    /// A controller whose access is already revoked when its load reaches the session is
+    /// refused before anything is dispatched: the revocation pass over the owner ran before
+    /// the edit could write its ownership, so no pause after the fact could ever catch the
+    /// playback the load would start. The edit must fail the request, send nothing to the
+    /// player, and move neither the queue nor the ownership.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn revoked_controller_load_is_refused_before_dispatch() -> Result<()> {
+        use crate::access_policy::Action;
+        use discovery::access_policy::AccessPolicy;
+        use discovery::access_policy::PeerIdentity;
+        use playback::player::{PlayingItem, PlaylistEdit, PlaylistLoad, PlaylistPlacement};
+
+        let player_dir = tempfile::tempdir()?;
+        let controller_dir = tempfile::tempdir()?;
+        let player = fixture(player_dir.path()).await?;
+        let controller = fixture(controller_dir.path()).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        paired_full(&player, &controller).await?;
+        let session = player.global_params.node.session()?;
+        let track_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
+        let track = (
+            PlayingItem::IndependentFile(track_path.to_string_lossy().into_owned()),
+            playback::player::PlaybackSource::Local(track_path),
+        );
+        let access_policy = player.global_params.node.access_policy.clone();
+        let peer = PeerIdentity {
+            fingerprint: fingerprint.clone(),
+            public_key: String::new(),
+        };
+        assert!(
+            access_policy.check(&peer, &Action::Control).is_ok(),
+            "the paired controller must control the player before the revocation"
+        );
+        let mut grants = access_policy
+            .grants(&fingerprint)
+            .expect("paired controller grants");
+        grants.control = false;
+        access_policy
+            .set(&fingerprint, grants)
+            .expect("revoking the controller before its load");
+        let queue_revision_before = session.queue_revision().await;
+        let edit_result = session
+            .edit_queue_with_load(None, Some(peer), move |player, _started_report| {
+                let completion = Some(player.command_with_completion(
+                    playback::PlayerCommand::EditPlaylist(
+                        PlaylistEdit {
+                            tracks: vec![track],
+                            placement: PlaylistPlacement::Replace,
+                            playback_mode: None,
+                            load: Some(PlaylistLoad {
+                                start_index: 0,
+                                position: Duration::ZERO,
+                                play: true,
+                            }),
+                            block: None,
+                            started_playback: None,
+                        },
+                        None,
+                    ),
+                ));
+                (true, true, true, completion)
+            })
+            .await;
+        let error = edit_result.expect_err("a revoked controller's load must never dispatch");
+        assert!(
+            format!("{error:?}").contains("denied") || format!("{error:?}").contains("access"),
+            "the refusal should be the access policy's: {error:?}"
+        );
+        assert_eq!(
+            session.queue_revision().await,
+            queue_revision_before,
+            "a refused edit must not move the queue revision"
+        );
+        assert!(
+            session.playback_owner_for_test().await.is_none(),
+            "a refused edit must not write the ownership"
+        );
+        assert!(
+            player
+                .global_params
+                .player
+                .lock()
+                .await
+                .get_playlist()
+                .is_empty(),
+            "a refused edit must not reach the player's queue"
+        );
+        player.global_params.node.token.cancel();
+        controller.global_params.node.token.cancel();
+        Ok(())
+    }
+
     /// How a controller that stopped reading ends its session.
     #[derive(Clone, Copy)]
     enum StalledControllerEnd {
