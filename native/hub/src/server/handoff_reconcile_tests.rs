@@ -320,6 +320,7 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
             DiscoveryParams {
                 device_info: info(&f.target).await?,
             },
+            true,
         )
         .await?;
     fs::write(&f.target_file, &f.valid_audio)?;
@@ -467,6 +468,7 @@ async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Resul
             DiscoveryParams {
                 device_info: info(&f.target).await?,
             },
+            true,
         )
         .await?;
     let source_node = f.source.global_params.node.clone();
@@ -495,6 +497,7 @@ async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Resul
             DiscoveryParams {
                 device_info: info(&f.target).await?,
             },
+            true,
         )
         .await?;
     timeout(
@@ -582,6 +585,7 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
             DiscoveryParams {
                 device_info: info(&f.target).await?,
             },
+            true,
         )
         .await?;
     fs::write(&f.target_file, &f.valid_audio)?;

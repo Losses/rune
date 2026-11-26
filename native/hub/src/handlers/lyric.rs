@@ -112,13 +112,22 @@ async fn load_lyric_lines(
         return Ok(Vec::new());
     };
 
-    let embedded = match get_lyrics(fsio, path) {
-        Ok(x) => x.filter(|x| !x.trim().is_empty()),
-        Err(err) => {
-            error!("Unable to read embedded lyric: path={path:?}: {err:#}");
-            None
-        }
-    };
+    // Reading embedded lyrics and the sidecar search are synchronous filesystem
+    // work: on OpenDAL backends they block the calling thread on a runtime, which
+    // must not be an async worker, so both run on one blocking worker.
+    let worker_fsio = fsio.clone();
+    let worker_path = path.to_path_buf();
+    let (embedded, sidecar) = tokio::task::spawn_blocking(move || {
+        let embedded = match get_lyrics(&worker_fsio, &worker_path) {
+            Ok(x) => x.filter(|x| !x.trim().is_empty()),
+            Err(err) => {
+                error!("Unable to read embedded lyric: path={worker_path:?}: {err:#}");
+                None
+            }
+        };
+        (embedded, parse_audio_lyrics(worker_path))
+    })
+    .await?;
 
     let mut lyric = None;
 
@@ -134,7 +143,7 @@ async fn load_lyric_lines(
 
     let lyric = match lyric {
         Some(x) => x,
-        None => match parse_audio_lyrics(path.to_path_buf()) {
+        None => match sidecar {
             Some(Ok(x)) => x,
             Some(Err(err)) => return Err(err.context("Unable to parse sidecar lyric")),
             None => return Ok(Vec::new()),
