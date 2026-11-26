@@ -6,7 +6,8 @@ use crate::{
 use database::library_registry::ServiceKind;
 use playback::pcm_tap::PcmTap;
 use playback::player::{
-    ClearHandoffBlocksResult, HandoffLoadResult, MockPlayer, PausedPlayback, PlayerCommandError,
+    ClearHandoffBlocksResult, HandoffLoadResult, MockPlayer, PausedPlayback, PlaybackEvent,
+    PlayerCommandError,
 };
 use playback::strategies::AddMode;
 use playback::{InternalLog, PlayerCommand, SimpleReceiver};
@@ -471,6 +472,9 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
 struct ScriptedPlayer {
     reports: SimpleSender<PlayerStatus>,
     played: SimpleSender<PlayedThrough>,
+    /// The statuses and completions in the order the reports make them, as the player's own
+    /// stream of events keeps the causal order the separate channels cannot.
+    events: SimpleSender<PlaybackEvent>,
     status: std::sync::Mutex<PlayerStatus>,
     reported_on_barrier: std::sync::Mutex<Vec<PlayerStatus>>,
     /// What it reports right after it answered a barrier, as a player that moved on just then.
@@ -482,6 +486,7 @@ impl ScriptedPlayer {
         Self {
             reports: SimpleChannel::unbounded().0,
             played: SimpleChannel::unbounded().0,
+            events: SimpleChannel::unbounded().0,
             status: std::sync::Mutex::new(MockPlayer.get_status()),
             reported_on_barrier: std::sync::Mutex::new(Vec::new()),
             reported_after_barrier: std::sync::Mutex::new(Vec::new()),
@@ -491,7 +496,19 @@ impl ScriptedPlayer {
     /// Reports `status`, which is the player's status from then on.
     fn report(&self, status: PlayerStatus) {
         *self.status.lock().unwrap() = status.clone();
-        self.reports.send(status);
+        self.reports.send(status.clone());
+        self.events.send(PlaybackEvent::Status(status));
+    }
+
+    /// Reports the completion of `item`, as the player does before the next occurrence starts.
+    fn plays_through(&self, item: &PlayingItem) {
+        let played = PlayedThrough {
+            item: item.clone(),
+            listened: Duration::from_secs(10),
+            started_at: Some(SystemTime::now()),
+        };
+        self.played.send(played.clone());
+        self.events.send(PlaybackEvent::Played(played));
     }
 
     /// Moves on to `status` without reporting it yet, as a player whose report of the move is
@@ -593,6 +610,9 @@ impl Playable for ScriptedPlayer {
     }
     fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
         self.played.subscribe()
+    }
+    fn subscribe_playback_events(&self) -> SimpleReceiver<PlaybackEvent> {
+        self.events.subscribe()
     }
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
         MockPlayer.subscribe_playlist()
@@ -1052,16 +1072,15 @@ async fn a_report_after_the_barrier_answered_is_what_the_session_shows_again_wit
     node.shutdown().await
 }
 
-/// The player's status and completion events of one queue fed to the session's status and
-/// played event consumers, in the order one task handles them, with the reports the library
-/// and the scrobbler were given. `names` holds the track names the service answers late.
+/// The player's status and completion events of one queue fed through the session's own event
+/// loop, as playback reports them, with the starts and completions the library service was
+/// told. `names` holds the track names the service answers late.
 struct ReportingPlayback {
     _dir: tempfile::TempDir,
     node: Arc<NodeContext>,
+    session: Arc<PlayerSession>,
+    player: Arc<Mutex<ScriptedPlayer>>,
     service: Arc<SlowService>,
-    scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
-    item_state: ItemEventState,
-    broadcaster: Arc<dyn Broadcaster>,
     /// The item events report next, as one loaded queue reports it through Repeat One or
     /// adjacent entries.
     item: PlayingItem,
@@ -1073,11 +1092,10 @@ impl ReportingPlayback {
         let dir = tempfile::tempdir()?;
         crate::test_node::disable_sync_listener(dir.path())?;
         let path = dir.path().to_string_lossy();
-        let broadcaster: Arc<dyn Broadcaster> = Arc::new(Quiet);
         let node = NodeContext::new(
             &path,
             &path,
-            broadcaster.clone(),
+            Arc::new(Quiet),
             false,
             RunMode::App,
             Arc::new(Visualizer::new()),
@@ -1097,12 +1115,22 @@ impl ReportingPlayback {
         });
         let binding: Arc<dyn ServiceBinding> = service.clone();
         node.set_open_service_catalog(None, binding).await?;
+        let player = Arc::new(Mutex::new(ScriptedPlayer::new()));
+        let played: Arc<Mutex<dyn Playable>> = player.clone();
+        let session = PlayerSession::new(
+            &node,
+            "repeating",
+            false,
+            Box::new(move |real| {
+                real.terminate();
+                played
+            }),
+        )
+        .await?;
         let item = PlayingItem::LibraryTrack {
             library_id,
             track: tracks[0].to_owned(),
         };
-        let report_scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>> =
-            Arc::new(Mutex::new(scrobbling::manager::MockScrobblingManager::new()));
         Ok(Self {
             playlist: tracks
                 .iter()
@@ -1116,10 +1144,9 @@ impl ReportingPlayback {
                 .collect(),
             _dir: dir,
             node,
+            session,
+            player,
             service,
-            scrobbler: report_scrobbler,
-            item_state: ItemEventState::default(),
-            broadcaster,
             item,
         })
     }
@@ -1142,37 +1169,20 @@ impl ReportingPlayback {
         }
     }
 
-    /// The status consumer handles a status report, as the event loop does.
-    async fn reports(&mut self, item: &PlayingItem, index: usize, state: PlaybackState) {
-        handle_status_event(
-            &self.node,
-            self.status(item, index, state),
-            &mut self.item_state,
-            &None,
-            None,
-            &self.broadcaster,
-            "test",
-        )
-        .await;
+    /// The player reports a status, as it does while playback moves on.
+    async fn reports(&self, item: &PlayingItem, index: usize, state: PlaybackState) {
+        self.player
+            .lock()
+            .await
+            .report(self.status(item, index, state));
     }
 
-    /// The completion consumer handles a played-through report, as the event loop does.
-    async fn plays_through(&mut self, item: &PlayingItem) {
-        handle_played_event(
-            &self.node,
-            PlayedThrough {
-                item: item.clone(),
-                listened: Duration::from_secs(10),
-                started_at: Some(SystemTime::now()),
-            },
-            &mut self.item_state,
-            &self.scrobbler,
-        )
-        .await;
+    /// The player reports the completion of `item`, as it does when the track played through.
+    async fn plays_through(&self, item: &PlayingItem) {
+        self.player.lock().await.plays_through(item);
     }
 
-    /// Waits until the service was told that `count` starts began, as the event consumers
-    /// report the start once the service has answered the track's metadata.
+    /// Waits until the service was told that `count` starts began.
     async fn until_started(&self, count: usize) -> Result<()> {
         let service = self.service.clone();
         wait_until("the starts reported", move || {
@@ -1193,6 +1203,7 @@ impl ReportingPlayback {
     }
 
     async fn stop(self) -> Result<()> {
+        self.session.shutdown().await?;
         self.node.shutdown().await
     }
 }
@@ -1202,7 +1213,7 @@ impl ReportingPlayback {
 /// as Repeat One plays it, so the item never changes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_track_played_again_starts_and_completes_again() -> Result<()> {
-    let mut playback = ReportingPlayback::start(&["track", "track"]).await?;
+    let playback = ReportingPlayback::start(&["track", "track"]).await?;
     let track = playback.item.clone();
 
     // The first occurrence starts and ends.
@@ -1230,7 +1241,7 @@ async fn a_track_played_again_starts_and_completes_again() -> Result<()> {
 /// track starts and completes as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pausing_and_resuming_does_not_start_the_track_again() -> Result<()> {
-    let mut playback = ReportingPlayback::start(&["track", "other"]).await?;
+    let playback = ReportingPlayback::start(&["track", "other"]).await?;
     let track = playback.item.clone();
     let other = PlayingItem::LibraryTrack {
         library_id: playback.service.library_id,
