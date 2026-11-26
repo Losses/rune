@@ -395,6 +395,43 @@ void main() {
     );
   });
 
+  testWidgets(
+    'the automatic sync switch is disabled while its save is pending',
+    (tester) async {
+      final pending = Completer<void>();
+      final saved = <SyncSettingsChange>[];
+      await _pumpPage(
+        tester,
+        records: const [_share],
+        loadSyncSettings: () async => _settings(),
+        saveSyncSettings: (change) {
+          saved.add(change);
+          return pending.future;
+        },
+      );
+
+      await tester.ensureVisible(_switchFinder(_autoShareSync));
+      await tester.tap(_switchFinder(_autoShareSync));
+      await tester.pump();
+
+      final waiting = tester.widget<ToggleSwitch>(
+        _switchFinder(_autoShareSync),
+      );
+      expect(waiting.onChanged, isNull);
+      expect(waiting.checked, isTrue);
+      await tester.tap(_switchFinder(_autoShareSync), warnIfMissed: false);
+      await tester.pump();
+      expect(saved, hasLength(1));
+
+      pending.complete();
+      await tester.pumpAndSettle();
+
+      final done = tester.widget<ToggleSwitch>(_switchFinder(_autoShareSync));
+      expect(done.onChanged, isNotNull);
+      expect(done.checked, isFalse);
+    },
+  );
+
   testWidgets('a failed save of the automatic sync switch keeps its value', (
     tester,
   ) async {

@@ -37,6 +37,8 @@ class SyncSettingsChange {
       );
 }
 
+/// Saves the settings [change] names and leaves every other setting as the
+/// hub has it, so writers of different settings never overwrite each other.
 Future<void> setSyncSettings(SyncSettingsChange change) async {
   final id = '${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
   await awaitResponse(

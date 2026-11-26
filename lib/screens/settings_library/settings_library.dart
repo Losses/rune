@@ -55,6 +55,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
   List<LocalLibrary> registeredLibraries = [];
   GetSyncSettingsResponse? syncSettings;
+  bool savingAutoShareSync = false;
   bool syncSettingsRequested = false;
   StreamSubscription? _contentSubscription;
 
@@ -117,14 +118,19 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   }
 
   Future<void> _setAutoShareSync(bool enabled) async {
+    setState(() => savingAutoShareSync = true);
     try {
-      // The other settings are changed on the Devices page, so only this one
-      // is sent and only this one is replaced in what is shown.
-      final change = SyncSettingsChange(autoShareSync: enabled);
-      await widget.saveSyncSettings(change);
-      final shown = syncSettings;
-      if (mounted && shown != null) {
-        setState(() => syncSettings = change.applyTo(shown));
+      try {
+        // The other settings are changed on the Devices page, so only this
+        // one is sent and only this one is replaced in what is shown.
+        final change = SyncSettingsChange(autoShareSync: enabled);
+        await widget.saveSyncSettings(change);
+        final shown = syncSettings;
+        if (mounted && shown != null) {
+          setState(() => syncSettings = change.applyTo(shown));
+        }
+      } finally {
+        if (mounted) setState(() => savingAutoShareSync = false);
       }
     } catch (error) {
       if (!mounted) return;
@@ -218,7 +224,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       title: S.of(context).autoShareSync,
                       subtitle: S.of(context).autoShareSyncDescription,
                       value: settings.autoShareSync,
-                      onChanged: _setAutoShareSync,
+                      // Two saves in flight could finish out of order and
+                      // leave the earlier value shown.
+                      onChanged: savingAutoShareSync ? null : _setAutoShareSync,
                     ),
                   const SizedBox(height: 2),
                   SizedBox(
