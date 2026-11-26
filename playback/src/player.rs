@@ -164,6 +164,20 @@ pub struct PlayedThrough {
     pub started_at: Option<SystemTime>,
 }
 
+/// One report of the player's playback, in the order the player produced it. A status and the
+/// completion of the track it describes answer the same reports to separate subscribers in no
+/// order between the two channels, so a completion that precedes the next occurrence's first
+/// status can arrive after it. This stream keeps both in the order they happened: a status that
+/// follows a completion here was produced after the track ended, and a completion that follows
+/// a status was produced after what the status shows.
+#[derive(Debug, Clone)]
+pub enum PlaybackEvent {
+    /// The player's status changed or repeated.
+    Status(PlayerStatus),
+    /// A track reached its end.
+    Played(PlayedThrough),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlayerCommandError {
     #[error("player thread is no longer available")]
@@ -631,6 +645,26 @@ pub trait Playable: Send {
     fn get_playlist(&self) -> Vec<PlayingItem>;
     fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus>;
     fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough>;
+    /// The statuses and completions of the player's playback in the order it produced them.
+    /// The default replays the separate subscriptions, whose order between the channels is not
+    /// the player's; players that report both override it with their causal stream.
+    fn subscribe_playback_events(&self) -> SimpleReceiver<PlaybackEvent> {
+        let (sender, receiver) = SimpleChannel::unbounded();
+        let status = self.subscribe_status();
+        let played = self.subscribe_played_through();
+        let status_events = sender.clone();
+        tokio::spawn(async move {
+            while let Ok(value) = status.recv().await {
+                status_events.send(PlaybackEvent::Status(value));
+            }
+        });
+        tokio::spawn(async move {
+            while let Ok(value) = played.recv().await {
+                sender.send(PlaybackEvent::Played(value));
+            }
+        });
+        receiver
+    }
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus>;
     fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>>;
     fn subscribe_crash(&self) -> SimpleReceiver<String>;
@@ -674,6 +708,8 @@ pub struct Player {
     status_sender: SimpleSender<PlayerStatus>,
     playlist_sender: SimpleSender<PlaylistStatus>,
     played_through_sender: SimpleSender<PlayedThrough>,
+    /// The statuses and completions of playback in the order the player produced them.
+    playback_events_sender: SimpleSender<PlaybackEvent>,
     log_sender: SimpleSender<InternalLog>,
     realtime_fft_sender: SimpleSender<Vec<f32>>,
     pcm_tap: Arc<PcmTap>,
@@ -705,6 +741,8 @@ impl Player {
         let (status_sender, _) = SimpleChannel::channel(16);
         // Keep every completed track until the session handles it
         let (played_through_sender, _) = SimpleChannel::unbounded();
+        // The one stream that keeps statuses and completions in the order they happened
+        let (playback_events_sender, _) = SimpleChannel::unbounded();
         // Create a broadcast channel for playlist updates
         let (playlist_sender, _) = SimpleChannel::channel(16);
         // Create a broadcast channel for realtime FFT updates
@@ -750,6 +788,7 @@ impl Player {
             status_sender: status_sender.clone(),
             playlist_sender: playlist_sender.clone(),
             played_through_sender: played_through_sender.clone(),
+            playback_events_sender: playback_events_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
             pcm_tap: pcm_tap.clone(),
             crash_sender: crash_sender.clone(),
@@ -790,6 +829,7 @@ impl Player {
         let status_sender_clone = status_sender.clone();
         let playlist_sender_clone = playlist_sender.clone();
         let realtime_fft_sender_clone = realtime_fft_sender.clone();
+        let playback_events_sender_clone = playback_events_sender.clone();
         thread::spawn(move || {
             // The revision of the playlist as the events reported it last, so that the
             // snapshots the Unavailable reports send pair with the queue they describe.
@@ -881,11 +921,13 @@ impl Player {
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        played_through_sender.send(PlayedThrough {
+                        let played = PlayedThrough {
                             item,
                             listened,
                             started_at,
-                        });
+                        };
+                        played_through_sender.send(played.clone());
+                        playback_events_sender_clone.send(PlaybackEvent::Played(played));
                     }
                     PlayerEvent::Error {
                         item,
@@ -961,6 +1003,7 @@ impl Player {
                     }
                 }
                 status_sender_clone.send(status.clone());
+                playback_events_sender_clone.send(PlaybackEvent::Status(status.clone()));
             }
         });
 
@@ -1320,6 +1363,10 @@ impl Playable for Player {
 
     fn subscribe_played_through(&self) -> SimpleReceiver<PlayedThrough> {
         self.played_through_sender.subscribe()
+    }
+
+    fn subscribe_playback_events(&self) -> SimpleReceiver<PlaybackEvent> {
+        self.playback_events_sender.subscribe()
     }
 
     fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {

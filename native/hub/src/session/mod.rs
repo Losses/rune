@@ -946,9 +946,11 @@ impl PlayerSession {
         mut show_requests: mpsc::UnboundedReceiver<ShowRequest>,
     ) {
         let player = self.player.lock().await;
-        let status = player.subscribe_status();
+        // The one stream keeps statuses and completions in the order the player produced them,
+        // so a completion handled here really preceded every status handled after it, and a
+        // completion that still plays out after a status belongs to its occurrence.
+        let playback_events = player.subscribe_playback_events();
         let playlist = player.subscribe_playlist();
-        let played = player.subscribe_played_through();
         let fft = player.subscribe_realtime_fft();
         let crash = player.subscribe_crash();
         let logs = player.subscribe_log();
@@ -1024,20 +1026,22 @@ impl PlayerSession {
                         barrier = None;
                         answered = Some(answer);
                     }
-                    Ok(played) = played.recv() => {
-                        if let Some(node) = weak.upgrade() {
-                            handle_played_event(&node, played, &mut item_state, &scrobbler).await;
-                        }
-                    }
-                    Ok(value) = status.recv() => {
+                    Ok(event) = playback_events.recv() => {
                         let Some(node) = weak.upgrade() else { return };
-                        if persist_status_tx.send(value.clone()).await.is_err() { return; }
-                        last_status = Some(value.clone());
-                        // A report handled after the barrier answered says at least as much as the
-                        // answer, so the session shows again without noting the answer over it.
-                        answered = None;
-                        note_local_track(&node, &value);
-                        handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                        match event {
+                            playback::player::PlaybackEvent::Played(played) => {
+                                handle_played_event(&node, played, &mut item_state, &scrobbler).await;
+                            }
+                            playback::player::PlaybackEvent::Status(value) => {
+                                if persist_status_tx.send(value.clone()).await.is_err() { return; }
+                                last_status = Some(value.clone());
+                                // A report handled after the barrier answered says at least as much as the
+                                // answer, so the session shows again without noting the answer over it.
+                                answered = None;
+                                note_local_track(&node, &value);
+                                handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                            }
+                        }
                     }
                     Some(late) = late_cover_rx.recv() => {
                         let Some(node) = weak.upgrade() else { return };
@@ -2023,6 +2027,13 @@ async fn handle_played_event(
     if let Err(error) = report {
         log::warn!("Could not report library track completion: {error:#}");
     }
+    // The occurrence of the item ended, so the next one starts and reports anew: Repeat One
+    // and adjacent entries of the same track report the item again without a change of item,
+    // which the start flag and the pending now-playing report must not hold against it. The
+    // completion above already consumed what the service stored for this start, so a status of
+    // this occurrence still in flight after it cannot start again.
+    item_state.track_started = false;
+    item_state.now_playing_pending = true;
 }
 
 /// A playback failure reaches the application log, and when no request answer already carried
