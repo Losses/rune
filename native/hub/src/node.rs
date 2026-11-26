@@ -1066,6 +1066,24 @@ impl NodeContext {
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
         *current = player;
+        // This device's player owns the visualizer again, so its session's reports are the
+        // playback to show. Until then they are ignored: the session keeps reporting the paused
+        // track it holds beside the current player, which would take the clock away from the
+        // feed of the player that is current. The feed also ends when its player can no longer
+        // feed: a peer that lost its link for good keeps the visualizer frozen on its last
+        // report otherwise. While the peer is reconnecting the feed stays — its clock is closer
+        // to what plays than the local paused track, and it resumes with the link.
+        let feed_over = matches!(
+            *current,
+            CurrentPlayer::Local
+                | CurrentPlayer::RunePeer {
+                    link: None,
+                    reconnecting: None,
+                }
+        );
+        if feed_over {
+            self.visualizer().release_feed();
+        }
         self.publish_visualizer_inputs(&current)?;
         self.publish_player_host(&current);
         Ok(())
