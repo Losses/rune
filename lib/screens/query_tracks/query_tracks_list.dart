@@ -66,8 +66,8 @@ class QueryTrackListView extends StatefulWidget {
   final bool underTitle;
 
   /// Drawn as the first item of the small and the band lists, scrolling away
-  /// with the tracks. It stays while the tracks load. The large list has no
-  /// header.
+  /// with the tracks. It stays while the tracks load, and when they fail to,
+  /// with the failure after it. The large list has no header.
   final Widget? header;
 
   const QueryTrackListView({
@@ -465,9 +465,10 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    if (_failure != null) {
-      return Center(child: Text(requestErrorText(S.of(context), _failure!)));
-    }
+    final failure = _failure == null
+        ? null
+        : Center(child: Text(requestErrorText(S.of(context), _failure!)));
+    if (failure != null && widget.header == null) return failure;
     if (!_isInitialized && widget.header == null) {
       return const Center(child: ProgressRing());
     }
@@ -482,6 +483,21 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
       ],
       builder: (context, detected) {
         final activeBreakpoint = widget.layout ?? detected;
+        // The failure follows the header where the tracks would be, along the
+        // list. The header is in the flex from the start, so that it keeps
+        // its state when the failure comes.
+        final header = widget.header == null
+            ? null
+            : Flex(
+                direction:
+                    activeBreakpoint == DeviceType.band ||
+                        activeBreakpoint == DeviceType.belt
+                    ? Axis.horizontal
+                    : Axis.vertical,
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [widget.header!, ?failure],
+              );
         if (activeBreakpoint == DeviceType.belt) {
           return BeltContainer(
             child: BandScreenTrackList(
@@ -490,7 +506,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
               queries: widget.queries,
               mode: widget.mode,
               reloadData: _restartListing,
-              header: widget.header,
+              header: header,
             ),
           );
         }
@@ -503,7 +519,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             queries: widget.queries,
             mode: widget.mode,
             reloadData: _restartListing,
-            header: widget.header,
+            header: header,
           );
         }
 
@@ -514,10 +530,11 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             queries: widget.queries,
             mode: widget.mode,
             reloadData: _restartListing,
-            header: widget.header,
+            header: header,
           );
         }
 
+        if (failure != null) return failure;
         return LargeScreenTrackList(
           totalCount: _totalCount,
           getItem: _getItem,

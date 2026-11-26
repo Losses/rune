@@ -622,6 +622,16 @@ private final class Entry {
       }
     }
 
+    /// How long a check that does not repeat waits before it looks again whether the hold can
+    /// go: until the settle time after the latest batch, or once that passed, `recheck`, as the
+    /// work may not have settled, but never past the limit. Nil when nothing is held.
+    func untilDone(recheck: Duration) -> Duration? {
+      guard task != .invalid else { return nil }
+      let now = ContinuousClock.now
+      let settles = lastBatch + Self.settle
+      return min(settles > now ? settles : now + recheck, began + Self.limit) - now
+    }
+
     /// Lets the app be suspended again.
     func release() {
       guard task != .invalid else { return }
@@ -911,6 +921,8 @@ final class MusicKitPlayback {
   private let lookups = SongLookups()
   #if os(iOS)
     private let hold = HandOverHold()
+    /// The next look at the hold while the periodic check does not run.
+    private var holdCheck: Task<Void, Never>?
     private var activityObservers: [NSObjectProtocol] = []
   #endif
 
@@ -938,8 +950,8 @@ final class MusicKitPlayback {
     #endif
   }
 
-  /// Runs the periodic check while the host holds entries. The common modes keep the timer
-  /// running during window resizes, open menus and scrolling.
+  /// Runs the periodic check while the host holds entries and its queue has not ended. The
+  /// common modes keep the timer running during window resizes, open menus and scrolling.
   private func startTimer() {
     guard timer == nil else { return }
     let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -1189,8 +1201,8 @@ final class MusicKitPlayback {
     for id in ids {
       let entry = Entry(id: id)
       entries.append(entry)
-      startTimer()
       if !ended {
+        startTimer()
         lookUp(entry, epoch: epoch)
       }
     }
@@ -1296,11 +1308,12 @@ final class MusicKitPlayback {
   }
 
   private func start(epoch: Int, deadline: ContinuousClock.Instant) async {
+    // After the end nothing plays until the next `set`, so nothing is held for it either.
+    guard !ended else { return }
     wantPlaying = true
     // An entry that played out is not started again: MusicKit, or the host, moves on from it
     // and plays on.
-    guard !ended, stalledSince == nil, !advancing, let entry = currentEntry, entry.queued,
-      !entry.failed
+    guard stalledSince == nil, !advancing, let entry = currentEntry, entry.queued, !entry.failed
     else { return }
     if !isPlaying {
       sawPlaying = false
@@ -1550,6 +1563,7 @@ final class MusicKitPlayback {
     }
     guard let song = next.song, !next.failed else {
       finish()
+      sendStatus()
       return
     }
     // Nothing plays any more, so a fresh queue costs no gap.
@@ -1921,8 +1935,11 @@ final class MusicKitPlayback {
     let reached = max(time, furthest)
     let playedOut: Bool
     if let duration = entry.song?.duration, duration > 0 {
-      // Playing out ends the entry whether MusicKit then shows stopped or paused.
-      playedOut = reached >= duration - Self.endTolerance
+      // Playing out ends the entry whether MusicKit then shows stopped or paused. An entry that
+      // Rune paused near its end before it played out stays paused there, as a pause neither
+      // stops MusicKit nor leaves it with nothing current.
+      let paused = !wantPlaying && stalledSince == nil && status != .stopped && playing != nil
+      playedOut = !paused && reached >= duration - Self.endTolerance
     } else {
       playedOut = status == .stopped
     }
@@ -1947,12 +1964,19 @@ final class MusicKitPlayback {
     }
   }
 
-  /// The last entry finished, and nothing playable follows it.
+  /// The last entry finished, and nothing playable follows it, which is reported. The entry
+  /// stays current where it ended, for the status that the caller sends. Until the next `set`
+  /// nothing plays, so neither the periodic check nor, on macOS, the activity is kept.
   private func finish() {
     ended = true
     stalledSince = nil
+    wantPlaying = false
+    stopTimer()
+    #if os(iOS)
+      // Nothing more goes to MusicKit, so the hold goes once settled, without the periodic check.
+      releaseHoldIfSettled()
+    #endif
     sendEnded()
-    sendStatus()
   }
 
   // MARK: - Catching up after a suspension
@@ -2015,24 +2039,25 @@ final class MusicKitPlayback {
       stalledSince = .now
       advanceByHand(to: next)
     } else {
-      ended = true
-      sendEnded()
+      finish()
     }
   }
 
   /// Whether `entry`, the current one, played out while the host did not run: MusicKit has
   /// nothing current any more, or it stands at the last entry it holds and reached its end, or,
   /// as Rune wants the entry to play, stopped there or went back to its start, as MusicKit does
-  /// once its queue runs out. An entry that Rune paused stays paused, wherever it stands.
+  /// once its queue runs out. An entry that Rune paused stays paused wherever it stands, at its
+  /// end too, unless MusicKit stopped it there, which a pause never does.
   private func playedOut(_ entry: Entry) -> Bool {
     if player.queue.currentEntry == nil { return true }
     guard current == entries.lastIndex(where: { $0.queued && !$0.failed }) else { return false }
+    let stopped = player.state.playbackStatus == .stopped
+    guard wantPlaying || stopped else { return false }
     let time = max(0, player.playbackTime)
     if let duration = entry.song?.duration, duration > 0, time >= duration - Self.endTolerance {
       return true
     }
-    return wantPlaying
-      && (player.state.playbackStatus == .stopped || time < Self.startTolerance)
+    return wantPlaying && (stopped || time < Self.startTolerance)
   }
 
   // MARK: - Background hold (iOS)
@@ -2066,10 +2091,24 @@ final class MusicKitPlayback {
       return entries.dropFirst(current + 1).contains { !$0.queued && !$0.failed }
     }
 
+    /// How soon a hold that waits for the work to settle is looked at again without the
+    /// periodic check, as often as that check runs.
+    private static let holdRecheck: Duration = .milliseconds(500)
+
     /// Lets the app go once no batch is being applied and every entry after the current one
-    /// reached MusicKit or failed.
+    /// reached MusicKit or failed. While the periodic check does not run, as after the end, a
+    /// hold that cannot go yet is looked at again once it may, at its limit at the latest,
+    /// until it goes or the periodic check runs again and takes over.
     private func releaseHoldIfSettled() {
+      holdCheck?.cancel()
+      holdCheck = nil
       hold.releaseIfDone(settled: !applying && !pendingAhead)
+      guard timer == nil, let wait = hold.untilDone(recheck: Self.holdRecheck) else { return }
+      holdCheck = Task { [weak self] in
+        try? await Task.sleep(for: wait)
+        guard !Task.isCancelled else { return }
+        self?.releaseHoldIfSettled()
+      }
     }
   #endif
 }

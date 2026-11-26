@@ -15,6 +15,7 @@ import '../../screens/artist/artist_detail.dart';
 import '../../screens/artist/artist_page.dart';
 import '../../screens/query_tracks/query_tracks.dart';
 import '../../screens/query_tracks/query_tracks_list.dart';
+import '../../utils/api/query_mix_tracks.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/query_list.dart';
 import '../../utils/router/artist_section_parameter.dart';
@@ -175,12 +176,14 @@ RequestCapabilitiesProvider _capabilities({required bool artistPage}) {
 
 ArtistPage _artistPage({
   Future<FetchArtistPageResponse> Function(int, String)? fetch,
+  QueryTrackPageLoader? loadTracks,
   Stream<void>? contentChanged,
   math.Random? random,
 }) => ArtistPage(
   artistId: 7,
   name: 'Hiroyuki Sawano',
   fetch: fetch ?? (_, _) async => _page(),
+  loadTracks: loadTracks ?? queryMixTracks,
   contentChanged: contentChanged,
   random: random,
 );
@@ -1034,6 +1037,63 @@ void main() {
         final first = tester.getTopLeft(tiles.first);
         final last = tester.getTopLeft(tiles.last);
         expect(horizontal ? last.dx > first.dx : last.dy > first.dy, isTrue);
+      });
+    }
+
+    for (final (name, size, horizontal) in [
+      ('zune', const Size(320, 700), false),
+      ('belt', const Size(900, 200), true),
+      ('band', const Size(640, 130), true),
+      ('dock', const Size(120, 700), false),
+    ]) {
+      testWidgets('a $name window keeps the release tiles when the first '
+          'tracks fail to load, and shows the failure after them', (
+        tester,
+      ) async {
+        const failure = RequestFailure(
+          'MixQueryRequest',
+          RequestErrorKind.unavailable,
+          'no answer',
+        );
+        final answer = Completer<List<InternalMediaFile>>();
+        await _pump(
+          tester,
+          _artistPage(loadTracks: (_, _, _) => answer.future),
+          size: size,
+        );
+        await tester.pump();
+        final tiles = find.byType(ReleaseTile);
+        expect(tiles, findsNWidgets(2));
+        final built = tiles.evaluate().toList();
+        final places = [
+          for (var i = 0; i < 2; i += 1) tester.getRect(tiles.at(i)),
+        ];
+
+        answer.completeError(failure);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        // The tiles are the ones that were there, so they keep their state
+        // and their entrance, where they were.
+        expect(tiles.evaluate().toList(), built);
+        expect([
+          for (var i = 0; i < 2; i += 1) tester.getRect(tiles.at(i)),
+        ], places);
+        expect(
+          find.text('Tracks'),
+          name == 'zune' ? findsOneWidget : findsNothing,
+        );
+        // The failure is where the tracks would be, after the tiles along
+        // the list.
+        final text = find.text(
+          requestErrorText(lookupAppLocalizations(const Locale('en')), failure),
+        );
+        expect(text, findsOneWidget);
+        final last = tester.getRect(tiles.last);
+        final shown = tester.getRect(text);
+        expect(
+          horizontal ? shown.left : shown.top,
+          greaterThanOrEqualTo(horizontal ? last.right : last.bottom),
+        );
       });
     }
   });
