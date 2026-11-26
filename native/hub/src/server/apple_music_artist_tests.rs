@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use crate::apple_music_binding::cover_url;
 use crate::apple_music_classes::{AlbumFacts, ArtistViews, Classes, VIEWS_TTL};
 use crate::apple_music_translate::artist_page::classify_in_background;
 use crate::messages::{
@@ -255,6 +256,25 @@ async fn keep_titles(apple: &OpenApple) {
         );
     })
     .await;
+}
+
+/// Downloads the covers of the library's albums, and waits until a download made for it is
+/// announced, so a test that counts what the UI is told after hears no cover announced.
+async fn covers_in(apple: &OpenApple, heard: &Heard) -> Result<()> {
+    let urls: HashSet<String> = apple
+        .binding
+        .albums()
+        .await?
+        .iter()
+        .filter_map(|album| cover_url(album.attributes.as_ref()?.artwork.as_ref()))
+        .collect();
+    let told = heard.count(CONTENT_CHANGED);
+    let downloads = apple.fake.count("/art/");
+    apple.binding.cache_covers(urls).await;
+    if apple.fake.count("/art/") > downloads {
+        told_after(heard, told).await?;
+    }
+    Ok(())
 }
 
 /// When the views of "Artist One" were read, as kept; `None` when they are not.
@@ -1848,13 +1868,22 @@ async fn an_album_added_after_the_sync_is_classified_in_the_background_with_one_
         classes.albums.remove("4004");
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The titles and the covers are in, so nothing but the facts is announced; Apple holds its
+    // answer of them.
+    keep_titles(&apple).await;
+    covers_in(&apple, &heard).await?;
     let asked = apple.fake.count("/v1/catalog/it/albums?");
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/albums".into(), release.clone()));
     let heard_before = told_settled(&heard).await;
 
     let opened = apple.run(&artist_page_request(artist)).await?;
-    // The page answers with the album in Albums, before anything is read.
+    // The page answers with the album in Albums, before anything is read, and nothing is
+    // announced while the facts are asked for.
     assert_eq!(opened.sections[0].count, 2);
+    fake_asked(&apple, "/v1/catalog/it/albums?", asked + 1).await?;
+    assert_eq!(told_settled(&heard).await, heard_before);
+    release.notify_one();
     wait_until("the album to be classified", || async {
         Ok(classes(&apple)
             .await
@@ -1900,7 +1929,9 @@ async fn a_library_page_answers_from_the_facts_then_puts_its_albums_where_apples
     let artist = artist_named(&listed, "Artist One")?;
     wait_synced(&apple, &KINDS_ALBUMS).await?;
     short_ep_looks_like_an_album(&apple).await;
+    // The titles and the covers are in, so nothing but the views is announced.
     keep_titles(&apple).await;
+    covers_in(&apple, &heard).await?;
     let release = Arc::new(tokio::sync::Notify::new());
     *apple.fake.hold_once.lock().unwrap() =
         Some(("/v1/catalog/it/artists/300".into(), release.clone()));
@@ -1919,6 +1950,7 @@ async fn a_library_page_answers_from_the_facts_then_puts_its_albums_where_apples
     );
     fake_asked(&apple, "/v1/catalog/it/artists/300?views=", 1).await?;
     assert_eq!(views_read(&apple).await, None);
+    assert_eq!(told_settled(&heard).await, announced);
 
     release.notify_one();
     told_after(&heard, announced).await?;
