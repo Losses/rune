@@ -9831,7 +9831,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let host = fixture(host_dir.path()).await?;
     let source = fixture(source_dir.path()).await?;
     let target = fixture(target_dir.path()).await?;
-    let host_id = session_audio(&host, "handoff-source-corrupt-on-target.ogg").await?;
+    let file_name = "handoff-source-corrupt-on-target.ogg";
+    let host_id = session_audio(&host, file_name).await?;
     let (host_address, source_replica) = replicate_host_library(&host, &source)
         .await
         .context("replicate source library")?;
@@ -9861,36 +9862,21 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let (_, target_replica) = replicate_host_library_at(&host, &target, host_address)
         .await
         .context("replicate target library")?;
-    let source_file = Path::new(&source_replica.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
-    fs::copy(
-        Path::new(&host.global_params.test_library().media_root)
-            .join("handoff-source-corrupt-on-target.ogg"),
-        &source_file,
-    )?;
+    let host_file = Path::new(&host.global_params.test_library().media_root).join(file_name);
+    let source_file =
+        Path::new(&source_replica.global_params.test_library().media_root).join(file_name);
     let host_item = library_track_for_id(&host, host_id).await?;
-    let source_item = player::LibraryItem {
-        library_id: target_replica
-            .global_params
-            .library_id
-            .context("target replica library id")?,
-        file_uuid: host_item.file_uuid,
-    };
-    source
-        .global_params
-        .node
-        .session()?
-        .edit_queue(None, |player| {
-            player.add_to_playlist_with_sources(
-                vec![(
-                    PlayingItem::from(source_item),
-                    PlaybackSource::Local(source_file.clone()),
-                )],
-                AddMode::AppendToEnd,
-            );
-            true
-        })
-        .await?;
+    let source_track_id = file_ids_by_uuid(
+        &source_replica.global_params.test_library().main_db,
+        &[host_item.file_uuid],
+    )
+    .await?
+    .get(&host_item.file_uuid)
+    .copied()
+    .context("source replica track id")?;
+    // The source must keep a local copy because the host's bytes are corrupted later.
+    materialize_replica_file(&source_replica, source_track_id, &host_file, file_name).await?;
+    queue_session(&source_replica, &[source_track_id]).await?;
     source
         .global_params
         .player
@@ -9902,6 +9888,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let source_before =
         wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     let expected_item = source_before.item.clone().context("source item")?;
+    assert_eq!(source_before.path.as_deref(), Some(source_file.as_path()));
 
     let source_fingerprint = info(&source).await?.fingerprint;
     let host_fingerprint = info(&host).await?.fingerprint;
@@ -9961,8 +9948,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     .get(&host_item.file_uuid)
     .copied()
     .context("target replica track id")?;
-    let target_file = Path::new(&target_replica.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
+    let target_file =
+        Path::new(&target_replica.global_params.test_library().media_root).join(file_name);
     if target_file.exists() {
         fs::remove_file(&target_file)?;
     }
@@ -10025,16 +10012,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         source_after_unplayable.position.abs_diff(expected_position) <= Duration::from_millis(1500)
     );
 
-    let host_file = Path::new(&host.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
     fs::write(&host_file, b"not an audio file")?;
-    materialize_replica_file(
-        &target_replica,
-        target_track_id,
-        &host_file,
-        "handoff-source-corrupt-on-target.ogg",
-    )
-    .await?;
+    materialize_replica_file(&target_replica, target_track_id, &host_file, file_name).await?;
     fs::write(&target_file, b"not an audio file")?;
     let controller_link = host
         .global_params
