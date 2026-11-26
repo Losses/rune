@@ -100,7 +100,7 @@ pub enum TextureError {
     /// context could not import it). The producer should hand over pixels from now on.
     SharedFrame(String),
     /// The engine's registry failed a call (Android: a Java exception, as when the engine was
-    /// detached from its activity).
+    /// detached from its activity; macOS: `registerTexture:` registered nothing).
     Engine(String),
 }
 

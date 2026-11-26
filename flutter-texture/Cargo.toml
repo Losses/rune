@@ -38,5 +38,14 @@ jni = "0.21.1"
 libc = "0.2"
 raw-window-handle = "0.6"
 
+[dev-dependencies]
+pollster = "0.4"
+
+# Runs on the main thread, where the registry is messaged; the test harness would keep that
+# thread for itself.
+[[test]]
+name = "macos_registration"
+harness = false
+
 [lints]
 workspace = true

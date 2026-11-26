@@ -113,11 +113,25 @@ pub(crate) async fn register(
         // SAFETY: `registerTexture:` takes an object that answers `copyPixelBuffer` and returns
         // an `int64_t`. The engine retains the object.
         let id: i64 = unsafe { msg_send![registry.object(mtm), registerTexture: &*object] };
-        Registered {
+        if is_refusal(id) {
+            return Err(TextureError::Engine(
+                "`registerTexture:` did not register the texture".to_owned(),
+            ));
+        }
+        Ok(Registered {
             registry,
             id,
             object,
-        }
+        })
     })
-    .await
+    .await?
+}
+
+/// Whether `id`, the answer of `registerTexture:`, says that the engine did not register the
+/// texture. On macOS that answer is 0 (`FlutterTextureRegistrar`, when the embedder refuses the
+/// texture, as an engine that is not running does), and the engine then keeps nothing of it:
+/// there is no texture to show or to unregister. On iOS the engine numbers its textures from 0
+/// and registration cannot fail, so 0 is its first texture.
+fn is_refusal(id: i64) -> bool {
+    cfg!(target_os = "macos") && id == 0
 }
