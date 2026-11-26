@@ -581,7 +581,9 @@ impl Read {
         }
     }
 
-    /// Takes in what one read found. Answers whether that changed what it holds of an item.
+    /// Takes in what one read found. The songs of an artist read since, as a page's read taken in
+    /// while this one ran, stay with the time they were read. Answers whether that changed what
+    /// it holds of an item.
     fn extend(&mut self, other: Self) -> bool {
         fn take<V: PartialEq>(into: &mut HashMap<String, V>, from: HashMap<String, V>) -> bool {
             let mut changed = false;
@@ -594,9 +596,19 @@ impl Read {
         let mut changed = take(&mut self.albums, other.albums);
         changed |= take(&mut self.tracks, other.tracks);
         changed |= take(&mut self.artists, other.artists);
-        changed |= take(&mut self.artist_songs, other.artist_songs);
+        let mut artist_songs = other.artist_songs;
+        artist_songs.retain(|id, _| {
+            let read = other.artist_read.get(id);
+            self.artist_read
+                .get(id)
+                .is_none_or(|held| read.is_some_and(|read| read > held))
+        });
+        changed |= take(&mut self.artist_songs, artist_songs);
         changed |= take(&mut self.playlists, other.playlists);
-        self.artist_read.extend(other.artist_read);
+        for (id, read) in other.artist_read {
+            let held = self.artist_read.entry(id).or_insert(read);
+            *held = (*held).max(read);
+        }
         self.missing_albums.extend(other.missing_albums);
         self.missing_artists.extend(other.missing_artists);
         self.missing_artist_songs.extend(other.missing_artist_songs);
@@ -1449,6 +1461,26 @@ mod tests {
         fn gone(&self, track: &str) -> bool {
             self.gone.contains(&track)
         }
+    }
+
+    #[test]
+    fn a_read_of_an_artists_songs_is_taken_in_only_when_it_is_newer_than_the_one_held() {
+        let read_at = |id: &str, at: u64| {
+            let mut read = Read::default();
+            read.artist_songs
+                .insert("330".into(), vec![song(id, Some(("1950", "Twin")), 2020)]);
+            read.artist_read.insert("330".into(), at);
+            read
+        };
+        let mut held = read_at("9521", 200);
+        // A read that began earlier, and ends after a page took in a newer one, changes nothing.
+        assert!(!held.extend(read_at("9501", 100)));
+        assert_eq!(held.artist_songs["330"][0].id, "9521");
+        assert_eq!(held.artist_read["330"], 200);
+        // A newer read is taken in, with its time.
+        assert!(held.extend(read_at("9502", 300)));
+        assert_eq!(held.artist_songs["330"][0].id, "9502");
+        assert_eq!(held.artist_read["330"], 300);
     }
 
     #[test]

@@ -2229,3 +2229,53 @@ async fn an_artist_a_mix_names_brings_its_new_releases_once_a_day_has_passed() -
     assert_eq!(artist_track_keys(&apple, artist).await?, ["i.t1"]);
     apple.finish().await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_background_read_keeps_a_newer_read_of_an_artist_a_mix_names() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            twin: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    // The catalog artists of the library's songs are read and kept first.
+    all_artists(&apple).await?;
+    let catalog = apple.binding.intern(AppleIdKind::Artist, "catalog:330")?;
+    create_mix(&apple, "Twin", vec![query("lib::artist", catalog)]).await?;
+    let mine = make_rune_playlist(&apple, "Mine", "Mood").await?;
+    add_song(&apple, mine.id, "catalog:1602", None).await?;
+
+    // The library reads in the background what the mix and the playlist name: the artist's
+    // songs, then the song, whose answer Apple holds.
+    let release = Arc::new(tokio::sync::Notify::new());
+    *apple.fake.hold_once.lock().unwrap() = Some(("/v1/catalog/it/songs".into(), release.clone()));
+    let songs = apple.fake.count("/v1/catalog/it/songs");
+    all_tracks(&apple).await?;
+    fake_asked(&apple, "/v1/catalog/it/songs", songs + 1).await?;
+    assert!(!names(&all_albums(&apple).await?).contains(&"Twin Third"));
+
+    // Meanwhile Apple lists a new release, and the mix reads the artist again, later.
+    apple.fake.twin_new_album.store(true, Ordering::SeqCst);
+    apple.clock.advance(Duration::from_secs(2));
+    assert!(
+        mix_titles(&apple, vec![query("lib::artist", catalog)])
+            .await?
+            .contains(&"New One".to_owned())
+    );
+    album_listed(&apple, "Twin Third").await?;
+
+    // Once the background read ends, the library still holds the artist's songs as read last.
+    release.notify_one();
+    wait_until("the background read to end", || async {
+        let titles = all_tracks(&apple).await?.0;
+        Ok(titles.contains(&"Remix Two".to_owned()).then_some(()))
+    })
+    .await?;
+    let titles = all_tracks(&apple).await?.0;
+    assert!(titles.contains(&"New One".to_owned()), "{titles:?}");
+    assert!(names(&all_albums(&apple).await?).contains(&"Twin Third"));
+    apple.finish().await
+}
