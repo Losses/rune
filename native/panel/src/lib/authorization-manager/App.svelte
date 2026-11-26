@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 
-	import { isAuthenticated, token } from '$lib/stores/token.svelte';
+	import { isAuthenticated, token } from '#lib/stores/token.svelte.ts';
 
 	import LoginPanel from './login-panel/LoginPanel.svelte';
 	import ServerPanel from './server-panel/ServerPanel.svelte';

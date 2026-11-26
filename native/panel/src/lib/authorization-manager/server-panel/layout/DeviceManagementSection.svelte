@@ -1,7 +1,7 @@
 <script lang="ts">
-	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import type { IDevice } from '$lib/authorization-manager';
+	import MediaQuery from '#lib/components/ui/MediaQuery.svelte';
+	import Card from '#lib/components/ui/Card.svelte';
+	import type { IDevice } from '#lib/authorization-manager/index.ts';
 
 	import DeviceTable from '../devices/DeviceTable.svelte';
 	import DeviceCard from '../devices/DeviceCard.svelte';

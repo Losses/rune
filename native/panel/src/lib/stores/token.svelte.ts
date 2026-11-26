@@ -1,5 +1,5 @@
 import { writable, derived } from 'svelte/store';
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
 
 const createTokenStore = () => {
 	const initialValue = browser ? localStorage.getItem('token') || '' : '';

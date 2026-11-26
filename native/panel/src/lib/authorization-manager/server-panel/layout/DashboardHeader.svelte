@@ -1,5 +1,5 @@
 <script lang="ts">
-	import RuneLogo from '$lib/components/icons/RuneLogo.svelte';
+	import RuneLogo from '#lib/components/icons/RuneLogo.svelte';
 </script>
 
 <header class="title">

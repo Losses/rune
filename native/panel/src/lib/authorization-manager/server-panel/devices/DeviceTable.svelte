@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { IDevice } from '$lib/authorization-manager';
+	import type { IDevice } from '#lib/authorization-manager/index.ts';
 
 	import NoDevices from './NoDevices.svelte';
 	import DeviceTableRow from './DeviceTableRow.svelte';

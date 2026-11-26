@@ -2,9 +2,9 @@
 	import { get } from 'svelte/store';
 	import { debounce, throttle } from 'lodash-es';
 
-	import Card from '$lib/components/ui/Card.svelte';
-	import { token } from '$lib/stores/token.svelte';
-	import { type IServerConfig } from '$lib/authorization-manager';
+	import Card from '#lib/components/ui/Card.svelte';
+	import { token } from '#lib/stores/token.svelte.ts';
+	import { type IServerConfig } from '#lib/authorization-manager/index.ts';
 
 	import ServerConfig from './ServerConfig.svelte';
 
