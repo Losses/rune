@@ -3,8 +3,8 @@ use playback::player;
 use playback::{
     PlaybackMode as PlayerPlaybackMode,
     player::{
-        HandoffBlockId as PlaybackHandoffBlockId, PlaybackState as PlayerPlaybackState,
-        UnavailableReason,
+        HandoffBlockId as PlaybackHandoffBlockId, PausedPlayback,
+        PlaybackState as PlayerPlaybackState, UnavailableReason,
     },
 };
 use requests::NamedLibraries;
@@ -46,6 +46,39 @@ pub struct PlayRequest {
 
 #[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct PauseRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// Pauses, and answers what the pause stopped: playback that was playing or about to start,
+/// as a track reopening to play is, or nothing.
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
+pub struct PauseReportingRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+/// What a pause stopped.
+#[derive(
+    Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
+)]
+pub enum PauseReport {
+    Playing,
+    NotPlaying,
+}
+
+impl From<PausedPlayback> for PauseReport {
+    fn from(paused: PausedPlayback) -> Self {
+        match paused {
+            PausedPlayback::Playing => Self::Playing,
+            PausedPlayback::NotPlaying => Self::NotPlaying,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, RustSignal)]
+pub struct PauseReportingResponse {
+    pub paused: PauseReport,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

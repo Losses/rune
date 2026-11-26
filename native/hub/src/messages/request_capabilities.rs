@@ -60,6 +60,7 @@ pub struct RequestCapabilities {
     pub load_request: RequestCapability,
     pub play_request: RequestCapability,
     pub pause_request: RequestCapability,
+    pub pause_reporting_request: RequestCapability,
     pub next_request: RequestCapability,
     pub previous_request: RequestCapability,
     pub switch_request: RequestCapability,

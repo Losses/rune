@@ -511,6 +511,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             routing: RequestRouting::OpenLibrary,
         },
         RequestResponse {
+            request: "PauseReportingRequest".to_string(),
+            response: Some("PauseReportingResponse".to_string()),
+            scope: RequestScope::Session,
+            access: RequestAccess::Control,
+            body_libraries: BodyLibraries::NoLibrary,
+            introduced_minor: Some(1),
+            receiver: RequestReceiver::Library,
+            routing: RequestRouting::OpenLibrary,
+        },
+        RequestResponse {
             request: "NextRequest".to_string(),
             response: None,
             scope: RequestScope::Session,
