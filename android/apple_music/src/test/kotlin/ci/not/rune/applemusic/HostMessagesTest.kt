@@ -70,7 +70,7 @@ class HostMessagesTest {
         )
         assertFalse(JSONObject(HostMessages.encode(HostEvent.Ended(4, null))).has("index"))
         assertJson(
-            """{"type":"hostReady","host":"appleMusic","authorized":true,"canPlay":false}""",
+            """{"type":"hostReady","host":"appleMusic","authorized":true,"canPlay":false,"showsInMediaControls":false}""",
             HostMessages.ready(authorized = true, canPlay = false),
         )
     }

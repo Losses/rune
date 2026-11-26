@@ -109,13 +109,15 @@ internal object HostMessages {
 
     /**
      * The `hostReady` event, which a host sends when it starts and again whenever what it can do
-     * changes. Every field it carries is set here.
+     * changes. Every field it carries is set here. MusicKit for Android shows nothing in the
+     * system's media controls, so the event says that the player has to show the host's tracks.
      */
     fun ready(authorized: Boolean, canPlay: Boolean): String = JSONObject()
         .put("type", "hostReady")
         .put("host", HOST_FAMILY)
         .put("authorized", authorized)
         .put("canPlay", canPlay)
+        .put("showsInMediaControls", false)
         .toString()
 
     /**
