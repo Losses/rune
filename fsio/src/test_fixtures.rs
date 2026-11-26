@@ -56,26 +56,45 @@ pub enum S3ObjectMetadata {
 }
 
 impl S3ObjectMetadata {
-    fn headers(self, bytes: &[u8]) -> String {
+    fn headers(self, etag: &str) -> String {
         match self {
-            Self::Full => format!(
-                "Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {}\r\n",
-                fixture_etag(bytes)
-            ),
+            Self::Full => {
+                format!("Last-Modified: Wed, 01 Jan 2025 00:00:00 GMT\r\nETag: {etag}\r\n")
+            }
             Self::Hidden => String::new(),
         }
     }
 
-    fn list_properties(self, bytes: &[u8]) -> String {
+    fn list_properties(self, etag: &str) -> String {
         match self {
-            Self::Full => format!(
-                "<LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{}</ETag>",
-                fixture_etag(bytes)
-            ),
+            Self::Full => {
+                format!("<LastModified>2025-01-01T00:00:00Z</LastModified><ETag>{etag}</ETag>")
+            }
             // Listings must carry a modification time for clients to parse.
             Self::Hidden => "<LastModified>2025-01-01T00:00:00Z</LastModified>".to_owned(),
         }
     }
+}
+
+struct FixtureFile {
+    bytes: Vec<u8>,
+    etag: String,
+}
+
+impl FixtureFile {
+    fn new(bytes: Vec<u8>) -> Arc<Self> {
+        let etag = format!("\"{}\"", blake3::hash(&bytes).to_hex());
+        Arc::new(Self { bytes, etag })
+    }
+}
+
+type FixtureFiles = Arc<Mutex<HashMap<String, Arc<FixtureFile>>>>;
+
+fn fixture_files(files: Vec<(String, Vec<u8>)>) -> FixtureFiles {
+    let entries = files
+        .into_iter()
+        .map(|(name, bytes)| (name, FixtureFile::new(bytes)));
+    Arc::new(Mutex::new(entries.collect()))
 }
 
 type ReadRanges = Arc<Mutex<Vec<Option<(usize, usize)>>>>;
@@ -85,7 +104,7 @@ pub struct WebDavFixture {
     pub endpoint: String,
     writes: Arc<Mutex<Vec<String>>>,
     ranges: ReadRanges,
-    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    files: FixtureFiles,
     #[allow(dead_code)]
     reject_reads: Arc<AtomicBool>,
     #[allow(dead_code)]
@@ -100,7 +119,7 @@ impl WebDavFixture {
     pub async fn start(files: Vec<(String, Vec<u8>)>) -> io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
+        let files = fixture_files(files);
         let directories = Arc::new(Mutex::new(BTreeSet::new()));
         let writes = Arc::new(Mutex::new(Vec::new()));
         let ranges = Arc::new(Mutex::new(Vec::new()));
@@ -165,10 +184,11 @@ impl WebDavFixture {
 
     #[allow(dead_code)]
     pub fn set_file(&self, name: &str, bytes: Vec<u8>) {
+        let file = FixtureFile::new(bytes);
         self.files
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .insert(name.to_owned(), bytes);
+            .insert(name.to_owned(), file);
     }
 
     #[allow(dead_code)]
@@ -224,22 +244,22 @@ pub struct S3Fixture {
     #[allow(dead_code)]
     versioned: Arc<AtomicBool>,
     #[allow(dead_code)]
-    versions: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
+    versions: Arc<Mutex<HashMap<String, Vec<Arc<FixtureFile>>>>>,
     #[allow(dead_code)]
     reject_writes: Arc<AtomicBool>,
     ranges: ReadRanges,
-    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    files: FixtureFiles,
     task: Arc<JoinHandle<()>>,
 }
 
 #[derive(Clone)]
 struct S3ServerState {
-    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    files: FixtureFiles,
     writes: Arc<Mutex<Vec<String>>>,
     conflict_next_put: Arc<AtomicBool>,
     conflict_next_conditional_put: Arc<AtomicBool>,
     versioned: Arc<AtomicBool>,
-    versions: Arc<Mutex<HashMap<String, Vec<Vec<u8>>>>>,
+    versions: Arc<Mutex<HashMap<String, Vec<Arc<FixtureFile>>>>>,
     reject_writes: Arc<AtomicBool>,
     ranges: ReadRanges,
     object_metadata: S3ObjectMetadata,
@@ -263,7 +283,7 @@ impl S3Fixture {
     ) -> io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let files = Arc::new(Mutex::new(files.into_iter().collect::<HashMap<_, _>>()));
+        let files = fixture_files(files);
         let writes = Arc::new(Mutex::new(Vec::new()));
         let conflict_next_put = Arc::new(AtomicBool::new(false));
         let conflict_next_conditional_put = Arc::new(AtomicBool::new(false));
@@ -375,10 +395,11 @@ impl S3Fixture {
 
     #[allow(dead_code)]
     pub fn set_file(&self, name: &str, bytes: Vec<u8>) {
+        let file = FixtureFile::new(bytes);
         self.files
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .insert(name.to_owned(), bytes);
+            .insert(name.to_owned(), file);
     }
 }
 
@@ -443,9 +464,9 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                 .get("if-none-match")
                 .is_some_and(|value| value == "*")
                 && current.is_some()
-                || headers.get("if-match").is_some_and(|value| {
-                    current.map(|bytes| fixture_etag(bytes)) != Some(value.clone())
-                });
+                || headers
+                    .get("if-match")
+                    .is_some_and(|value| current.map(|file| &file.etag) != Some(value));
             if condition_failed {
                 (
                     412,
@@ -454,7 +475,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                     b"<Error><Code>PreconditionFailed</Code></Error>".to_vec(),
                 )
             } else if method == "PUT" {
-                let tag = fixture_etag(&request_body);
+                let file = FixtureFile::new(request_body);
                 if versioned.load(Ordering::SeqCst) {
                     if let Some(previous) = current {
                         versions
@@ -468,12 +489,16 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                 files
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .insert(name.to_owned(), request_body);
+                    .insert(name.to_owned(), file.clone());
                 (
                     200,
                     "application/xml",
-                    format!("ETag: {tag}\r\n"),
-                    format!("<PutObjectResult><ETag>{tag}</ETag></PutObjectResult>").into_bytes(),
+                    format!("ETag: {}\r\n", file.etag),
+                    format!(
+                        "<PutObjectResult><ETag>{}</ETag></PutObjectResult>",
+                        file.etag
+                    )
+                    .into_bytes(),
                 )
             } else {
                 if files
@@ -516,7 +541,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                 .unwrap_or(1000);
             let mut keys = files_snapshot
                 .iter()
-                .map(|(name, bytes)| (format!("library/{name}"), bytes))
+                .map(|(name, file)| (format!("library/{name}"), file))
                 .filter(|(key, _)| key.starts_with(prefix))
                 .collect::<Vec<_>>();
             keys.sort_by(|left, right| left.0.cmp(&right.0));
@@ -535,7 +560,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                 .unwrap_or_default();
             keys.truncate(max_keys);
             let mut content_count = 0;
-            for (key, bytes) in keys {
+            for (key, file) in keys {
                 let Some(remainder) = key.strip_prefix(prefix) else {
                     continue;
                 };
@@ -543,7 +568,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                     prefixes.insert(format!("{prefix}{directory}/"));
                 } else {
                     content_count += 1;
-                    contents.push_str(&format!("<Contents><Key>{key}</Key>{}<Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", object_metadata.list_properties(bytes), bytes.len()));
+                    contents.push_str(&format!("<Contents><Key>{key}</Key>{}<Size>{}</Size><StorageClass>STANDARD</StorageClass></Contents>", object_metadata.list_properties(&file.etag), file.bytes.len()));
                 }
             }
             let key_count = content_count + prefixes.len();
@@ -559,26 +584,27 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
         } else {
             let name = path.rsplit("/library/").next().unwrap_or_default();
             match files_snapshot.get(name) {
-                Some(_bytes) if method == "HEAD" => (
+                Some(file) if method == "HEAD" => (
                     200,
                     "application/octet-stream",
-                    object_metadata.headers(_bytes),
+                    object_metadata.headers(&file.etag),
                     Vec::new(),
                 ),
-                Some(bytes)
+                Some(file)
                     if method == "GET"
                         && headers
                             .get("if-none-match")
-                            .is_some_and(|tag| tag == &fixture_etag(bytes)) =>
+                            .is_some_and(|tag| tag == &file.etag) =>
                 {
                     (
                         304,
                         "application/octet-stream",
-                        format!("ETag: {}\r\n", fixture_etag(bytes)),
+                        format!("ETag: {}\r\n", file.etag),
                         Vec::new(),
                     )
                 }
-                Some(bytes) if method == "GET" => {
+                Some(file) if method == "GET" => {
+                    let bytes = &file.bytes;
                     let range = headers
                         .get("range")
                         .and_then(|value| value.strip_prefix("bytes="));
@@ -605,7 +631,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .push(range_header);
-                    let mut extra = object_metadata.headers(bytes);
+                    let mut extra = object_metadata.headers(&file.etag);
                     if let Some((start, end)) = range_header {
                         extra.push_str(&format!(
                             "Content-Range: bytes {start}-{end}/{}\r\n",
@@ -634,7 +660,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
         let length = if method == "HEAD" {
             files_snapshot
                 .get(path.rsplit("/library/").next().unwrap_or_default())
-                .map_or(0, Vec::len)
+                .map_or(0, |file| file.bytes.len())
         } else {
             body.len()
         };
@@ -658,7 +684,7 @@ async fn serve_s3(stream: TcpStream, state: S3ServerState) {
 
 #[derive(Clone)]
 struct WebDavServerState {
-    files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    files: FixtureFiles,
     directories: Arc<Mutex<BTreeSet<String>>>,
     writes: Arc<Mutex<Vec<String>>>,
     ranges: ReadRanges,
@@ -744,21 +770,21 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                 .get("if-none-match")
                 .is_some_and(|value| value == "*")
                 && current.is_some()
-                || headers.get("if-match").is_some_and(|value| {
-                    current.map(|bytes| fixture_etag(bytes)) != Some(value.clone())
-                });
+                || headers
+                    .get("if-match")
+                    .is_some_and(|value| current.map(|file| &file.etag) != Some(value));
             if condition_failed {
                 (412, "text/plain", String::new(), Vec::new())
             } else if method == "PUT" {
-                let tag = fixture_etag(&request_body);
+                let file = FixtureFile::new(request_body);
                 files
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .insert(name.to_owned(), request_body);
+                    .insert(name.to_owned(), file.clone());
                 let extra = if omit_put_etag.load(Ordering::SeqCst) {
                     String::new()
                 } else {
-                    format!("ETag: {tag}\r\n")
+                    format!("ETag: {}\r\n", file.etag)
                 };
                 (201, "text/plain", extra, Vec::new())
             } else if files
@@ -780,18 +806,8 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
             } else {
                 format!("{directory}/")
             };
-            let entries = if files_snapshot.contains_key(directory) {
-                files_snapshot
-                    .get(directory)
-                    .map(|bytes| {
-                        vec![dav_entry(
-                            &path,
-                            false,
-                            bytes.len(),
-                            Some(fixture_etag(bytes)),
-                        )]
-                    })
-                    .unwrap_or_default()
+            let entries = if let Some(file) = files_snapshot.get(directory) {
+                vec![dav_entry(&path, false, file.bytes.len(), Some(&file.etag))]
             } else {
                 let has_children = files_snapshot
                     .keys()
@@ -806,7 +822,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                     Vec::new()
                 };
                 let mut directories = BTreeSet::new();
-                for (name, bytes) in files_snapshot.iter() {
+                for (name, file) in files_snapshot.iter() {
                     let Some(remainder) = name.strip_prefix(&prefix) else {
                         continue;
                     };
@@ -816,8 +832,8 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                         entries.push(dav_entry(
                             &format!("/dav/library/{prefix}{remainder}"),
                             false,
-                            bytes.len(),
-                            Some(fixture_etag(bytes)),
+                            file.bytes.len(),
+                            Some(&file.etag),
                         ));
                     }
                 }
@@ -834,27 +850,27 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
         } else if method == "GET" || method == "HEAD" {
             let name = path.trim_start_matches("/dav/library/");
             match files_snapshot.get(name) {
-                Some(_bytes) if method == "HEAD" => (
+                Some(file) if method == "HEAD" => (
                     200,
                     "application/octet-stream",
-                    format!("ETag: {}\r\n", fixture_etag(_bytes)),
+                    format!("ETag: {}\r\n", file.etag),
                     Vec::new(),
                 ),
-                Some(bytes)
+                Some(file)
                     if method == "GET"
                         && headers.get("if-none-match").is_some_and(|tag| {
-                            tag == &fixture_etag(bytes)
-                                || not_modified_for_every_tag.load(Ordering::SeqCst)
+                            tag == &file.etag || not_modified_for_every_tag.load(Ordering::SeqCst)
                         }) =>
                 {
                     (
                         304,
                         "application/octet-stream",
-                        format!("ETag: {}\r\n", fixture_etag(bytes)),
+                        format!("ETag: {}\r\n", file.etag),
                         Vec::new(),
                     )
                 }
-                Some(bytes) => {
+                Some(file) => {
+                    let bytes = &file.bytes;
                     let range = headers
                         .get("range")
                         .and_then(|value| value.strip_prefix("bytes="));
@@ -881,7 +897,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .push(bounds);
-                    let mut extra = format!("ETag: {}\r\n", fixture_etag(bytes));
+                    let mut extra = format!("ETag: {}\r\n", file.etag);
                     if let Some((start, end)) = bounds {
                         extra.push_str(&format!(
                             "Content-Range: bytes {start}-{end}/{}\r\n",
@@ -916,7 +932,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
         let length = if method == "HEAD" {
             files_snapshot
                 .get(path.trim_start_matches("/dav/library/"))
-                .map_or(0, Vec::len)
+                .map_or(0, |file| file.bytes.len())
         } else {
             body.len()
         };
@@ -1039,11 +1055,7 @@ fn request_wants_close(headers: &HashMap<String, String>) -> bool {
     })
 }
 
-fn fixture_etag(bytes: &[u8]) -> String {
-    format!("\"{}\"", blake3::hash(bytes).to_hex())
-}
-
-fn dav_entry(path: &str, directory: bool, size: usize, etag: Option<String>) -> String {
+fn dav_entry(path: &str, directory: bool, size: usize, etag: Option<&str>) -> String {
     let resource = if directory { "<D:collection/>" } else { "" };
     let etag = etag.map_or_else(String::new, |tag| format!("<D:getetag>{tag}</D:getetag>"));
     format!(
