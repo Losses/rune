@@ -21,6 +21,13 @@
 //! the player. A loss that only ducks does nothing, as the system lowers the volume itself.
 //! Headphones that go away pause the player, by a pause command from the service.
 //!
+//! A platform host that plays the current track asks for audio focus with a player of its own,
+//! and follows its changes itself. Audio focus belongs to one request at a time, so while the
+//! hub says that a host plays the track, the service gives up the focus it holds and asks for
+//! none, and a change of focus pauses and plays nothing. Once Rune's own player plays again, the
+//! service asks for the focus as before. The session, its notification, the foreground and
+//! headphones that go away stay as they are.
+//!
 //! Commands from the session, its notification and audio focus reach the attached handler as the
 //! `MediaControlEvent`s of the other platforms. What they lead to is decided in plain Rust, built
 //! on every platform for its tests: only the JNI calls are Android's.
@@ -69,6 +76,17 @@ enum Service {
     Foreground = 2,
 }
 
+/// What the service does about audio focus. The values are `PlaybackService.FOCUS_*`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Focus {
+    /// Keeps what it holds: Rune's own player does not play.
+    Keep = 0,
+    /// Asks for it, unless it holds it: Rune's own player plays.
+    Request = 1,
+    /// Gives up what it holds, and asks for none: a platform host plays the track.
+    Abandon = 2,
+}
+
 /// Whether playback that audio focus paused is to go on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Resume {
@@ -92,6 +110,7 @@ struct Info {
     artwork: Option<String>,
     state: State,
     service: Service,
+    focus: Focus,
     /// The position at the moment of the write, from which the session moves it on at `rate`.
     elapsed: Duration,
     rate: f64,
@@ -111,6 +130,8 @@ struct Session {
     playback: ShownPlayback,
     state: State,
     resume: Resume,
+    /// Whether a platform host plays the current track, with a player of its own.
+    hosted: bool,
 }
 
 impl Session {
@@ -124,6 +145,7 @@ impl Session {
             playback: ShownPlayback::new(now),
             state: State::Stopped,
             resume: Resume::No,
+            hosted: false,
         }
     }
 
@@ -132,6 +154,16 @@ impl Session {
             State::Stopped => Service::Stopped,
             State::Paused if self.resume == Resume::No => Service::Background,
             State::Paused | State::Playing => Service::Foreground,
+        }
+    }
+
+    fn focus(&self) -> Focus {
+        if self.hosted {
+            Focus::Abandon
+        } else if self.state == State::Playing {
+            Focus::Request
+        } else {
+            Focus::Keep
         }
     }
 
@@ -146,6 +178,7 @@ impl Session {
             artwork: self.artwork.clone(),
             state: self.state,
             service: self.service(),
+            focus: self.focus(),
             elapsed,
             rate,
         }
@@ -205,8 +238,13 @@ impl Session {
         (Some(event), write)
     }
 
-    /// A change of audio focus, `AudioManager.AUDIOFOCUS_*`.
+    /// A change of audio focus, `AudioManager.AUDIOFOCUS_*`. While a host plays the track, the
+    /// change is its player's to follow, as when the host's own request took the focus from the
+    /// service.
     fn focus_changed(&mut self, change: i32, now: Instant) -> Outcome {
+        if self.hosted {
+            return (None, None);
+        }
         let playing = self.state == State::Playing || self.resume == Resume::Asked;
         let (resume, event) = match change {
             AUDIOFOCUS_LOSS_TRANSIENT if playing => {
@@ -220,6 +258,19 @@ impl Session {
             _ => return (None, None),
         };
         (event, self.set_resume(resume, now))
+    }
+
+    /// Whether a platform host plays the current track, and the write it needs if that changes.
+    /// A host's track waits for no audio focus of the service's.
+    fn set_hosted(&mut self, hosted: bool, now: Instant) -> Option<Info> {
+        if hosted == self.hosted {
+            return None;
+        }
+        self.hosted = hosted;
+        if hosted {
+            self.resume = Resume::No;
+        }
+        Some(self.info(now))
     }
 
     /// Sets what waits for audio focus, and returns the write it needs if the service changes.
@@ -261,10 +312,10 @@ mod android {
     /// The service's class, by its binary name.
     const SERVICE_CLASS: &str = "ci.not.rune.PlaybackService";
     /// `PlaybackService.update(context, title, artist, album, durationMs, artwork, state,
-    /// service, positionMs, speed)`.
+    /// service, positionMs, speed, focus)`.
     const UPDATE: (&str, &str) = (
         "update",
-        "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;IIJF)V",
+        "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;IIJFI)V",
     );
 
     /// What the commands are sent to.
@@ -340,6 +391,16 @@ mod android {
             let mut session = lock(&self.shared.session);
             let info = session.set_metadata(&metadata, Instant::now());
             self.write(&info);
+            Ok(())
+        }
+
+        /// Whether a platform host plays the current track, whose player asks for audio focus
+        /// itself.
+        pub fn set_hosted_audio(&mut self, hosted: bool) -> Result<(), Error> {
+            let mut session = lock(&self.shared.session);
+            if let Some(info) = session.set_hosted(hosted, Instant::now()) {
+                self.write(&info);
+            }
             Ok(())
         }
 
@@ -491,6 +552,7 @@ mod android {
                     JValue::Int(info.service as jint),
                     JValue::Long(millis(Some(info.elapsed))),
                     JValue::Float(info.rate as f32),
+                    JValue::Int(info.focus as jint),
                 ],
             )?;
             Ok(())
@@ -889,5 +951,129 @@ mod tests {
         );
         // Playback that starts again afterwards is written.
         assert!(session.report(&playing(1.0), after(start, 2.0)).is_some());
+    }
+
+    #[test]
+    fn rune_asks_for_focus_only_while_its_own_player_plays() {
+        let start = Instant::now();
+        let mut session = Session::new(start);
+        let focus_of = |info: Option<Info>| info.map(|info| info.focus);
+        assert_eq!(
+            focus_of(session.report(&playing(0.0), start)),
+            Some(Focus::Request)
+        );
+        assert_eq!(
+            focus_of(session.report(&paused(1.0), after(start, 1.0))),
+            Some(Focus::Keep)
+        );
+        assert_eq!(
+            focus_of(session.report(&MediaPlayback::Stopped, after(start, 2.0))),
+            Some(Focus::Keep)
+        );
+    }
+
+    #[test]
+    fn a_hosts_track_gives_up_the_focus_and_asks_for_none() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        let info = session
+            .set_hosted(true, after(start, 1.0))
+            .expect("written");
+        assert_eq!(
+            (info.state, info.service, info.focus),
+            (State::Playing, Service::Foreground, Focus::Abandon)
+        );
+        // Every write while the host plays says so, and the service runs in the foreground while
+        // the host's track plays, as for Rune's own.
+        let info = session
+            .report(&paused(2.0), after(start, 2.0))
+            .expect("written");
+        assert_eq!(
+            (info.service, info.focus),
+            (Service::Background, Focus::Abandon)
+        );
+        let info = session
+            .report(&playing(2.0), after(start, 3.0))
+            .expect("written");
+        assert_eq!(
+            (info.service, info.focus),
+            (Service::Foreground, Focus::Abandon)
+        );
+        let metadata = MediaMetadata {
+            title: Some("Next"),
+            ..MediaMetadata::default()
+        };
+        assert_eq!(
+            session.set_metadata(&metadata, after(start, 4.0)).focus,
+            Focus::Abandon
+        );
+        assert!(session.set_hosted(true, after(start, 5.0)).is_none());
+    }
+
+    #[test]
+    fn changes_of_focus_pause_and_play_nothing_while_a_host_plays() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        assert!(session.set_hosted(true, start).is_some());
+        // As when the host's own request takes the focus from the service, and more after it.
+        for change in [
+            AUDIOFOCUS_LOSS,
+            AUDIOFOCUS_LOSS_TRANSIENT,
+            AUDIOFOCUS_GAIN,
+            AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
+        ] {
+            assert!(nothing(session.focus_changed(change, after(start, 1.0))));
+        }
+        assert_eq!(session.state, State::Playing);
+    }
+
+    #[test]
+    fn a_host_that_takes_over_ends_the_wait_for_the_focus() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        assert!(
+            session
+                .focus_changed(AUDIOFOCUS_LOSS_TRANSIENT, start)
+                .0
+                .is_some()
+        );
+        assert_eq!(
+            service_of(session.report(&paused(0.2), after(start, 0.2))),
+            Some(Service::Foreground)
+        );
+        let info = session
+            .set_hosted(true, after(start, 1.0))
+            .expect("written");
+        assert_eq!(
+            (info.service, info.focus),
+            (Service::Background, Focus::Abandon)
+        );
+        assert!(nothing(
+            session.focus_changed(AUDIOFOCUS_GAIN, after(start, 2.0))
+        ));
+    }
+
+    #[test]
+    fn rune_asks_for_the_focus_again_once_its_own_track_plays() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        assert!(session.set_hosted(true, start).is_some());
+        // The host lets go, and Rune's own track loads paused, then plays.
+        assert!(session.report(&paused(1.0), after(start, 1.0)).is_some());
+        let info = session
+            .set_hosted(false, after(start, 1.5))
+            .expect("written");
+        assert_eq!(info.focus, Focus::Keep);
+        let info = session
+            .report(&playing(0.0), after(start, 2.0))
+            .expect("written");
+        assert_eq!(info.focus, Focus::Request);
+        // Changes of focus act on Rune's own player again.
+        assert!(matches!(
+            session
+                .focus_changed(AUDIOFOCUS_LOSS_TRANSIENT, after(start, 3.0))
+                .0,
+            Some(MediaControlEvent::Pause)
+        ));
     }
 }

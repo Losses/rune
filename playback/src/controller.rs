@@ -139,6 +139,20 @@ impl MediaControlManager {
         }
         Ok(())
     }
+
+    /// Whether a platform host plays the current track, whose player looks after the audio
+    /// itself. On Android, where the media controls hold the audio focus for Rune's own player,
+    /// they then give it up and ask for none, so that the host's player keeps the focus it asks
+    /// for; elsewhere nothing changes.
+    pub fn set_hosted_audio(&mut self, hosted: bool) -> Result<()> {
+        #[cfg(target_os = "android")]
+        if let Err(e) = self.controls.set_hosted_audio(hosted) {
+            bail!(Error::msg(format!("{e:?}")));
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = hosted;
+        Ok(())
+    }
 }
 
 pub async fn handle_media_control_event(

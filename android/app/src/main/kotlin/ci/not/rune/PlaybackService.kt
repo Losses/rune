@@ -42,6 +42,9 @@ import kotlin.math.roundToInt
  * waits to play again once audio focus comes back. Paused, it runs in the background and keeps
  * its notification. It stops when playback stops, when the app's task is removed, and when the
  * system stops it in the background.
+ *
+ * While a platform host plays the track, the host's player asks for audio focus itself, and the
+ * service gives up the focus it holds and asks for none, as the hub tells it.
  */
 class PlaybackService : Service() {
     companion object {
@@ -56,6 +59,11 @@ class PlaybackService : Service() {
         private const val SERVICE_STOPPED = 0
         private const val SERVICE_BACKGROUND = 1
         private const val SERVICE_FOREGROUND = 2
+
+        // What the service does about audio focus, `Focus` in the hub.
+        private const val FOCUS_KEEP = 0
+        private const val FOCUS_REQUEST = 1
+        private const val FOCUS_ABANDON = 2
 
         // The commands the hub takes, `COMMAND_*` in the hub.
         private const val COMMAND_PLAY = 0
@@ -93,7 +101,8 @@ class PlaybackService : Service() {
 
         /**
          * Shows what the hub sends, from any thread. A duration of -1 is none, and the position is
-         * the one at the moment of the call, which the session moves on at [speed].
+         * the one at the moment of the call, which the session moves on at [speed]. [focus] says
+         * what the service does about audio focus.
          */
         @JvmStatic
         fun update(
@@ -107,10 +116,11 @@ class PlaybackService : Service() {
             service: Int,
             positionMs: Long,
             speed: Float,
+            focus: Int,
         ) {
             val shown = Shown(
                 title, artist, album, durationMs, artwork, state, service, positionMs, speed,
-                SystemClock.elapsedRealtime(),
+                focus, SystemClock.elapsedRealtime(),
             )
             main.post { show(context.applicationContext, shown) }
         }
@@ -152,6 +162,7 @@ class PlaybackService : Service() {
         val service: Int,
         val positionMs: Long,
         val speed: Float,
+        val focus: Int,
         /** When the position was, by [SystemClock.elapsedRealtime]. */
         val at: Long,
     )
@@ -273,13 +284,13 @@ class PlaybackService : Service() {
                 notifications.notify(NOTIFICATION_ID, notification)
             }
         }
-        if (shown.state == STATE_PLAYING) {
-            registerNoisy()
+        if (shown.state == STATE_PLAYING) registerNoisy() else unregisterNoisy()
+        when (shown.focus) {
             // After the service is in the foreground: Android 15 and later refuse audio focus
             // to an app in the background without one.
-            requestFocus()
-        } else {
-            unregisterNoisy()
+            FOCUS_REQUEST -> requestFocus()
+            // A host's player asks for the focus itself, and a request here would take it away.
+            FOCUS_ABANDON -> abandonFocus()
         }
     }
 
