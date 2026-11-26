@@ -1923,8 +1923,11 @@ final class MusicKitPlayback {
     let reached = max(time, furthest)
     let playedOut: Bool
     if let duration = entry.song?.duration, duration > 0 {
-      // Playing out ends the entry whether MusicKit then shows stopped or paused.
-      playedOut = reached >= duration - Self.endTolerance
+      // Playing out ends the entry whether MusicKit then shows stopped or paused. An entry that
+      // Rune paused near its end before it played out stays paused there, as a pause neither
+      // stops MusicKit nor leaves it with nothing current.
+      let paused = !wantPlaying && stalledSince == nil && status != .stopped && playing != nil
+      playedOut = !paused && reached >= duration - Self.endTolerance
     } else {
       playedOut = status == .stopped
     }
@@ -2031,16 +2034,18 @@ final class MusicKitPlayback {
   /// Whether `entry`, the current one, played out while the host did not run: MusicKit has
   /// nothing current any more, or it stands at the last entry it holds and reached its end, or,
   /// as Rune wants the entry to play, stopped there or went back to its start, as MusicKit does
-  /// once its queue runs out. An entry that Rune paused stays paused, wherever it stands.
+  /// once its queue runs out. An entry that Rune paused stays paused wherever it stands, at its
+  /// end too, unless MusicKit stopped it there, which a pause never does.
   private func playedOut(_ entry: Entry) -> Bool {
     if player.queue.currentEntry == nil { return true }
     guard current == entries.lastIndex(where: { $0.queued && !$0.failed }) else { return false }
+    let stopped = player.state.playbackStatus == .stopped
+    guard wantPlaying || stopped else { return false }
     let time = max(0, player.playbackTime)
     if let duration = entry.song?.duration, duration > 0, time >= duration - Self.endTolerance {
       return true
     }
-    return wantPlaying
-      && (player.state.playbackStatus == .stopped || time < Self.startTolerance)
+    return wantPlaying && (stopped || time < Self.startTolerance)
   }
 
   // MARK: - Background hold (iOS)
