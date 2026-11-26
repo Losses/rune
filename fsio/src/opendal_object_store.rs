@@ -219,6 +219,36 @@ fn etag(metadata: &opendal::Metadata, _bytes: &[u8]) -> Result<ObjectTag, StoreE
         .ok_or_else(|| StoreError::Permanent("OpenDAL response omitted ETag".into()))
 }
 
+impl OpenDalObjectStore {
+    /// The object's tag after a write. Servers such as Apache httpd with mod_dav send no ETag
+    /// with the PUT response, though they report one for GET and PROPFIND, so the tag is then
+    /// read back with STAT. The read-back is not atomic with the write — another device writing
+    /// in between would put its own tag here — but servers of this kind do not answer the
+    /// conditional writes that depend on the tag's exactness either, so the probe reports them
+    /// as unconditional-write shares rather than rejecting them outright.
+    async fn write_tag(
+        &self,
+        key: &str,
+        metadata: opendal::Metadata,
+        bytes: &[u8],
+    ) -> Result<ObjectTag, StoreError> {
+        if let Some(tag) = metadata.etag() {
+            return Ok(ObjectTag::new(tag.to_owned()));
+        }
+        let stat = self
+            .operator
+            .stat(key)
+            .await
+            .map_err(|error| operation_error("STAT after write", key, error))?;
+        etag(&stat, bytes).map_err(|error| match error {
+            StoreError::Permanent(message) => StoreError::Permanent(format!(
+                "write {key}: server omits ETag from both write and stat responses: {message}"
+            )),
+            other => other,
+        })
+    }
+}
+
 fn map_error(error: opendal::Error) -> StoreError {
     let detail = format!("{error:#?}");
     if detail.contains("RequestTimeTooSkewed") || error.to_string().contains("RequestTimeTooSkewed")
@@ -353,11 +383,10 @@ impl ObjectStore for OpenDalObjectStore {
     ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
-            self.operator
-                .write(&key, bytes.to_vec())
-                .await
-                .map_err(map_error)
-                .and_then(|metadata| etag(&metadata, bytes))
+            match self.operator.write(&key, bytes.to_vec()).await {
+                Ok(metadata) => self.write_tag(&key, metadata, bytes).await,
+                Err(error) => Err(map_error(error)),
+            }
         })
     }
 
@@ -368,12 +397,15 @@ impl ObjectStore for OpenDalObjectStore {
     ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
-            self.operator
+            match self
+                .operator
                 .write_with(&key, bytes.to_vec())
                 .if_not_exists(true)
                 .await
-                .map_err(map_error)
-                .and_then(|metadata| etag(&metadata, bytes))
+            {
+                Ok(metadata) => self.write_tag(&key, metadata, bytes).await,
+                Err(error) => Err(map_error(error)),
+            }
         })
     }
 
@@ -385,12 +417,15 @@ impl ObjectStore for OpenDalObjectStore {
     ) -> protocol::BoxFuture<'a, ObjectTag, StoreError> {
         Box::pin(async move {
             let key = object_key(key)?;
-            self.operator
+            match self
+                .operator
                 .write_with(&key, bytes.to_vec())
                 .if_match(tag.as_str())
                 .await
-                .map_err(map_error)
-                .and_then(|metadata| etag(&metadata, bytes))
+            {
+                Ok(metadata) => self.write_tag(&key, metadata, bytes).await,
+                Err(error) => Err(map_error(error)),
+            }
         })
     }
 

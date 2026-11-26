@@ -92,6 +92,7 @@ pub struct WebDavFixture {
     reject_writes: Arc<AtomicBool>,
     #[allow(dead_code)]
     not_modified_for_every_tag: Arc<AtomicBool>,
+    omit_put_etag: Arc<AtomicBool>,
     task: Arc<JoinHandle<()>>,
 }
 
@@ -106,6 +107,7 @@ impl WebDavFixture {
         let reject_reads = Arc::new(AtomicBool::new(false));
         let reject_writes = Arc::new(AtomicBool::new(false));
         let not_modified_for_every_tag = Arc::new(AtomicBool::new(false));
+        let omit_put_etag = Arc::new(AtomicBool::new(false));
         let server_state = WebDavServerState {
             files: files.clone(),
             directories: directories.clone(),
@@ -114,6 +116,7 @@ impl WebDavFixture {
             reject_reads: reject_reads.clone(),
             reject_writes: reject_writes.clone(),
             not_modified_for_every_tag: not_modified_for_every_tag.clone(),
+            omit_put_etag: omit_put_etag.clone(),
         };
         let task = tokio::spawn(async move {
             let mut connections = JoinSet::new();
@@ -140,6 +143,7 @@ impl WebDavFixture {
             reject_reads,
             reject_writes,
             not_modified_for_every_tag,
+            omit_put_etag,
             task: Arc::new(task),
         })
     }
@@ -190,6 +194,13 @@ impl WebDavFixture {
     pub fn answer_not_modified_for_every_tag(&self) {
         self.not_modified_for_every_tag
             .store(true, Ordering::SeqCst);
+    }
+
+    /// From now on answers PUT without an ETag, as Apache httpd with mod_dav does; its GET,
+    /// HEAD and PROPFIND responses still carry one.
+    #[allow(dead_code)]
+    pub fn omit_etag_in_put_responses(&self) {
+        self.omit_put_etag.store(true, Ordering::SeqCst);
     }
 }
 
@@ -654,6 +665,7 @@ struct WebDavServerState {
     reject_reads: Arc<AtomicBool>,
     reject_writes: Arc<AtomicBool>,
     not_modified_for_every_tag: Arc<AtomicBool>,
+    omit_put_etag: Arc<AtomicBool>,
 }
 
 async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
@@ -665,6 +677,7 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
         reject_reads,
         reject_writes,
         not_modified_for_every_tag,
+        omit_put_etag,
     } = state;
     let mut reader = BufReader::new(stream);
     loop {
@@ -742,7 +755,12 @@ async fn serve_webdav(stream: TcpStream, state: WebDavServerState) {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .insert(name.to_owned(), request_body);
-                (201, "text/plain", format!("ETag: {tag}\r\n"), Vec::new())
+                let extra = if omit_put_etag.load(Ordering::SeqCst) {
+                    String::new()
+                } else {
+                    format!("ETag: {tag}\r\n")
+                };
+                (201, "text/plain", extra, Vec::new())
             } else if files
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())

@@ -194,6 +194,41 @@ async fn s3_fixture_models_conflicts_paginated_listing_and_latest_overwrite() {
     assert_eq!(listed.len(), 1001);
 }
 
+/// A server that answers PUT without an ETag, like Apache httpd with mod_dav, still carries the
+/// tag in GET, HEAD and PROPFIND responses, so the probe and writes read the tag back instead of
+/// failing the whole share.
+#[tokio::test]
+async fn webdav_probe_and_tag_roundtrip_where_put_omits_etag() {
+    let server = WebDavFixture::start(Vec::new()).await.unwrap();
+    server.omit_etag_in_put_responses();
+    let store = OpenDalObjectStore::new(webdav_config(&server)).unwrap();
+    let caps = self_test::probe_share_object_store(&store, "devices/test.generation")
+        .await
+        .unwrap();
+    assert!(caps.write_probe);
+    assert!(!caps.conditional_create);
+    assert!(!caps.conditional_put);
+    assert!(caps.conditional_get);
+    assert_probed_conditional_effects(&store, caps).await;
+    let tag = store
+        .put("devices/test.generation/value", b"value")
+        .await
+        .unwrap();
+    let object = store.get("devices/test.generation/value").await.unwrap();
+    assert_eq!(object.bytes, b"value");
+    assert_eq!(object.tag, tag);
+    match store
+        .get_if_none_match("devices/test.generation/value", &tag)
+        .await
+    {
+        Ok(ConditionalGet::NotModified) => assert!(caps.conditional_get),
+        Ok(ConditionalGet::Modified(value)) => assert_eq!(value.bytes, b"value"),
+        Err(_) => assert!(!caps.conditional_get),
+    }
+    store.delete("devices/test.generation/value").await.unwrap();
+    store.delete("devices/test.generation/value").await.unwrap();
+}
+
 #[tokio::test]
 async fn webdav_probe_reports_no_conditional_write_capabilities() {
     let server = WebDavFixture::start(Vec::new()).await.unwrap();
