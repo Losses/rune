@@ -98,6 +98,11 @@ jobs:
             echo 'export COMMIT_HASH=$(git rev-parse --short HEAD)' >> $BASH_ENV
 
       - run:
+          name: Fetch MusicKit for Android
+          command: |
+            git lfs pull --include "android/apple_music/libs/*.aar"
+
+      - run:
           name: Install Nix
           command: |
             # Install Nix
