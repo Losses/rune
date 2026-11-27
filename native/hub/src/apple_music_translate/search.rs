@@ -177,15 +177,15 @@ async fn search_both(
     }
 }
 
-/// The library's own copies of catalog songs and albums, as the library's search found them and
-/// the lists kept of the library know them, so a catalog match is answered as the copy the
-/// library holds. Nothing is read from Apple for it.
+/// What Apple relates of the library's songs and albums to the catalog's, as the library's
+/// search found them and the lists kept of the library know them. Nothing is read from Apple
+/// for it.
 #[derive(Default)]
 struct Copies {
     /// The library song of each catalog song the library's search found a copy of.
     songs: HashMap<String, String>,
-    /// The library album of each catalog album, by the catalog album's id.
-    album_ids: HashMap<String, String>,
+    /// The catalog album of each library album Apple names one for, by the library album's id.
+    catalog_albums: HashMap<String, String>,
 }
 
 impl Copies {
@@ -199,14 +199,15 @@ impl Copies {
                     .or_insert_with(|| song.id.clone());
             }
         }
-        // An album stands for a catalog album only when Apple relates the two: one of the same
-        // name and artist may be another edition, so it is listed beside it.
+        // The library's search may answer an album without its catalog album, which the kept
+        // album list names. Only Apple relates the two: an album of the same name and artist
+        // may be another edition.
         for album in found.albums.iter().chain(kept_albums) {
             if let Some(catalog_id) = album.catalog_id() {
                 copies
-                    .album_ids
-                    .entry(catalog_id.to_owned())
-                    .or_insert_with(|| album.id.clone());
+                    .catalog_albums
+                    .entry(album.id.clone())
+                    .or_insert_with(|| catalog_id.to_owned());
             }
         }
         copies
@@ -223,16 +224,9 @@ impl Copies {
         })
     }
 
-    /// The library album that is a copy of `album`, a catalog album.
-    fn album(&self, album: &Album) -> Option<String> {
-        self.album_ids.get(&album.id).cloned()
-    }
-}
-
-/// Adds `item` to `listed` unless it is there already.
-fn push_once<T: Eq + std::hash::Hash + Clone>(listed: &mut Vec<T>, seen: &mut HashSet<T>, item: T) {
-    if seen.insert(item.clone()) {
-        listed.push(item);
+    /// The catalog album Apple names for the library album `library_id`.
+    fn catalog_album(&self, library_id: &str) -> Option<&str> {
+        self.catalog_albums.get(library_id).map(String::as_str)
     }
 }
 
@@ -277,9 +271,12 @@ fn found_tracks(
     listed
 }
 
-/// The albums found, as numbered: the library's matches, then the catalog's, `n` of each. A
-/// catalog album the library holds a copy of is that copy, listed once. Each is remembered with
-/// its name and cover, so it opens without another read.
+/// The albums found, as numbered: the library's matches, then the catalog's, `n` of each, each
+/// listed once. An album Apple names a catalog album for is that catalog album, whether or not
+/// the library holds a copy of it: a search finds the whole of an album, which the catalog's
+/// album lists and the library's copy lists only as far as the library holds its songs. An
+/// album of the library Apple names none for is the library's. Each is remembered with its
+/// name and cover, so it opens without another read.
 fn found_albums(
     binding: &AppleMusicBinding,
     generation: u64,
@@ -288,30 +285,30 @@ fn found_albums(
     copies: &Copies,
     n: usize,
 ) -> Result<Vec<i32>> {
-    let remembered = |remote: &str, name: &str, artwork| -> Result<i32> {
-        let id = binding.intern(AppleIdKind::Album, remote)?;
-        binding.remember_collection(generation, AppleIdKind::Album, id, name, artwork);
-        Ok(id)
-    };
-    let mut listed = Vec::new();
-    let mut seen = HashSet::new();
+    let mut found: Vec<(String, &str, Option<&Artwork>)> = Vec::new();
     for album in library.albums.iter().take(n) {
-        let id = remembered(&album.id, album_name(album), album_artwork(album))?;
-        push_once(&mut listed, &mut seen, id);
+        let remote = match copies.catalog_album(&album.id) {
+            Some(catalog_id) => format!("{CATALOG_PREFIX}{catalog_id}"),
+            None => album.id.clone(),
+        };
+        found.push((remote, album_name(album), album_artwork(album)));
     }
     for album in catalog.albums.iter().take(n) {
-        let id = match copies.album(album) {
-            Some(copy) => binding.intern(AppleIdKind::Album, &copy)?,
-            None => {
-                let attributes = album.attributes.as_ref();
-                let name = attributes
-                    .and_then(|attributes| attributes.name.as_deref())
-                    .unwrap_or_default();
-                let artwork = attributes.and_then(|attributes| attributes.artwork.as_ref());
-                remembered(&format!("{CATALOG_PREFIX}{}", album.id), name, artwork)?
-            }
-        };
-        push_once(&mut listed, &mut seen, id);
+        let attributes = album.attributes.as_ref();
+        let name = attributes
+            .and_then(|attributes| attributes.name.as_deref())
+            .unwrap_or_default();
+        let artwork = attributes.and_then(|attributes| attributes.artwork.as_ref());
+        found.push((format!("{CATALOG_PREFIX}{}", album.id), name, artwork));
+    }
+    let mut listed = Vec::new();
+    let mut seen = HashSet::new();
+    for (remote, name, artwork) in found {
+        let id = binding.intern(AppleIdKind::Album, &remote)?;
+        if seen.insert(id) {
+            binding.remember_collection(generation, AppleIdKind::Album, id, name, artwork);
+            listed.push(id);
+        }
     }
     Ok(listed)
 }
@@ -408,8 +405,9 @@ async fn rune_playlist_matches(
 }
 
 /// Searches the library and Apple's catalog together, `n` of each kind from each, in Apple's
-/// order: the library's matches come first, then the catalog's, a catalog song or album the
-/// library holds a copy of answered as that copy. When one part cannot be searched in time, the
+/// order: the library's matches come first, then the catalog's. A catalog song the library holds
+/// a copy of is answered as that copy, and an album or artist Apple names a catalog one for as
+/// the catalog's, which holds the whole of it. When one part cannot be searched in time, the
 /// other still answers (see `search_both`). What the catalog found is kept for a while, so a
 /// search for the same text again asks it nothing; with `refresh` it is asked again. The artists
 /// found are the catalog artists Apple names for those the library holds, then those the catalog
@@ -518,7 +516,7 @@ pub(crate) async fn search_for_request(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use apple_music::models::{Album, LibraryAlbum};
+    use apple_music::models::LibraryAlbum;
     use serde_json::json;
 
     use super::{
@@ -536,14 +534,8 @@ mod tests {
         serde_json::from_value(album).unwrap()
     }
 
-    fn catalog_album(id: &str) -> Album {
-        serde_json::from_value(json!({"id": id, "type": "albums",
-            "attributes": {"name": "Night", "artistName": "Artist One"}}))
-        .unwrap()
-    }
-
     #[test]
-    fn a_catalog_album_is_a_library_copy_only_when_the_library_album_names_it() {
+    fn a_library_album_is_a_catalog_album_only_when_apple_relates_the_two() {
         // The library's search answers the library album without its catalog album, which the
         // kept album list names.
         let found = LibraryFound {
@@ -551,16 +543,11 @@ mod tests {
             ..LibraryFound::default()
         };
         let copies = Copies::new(&found, &[library_album("l.night", Some("100"))]);
-        assert_eq!(
-            copies.album(&catalog_album("100")).as_deref(),
-            Some("l.night")
-        );
-        // Another release of the same name and artist is the catalog's.
-        assert_eq!(copies.album(&catalog_album("200")), None);
-        // A library album whose catalog album nothing names stands for none, whatever its name.
+        assert_eq!(copies.catalog_album("l.night"), Some("100"));
+        // A library album whose catalog album nothing names stands for none, whatever the
+        // catalog holds of the same name and artist.
         let copies = Copies::new(&found, &[]);
-        assert_eq!(copies.album(&catalog_album("100")), None);
-        assert_eq!(copies.album(&catalog_album("200")), None);
+        assert_eq!(copies.catalog_album("l.night"), None);
     }
 
     #[test]

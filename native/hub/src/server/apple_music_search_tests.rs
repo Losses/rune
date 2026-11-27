@@ -155,6 +155,50 @@ async fn a_failing_catalog_search_leaves_the_librarys_matches() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_answers_an_album_the_library_holds_a_part_of_as_the_catalogs_whole_album()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // The library holds one of the two songs of "Twin Second".
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            twin: true,
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let held = library_album_songs(&apple, "l.twin").await?;
+    assert_eq!(held.len(), 1);
+    // The album list is kept, and names the catalog album of the library's copy.
+    all_albums(&apple).await?;
+    // The library's search finds the copy without its catalog album.
+    *apple.fake.respond_path.lock().unwrap() = Some((
+        LIBRARY_SEARCH.into(),
+        200,
+        r#"{"results":{"library-albums":{"data":[{"id":"l.twin","type":"library-albums",
+            "attributes":{"name":"Twin Second","artistName":"Twin Artist"}}]}}}"#
+            .into(),
+    ));
+    let search = apple
+        .run(&search_request(30, vec![SearchField::Album], false))
+        .await?;
+    // It is answered as the catalog album, before the albums the catalog found.
+    assert_eq!(
+        remotes(&apple, AppleIdKind::Album, &search.albums)?,
+        ["catalog:1951", "catalog:1500", "catalog:1600"]
+    );
+    assert_eq!(
+        collection_names(&apple, CollectionType::Album, &search.albums[..1]).await?,
+        ["Twin Second"]
+    );
+    // It opens with every song of the album, the one the library holds among them.
+    let whole = album_titles(&apple, search.albums[0]).await?;
+    assert_eq!(whole.len(), 2);
+    assert!(whole.contains(&held[0]));
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_failing_library_search_leaves_the_catalogs_matches_as_the_copies_the_library_holds()
 -> Result<()> {
     let dir = tempfile::tempdir()?;

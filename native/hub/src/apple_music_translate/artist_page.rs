@@ -506,8 +506,9 @@ impl ArtistReads {
 }
 
 /// Who the artist the UI numbered `id` is. An entry of the library's artist list is the
-/// library's, whether or not Apple names a catalog artist for it. A catalog artist that is no
-/// entry of the list, as one of a catalog song or a search, is the catalog's.
+/// library's, whether or not Apple names a catalog artist for it. A catalog artist numbered as
+/// one, as a search numbers those it finds, or one that is no entry of the list, as one of a
+/// catalog song, is the catalog's.
 async fn identity(binding: &AppleMusicBinding, id: i32) -> Result<Identity> {
     let not_found = || ExpectedError::NotFound {
         what: "Apple Music artist",
