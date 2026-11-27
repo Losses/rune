@@ -122,9 +122,9 @@ jobs:
           dart analyze .
 
       - name: Test the Rune analyzer rules
-        # `dart analyze .` above applies the rules in rune_lints, such as
+        # `dart analyze .` above applies the rules in scripts/rune_lints, such as
         # no_toast; this checks the rules themselves.
-        working-directory: rune_lints
+        working-directory: scripts/rune_lints
         run: |
           dart pub get
           dart analyze .

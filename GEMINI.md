@@ -5,7 +5,7 @@
 - Run: `flutter run` or `./scripts/macos_2_run.sh` (macOS)
 - Rust Lint: `cargo fmt -- --check && cargo clippy -- -D warnings`
 - Flutter Lint: `flutter analyze .`
-- Rune's own Dart rules: `dart analyze .` (the analyzer plugin in `rune_lints/`; `flutter analyze` does not report them). Its tests: `dart test` in `rune_lints/`.
+- Rune's own Dart rules: `dart analyze .` (the analyzer plugin in `scripts/rune_lints/`; `flutter analyze` does not report them). Its tests: `dart test` in `scripts/rune_lints/`.
 - Rust Tests: `cargo test` (run a single test: `cargo test test_name`)
 - Rust Bench: `cargo bench` (in analysis dir)
 - Flutter Tests: `flutter test lib/test` (for a single test: `flutter test lib/test/widgets/reveal_update_test.dart`)
