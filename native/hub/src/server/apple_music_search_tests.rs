@@ -169,9 +169,8 @@ async fn a_search_answers_an_album_the_library_holds_a_part_of_as_the_catalogs_w
     .await?;
     let held = library_album_songs(&apple, "l.twin").await?;
     assert_eq!(held.len(), 1);
-    // The album list is kept, and names the catalog album of the library's copy.
-    all_albums(&apple).await?;
-    // The library's search finds the copy without its catalog album.
+    // The library's search finds the copy without its catalog album, which the album list
+    // names. The search reads the list, as nothing has yet.
     *apple.fake.respond_path.lock().unwrap() = Some((
         LIBRARY_SEARCH.into(),
         200,

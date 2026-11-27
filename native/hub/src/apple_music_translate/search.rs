@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use apple_music::models::{Album, Artist, Artwork, LibraryAlbum, LibraryArtist, LibrarySong, Song};
 use database::actions::collection::CollectionQueryType;
-use futures::future::join;
+use futures::future::{join, join3};
 use tokio::time::{self as tokio_time, error::Elapsed};
 
 use super::{CATALOG_PREFIX, album_artwork, album_name, to_count};
@@ -178,8 +178,7 @@ async fn search_both(
 }
 
 /// What Apple relates of the library's songs and albums to the catalog's, as the library's
-/// search found them and the lists kept of the library know them. Nothing is read from Apple
-/// for it.
+/// search found them and the lists of the library know them.
 #[derive(Default)]
 struct Copies {
     /// The library song of each catalog song the library's search found a copy of.
@@ -189,7 +188,7 @@ struct Copies {
 }
 
 impl Copies {
-    fn new(found: &LibraryFound, kept_albums: &[LibraryAlbum]) -> Self {
+    fn new(found: &LibraryFound, listed_albums: &[LibraryAlbum]) -> Self {
         let mut copies = Self::default();
         for song in &found.songs {
             if let Some(catalog_id) = song.store_id() {
@@ -199,10 +198,10 @@ impl Copies {
                     .or_insert_with(|| song.id.clone());
             }
         }
-        // The library's search may answer an album without its catalog album, which the kept
-        // album list names. Only Apple relates the two: an album of the same name and artist
+        // The library's search may answer an album without its catalog album, which the album
+        // list names. Only Apple relates the two: an album of the same name and artist
         // may be another edition.
-        for album in found.albums.iter().chain(kept_albums) {
+        for album in found.albums.iter().chain(listed_albums) {
             if let Some(catalog_id) = album.catalog_id() {
                 copies
                     .catalog_albums
@@ -454,17 +453,45 @@ pub(crate) async fn search_for_request(
     }
     let generation = binding.generation();
     let artists = wants(CollectionQueryType::Artist);
-    // The artist list is read only for a search that asks for artists.
-    let (found, named) = join(search_both(binding, term, request.refresh), async {
-        if artists == 0 {
-            return None;
-        }
-        Some(tokio_time::timeout(SEARCH_WAIT, binding.named_artists()).await)
-    })
+    let albums = wants(CollectionQueryType::Album);
+    // The artist list is read only for a search that asks for artists, and the album list, which
+    // names the catalog album of a library album, only for one that asks for albums.
+    let (found, named, listed_albums) = join3(
+        search_both(binding, term, request.refresh),
+        async {
+            if artists == 0 {
+                return None;
+            }
+            Some(tokio_time::timeout(SEARCH_WAIT, binding.named_artists()).await)
+        },
+        async {
+            if albums == 0 {
+                return None;
+            }
+            Some(tokio_time::timeout(SEARCH_WAIT, binding.albums()).await)
+        },
+    )
     .await;
     let (library, catalog) =
         found.map_err(|error| binding.request_error(error, "Apple Music search"))?;
-    let copies = Copies::new(&library, &binding.kept_albums().await.unwrap_or_default());
+    // Without the album list, what is kept of it still names the catalog albums it knows.
+    let listed_albums = match listed_albums {
+        Some(Ok(Ok(listed))) => listed,
+        Some(Ok(Err(error))) => {
+            log::warn!(
+                "A search names the Apple Music albums by the kept album list, as reading the list failed: {error:#}"
+            );
+            binding.kept_albums().await.unwrap_or_default()
+        }
+        Some(Err(_)) => {
+            log::warn!(
+                "A search names the Apple Music albums by the kept album list, as reading the list took too long"
+            );
+            binding.kept_albums().await.unwrap_or_default()
+        }
+        None => binding.kept_albums().await.unwrap_or_default(),
+    };
+    let copies = Copies::new(&library, &listed_albums);
 
     let tracks = found_tracks(
         binding,
@@ -478,14 +505,7 @@ pub(crate) async fn search_for_request(
         .iter()
         .map(|(track, _)| binding.intern_track(track))
         .collect::<Result<_>>()?;
-    response.albums = found_albums(
-        binding,
-        generation,
-        &library,
-        &catalog,
-        &copies,
-        wants(CollectionQueryType::Album),
-    )?;
+    response.albums = found_albums(binding, generation, &library, &catalog, &copies, albums)?;
     // Without the artist list, the catalog artists found are still listed, as themselves: they
     // open the catalog's page, which needs no list.
     let named = match named {
