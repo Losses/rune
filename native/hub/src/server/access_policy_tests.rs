@@ -14,7 +14,8 @@ mod access_policy_tests {
         request_scope,
     };
     use crate::messages::{
-        CastLibraryState, CastResolvedItemsRequest, CastResolvedItemsResponse, HandoffBlockId,
+        CastLibraryState, CastPreflightRequest, CastPreflightResponse,
+        CastResolvedItemsRequest, CastResolvedItemsResponse, HandoffBlockId,
         HandoffLoadRequest, HandoffLoadResponse, LoadPlay, LoadResolvedItemsRequest,
         PlaylistOperateMode, RendererAvailability,
     };
@@ -641,6 +642,222 @@ mod access_policy_tests {
         Ok(())
     }
 
+    /// A preflight reports a state for every library it names, so a controller that may
+    /// control the renderer but may not read one of those libraries must not learn its state.
+    /// Each distinct named library is authorized for the caller before any state is returned.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cast_preflight_authorizes_every_named_library() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let second_dir = tempfile::tempdir()?;
+        let second = fixture_open_local_library(&pair.b, second_dir.path()).await?;
+        let granted_library = pair.id;
+        let denied_library = second
+            .global_params
+            .library_id
+            .context("second library id")?;
+        let controller = info(&pair.a).await?.fingerprint;
+        set_controller_library_grants(&pair, &controller, &[granted_library])?;
+        let user = pair
+            .b
+            .global_params
+            .node
+            .permission_manager
+            .read()
+            .await
+            .verify_by_fingerprint(&controller)
+            .await
+            .context("approved controller")?;
+        let session = Session {
+            fingerprint: user.fingerprint,
+            public_key: user.public_key,
+            base_url: Url::parse("https://127.0.0.1:7863/").unwrap(),
+        };
+        let node = Arc::clone(&pair.b.global_params.node);
+
+        let preflight = |library_ids: Vec<String>| CastPreflightRequest {
+            call_id: None,
+            library_ids,
+        };
+        let send_preflight = |request: &CastPreflightRequest| {
+            let session = session.clone();
+            let node = Arc::clone(&node);
+            let serialized = rinf::serialize(request).context("serialize preflight");
+            async move {
+                send_player_read(&node, "CastPreflightRequest", serialized?, &session).await
+            }
+        };
+
+        // Denied: the one library the caller may not read.
+        let error = send_preflight(&preflight(vec![denied_library.to_string()]))
+            .await
+            .expect_err("a library the controller cannot read must be refused");
+        assert_connection_view_denial(&error, denied_library);
+
+        // Mixed: one allowed and one denied library in either order refuse the whole request.
+        for library_ids in [
+            vec![granted_library.to_string(), denied_library.to_string()],
+            vec![denied_library.to_string(), granted_library.to_string()],
+        ] {
+            let error = send_preflight(&preflight(library_ids))
+                .await
+                .expect_err("a mixed request must refuse its ungranted library");
+            assert_connection_view_denial(&error, denied_library);
+        }
+
+        // Malformed ids are a typed invalid input, even beside a denied library.
+        for library_ids in [
+            vec!["not-a-uuid".to_string()],
+            vec![granted_library.to_string(), "not-a-uuid".to_string()],
+        ] {
+            let error = send_preflight(&preflight(library_ids))
+                .await
+                .expect_err("a malformed library id must be refused");
+            assert_eq!(
+                classify(&error),
+                RequestErrorKind::InvalidInput,
+                "{error:#}"
+            );
+        }
+
+        // A library over the limit that the caller may not read is still refused.
+        let at_limit = (0..MAX_BODY_LIBRARIES - 1)
+            .map(|_| Uuid::new_v4().to_string())
+            .chain([granted_library.to_string()])
+            .collect::<Vec<_>>();
+        let error = send_preflight(&preflight(at_limit))
+            .await
+            .expect_err("libraries without a grant must still be refused at the limit");
+        assert_eq!(
+            classify(&error),
+            RequestErrorKind::PermissionDenied,
+            "{error:#}"
+        );
+
+        // Allowed: every state is returned in first-named order, with duplicates reported once.
+        let payload = send_preflight(&preflight(vec![
+            granted_library.to_string(),
+            granted_library.to_string(),
+        ]))
+        .await?;
+        let response: CastPreflightResponse = rinf::deserialize(&payload)?;
+        assert_eq!(response.libraries.len(), 1);
+        assert_eq!(
+            response.libraries[0].library_id,
+            granted_library.to_string()
+        );
+        assert_eq!(response.libraries[0].state, CastLibraryState::Ready);
+
+        set_controller_library_grants(&pair, &controller, &[granted_library, denied_library])?;
+        let payload = send_preflight(&preflight(vec![
+            denied_library.to_string(),
+            granted_library.to_string(),
+            denied_library.to_string(),
+        ]))
+        .await?;
+        let response: CastPreflightResponse = rinf::deserialize(&payload)?;
+        assert_eq!(
+            response
+                .libraries
+                .iter()
+                .map(|library| library.library_id.clone())
+                .collect::<Vec<_>>(),
+            vec![denied_library.to_string(), granted_library.to_string()]
+        );
+        assert!(
+            response
+                .libraries
+                .iter()
+                .all(|library| library.state == CastLibraryState::Ready)
+        );
+
+        pair.close().await?;
+        Ok(())
+    }
+
+    /// The HTTP preflight the picker sends refuses a library the calling device may not read,
+    /// over the same control connection it uses to list the renderers.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn http_cast_preflight_authorizes_every_named_library() -> Result<()> {
+        let pair = PolicyPair::new().await?;
+        let second_dir = tempfile::tempdir()?;
+        let second = fixture_open_local_library(&pair.b, second_dir.path()).await?;
+        let granted_library = pair.id;
+        let denied_library = second
+            .global_params
+            .library_id
+            .context("second library id")?;
+        set_controller_library_grants_on(
+            &pair.a,
+            &info(&pair.b).await?.fingerprint,
+            &[granted_library],
+        )?;
+        let preflight = |library_ids: Vec<String>| {
+            let client = pair.client.clone();
+            let addr = pair.addr;
+            async move {
+                client
+                    .post(format!("https://{addr}/cast/preflight"))
+                    .json(&serde_json::json!({ "libraryIds": library_ids }))
+                    .send()
+                    .await
+            }
+        };
+
+        for library_ids in [
+            vec![denied_library.to_string()],
+            vec![granted_library.to_string(), denied_library.to_string()],
+        ] {
+            let response = preflight(library_ids).await?;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+
+        let response = preflight(vec!["not-a-uuid".to_string()]).await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        set_controller_library_grants_on(
+            &pair.a,
+            &info(&pair.b).await?.fingerprint,
+            &[granted_library, denied_library],
+        )?;
+        let response = preflight(vec![
+            denied_library.to_string(),
+            granted_library.to_string(),
+            denied_library.to_string(),
+        ])
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let statuses: Vec<serde_json::Value> = response.json().await?;
+        assert_eq!(
+            statuses
+                .iter()
+                .map(|status| status["libraryId"].as_str().unwrap_or_default().to_owned())
+                .collect::<Vec<_>>(),
+            vec![denied_library.to_string(), granted_library.to_string()]
+        );
+
+        pair.close().await?;
+        Ok(())
+    }
+
+    fn set_controller_library_grants_on(
+        server: &Fixture,
+        fingerprint: &str,
+        libraries: &[Uuid],
+    ) -> Result<()> {
+        let mut grants = DeviceGrants::guest();
+        grants.connection.all_libraries = None;
+        grants.connection.libraries = libraries
+            .iter()
+            .map(|library_id| (*library_id, ConnectionLevel::View))
+            .collect();
+        server
+            .global_params
+            .node
+            .access_policy
+            .set(fingerprint, grants)?;
+        Ok(())
+    }
+
     async fn send_player_read(
         node: &Arc<NodeContext>,
         name: &str,
@@ -687,18 +904,7 @@ mod access_policy_tests {
         fingerprint: &str,
         libraries: &[Uuid],
     ) -> Result<()> {
-        let mut grants = DeviceGrants::guest();
-        grants.connection.all_libraries = None;
-        grants.connection.libraries = libraries
-            .iter()
-            .map(|library_id| (*library_id, ConnectionLevel::View))
-            .collect();
-        pair.b
-            .global_params
-            .node
-            .access_policy
-            .set(fingerprint, grants)?;
-        Ok(())
+        set_controller_library_grants_on(&pair.b, fingerprint, libraries)
     }
 
     fn load_request(

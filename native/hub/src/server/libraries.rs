@@ -126,6 +126,16 @@ pub(super) async fn cast_preflight(
         .map_err(|_| StatusCode::FORBIDDEN)?;
     let library_ids =
         parse_library_ids(&request.library_ids).map_err(|_| StatusCode::BAD_REQUEST)?;
+    for library_id in &library_ids {
+        node.access_policy
+            .check(
+                &peer,
+                &Action::ConnectionView {
+                    library_id: *library_id,
+                },
+            )
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    }
     let libraries = cast_library_states(&node, &library_ids)
         .await
         .into_iter()

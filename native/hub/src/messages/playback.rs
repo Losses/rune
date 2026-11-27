@@ -311,11 +311,22 @@ pub enum CastLibraryState {
     Unreachable,
 }
 
-#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
+#[derive(Serialize, Deserialize, DartSignal)]
 pub struct CastPreflightRequest {
     pub library_ids: Vec<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
+}
+
+/// Every entry of `library_ids` names a library the preflight reports.
+impl crate::rpc::NamedLibraries for CastPreflightRequest {
+    const NAMES_LIBRARY: bool = true;
+
+    fn visit_libraries<'a>(&'a self, visit: &mut dyn FnMut(&'a str)) {
+        for library_id in &self.library_ids {
+            visit(library_id);
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, SignalPiece)]

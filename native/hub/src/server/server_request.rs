@@ -158,10 +158,10 @@ pub(crate) const MAX_BODY_LIBRARIES: usize = 256;
 
 /// Authorize the libraries a request's body names, as its catalogue entry declares.
 ///
-/// `PlayerReads` requests are scoped to the player, not to an addressed library, so each
-/// named library is checked with the caller's connection view grant instead of the request's
-/// node-wide Control rule. A request naming more than [`MAX_BODY_LIBRARIES`] distinct
-/// libraries is refused before any per-library work.
+/// `PlayerReads` and `Views` requests are scoped to the player or the session, not to an
+/// addressed library, so each named library is checked with the caller's connection view
+/// grant instead of the request's node-wide Control rule. A request naming more than
+/// [`MAX_BODY_LIBRARIES`] distinct libraries is refused before any per-library work.
 async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
     node: &NodeContext,
     session: &Session,
@@ -170,7 +170,7 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
 ) -> Result<()> {
     match R::BODY_LIBRARIES {
         BodyLibraries::NoLibrary => return Ok(()),
-        BodyLibraries::Authorized | BodyLibraries::PlayerReads => {}
+        BodyLibraries::Authorized | BodyLibraries::PlayerReads | BodyLibraries::Views => {}
     }
     let mut named = HashSet::new();
     let mut ordered = Vec::new();
@@ -215,7 +215,7 @@ async fn authorize_body_libraries<R: TargetRequest + NamedLibraries>(
                 }
             }
         }
-        BodyLibraries::PlayerReads => {
+        BodyLibraries::PlayerReads | BodyLibraries::Views => {
             node.authorize_library_views(session, library_ids).await?;
         }
         BodyLibraries::NoLibrary => {}
