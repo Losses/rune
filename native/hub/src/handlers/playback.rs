@@ -1982,22 +1982,36 @@ impl Signal for HandoffRequest {
             }
             None => None,
         };
+        let result = request.handoff(node, run.as_ref()).await;
+        if let Some(run) = run {
+            run.finish();
+        }
+        result
+    }
+}
+
+impl HandoffRequest {
+    async fn handoff(
+        &self,
+        node: Arc<NodeContext>,
+        run: Option<&HandoffRun<'_>>,
+    ) -> Result<Option<HandoffResponse>> {
         let generation = node.begin_handoff().await;
-        run.as_ref().map_or(Ok(()), HandoffRun::check_cancelled)?;
+        run.map_or(Ok(()), HandoffRun::check_cancelled)?;
         let attached = node.renderer_link()?;
-        let target = request.target.as_deref();
+        let target = self.target.as_deref();
         let already_there = match (target, &attached) {
             (Some(target), Some(link)) => link.fingerprint() == target,
             (None, None) => true,
             _ => false,
         };
         if already_there {
-            run.as_ref().map_or(Ok(()), HandoffRun::commit)?;
+            run.map_or(Ok(()), HandoffRun::commit)?;
             return Ok(Some(HandoffResponse { call_id: None }));
         }
         let paused = pause_handoff_source(&node, attached.clone(), generation).await?;
         if target.is_none()
-            && let Some(run) = &run
+            && let Some(run) = run
         {
             // Returning to this device starts by taking back the previous block. Once that
             // begins, finish the existing return path to settle the queues on both sides.
@@ -2108,15 +2122,8 @@ impl Signal for HandoffRequest {
                 Some(target) => {
                     let block = PlayerHandoffBlockId(Uuid::new_v4());
                     expected_item.context("handoff current item")?;
-                    hand_off_to_renderer(
-                        &node,
-                        target,
-                        block,
-                        load,
-                        expected_position,
-                        run.as_ref(),
-                    )
-                    .await?;
+                    hand_off_to_renderer(&node, target, block, load, expected_position, run)
+                        .await?;
                 }
                 None => hand_off_to_this_device(&node, attached.clone(), &load).await?,
             }
@@ -2584,6 +2591,7 @@ mod handoff_confirmation_tests {
                 },
             )
             .await;
+            run.finish();
             assert!(matches!(
                 result.unwrap_err().downcast_ref(),
                 Some(ExpectedRequestError::HandoffSuperseded)

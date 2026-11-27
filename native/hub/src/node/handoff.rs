@@ -29,6 +29,7 @@ struct RunningHandoff {
 #[derive(Default)]
 struct HandoffCompletion {
     done: CancellationToken,
+    finished: AtomicBool,
     unsettled: AtomicBool,
 }
 
@@ -38,6 +39,11 @@ impl HandoffCompletion {
         if self.unsettled.load(Ordering::Acquire) {
             return Err(ExpectedRequestError::Unavailable {
                 what: "the target renderer's unresolved handoff rollback",
+            });
+        }
+        if !self.finished.load(Ordering::Acquire) {
+            return Err(ExpectedRequestError::Unavailable {
+                what: "completion of the interrupted handoff",
             });
         }
         Ok(())
@@ -119,6 +125,11 @@ impl HandoffTickets {
 }
 
 impl HandoffRun<'_> {
+    /// Record that the worker reached a terminal result rather than being dropped mid-operation.
+    pub(crate) fn finish(&self) {
+        self.completion.finished.store(true, Ordering::Release);
+    }
+
     pub(crate) fn mark_rollback_unsettled(&self) {
         self.completion.unsettled.store(true, Ordering::Release);
     }
@@ -210,6 +221,7 @@ mod tests {
         let retry = owner.start(next);
         tokio::pin!(retry);
         assert!(futures::poll!(&mut retry).is_pending());
+        run.finish();
         drop(run);
         cancel.await.unwrap();
         assert!(retry.await.unwrap().commit().is_ok());
@@ -229,6 +241,7 @@ mod tests {
         tokio::pin!(retry);
         assert!(futures::poll!(&mut retry).is_pending());
         run.mark_rollback_unsettled();
+        run.finish();
         drop(run);
 
         assert!(matches!(
@@ -240,6 +253,22 @@ mod tests {
             Err(ExpectedRequestError::Unavailable { .. })
         ));
         assert!(owner.start(next).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_handoff_does_not_report_settled() {
+        let owner = HandoffTickets::default();
+        let ticket = owner.prepare();
+        let run = owner.start(ticket).await.unwrap();
+        let cancel = owner.cancel(ticket);
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+        drop(run);
+
+        assert!(matches!(
+            cancel.await,
+            Err(ExpectedRequestError::Unavailable { .. })
+        ));
     }
 
     #[tokio::test]
@@ -255,6 +284,7 @@ mod tests {
             outcome.unwrap_err().downcast_ref(),
             Some(ExpectedRequestError::HandoffSuperseded)
         ));
+        run.finish();
         drop(run);
         cancel.await.unwrap();
     }
@@ -269,6 +299,7 @@ mod tests {
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
         assert!(run.check_cancelled().is_ok());
+        run.finish();
         drop(run);
         cancel.await.unwrap();
     }
