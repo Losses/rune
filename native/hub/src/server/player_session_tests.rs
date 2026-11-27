@@ -11513,24 +11513,29 @@ async fn remote_m3u8_and_independent_lyrics_cannot_read_outside_library() -> Res
     let secret = "REMOTE_PATH_SECRET_MARKER";
     let outside_playlist = outside_dir.path().join("secret.m3u8");
     fs::write(&outside_playlist, format!("{secret}\n"))?;
-    let outside_request = CreateM3u8PlaylistRequest {
-        call_id: None,
-        name: "outside remote".into(),
-        group: "security".into(),
-        path: outside_playlist.to_string_lossy().into_owned(),
-    };
-    let (response_name, response_payload) = socket_request_for_library(
-        &mut socket,
-        "CreateM3u8PlaylistRequest",
-        &rinf::serialize(&outside_request)?,
-        library_id,
-    )
-    .await?;
-    assert_eq!(response_name, "RemoteRequestFailed");
-    let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
-    assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
-    assert!(!failure.detail.contains(secret));
-    assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
+    for path in [
+        outside_playlist.to_string_lossy().into_owned(),
+        "content://rune.test.invalid/Selected.m3u8".into(),
+    ] {
+        let outside_request = CreateM3u8PlaylistRequest {
+            call_id: None,
+            name: "outside remote".into(),
+            group: "security".into(),
+            path,
+        };
+        let (response_name, response_payload) = socket_request_for_library(
+            &mut socket,
+            "CreateM3u8PlaylistRequest",
+            &rinf::serialize(&outside_request)?,
+            library_id,
+        )
+        .await?;
+        assert_eq!(response_name, "RemoteRequestFailed");
+        let failure: RemoteRequestFailed = rinf::deserialize(&response_payload)?;
+        assert_eq!(failure.kind, RequestErrorKind::InvalidInput);
+        assert!(!failure.detail.contains(secret));
+        assert!(!String::from_utf8_lossy(&response_payload).contains(secret));
+    }
 
     host.global_params
         .test_library()

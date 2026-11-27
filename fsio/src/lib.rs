@@ -381,6 +381,8 @@ use opendal_fs::OpenDalFsIo;
 #[cfg(target_os = "android")]
 mod android_fs;
 #[cfg(target_os = "android")]
+pub use android_fs::read_android_document;
+#[cfg(target_os = "android")]
 use android_fs::AndroidFsIo;
 
 mod noop_fs;

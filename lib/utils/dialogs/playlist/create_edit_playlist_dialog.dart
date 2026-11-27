@@ -173,6 +173,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (failure?.request == 'CreateM3u8PlaylistRequest')
+                Text(S.of(context).importM3u8Failed),
               if (failure != null)
                 Text(requestFailureMessage(S.of(context), failure!))
               else if (!isLoading && !canSave())
