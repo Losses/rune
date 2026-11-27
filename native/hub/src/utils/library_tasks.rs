@@ -12,7 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     messages::{
-        LibraryTaskEnd, LibraryTaskKind, LibraryTaskState, LibraryTaskStateChanged, ScanTaskPhase,
+        LibraryTaskEnd, LibraryTaskKind, LibraryTaskState, LibraryTaskStateChanged, ScanFailure,
+        ScanOutcome, ScanTaskPhase,
     },
     request_error::ExpectedRequestError,
     utils::Broadcaster,
@@ -26,6 +27,7 @@ pub struct LibraryTaskOwner {
 struct TaskEntry {
     state: LibraryTaskState,
     worker: RunningWorker,
+    empty_cleanup_deferred: bool,
 }
 
 struct RunningWorker {
@@ -78,6 +80,7 @@ impl LibraryTaskOwner {
             key,
             TaskEntry {
                 state: state.clone(),
+                empty_cleanup_deferred: false,
                 worker: RunningWorker {
                     token: token.clone(),
                     attach: Some(attach),
@@ -86,6 +89,35 @@ impl LibraryTaskOwner {
             },
         );
         Ok((state, token))
+    }
+
+    pub(crate) fn record_empty_cleanup_deferral(&mut self, record_id: &str, run_id: &str) {
+        if let Some(entry) = self
+            .tasks
+            .get_mut(&(record_id.to_owned(), LibraryTaskKind::Scan))
+            && entry.state.run_id() == Some(run_id)
+            && !entry.worker.token.is_cancelled()
+        {
+            entry.empty_cleanup_deferred = true;
+        }
+    }
+
+    pub(crate) fn empty_cleanup_run(&self, record_id: &str) -> Option<&str> {
+        let entry = self
+            .tasks
+            .get(&(record_id.to_owned(), LibraryTaskKind::Scan))?;
+        if !entry.empty_cleanup_deferred
+            || !matches!(
+                entry.state,
+                LibraryTaskState::ScanEnded {
+                    outcome: ScanOutcome::Failed(ScanFailure::ScanFailed),
+                    ..
+                }
+            )
+        {
+            return None;
+        }
+        entry.state.run_id()
     }
 
     pub fn ensure_can_start(&self, record_id: &str) -> Result<(), ExpectedRequestError> {

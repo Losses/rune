@@ -34,6 +34,30 @@ pub struct ScanAudioLibraryRequest {
     pub call_id: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize, SignalPiece)]
+pub struct EmptyLibraryCleanupProposal {
+    pub generation: u64,
+    pub scan_run_id: String,
+    pub count: u32,
+    pub fingerprint: String,
+}
+
+#[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
+pub struct EmptyLibraryCleanupRequest {
+    pub record_id: String,
+    pub confirmation: Option<EmptyLibraryCleanupProposal>,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct EmptyLibraryCleanupResponse {
+    pub proposal: Option<EmptyLibraryCleanupProposal>,
+    pub removed: bool,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
 #[derive(
     Serialize, Deserialize, SignalPiece, Clone, Copy, Debug, PartialEq, Eq, NamedLibraries,
 )]

@@ -26,8 +26,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use sea_orm::{
-    ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait,
-    entity::prelude::*,
+    ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    TransactionTrait, entity::prelude::*,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -916,6 +916,107 @@ pub enum MissingHostFilePolicy {
     KeepAsRemote,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "The library folder appears empty. Missing tracks were kept. Reconnect the folder and scan again."
+)]
+pub struct EmptyLibraryCleanupDeferred;
+
+pub struct EmptyLibraryCleanupPreview {
+    pub count: usize,
+    pub fingerprint: String,
+}
+
+async fn empty_local_root(fsio: &FsIo, root_path: &Path) -> bool {
+    fsio.storage() == StorageLocation::Local
+        && fsio
+            .read_dir(root_path)
+            .await
+            .is_ok_and(|entries| entries.is_empty())
+}
+
+async fn empty_library_cleanup_candidates(
+    fsio: &FsIo,
+    db: &impl ConnectionTrait,
+    root_path: &Path,
+) -> Result<Option<Vec<media_files::Model>>> {
+    if !empty_local_root(fsio, root_path).await {
+        return Ok(None);
+    }
+    let mut tracks = media_files::Entity::find()
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .all(db)
+        .await?;
+    tracks.retain(|track| !is_managed_directory(&track.directory));
+    tracks.sort_unstable_by_key(|track| track.id);
+    let fsio = fsio.clone();
+    let root_path = root_path.to_path_buf();
+    task::spawn_blocking(move || {
+        let missing = tracks.iter().all(|track| {
+            matches!(
+                fsio.exists(&root_path.join(&track.directory).join(&track.file_name)),
+                Ok(false)
+            )
+        });
+        Ok((missing && !tracks.is_empty()).then_some(tracks))
+    })
+    .await?
+}
+
+fn empty_library_cleanup_fingerprint(tracks: &[media_files::Model]) -> String {
+    let mut hasher = Hasher::new();
+    for track in tracks {
+        hasher.update(&track.id.to_le_bytes());
+        for value in [&track.source_uuid, &track.directory, &track.file_name] {
+            hasher.update(&(value.len() as u64).to_le_bytes());
+            hasher.update(value.as_bytes());
+        }
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+pub async fn preview_empty_library_cleanup(
+    fsio: &FsIo,
+    db: &DatabaseConnection,
+    root_path: &Path,
+) -> Result<Option<EmptyLibraryCleanupPreview>> {
+    Ok(empty_library_cleanup_candidates(fsio, db, root_path)
+        .await?
+        .map(|tracks| EmptyLibraryCleanupPreview {
+            count: tracks.len(),
+            fingerprint: empty_library_cleanup_fingerprint(&tracks),
+        }))
+}
+
+pub async fn confirm_empty_library_cleanup(
+    fsio: &FsIo,
+    db: &DatabaseConnection,
+    root_path: &Path,
+    store: &crate::sync::SeaOrmSyncStore,
+    fingerprint: &str,
+    still_current: impl Fn() -> bool,
+) -> Result<bool> {
+    let tx = db.begin().await?;
+    store.lock(&tx).await?;
+    let Some(tracks) = empty_library_cleanup_candidates(fsio, &tx, root_path).await? else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    if empty_library_cleanup_fingerprint(&tracks) != fingerprint || !still_current() {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+    for track in tracks {
+        remove_track(&tx, store, track.id).await?;
+    }
+    if !empty_local_root(fsio, root_path).await || !still_current() {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
 async fn clean_up_database(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
@@ -964,13 +1065,23 @@ async fn clean_up_database(
     if mass_missing {
         log::warn!("Skipping missing host file removals because the library looks unmounted");
     }
-    let root_listable = fsio.read_dir(root_path).await.is_ok();
+    let root_listing = fsio.read_dir(root_path).await;
+    let root_listable = root_listing.is_ok();
+    let empty_root = root_listing.is_ok_and(|entries| entries.is_empty());
+    let defer_host_cleanup = empty_root
+        && fsio.storage() == StorageLocation::Local
+        && host_missing > 0
+        && policy == MissingHostFilePolicy::RemoveEverywhere;
     for file in missing {
         if cancel_token.is_some_and(CancellationToken::is_cancelled) {
             break;
         }
+        let managed = is_managed_directory(&file.directory);
+        if defer_host_cleanup && !managed {
+            continue;
+        }
         let result: Result<()> = async {
-            if !is_managed_directory(&file.directory)
+            if !managed
                 && policy == MissingHostFilePolicy::RemoveEverywhere
                 && root_listable
                 && !mass_missing
@@ -1032,6 +1143,9 @@ async fn clean_up_database(
                 );
             }
         }
+    }
+    if defer_host_cleanup && !cancel_token.is_some_and(CancellationToken::is_cancelled) {
+        return Err(EmptyLibraryCleanupDeferred.into());
     }
     Ok(())
 }
@@ -1298,6 +1412,7 @@ where
         .with_context(|| "Unable to cleanup database")
         {
             Ok(_) => info!("Cleanup completed successfully."),
+            Err(e) if e.is::<EmptyLibraryCleanupDeferred>() => return Err(e),
             Err(e) => error!("{e:#?}"),
         }
     }

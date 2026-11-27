@@ -2183,6 +2183,16 @@
   "@onlineLyricsNotice": {
     "description": "The body of the Lyrics dialog of a streaming library in Settings, which says where its lyrics come from and what looking them up sends."
   },
+  "emptyLibraryCleanupTitle": "The Library Folder Appears Empty",
+  "emptyLibraryCleanupExplanation": "If the folder is temporarily unavailable, keep the tracks and scan again once it returns. If you intentionally removed the files, you can remove {count, plural, one{one missing track} other{{count} missing tracks}} from this library and its synced copies.",
+  "@emptyLibraryCleanupExplanation": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "emptyLibraryCleanupRemove": "Remove Missing Tracks",
+  "emptyLibraryCleanupKeep": "Keep Tracks",
+  "emptyLibraryCleanupChanged": "The library or missing tracks changed. Scan again before confirming cleanup.",
   "lookUpLyricsOnLrclib": "Look Up Lyrics on LRCLIB",
   "@lookUpLyricsOnLrclib": {
     "description": "The label of the switch in the Lyrics dialog of a streaming library in Settings that allows or stops looking lyrics up at LRCLIB."
