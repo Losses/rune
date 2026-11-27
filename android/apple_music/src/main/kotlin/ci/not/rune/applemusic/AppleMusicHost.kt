@@ -120,10 +120,12 @@ class AppleMusicHost private constructor(context: Context) {
     /** Answers with the `hostReady` of a host that just started, as Dart attaches. */
     fun status(reply: (String) -> Unit) {
         refreshDeveloperToken(forced = false)
+        val asked = sink
         val answer: () -> Unit = {
             // The player takes the answer for a host that just started, so whatever is still
-            // held from before goes in the same turn as the answer.
-            jukebox.drop()
+            // held from before goes in the same turn as the answer. An answer that comes once
+            // another engine attached leaves what that one plays.
+            if (sink === asked) jukebox.drop()
             reply(readyEvent())
             // The hub learns the network state of a host that just attached.
             main.post { reportReach(onlyIfChanged = false) }
@@ -328,8 +330,10 @@ class AppleMusicHost private constructor(context: Context) {
      * looked for even if this one still holds by its `exp`.
      */
     private fun accessLost() {
+        // Read before the refresh, which may store a newer token: the one that was refused counts.
+        val held = developerTokenHolds()
         refreshDeveloperToken(forced = true)
-        if (developerTokenHolds()) {
+        if (held) {
             Log.w(TAG, "Apple Music refused the user's token, which is forgotten")
             tokens.forget()
             player.tokensChanged()
