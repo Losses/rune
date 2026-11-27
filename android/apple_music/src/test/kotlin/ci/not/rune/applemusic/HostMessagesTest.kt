@@ -117,4 +117,14 @@ class HostMessagesTest {
         }
         assertNull(DeveloperToken.decodeBase64Url("a"))
     }
+
+    @Test
+    fun `MusicKit runs in ARM processes only`() {
+        assertTrue(MusicKitAbi.runs("aarch64"))
+        assertTrue(MusicKitAbi.runs("armv8l"))
+        assertTrue(MusicKitAbi.runs("armv7l"))
+        assertFalse(MusicKitAbi.runs("x86_64"))
+        assertFalse(MusicKitAbi.runs("i686"))
+        assertFalse(MusicKitAbi.runs(null))
+    }
 }

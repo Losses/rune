@@ -40,6 +40,12 @@ class AppleMusicHost private constructor(context: Context) {
         /** How long a change of the network settles before it is reported. */
         private const val REACH_DEBOUNCE_MS = 1_000L
 
+        /**
+         * Whether Apple Music can play in this process at all. In a build for an ABI that MusicKit
+         * has no native libraries for, it cannot, and Rune then offers no Apple Music.
+         */
+        val supported: Boolean get() = MusicKitAbi.runs(System.getProperty("os.arch"))
+
         @Volatile
         private var instance: AppleMusicHost? = null
 

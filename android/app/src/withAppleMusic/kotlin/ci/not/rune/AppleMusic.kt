@@ -15,7 +15,8 @@ internal fun appleMusicPlugin(): FlutterPlugin? = AppleMusicPlugin()
 /**
  * Connects the process's [AppleMusicHost] to Dart on `ci.not.rune/apple_music`, as the macOS and
  * iOS runners do: `status`, `authorize` and `batch` go to the host, and its events come back as
- * `event` calls. `available` answers true, which tells Dart that this build has the host.
+ * `event` calls. `available` tells Dart whether this build has the host and it can play in this
+ * process.
  */
 private class AppleMusicPlugin :
     FlutterPlugin,
@@ -43,7 +44,7 @@ private class AppleMusicPlugin :
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         val host = host ?: return result.notImplemented()
         when (call.method) {
-            "available" -> result.success(true)
+            "available" -> result.success(AppleMusicHost.supported)
             "status" -> host.status { result.success(it) }
             "authorize" -> {
                 val interactive = call.argument<Boolean>("interactive") ?: false
