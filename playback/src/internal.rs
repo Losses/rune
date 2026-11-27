@@ -1654,6 +1654,7 @@ impl PlayerInternal {
                             for item in &mut self.playlist {
                                 changed |= item.block.take().is_some();
                             }
+                            self.interrupted_occurrences.clear();
                             if changed {
                                 self.schedule_playlist_update();
                             }
@@ -9548,6 +9549,60 @@ mod playback_state_tests {
     #[tokio::test]
     async fn handback_restores_an_interrupted_unique_track() -> Result<()> {
         check_handback_occurrence(HandbackQueue::UniqueTrack).await
+    }
+
+    #[tokio::test]
+    async fn clearing_handoff_blocks_discards_their_interrupted_occurrences() -> Result<()> {
+        let library_id = Uuid::new_v4();
+        let ids = [(); 2].map(|_| Uuid::new_v4());
+        let (mut player, commands, mut events, wav_path) = long_track_engine(&ids);
+        let cancel = player.cancellation_token.clone();
+        LocalSet::new()
+            .run_until(async move {
+                let runner = task::spawn_local(async move {
+                    player.run().await?;
+                    Ok::<_, anyhow::Error>(player)
+                });
+                commands.send(add_library_tracks(library_id, &ids[..1]))?;
+                commands.send(PlayerCommand::Switch(0))?;
+                expect_playing(&mut events, &library_item(library_id, ids[0])).await?;
+
+                let block = HandoffBlockId(Uuid::new_v4());
+                let (response, loaded) = oneshot::channel();
+                commands.send(PlayerCommand::HandoffLoad {
+                    tracks: library_tracks(library_id, &ids[1..]),
+                    block,
+                    start_index: None,
+                    position: Duration::ZERO,
+                    play: false,
+                    playback_mode: None,
+                    revision: None,
+                    response,
+                })?;
+                let loaded = tokio_time::timeout(TEST_DEADLINE, loaded).await??;
+                assert!(matches!(
+                    loaded.interrupted,
+                    InterruptedItem::Item { index_hint: 0, .. }
+                ));
+                assert_eq!(loaded.items[1].block, Some(block));
+
+                let (response, cleared) = oneshot::channel();
+                commands.send(PlayerCommand::ClearHandoffBlocks {
+                    revision: None,
+                    response,
+                })?;
+                let cleared = tokio_time::timeout(TEST_DEADLINE, cleared).await??;
+                assert!(cleared.changed);
+                assert_eq!(cleared.items.len(), 2);
+                assert!(cleared.items.iter().all(|item| item.block.is_none()));
+
+                cancel.cancel();
+                let player = tokio_time::timeout(TEST_DEADLINE, runner).await???;
+                assert!(player.interrupted_occurrences.is_empty());
+                let _ = fs::remove_file(wav_path);
+                Ok(())
+            })
+            .await
     }
 
     async fn check_handback_occurrence(queue_case: HandbackQueue) -> Result<()> {
