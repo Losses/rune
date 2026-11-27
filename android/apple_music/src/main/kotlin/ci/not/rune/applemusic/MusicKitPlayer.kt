@@ -132,6 +132,8 @@ internal class MusicKitPlayer(
 
     override val buffering: Boolean get() = controller.value?.isBuffering ?: false
 
+    override val starting: Boolean get() = controller.making
+
     override val current: QueueItem? get() = controller.value?.currentItem?.let(::queueItem)
 
     override val upcoming: List<QueueItem>

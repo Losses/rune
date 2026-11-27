@@ -51,6 +51,12 @@ internal interface QueuePlayer {
     /** Whether the current queue item waits for its audio, which it may do while it plays. */
     val buffering: Boolean
 
+    /**
+     * Whether the player is still being made, which takes seconds. It does what it is asked
+     * meanwhile only once it is made.
+     */
+    val starting: Boolean
+
     /** The queue item that plays or would play next. */
     val current: QueueItem?
 

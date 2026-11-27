@@ -504,6 +504,34 @@ class JukeboxTest {
     }
 
     @Test
+    fun `the time the platform player takes to be made counts against no deadline`() {
+        player.starting = true
+        handOver("catalog:a")
+        advance(Jukebox.CHANGE_TIMEOUT_MS + Jukebox.PROGRESS_LIMIT_MS)
+        assertTrue(failures.isEmpty())
+
+        // From then on the queue change has its whole time, and no more.
+        player.starting = false
+        advance(Jukebox.CHANGE_TIMEOUT_MS - 2 * Jukebox.TICK_MS)
+        assertTrue(failures.isEmpty())
+        advance(2 * Jukebox.TICK_MS)
+        assertEquals(listOf(HostEvent.ItemFailed(1, index = 0, reason = Failure.NETWORK)), failures)
+    }
+
+    @Test
+    fun `a time the process did not run before a queue change was made gives it no more time`() {
+        batch(HostAction.Set(listOf("catalog:a", "catalog:b")), HostAction.Skip(0, 0), HostAction.Stop)
+        answerAll()
+        advance(Jukebox.TICK_MS)
+        now += 60_000
+        // The process runs again, and a batch comes before the next tick.
+        batch(HostAction.Skip(1, 40_000), HostAction.Start)
+        assertEquals("replace catalog:b", player.calls.last { it.startsWith("replace") })
+        advance(Jukebox.CHANGE_TIMEOUT_MS + Jukebox.TICK_MS)
+        assertEquals(listOf(HostEvent.ItemFailed(2, index = 1, reason = Failure.NETWORK)), failures)
+    }
+
+    @Test
     fun `a current song the service lacks fails once the player says so`() {
         player.missing += "x"
         handOver("catalog:x")

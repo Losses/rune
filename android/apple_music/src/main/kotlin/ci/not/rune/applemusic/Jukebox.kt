@@ -476,7 +476,7 @@ internal class Jukebox(
         if (player.state == PlayerState.PLAYING) player.pause()
         player.replace(entry.id)
         // The first call waits for the platform player to be made, which takes no time off the
-        // deadlines.
+        // deadlines (see [noteFreeze]).
         issue(Change(listOf(entry), replaces = true, deadline = clock() + CHANGE_TIMEOUT_MS))
         watchProgress()
     }
@@ -856,19 +856,23 @@ internal class Jukebox(
         report(periodic = true)
     }
 
-    /** A time that the process did not run moves every deadline on. */
+    /**
+     * A time that the process did not run moves every deadline on, and so does the time that the
+     * platform player takes to be made, in which it does nothing of what it was asked. A queue
+     * change gets no more than its whole time from now, as one made after that time has.
+     */
     private fun noteFreeze() {
         val now = clock()
-        val last = lastTick
+        val passed = now - (lastTick ?: now)
         lastTick = now
-        val gap = if (last == null) 0 else now - last - TICK_MS
-        if (gap <= FROZEN_GAP_MS) return
-        log("The host did not run for $gap ms")
+        val gap = if (player.starting) passed else passed - TICK_MS
+        if (!player.starting && gap <= FROZEN_GAP_MS) return
+        if (gap > FROZEN_GAP_MS) log("The host did not run for $gap ms")
         progressAt += gap
         playedOutAt += gap
         leftEarlyWhen += gap
         stillSince = stillSince?.plus(gap)
-        change?.let { it.deadline += gap }
+        change?.let { it.deadline = minOf(it.deadline + gap, now + CHANGE_TIMEOUT_MS) }
     }
 
     /**

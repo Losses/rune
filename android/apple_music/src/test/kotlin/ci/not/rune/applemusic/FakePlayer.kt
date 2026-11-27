@@ -23,6 +23,9 @@ internal class FakePlayer : QueuePlayer {
     /** While buffering, the position stands still though the player says it plays. */
     override var buffering = false
 
+    /** While the player is being made, which the tests end by clearing it. */
+    override var starting = false
+
     /** Whether a song given a queue of its own gets its first data only once [dataArrives]. */
     var slowData = false
 
