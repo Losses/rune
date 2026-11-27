@@ -76,6 +76,62 @@ void main() {
     },
   );
 
+  testWidgets('a queued retry notice follows the open replica', (tester) async {
+    LibraryRecordSummary replica(String id) => LibraryRecordSummary(
+      recordId: id,
+      alias: id,
+      kind: LibraryRecordKindSummaryReplica(
+        libraryId: id,
+        ownerFingerprint: 'owner',
+      ),
+      shareSync: false,
+      syncAccess: LibraryAccessSummary.read,
+    );
+
+    var open = 'first replica';
+    await _pumpApp(
+      tester,
+      loadRecords: () async => ListLibraryRecordsResponse(
+        records: [replica('first replica'), replica('second replica')],
+        invalidRecords: const [],
+        open: OpenRecord(
+          recordId: open,
+          generation: Uint64.fromBigInt(BigInt.one),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _receive(
+      'RequestFailedResponse',
+      const RequestFailedResponse(
+        request: 'SetVisualizerLogRequest',
+        kind: RequestErrorKind.unavailable,
+        detail: 'not running',
+      ).bincodeSerialize(),
+    );
+    await _showNotice(tester);
+    expect(find.text(_s.requestUnavailable), findsOneWidget);
+
+    for (final id in ['first replica', 'second replica']) {
+      _receive(
+        'PeerMetadataSyncStatusUpdated',
+        PeerMetadataSyncStatusUpdated(
+          libraryId: id,
+          ownerFingerprint: 'owner',
+          retrying: true,
+        ).bincodeSerialize(),
+      );
+    }
+    await _frames(tester);
+    open = 'second replica';
+    final context = tester.element(find.byType(RuneLifecycle));
+    await context.read<LibraryRegistryProvider>().refresh();
+    await tester.tap(find.text(_s.close));
+    await _frames(tester);
+    expect(find.text(_s.peerMetadataSyncRetrying), findsOneWidget);
+    await _close(tester);
+  });
+
   for (final (kind, message) in [
     (RequestErrorKind.notFound, _s.requestItemMissing),
     (RequestErrorKind.invalidInput, _s.requestInvalid),
@@ -420,6 +476,7 @@ void main() {
 Future<void> _pumpApp(
   WidgetTester tester, {
   LibraryRecordSummary? record,
+  Future<ListLibraryRecordsResponse> Function()? loadRecords,
 }) async {
   // main() sets these before the app starts: cafe mode from the settings, and
   // whether the last library is reopened.
@@ -430,16 +487,18 @@ Future<void> _pumpApp(
       providers: [
         ChangeNotifierProvider(
           create: (_) => LibraryRegistryProvider(
-            loadRecords: () async => ListLibraryRecordsResponse(
-              records: [if (record != null) record],
-              invalidRecords: const [],
-              open: record == null
-                  ? null
-                  : OpenRecord(
-                      recordId: record.recordId,
-                      generation: Uint64.fromBigInt(BigInt.one),
-                    ),
-            ),
+            loadRecords:
+                loadRecords ??
+                () async => ListLibraryRecordsResponse(
+                  records: [if (record != null) record],
+                  invalidRecords: const [],
+                  open: record == null
+                      ? null
+                      : OpenRecord(
+                          recordId: record.recordId,
+                          generation: Uint64.fromBigInt(BigInt.one),
+                        ),
+                ),
           ),
         ),
         Provider(

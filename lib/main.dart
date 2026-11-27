@@ -983,7 +983,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
     final message = S.of(context).peerMetadataSyncRetrying;
     _notices?.add(message, (dialogContext) async {
-      if (mounted && _peerMetadataRetry.value == recordId) {
+      if (mounted && _peerMetadataRetry.value != null) {
         await showPeerMetadataRetryDialog(dialogContext, _peerMetadataRetry);
       }
     });

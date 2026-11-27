@@ -1191,7 +1191,7 @@ async fn run_loop(
                         if !metadata && complete == PeerPass::Complete {
                             downloads.lock().await.remove(&key);
                         }
-                        if replica_metadata && complete != PeerPass::Incomplete {
+                        if replica_metadata && complete == PeerPass::Complete {
                             let mut retrying = retrying.lock().unwrap();
                             if retrying.remove(&key) {
                                 publish_peer_metadata_status(&global, &key, false);
