@@ -10,7 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1"
 futures = "0.3.30"
-rodio = { version = "0.20.1", features = ["symphonia-all"] }
+rodio = { version = "0.23.0", features = ["symphonia-all"] }
 tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
 database = { path = "../database" }
 metadata = { path = "../metadata" }

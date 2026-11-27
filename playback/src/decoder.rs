@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use rodio::Decoder as RodioDecoder;
-use rodio::Source;
+use rodio::decoder::DecoderBuilder;
 use rodio::source::{self, SeekError};
+use rodio::{ChannelCount, Sample, SampleRate, Source};
 use std::io;
 use symphonia::core::{
     audio::{AudioBufferRef, SampleBuffer, SignalSpec},
@@ -70,7 +71,7 @@ fn probe_format(
 }
 
 /// Scans the Ogg page headers to tell an ordinary single-stream Ogg from a chained one.
-/// Symphonia 0.5.4 does not expose the physical-stream count. A BOS page after the first non-BOS
+/// Symphonia 0.5.5 does not expose the physical-stream count. A BOS page after the first non-BOS
 /// page starts another physical stream; all BOS pages of a multiplexed single stream come first.
 fn detect_ogg_layout(mss: &mut MediaSourceStream) -> Result<bool> {
     mss.seek(SeekFrom::Start(0))?;
@@ -217,7 +218,7 @@ pub struct SymphoniaDecoder {
     broken: bool,
     /// Where a decoder failure is recorded for the player's progress reporting.
     failure: Option<Arc<Mutex<Option<UnavailableReason>>>>,
-    buffer: SampleBuffer<i16>,
+    buffer: SampleBuffer<Sample>,
     spec: SignalSpec,
     track_id: u32,
 }
@@ -303,7 +304,7 @@ impl SymphoniaDecoder {
             failure: None,
         };
         // Some codecs (e.g. Vorbis) emit an empty first packet; an empty
-        // buffer would make `current_frame_len` report end of stream.
+        // buffer would make `current_span_len` report end of stream.
         if this.buffer.is_empty() {
             this.decode_next_buffer();
         }
@@ -312,9 +313,9 @@ impl SymphoniaDecoder {
     }
 
     #[inline]
-    fn get_buffer(decoded: AudioBufferRef, spec: &SignalSpec) -> SampleBuffer<i16> {
+    fn get_buffer(decoded: AudioBufferRef, spec: &SignalSpec) -> SampleBuffer<Sample> {
         let duration = units::Duration::from(decoded.capacity() as u64);
-        let mut buffer = SampleBuffer::<i16>::new(duration, *spec);
+        let mut buffer = SampleBuffer::<Sample>::new(duration, *spec);
         buffer.copy_interleaved_ref(decoded);
         buffer
     }
@@ -333,7 +334,7 @@ impl SymphoniaDecoder {
                         }
                         samples_to_pass = 0;
                     }
-                    Err(e) => return Err(source::SeekError::Other(Box::new(e))),
+                    Err(e) => return Err(source::SeekError::Other(Arc::new(e))),
                 }
             };
             if candidate.dur() > samples_to_pass {
@@ -359,7 +360,7 @@ impl SymphoniaDecoder {
                         // The new stream gets its own retry budget.
                         decode_errors = 0;
                     }
-                    Err(e) => return Err(source::SeekError::Other(Box::new(e))),
+                    Err(e) => return Err(source::SeekError::Other(Arc::new(e))),
                 }
             };
             decoded = self.decoder.decode(&packet);
@@ -368,10 +369,10 @@ impl SymphoniaDecoder {
             }
         }
 
-        let decoded = decoded.map_err(|e| source::SeekError::Other(Box::new(e)))?;
+        let decoded = decoded.map_err(|e| source::SeekError::Other(Arc::new(e)))?;
         decoded.spec().clone_into(&mut self.spec);
         self.buffer = Self::get_buffer(decoded, &self.spec);
-        self.current_frame_offset = samples_to_pass as usize * self.channels() as usize;
+        self.current_frame_offset = samples_to_pass as usize * self.channels().get() as usize;
         // Some codecs (e.g. Vorbis) emit an empty first packet after a reset. Mid-track, a seek
         // that stops on it would report success with an empty buffer, which consumers treat as
         // the end, so decode the next packet. Only EOF from this refill is a valid empty result;
@@ -599,7 +600,7 @@ fn unresolved_ogg_seek() -> source::SeekError {
 
 impl Source for SymphoniaDecoder {
     #[inline]
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         if self.broken {
             return Some(0);
         }
@@ -612,13 +613,14 @@ impl Source for SymphoniaDecoder {
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
-        self.spec.channels.count() as u16
+    fn channels(&self) -> ChannelCount {
+        ChannelCount::new(self.spec.channels.count() as u16)
+            .expect("a decoded stream has at least one channel")
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
-        self.spec.rate
+    fn sample_rate(&self) -> SampleRate {
+        SampleRate::new(self.spec.rate).expect("a decoded stream has a sample rate")
     }
 
     #[inline]
@@ -630,7 +632,7 @@ impl Source for SymphoniaDecoder {
         let relative = self.seek_position(pos)?;
         let time = Time::from(relative);
 
-        let channels = self.channels() as usize;
+        let channels = self.channels().get() as usize;
         let to_skip = if channels > 0 {
             self.current_frame_offset % channels
         } else {
@@ -652,7 +654,7 @@ impl Source for SymphoniaDecoder {
                 self.mark_broken();
                 return Err(unsupported_seek());
             }
-            Err(e) => return Err(source::SeekError::Other(Box::new(e))),
+            Err(e) => return Err(source::SeekError::Other(Arc::new(e))),
         };
 
         // A seek is discontinuous with the last decoded packet. Stateful codecs keep overlap or
@@ -668,7 +670,7 @@ impl Source for SymphoniaDecoder {
 }
 
 impl Iterator for SymphoniaDecoder {
-    type Item = i16;
+    type Item = Sample;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -684,7 +686,7 @@ impl Iterator for SymphoniaDecoder {
         let sample = *self.buffer.samples().get(self.current_frame_offset)?;
         self.current_frame_offset += 1;
 
-        // Refill eagerly so `current_frame_len` never reports `Some(0)` at a
+        // Refill eagerly so `current_span_len` never reports `Some(0)` at a
         // packet boundary, which consumers (e.g. `RuneBuffered`) treat as the
         // end of the stream.
         if self.current_frame_offset >= self.buffer.len() {
@@ -738,7 +740,13 @@ impl<R: Read + Seek + Send + Sync + 'static> RuneDecoder<R> {
                 let unwrapped = Arc::try_unwrap(shared)
                     .map(|mutex| mutex.into_inner().unwrap())
                     .unwrap_or_else(|_| panic!("Failed to unwrap shared reader"));
-                let decoder = RodioDecoder::new(unwrapped)
+                // The reader can seek. rodio's decoders no longer take that for granted, and
+                // without it Symphonia cannot seek back or read a container whose index is at
+                // the end.
+                let decoder = DecoderBuilder::new()
+                    .with_data(unwrapped)
+                    .with_seekable(true)
+                    .build()
                     .map_err(|err| anyhow!("All decoders failed: {err}"))?;
                 Ok(Self {
                     inner: DecoderInner::Rodio(Box::new(decoder)),
@@ -756,7 +764,7 @@ impl<R: Read + Seek + Send + Sync + 'static> RuneDecoder<R> {
 }
 
 impl<R: Read + Seek + Send + Sync + 'static> Iterator for RuneDecoder<R> {
-    type Item = i16;
+    type Item = Sample;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -769,15 +777,15 @@ impl<R: Read + Seek + Send + Sync + 'static> Iterator for RuneDecoder<R> {
 
 impl<R: Read + Seek + Send + Sync + 'static> Source for RuneDecoder<R> {
     #[inline]
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         match &self.inner {
-            DecoderInner::Symphonia(s) => s.current_frame_len(),
-            DecoderInner::Rodio(r) => r.current_frame_len(),
+            DecoderInner::Symphonia(s) => s.current_span_len(),
+            DecoderInner::Rodio(r) => r.current_span_len(),
         }
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         match &self.inner {
             DecoderInner::Symphonia(s) => s.channels(),
             DecoderInner::Rodio(r) => r.channels(),
@@ -785,7 +793,7 @@ impl<R: Read + Seek + Send + Sync + 'static> Source for RuneDecoder<R> {
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         match &self.inner {
             DecoderInner::Symphonia(s) => s.sample_rate(),
             DecoderInner::Rodio(r) => r.sample_rate(),
@@ -850,10 +858,10 @@ mod tests {
     }
 
     /// The frequency of `samples` at `rate`, from rising zero crossings.
-    fn frequency(samples: &[i16], rate: u32) -> f64 {
+    fn frequency(samples: &[f32], rate: u32) -> f64 {
         let crossings = samples
             .windows(2)
-            .filter(|pair| pair[0] <= 0 && pair[1] > 0)
+            .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
             .count();
         crossings as f64 * f64::from(rate) / samples.len() as f64
     }
@@ -1020,8 +1028,8 @@ mod tests {
         let decoder = RuneDecoder::new(BufReader::new(file), Some("opus"))
             .expect("create rune decoder for opus");
 
-        assert_eq!(decoder.channels(), 2);
-        assert_eq!(decoder.sample_rate(), 48000);
+        assert_eq!(decoder.channels().get(), 2);
+        assert_eq!(decoder.sample_rate().get(), 48000);
         assert!(decoder.total_duration().is_some());
 
         let mut buffered = rune_buffered(decoder);
@@ -1068,8 +1076,8 @@ mod tests {
         let decoder = RuneDecoder::new(BufReader::new(file), Some("m4a"))
             .expect("create rune decoder for aac");
 
-        assert_eq!(decoder.channels(), 2);
-        assert_eq!(decoder.sample_rate(), 44100);
+        assert_eq!(decoder.channels().get(), 2);
+        assert_eq!(decoder.sample_rate().get(), 44100);
         assert!(decoder.total_duration().is_some());
 
         let mut buffered = rune_buffered(decoder);
@@ -1116,8 +1124,8 @@ mod tests {
         let decoder = RuneDecoder::new(BufReader::new(file), Some("ogg"))
             .expect("create rune decoder for ogg");
         let expected = decoder.total_duration().expect("duration").as_secs_f64()
-            * decoder.sample_rate() as f64
-            * decoder.channels() as f64;
+            * decoder.sample_rate().get() as f64
+            * decoder.channels().get() as f64;
 
         let decoded = rune_buffered(decoder).count() as f64;
         assert!(
@@ -1137,8 +1145,8 @@ mod tests {
         let mut decoder = RuneDecoder::new(BufReader::new(file), Some("ogg"))
             .expect("create rune decoder for ogg");
 
-        assert_eq!(decoder.channels(), 2);
-        assert_eq!(decoder.sample_rate(), 44100);
+        assert_eq!(decoder.channels().get(), 2);
+        assert_eq!(decoder.sample_rate().get(), 44100);
         assert!(decoder.next().is_some());
     }
 
@@ -1152,7 +1160,7 @@ mod tests {
         let decoder =
             RuneDecoder::new(BufReader::new(file), Some("ogg")).expect("create chained decoder");
         let mut source = rune_buffered(decoder);
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         assert_eq!(source.next(), None, "the chained file must end at EOF");
         remove(&path);
 
@@ -1180,7 +1188,7 @@ mod tests {
         let decoder =
             RuneDecoder::new(BufReader::new(file), Some("ogg")).expect("create single decoder");
         let mut source = rune_buffered(decoder);
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         assert_eq!(source.next(), None, "a single stream must end at EOF");
 
         assert!(
@@ -1204,7 +1212,7 @@ mod tests {
             RuneDecoder::new(BufReader::new(file), Some("ogg")).expect("create chained decoder");
         decoder.set_failure_sink(failure.clone());
         let mut source = rune_buffered(decoder);
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         assert_eq!(source.next(), None, "the unsupported file must end");
         remove(&path);
 
@@ -1251,7 +1259,7 @@ mod tests {
             "unexpected seek error: {error:?}"
         );
 
-        let samples: Vec<i16> = decoder.by_ref().collect();
+        let samples: Vec<f32> = decoder.by_ref().collect();
         remove(&path);
         assert!(
             samples.len() > 250_000,
@@ -1286,7 +1294,7 @@ mod tests {
             .try_seek(Duration::ZERO)
             .expect("the single stream can be seeked back to its start");
 
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         assert!(
             (samples.len() as f64 - 88_200.0).abs() < 2_000.0,
             "decoded {} samples",
@@ -1317,7 +1325,7 @@ mod tests {
                 "unexpected seek error for {extension:?}: {error:?}"
             );
 
-            let samples: Vec<i16> = decoder.by_ref().collect();
+            let samples: Vec<f32> = decoder.by_ref().collect();
             remove(&path);
             assert!(
                 samples.len() > 150_000,
@@ -1344,7 +1352,7 @@ mod tests {
         let decoder =
             RuneDecoder::new(BufReader::new(file), Some("ogg")).expect("create chained decoder");
         let mut source = rune_buffered(decoder);
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         remove(&path);
 
         assert!(
@@ -1400,7 +1408,7 @@ mod tests {
         let decoder =
             RuneDecoder::new(BufReader::new(file), Some("ogg")).expect("create chained decoder");
         let mut source = rune_buffered(decoder);
-        let samples: Vec<i16> = source.by_ref().collect();
+        let samples: Vec<f32> = source.by_ref().collect();
         assert!(
             samples.len() > 150_000,
             "decoded {} samples, so the second stream was not reached",
@@ -1418,7 +1426,7 @@ mod tests {
         source
             .try_seek(Duration::from_secs(3))
             .expect("a seek within the current physical stream is supported");
-        let samples: Vec<i16> = source.by_ref().take(20_000).collect();
+        let samples: Vec<f32> = source.by_ref().take(20_000).collect();
         remove(&path);
         let tone = frequency(&samples, 44_100);
         assert!((tone - 660.0).abs() < 10.0, "second stream is {tone} Hz");
@@ -1445,7 +1453,7 @@ mod tests {
         })
         .expect("a position past the first stream crosses into the second");
 
-        let samples: Vec<i16> = s.by_ref().take(20_000).collect();
+        let samples: Vec<f32> = s.by_ref().take(20_000).collect();
         remove(&path);
         let tone = frequency(&samples, 44_100);
         assert!((tone - 660.0).abs() < 10.0, "second stream is {tone} Hz");
@@ -1505,11 +1513,11 @@ mod tests {
     fn a_channel_swapped_offset_is_not_a_match() {
         let channels = 2usize;
         let expected_start = 100usize;
-        let reference: Vec<i16> = (0..5_000)
-            .map(|index| if index % channels == 0 { 100 } else { -100 })
+        let reference: Vec<f32> = (0..5_000)
+            .map(|index| if index % channels == 0 { 100.0 } else { -100.0 })
             .collect();
-        let actual: Vec<i16> = (0..4_096)
-            .map(|index| if index % channels == 0 { -100 } else { 100 })
+        let actual: Vec<f32> = (0..4_096)
+            .map(|index| if index % channels == 0 { -100.0 } else { 100.0 })
             .collect();
 
         let matched = panic::catch_unwind(|| {
@@ -1521,7 +1529,7 @@ mod tests {
         );
     }
 
-    fn decode_all(path: &str) -> Vec<i16> {
+    fn decode_all(path: &str) -> Vec<f32> {
         let file = File::open(path).expect("open ogg file");
         RuneDecoder::new(BufReader::new(file), Some("ogg"))
             .expect("create rune decoder for ogg")
@@ -1532,8 +1540,8 @@ mod tests {
     /// the first decoded packet prime the codec's overlap, so the resumed position can be up to
     /// one packet later. The samples themselves must still match exactly.
     fn matching_offset(
-        actual: &[i16],
-        reference: &[i16],
+        actual: &[f32],
+        reference: &[f32],
         expected_start: usize,
         max_shift: usize,
         channels: usize,
@@ -1552,12 +1560,12 @@ mod tests {
         // Keep candidates on the expected channel phase.
         let alignment = expected_start % channels;
         let first = low + (alignment + channels - low % channels) % channels;
-        let mut best = (i64::MAX, expected_start);
+        let mut best = (f64::INFINITY, expected_start);
         for start in (first..=high).step_by(channels) {
-            let difference: i64 = actual[..window]
+            let difference: f64 = actual[..window]
                 .iter()
                 .zip(&reference[start..start + window])
-                .map(|(actual, expected)| (*actual as i64 - *expected as i64).abs())
+                .map(|(actual, expected)| f64::from((actual - expected).abs()))
                 .sum();
             if difference < best.0 {
                 best = (difference, start);
@@ -1565,17 +1573,17 @@ mod tests {
         }
         assert_eq!(
             best.0,
-            0,
+            0.0,
             "{context}: no exact match within {max_shift} samples of the requested position \
              (best offset {}, mean difference {})",
             best.1 as i64 - expected_start as i64,
-            best.0 as f64 / window as f64
+            best.0 / window as f64
         );
         best.1
     }
 
     fn assert_seek_resumes(
-        reference: &[i16],
+        reference: &[f32],
         seek_to: Duration,
         target: usize,
         take: Option<usize>,
@@ -1587,8 +1595,8 @@ mod tests {
         let file = File::open(path).expect("open ogg file");
         let mut decoder = RuneDecoder::new(BufReader::new(file), Some("ogg"))
             .expect("create rune decoder for ogg");
-        assert_eq!(decoder.channels() as usize, channels);
-        assert_eq!(decoder.sample_rate() as usize, rate);
+        assert_eq!(decoder.channels().get() as usize, channels);
+        assert_eq!(decoder.sample_rate().get() as usize, rate);
 
         for _ in 0..rate * channels / 2 {
             assert!(
@@ -1601,7 +1609,7 @@ mod tests {
         // Leave one maximum Vorbis block so the comparison starts after the packet that primes
         // the reset decoder.
         let settle = 8_192 * channels;
-        let after: Vec<i16> = match take {
+        let after: Vec<f32> = match take {
             Some(frames) => decoder.by_ref().take(settle + frames * channels).collect(),
             None => decoder.by_ref().collect(),
         };

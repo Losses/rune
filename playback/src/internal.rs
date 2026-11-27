@@ -13,7 +13,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use fsio::{FileIoError, FileStream, FsIo, OpenMode, StorageLocation};
 use log::{debug, error, info, warn};
-use rodio::{PlayError, Sink, Source, source::SeekError};
+use rodio::{ChannelCount, PlayError, Player, Sample, SampleRate, Source, cpal, source::SeekError};
 use tokio::{
     sync::{mpsc, oneshot},
     time::{Instant, MissedTickBehavior, interval, sleep_until},
@@ -26,7 +26,7 @@ use crate::hosted::{
     FROZEN_GAP, HostAction, HostBridge, HostCommand, HostEvent, HostedTrack, RUN_LIMIT,
 };
 use crate::listen::ListenProgress;
-use crate::output_stream::{Outputs, RuneOutputStream, RuneOutputStreamHandle};
+use crate::output_stream::{Outputs, RuneOutputStream, RuneOutputStreamHandle, ends_the_output};
 use crate::pcm_tap::PcmTap;
 use crate::player::{
     AudioPlaybackNote, AudioSourceMode, ClearHandoffBlocksResult, HandoffBlockId,
@@ -385,7 +385,7 @@ impl Debug for AnySource {
 }
 
 impl AnySource {
-    fn current_samples(&self) -> Option<Vec<i16>> {
+    fn current_samples(&self) -> Option<Vec<Sample>> {
         match self {
             AnySource::Local(s, _) => s.current_samples(),
             AnySource::Online(s, _) => s.current_samples(),
@@ -395,7 +395,7 @@ impl AnySource {
 }
 
 impl Iterator for AnySource {
-    type Item = i16;
+    type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -407,15 +407,15 @@ impl Iterator for AnySource {
 }
 
 impl Source for AnySource {
-    fn current_frame_len(&self) -> Option<usize> {
+    fn current_span_len(&self) -> Option<usize> {
         match self {
-            AnySource::Local(s, _) => s.current_frame_len(),
-            AnySource::Online(s, _) => s.current_frame_len(),
-            AnySource::Buffered(s, _, _) => s.current_frame_len(),
+            AnySource::Local(s, _) => s.current_span_len(),
+            AnySource::Online(s, _) => s.current_span_len(),
+            AnySource::Buffered(s, _, _) => s.current_span_len(),
         }
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         match self {
             AnySource::Local(s, _) => s.channels(),
             AnySource::Online(s, _) => s.channels(),
@@ -423,7 +423,7 @@ impl Source for AnySource {
         }
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         match self {
             AnySource::Local(s, _) => s.sample_rate(),
             AnySource::Online(s, _) => s.sample_rate(),
@@ -947,8 +947,13 @@ fn seek_position(seconds: f64) -> Option<Duration> {
     Duration::try_from_secs_f64(seconds.max(0.0)).ok()
 }
 
-fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
-    let (sink, queue_rx) = Sink::new_idle();
+/// A frame of samples on the 16-bit scale that the spectrum is computed on.
+fn spectrum_frame(frame: Vec<Sample>) -> Vec<i16> {
+    frame.into_iter().map(cpal::Sample::from_sample).collect()
+}
+
+fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Player, PlayError> {
+    let (sink, queue_rx) = Player::new();
     stream.play_raw(queue_rx)?;
     Ok(sink)
 }
@@ -976,17 +981,16 @@ pub struct InternalLog {
 impl<S> Source for SharedSource<S>
 where
     S: Source,
-    S::Item: rodio::Sample,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.inner.lock().unwrap().current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.lock().unwrap().current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.inner.lock().unwrap().channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.inner.lock().unwrap().sample_rate()
     }
 
@@ -1019,7 +1023,7 @@ pub(crate) struct PlayerInternal {
     current_track_mapped: bool,
     current_track_path: Option<PathBuf>,
     active_stream_failure: Option<Arc<Mutex<Option<UnavailableReason>>>>,
-    sink: Option<Sink>,
+    sink: Option<Player>,
     _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
     pending_load: Option<PendingLoad>,
@@ -1036,8 +1040,8 @@ pub(crate) struct PlayerInternal {
     playback_mode: PlaybackMode,
     playback_strategy: Box<dyn PlaybackStrategy>,
     volume: f32,
-    stream_error_sender: mpsc::UnboundedSender<(u64, String)>,
-    stream_error_receiver: mpsc::UnboundedReceiver<(u64, String)>,
+    stream_error_sender: mpsc::UnboundedSender<(u64, cpal::Error)>,
+    stream_error_receiver: mpsc::UnboundedReceiver<(u64, cpal::Error)>,
     // The number of the output that opened last, which `_stream` holds while it is open. Each
     // output reports its errors with its own number, since a stream that failed can go on
     // reporting long after another output replaced it.
@@ -1725,8 +1729,8 @@ impl PlayerInternal {
                     self.debounce_timer = None;
                     self.send_playlist_updated()?;
                 },
-                Some((generation, error_message)) = self.stream_error_receiver.recv() => {
-                    self.stream_failed(generation, &error_message)?;
+                Some((generation, error)) = self.stream_error_receiver.recv() => {
+                    self.stream_failed(generation, &error)?;
                 },
                 _ = self.cancellation_token.cancelled() => {
                     debug!("Cancellation token triggered, exiting run loop");
@@ -2085,7 +2089,7 @@ impl PlayerInternal {
         let error_sender = self.stream_error_sender.clone();
         self.outputs
             .open(Arc::new(move |error| {
-                let _ = error_sender.send((generation, error.to_string()));
+                let _ = error_sender.send((generation, error));
             }))
             .context("Failed to create output stream")
     }
@@ -2141,7 +2145,7 @@ impl PlayerInternal {
             Duration::from_millis(12),
             move |_sample: &mut SharedSource<_>| {
                 if let Ok(guard) = source_for_fft.lock() {
-                    let data: Option<Vec<i16>> = guard.current_samples();
+                    let data: Option<Vec<i16>> = guard.current_samples().map(spectrum_frame);
                     if let Some(data) = data
                         && fft_tx.send(data).is_err()
                     {
@@ -2455,7 +2459,13 @@ impl PlayerInternal {
     // more, so it is closed at once: as long as it is open, a failed stream goes on reporting, on
     // Linux as fast as it can. A stale stream is done with already, and a stream that was
     // replaced, whose reports can come long after it, says nothing about the output that plays.
-    fn stream_failed(&mut self, generation: u64, error: &str) -> Result<()> {
+    // An error that does not end the output, such as an underrun, changes nothing: the stream plays
+    // on.
+    fn stream_failed(&mut self, generation: u64, error: &cpal::Error) -> Result<()> {
+        if !ends_the_output(error) {
+            debug!("The audio output plays on after an error: {error}");
+            return Ok(());
+        }
         error!("The audio output failed: {error}");
         if generation != self.output_generation {
             return Ok(());
@@ -5053,8 +5063,7 @@ mod playback_state_tests {
     use super::*;
     use crate::output_stream::FakeSuspend;
     use crate::player::PlaylistLoad;
-    use rodio::StreamError;
-    use rodio::cpal;
+    use rodio::DeviceSinkError;
     use std::any;
     use std::fs;
     use std::result;
@@ -5081,7 +5090,7 @@ mod playback_state_tests {
     struct OpenedOutputs(Arc<Mutex<Vec<OpenedOutput>>>);
 
     struct OpenedOutput {
-        on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
+        on_error: Arc<dyn Fn(cpal::Error) + Send + Sync>,
         handle: RuneOutputStreamHandle,
     }
 
@@ -5089,8 +5098,13 @@ mod playback_state_tests {
         /// Makes the output that opened `nth`, from 0, report that its device went away, as a
         /// device stream does whether or not the player still uses it.
         fn fail(&self, nth: usize) {
+            self.report(nth, cpal::ErrorKind::DeviceNotAvailable);
+        }
+
+        /// Makes the output that opened `nth`, from 0, report an error of `kind`.
+        fn report(&self, nth: usize, kind: cpal::ErrorKind) {
             let on_error = self.0.lock().unwrap()[nth].on_error.clone();
-            on_error(cpal::StreamError::DeviceNotAvailable);
+            on_error(kind.into());
         }
 
         /// Whether the output that opened `nth`, from 0, is still open, that is, still takes
@@ -5098,7 +5112,7 @@ mod playback_state_tests {
         fn is_open(&self, nth: usize) -> bool {
             self.0.lock().unwrap()[nth]
                 .handle
-                .play_raw(rodio::source::Empty::<f32>::new())
+                .play_raw(rodio::source::Empty::new())
                 .is_ok()
         }
     }
@@ -5106,15 +5120,15 @@ mod playback_state_tests {
     impl Outputs for TestOutputs {
         fn open(
             &self,
-            on_error: Arc<dyn Fn(cpal::StreamError) + Send + Sync>,
-        ) -> result::Result<(RuneOutputStream, RuneOutputStreamHandle), StreamError> {
+            on_error: Arc<dyn Fn(cpal::Error) + Send + Sync>,
+        ) -> result::Result<(RuneOutputStream, RuneOutputStreamHandle), DeviceSinkError> {
             self.opens.fetch_add(1, Ordering::SeqCst);
             if self
                 .failing_opens
                 .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
-                return Err(StreamError::NoDevice);
+                return Err(DeviceSinkError::NoDevice);
             }
             let (stream, handle) = RuneOutputStream::fake(FakeSuspend::Stops)?;
             self.opened.0.lock().unwrap().push(OpenedOutput {
@@ -5124,7 +5138,7 @@ mod playback_state_tests {
             Ok((stream, handle))
         }
 
-        fn suspend(&self, stream: &RuneOutputStream) -> result::Result<(), cpal::PauseStreamError> {
+        fn suspend(&self, stream: &RuneOutputStream) -> result::Result<(), cpal::Error> {
             let stopped = stream.suspend();
             if stream.is_suspended() {
                 self.suspends.fetch_add(1, Ordering::SeqCst);
@@ -6770,6 +6784,42 @@ mod playback_state_tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn an_underrun_while_playing_leaves_the_track_playing() -> Result<()> {
+        let file_uuid = Uuid::new_v4();
+        let (mut internal, commands_sender, mut events, wav_path) = long_track_engine(&[file_uuid]);
+        let opens = internal.test_outputs().opens.clone();
+        let outputs = internal.test_outputs().opened.clone();
+        let local = LocalSet::new();
+        local
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                async {
+                    let track = start_playing(&commands_sender, &mut events, file_uuid).await?;
+                    let playing_at = next_progress(&mut events).await?;
+                    // A stream that underran has recovered by itself: only a gap was heard, and
+                    // the track plays on through the same output.
+                    outputs.report(0, cpal::ErrorKind::Xrun);
+                    outputs.report(0, cpal::ErrorKind::Xrun);
+                    plays_on_to(&mut events, playing_at + Duration::from_millis(500)).await?;
+                    assert!(outputs.is_open(0), "the output that underran was closed");
+                    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+                    // A failure of the same output still pauses the track there.
+                    outputs.fail(0);
+                    expect_paused(&mut events, &track).await?;
+                    output_closes(&outputs, 0).await?;
+
+                    runner.abort();
+                    let _ = fs::remove_file(wav_path);
+                    Ok::<(), anyhow::Error>(())
+                }
+                .await
+            })
+            .await?;
+        Ok(())
+    }
+
     // Waits until the track that plays has played to `target`, and fails as soon as it stops
     // playing before that: it pauses, comes up paused or stops.
     async fn plays_on_to(
@@ -7843,7 +7893,7 @@ mod playback_state_tests {
             result = internal.run() => bail!("the player stopped: {result:?}"),
             result = script => result?,
         }
-        assert_eq!(internal.sink.as_ref().map(Sink::volume), Some(0.25));
+        assert_eq!(internal.sink.as_ref().map(Player::volume), Some(0.25));
         let _ = fs::remove_file(wav_path);
         Ok(())
     }
@@ -9160,6 +9210,21 @@ mod playback_state_tests {
         assert_eq!(seek_position(f64::NEG_INFINITY), Some(Duration::ZERO));
         assert_eq!(seek_position(f64::NAN), None);
         assert_eq!(seek_position(f64::INFINITY), None);
+    }
+
+    #[test]
+    fn the_spectrum_takes_samples_on_the_16_bit_scale() {
+        assert_eq!(
+            spectrum_frame(vec![-1.0, -0.5, 0.0, 0.5, 1.0]),
+            vec![i16::MIN, -16384, 0, 16384, i16::MAX]
+        );
+        // A 16-bit track reaches the spectrum with the values it was decoded from.
+        let sixteen_bit = vec![i16::MIN, -1000, -1, 0, 1, 1000, i16::MAX];
+        let decoded = sixteen_bit
+            .iter()
+            .map(|&sample| f32::from(sample) / 32768.0)
+            .collect();
+        assert_eq!(spectrum_frame(decoded), sixteen_bit);
     }
 
     #[tokio::test]
