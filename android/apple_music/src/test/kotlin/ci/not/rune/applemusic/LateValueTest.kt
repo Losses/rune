@@ -1,7 +1,9 @@
 package ci.not.rune.applemusic
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LateValueTest {
@@ -20,8 +22,10 @@ class LateValueTest {
         late.call(creates = true) { ran += "third $it" }
         assertEquals(1, starts)
         assertEquals(emptyList<String>(), ran)
+        assertTrue(late.making)
 
         finish!!("made")
+        assertFalse(late.making)
         assertEquals(listOf("first made", "second made", "third made"), ran)
         late.call { ran += "later $it" }
         assertEquals("later made", ran.last())

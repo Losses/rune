@@ -60,6 +60,9 @@ internal class MusicKitPlayer(
 
     private val watch = Runnable { checkStart() }
 
+    /** Whether the tokens changed while the controller was being made, which read them before. */
+    private var tokensChangedMeanwhile = false
+
     /**
      * The controller, made on a thread of its own, which takes seconds: the main thread, where the
      * host runs, never waits for it. A call that needs it before it exists runs once it does.
@@ -88,6 +91,10 @@ internal class MusicKitPlayer(
     /** The player keeps the play order and its modes, so MusicKit plays the queue as it is. */
     private fun configure(made: MediaPlayerController) {
         made.addListener(this)
+        if (tokensChangedMeanwhile) {
+            tokensChangedMeanwhile = false
+            made.playbackStoreConfiguration?.notifyTokenChanged(context, tokens)
+        }
         made.setRepeatMode(PlaybackRepeatMode.REPEAT_MODE_OFF)
         made.setShuffleMode(PlaybackShuffleMode.SHUFFLE_MODE_OFF)
     }
@@ -103,10 +110,15 @@ internal class MusicKitPlayer(
     /**
      * Tells MusicKit that the developer token or the user's token changed, or that the user's was
      * forgotten. MusicKit keeps its own copy of the tokens and reads them from [tokens] again only
-     * when told so.
+     * when told so. A controller that is being made is told once it is.
      */
     fun tokensChanged() {
-        controller.value?.playbackStoreConfiguration?.notifyTokenChanged(context, tokens)
+        val made = controller.value
+        if (made == null) {
+            if (controller.making) tokensChangedMeanwhile = true
+            return
+        }
+        made.playbackStoreConfiguration?.notifyTokenChanged(context, tokens)
     }
 
     override val state: PlayerState

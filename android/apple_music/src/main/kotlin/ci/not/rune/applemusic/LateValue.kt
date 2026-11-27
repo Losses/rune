@@ -10,7 +10,10 @@ internal class LateValue<T : Any>(private val start: (finished: (T?) -> Unit) ->
     private class Step<T>(val work: (T) -> Unit, val abandoned: () -> Unit)
 
     private val waiting = ArrayDeque<Step<T>>()
-    private var making = false
+
+    /** Whether the value is being made. */
+    var making = false
+        private set
 
     /** The value, once it was made. */
     var value: T? = null
