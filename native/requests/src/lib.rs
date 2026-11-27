@@ -25,6 +25,7 @@ enum BodyLibraries {
     NoLibrary,
     Authorized,
     PlayerReads,
+    Views,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -59,6 +60,7 @@ fn body_libraries_tokens(body_libraries: BodyLibraries) -> proc_macro2::TokenStr
         BodyLibraries::NoLibrary => quote! { BodyLibraries::NoLibrary },
         BodyLibraries::Authorized => quote! { BodyLibraries::Authorized },
         BodyLibraries::PlayerReads => quote! { BodyLibraries::PlayerReads },
+        BodyLibraries::Views => quote! { BodyLibraries::Views },
     }
 }
 
@@ -1245,7 +1247,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("CastPreflightResponse".to_string()),
             scope: RequestScope::Session,
             access: RequestAccess::Control,
-            body_libraries: BodyLibraries::NoLibrary,
+            body_libraries: BodyLibraries::Views,
             introduced_minor: None,
             receiver: RequestReceiver::Library,
             routing: RequestRouting::OpenLibrary,
@@ -2251,6 +2253,9 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             /// standing grants on their libraries; each named library is also checked for the
             /// calling session before the player reads it.
             PlayerReads,
+            /// The request reports what it knows about every library its body names, so each
+            /// named library is checked for the calling session before any state is returned.
+            Views,
         }
         pub fn request_access(name: &str) -> Option<RequestAccess> {
             match name { #(#accesses)* _ => None }
