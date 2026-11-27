@@ -76,6 +76,9 @@ verify_android() (
     adb shell mkdir -p "$documents"
     folder=$(adb shell mktemp -d "$documents/rune-e2e.XXXXXX" | tr -d '\r')
     [[ $folder == "$documents"/rune-e2e.?????? ]]
+    package_installed() {
+        adb shell pm list packages "$pkg" | tr -d '\r' | grep -Fxq "package:$pkg"
+    }
     cleanup() {
         local status=$? mode
         if [[ -n $picker ]]; then
@@ -85,7 +88,8 @@ verify_android() (
         # Save evidence before clearing the test's library and SAF grants.
         adb logcat -d >"$log_dir/logcat.txt" || true
         adb exec-out screencap -p >"$log_dir/screen.png" || true
-        if [[ -s "$log_dir/app.pid" ]]; then
+        # Flutter may already have uninstalled its test APK during teardown.
+        if [[ -s "$log_dir/app.pid" ]] && package_installed; then
             adb shell pm clear "$pkg" || status=1
             if [[ -s "$log_dir/storage-mode" ]]; then
                 read -r mode < "$log_dir/storage-mode"
@@ -100,7 +104,7 @@ verify_android() (
     tree_id="$volume:Documents/${folder##*/}"
     adb push assets/startup_0.ogg "$folder/startup_0.ogg"
 
-    if adb shell pm list packages "$pkg" | tr -d '\r' | grep -Fxq "package:$pkg"; then
+    if package_installed; then
         adb shell pm clear "$pkg"
     fi
     adb logcat -c
