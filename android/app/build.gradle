@@ -38,7 +38,8 @@ android {
         applicationId = "ci.not.rune"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdk = flutter.minSdkVersion
+        // cpal plays through AAudio, which Android ships from 8.0 (API 26).
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
