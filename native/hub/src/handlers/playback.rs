@@ -1982,9 +1982,10 @@ impl Signal for HandoffRequest {
             .map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
         let ui = if ticket.is_none() && ui.is_cancelled() {
             // Older callers address the node directly rather than reserving a UI ticket.
-            node.current_ui()
-                .await
-                .map_or(ui, |params| params.handoff_token.clone())
+            node.current_ui().await.map_or_else(
+                |_| node.token.clone(),
+                |params| params.handoff_token.clone(),
+            )
         } else {
             ui
         };
