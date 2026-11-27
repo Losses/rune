@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 
 use crate::apple_music_binding::{AppleIdKind, AppleMusicBinding, CONTENT_CHANGED_DELAY, Tokens};
 use crate::apple_music_translate::mix_collections::{RECENTLY_PLAYED_GROUP, UNTITLED_GROUP};
+use crate::backends::remote::open_remote_library_for_fingerprint;
 use crate::macros::{RequestSlots, capability_snapshot};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, CallerQueue, CapabilityReason,
@@ -3657,7 +3658,9 @@ impl Heard {
 async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire() -> Result<()> {
     let host_dir = tempfile::tempdir()?;
     let controller_dir = tempfile::tempdir()?;
-    let host = open_apple(host_dir.path()).await?;
+    let host = open_apple(host_dir.path())
+        .await
+        .context("open Apple Music on the host")?;
     let heard = Arc::new(Heard::default());
     let controller = super::fixture_with_broadcaster(
         controller_dir.path(),
@@ -3665,27 +3668,39 @@ async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire
         std::time::Duration::from_secs(300),
         heard.clone(),
     )
-    .await?;
+    .await
+    .context("create the controller fixture")?;
     // The host's own library is open while the devices pair, as in a real session.
     let host_library = host
         .fixture
         .global_params
         .library_id
         .context("host library id")?;
-    host.node.set_open_local_catalog(None, host_library).await?;
-    let address = super::paired_full(&host.fixture, &controller).await?;
-    let fingerprint = super::info(&host.fixture).await?.fingerprint;
-    controller
-        .global_params
-        .cert_validator
-        .read()
+    host.node
+        .set_open_local_catalog(None, host_library)
         .await
-        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
-        .await?;
-    super::open_remote_control_record(controller.global_params.node.clone(), &fingerprint).await?;
+        .context("show the host's local library for pairing")?;
+    let address = super::paired_full(&host.fixture, &controller)
+        .await
+        .context("pair the host and controller")?;
+    let fingerprint = super::info(&host.fixture)
+        .await
+        .context("read the host's device identity")?
+        .fingerprint;
+    // Other fixtures can replace the process-wide GUI receivers and end our listeners.
+    // Keep the remote UI alive until the controller has received the host's events.
+    let (_controller_ui, _) = open_remote_library_for_fingerprint(
+        controller.global_params.node.clone(),
+        &fingerprint,
+        vec![address.to_string()],
+        None,
+    )
+    .await
+    .context("open the host on the controller")?;
     host.node
         .open_service_catalog(Some(host.record), host.binding.clone())
-        .await?;
+        .await
+        .context("switch the host back to Apple Music")?;
 
     let task = |record_id: String| LibraryTaskStateChanged {
         state: LibraryTaskState::AnalysisRunning {
