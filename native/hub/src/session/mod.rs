@@ -44,6 +44,8 @@ use scrobbling::{
     manager::{LoginStatus, ScrobblingError, ScrobblingManager, ScrobblingServiceManager},
 };
 use sea_orm::TransactionTrait;
+#[cfg(target_os = "linux")]
+use tokio::sync::watch;
 use tokio::{
     sync::{Mutex, Notify, mpsc, oneshot},
     task::JoinHandle,
@@ -2002,7 +2004,7 @@ fn mpris_metadata(status: Option<&PlaybackStatus>) -> playback::MediaMetadata<'_
 #[cfg(target_os = "linux")]
 async fn run_mpris(
     manager: Arc<Mutex<MediaControlManager>>,
-    mut reports: tokio::sync::watch::Receiver<Option<PlaybackStatus>>,
+    mut reports: watch::Receiver<Option<PlaybackStatus>>,
     cancel: CancellationToken,
 ) {
     use crate::messages::PlaybackState as ReportedState;

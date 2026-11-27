@@ -2348,7 +2348,7 @@ async fn open_subsonic_record(
             return Err((kind, anyhow::anyhow!(detail)));
         }
     };
-    let binding = Arc::new_cyclic(|binding: &std::sync::Weak<SubsonicBinding>| {
+    let binding = Arc::<SubsonicBinding>::new_cyclic(|binding| {
         SubsonicBinding::new(
             client,
             probe,

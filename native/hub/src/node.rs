@@ -30,6 +30,8 @@ use playback::{
     sfx_player::SfxPlayer,
 };
 use rinf::DartSignal;
+#[cfg(target_os = "linux")]
+use tokio::sync::watch;
 use tokio::{
     sync::{Mutex, RwLock, RwLockReadGuard, broadcast},
     task::JoinHandle,
@@ -258,7 +260,7 @@ pub struct NodeContext {
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
     #[cfg(target_os = "linux")]
-    pub(crate) mpris_status: Option<tokio::sync::watch::Sender<Option<PlaybackStatus>>>,
+    pub(crate) mpris_status: Option<watch::Sender<Option<PlaybackStatus>>>,
     /// Ends when another player takes over from the local player, which cancels the UI
     /// requests to the local player that are still running. The ended tenure stays here until
     /// the local player's departure has queued its pause.
@@ -345,7 +347,7 @@ impl Debug for NodeContext {
 struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
     #[cfg(target_os = "linux")]
-    mpris_status: Option<tokio::sync::watch::Sender<Option<PlaybackStatus>>>,
+    mpris_status: Option<watch::Sender<Option<PlaybackStatus>>>,
     local_session_hidden: Arc<AtomicUsize>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
@@ -416,7 +418,7 @@ impl Broadcaster for NodeBroadcaster {
 #[cfg(target_os = "linux")]
 struct ServiceMprisBroadcaster {
     current_player: Weak<StdMutex<CurrentPlayer>>,
-    sender: tokio::sync::watch::Sender<Option<PlaybackStatus>>,
+    sender: watch::Sender<Option<PlaybackStatus>>,
     gui: Arc<dyn Broadcaster>,
     service: Weak<dyn ServicePlayer>,
 }
@@ -573,7 +575,7 @@ impl NodeContext {
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
         let current_player = Arc::new(StdMutex::new(CurrentPlayer::Local));
         #[cfg(target_os = "linux")]
-        let mpris_status = os_media_controls.then(|| tokio::sync::watch::Sender::new(None));
+        let mpris_status = os_media_controls.then(|| watch::Sender::new(None));
         let local_session_hidden = Arc::new(AtomicUsize::new(0));
         let sync_tokens = SyncTokenStore::default();
         let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
