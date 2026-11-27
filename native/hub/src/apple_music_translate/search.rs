@@ -6,13 +6,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use apple_music::models::{Album, Artist, LibraryAlbum, LibraryArtist, LibrarySong, Song};
+use apple_music::models::{Album, Artist, Artwork, LibraryAlbum, LibraryArtist, LibrarySong, Song};
 use database::actions::collection::CollectionQueryType;
 use futures::future::join;
 use tokio::time::{self as tokio_time, error::Elapsed};
 
 use super::{CATALOG_PREFIX, album_artwork, album_name, to_count};
-use crate::apple_music_artists::{NamedArtists, catalog_artist_remote, named_artist_remote};
+use crate::apple_music_artists::{NamedArtist, NamedArtists, named_artist_remote};
 use crate::apple_music_binding::{
     AppleError, AppleIdKind, AppleMusicBinding, AppleSong, catalog_track, is_library_song,
 };
@@ -316,10 +316,12 @@ fn found_albums(
     Ok(listed)
 }
 
-/// The artists found, as numbered: those of the library's artist list that the library artists
-/// found are, then the catalog artists found, `n` of each. A catalog artist the list has is that
-/// entry of the list, which opens the library's page of it; one it does not have is the catalog
-/// artist itself, remembered with its name and picture, which opens the catalog's page of it.
+/// The artists found, as numbered: those the library artists found are, then the catalog
+/// artists found, `n` of each, each listed once. An artist Apple names a catalog artist for is
+/// that catalog artist, whether or not the library's artist list has it: a search finds the
+/// whole of an artist, which the catalog's page of it shows and the library's page does not. It
+/// is remembered with its name and picture. An artist of the list Apple names no catalog artist
+/// for is that entry, which opens the library's page of it.
 fn found_artists(
     binding: &AppleMusicBinding,
     generation: u64,
@@ -328,57 +330,59 @@ fn found_artists(
     catalog: &CatalogFound,
     n: usize,
 ) -> Result<Vec<i32>> {
-    let mut remotes = Vec::new();
-    let mut seen = HashSet::new();
+    // Each artist with the name and picture a catalog artist is remembered by.
+    type Found<'a> = (String, Option<(&'a str, Option<&'a Artwork>)>);
+    fn of_list(listed: &NamedArtist) -> Found<'_> {
+        match listed.catalog_id() {
+            Some(id) => (
+                format!("{CATALOG_PREFIX}{id}"),
+                Some((listed.name.as_str(), listed.artwork.as_ref())),
+            ),
+            None => (listed.remote(), None),
+        }
+    }
+    let mut found: Vec<Found> = Vec::new();
     for artist in library.artists.iter().take(n) {
-        let credited: Vec<String> = named
+        let credited = named
             .iter()
-            .filter(|listed| listed.credits.contains(&artist.id))
-            .map(|listed| listed.remote())
-            .collect();
-        let name = artist
+            .filter(|listed| listed.credits.contains(&artist.id));
+        let before = found.len();
+        found.extend(credited.map(of_list));
+        if found.len() > before {
+            continue;
+        }
+        let by_name = artist
             .attributes
             .as_ref()
-            .and_then(|attributes| attributes.name.as_deref());
-        let by_name = || {
-            name.and_then(named_artist_remote)
-                .and_then(|remote| named.get(&remote))
-                .map(|listed| listed.remote())
-        };
-        if credited.is_empty() {
-            if let Some(remote) = by_name() {
-                push_once(&mut remotes, &mut seen, remote);
-            }
-        } else {
-            for remote in credited {
-                push_once(&mut remotes, &mut seen, remote);
-            }
-        }
+            .and_then(|attributes| attributes.name.as_deref())
+            .and_then(named_artist_remote)
+            .and_then(|remote| named.get(&remote));
+        found.extend(by_name.map(of_list));
     }
     for artist in catalog.artists.iter().take(n) {
-        match named.get(&catalog_artist_remote(&artist.id)) {
-            Some(listed) => push_once(&mut remotes, &mut seen, listed.remote()),
-            None => {
-                let remote = format!("{CATALOG_PREFIX}{}", artist.id);
-                let id = binding.intern(AppleIdKind::Artist, &remote)?;
-                let attributes = artist.attributes.as_ref();
-                binding.remember_collection(
-                    generation,
-                    AppleIdKind::Artist,
-                    id,
-                    attributes
-                        .and_then(|attributes| attributes.name.as_deref())
-                        .unwrap_or_default(),
-                    attributes.and_then(|attributes| attributes.artwork.as_ref()),
-                );
-                push_once(&mut remotes, &mut seen, remote);
-            }
-        }
+        let attributes = artist.attributes.as_ref();
+        let name = attributes
+            .and_then(|attributes| attributes.name.as_deref())
+            .unwrap_or_default();
+        let artwork = attributes.and_then(|attributes| attributes.artwork.as_ref());
+        found.push((
+            format!("{CATALOG_PREFIX}{}", artist.id),
+            Some((name, artwork)),
+        ));
     }
-    remotes
-        .iter()
-        .map(|remote| binding.intern(AppleIdKind::Artist, remote))
-        .collect()
+    let mut listed = Vec::new();
+    let mut seen = HashSet::new();
+    for (remote, remembered) in found {
+        let id = binding.intern(AppleIdKind::Artist, &remote)?;
+        if !seen.insert(id) {
+            continue;
+        }
+        if let Some((name, artwork)) = remembered {
+            binding.remember_collection(generation, AppleIdKind::Artist, id, name, artwork);
+        }
+        listed.push(id);
+    }
+    Ok(listed)
 }
 
 /// Rune's playlists whose names hold `term`, ignoring case: the first `n` in the order they were
@@ -408,7 +412,8 @@ async fn rune_playlist_matches(
 /// library holds a copy of answered as that copy. When one part cannot be searched in time, the
 /// other still answers (see `search_both`). What the catalog found is kept for a while, so a
 /// search for the same text again asks it nothing; with `refresh` it is asked again. The artists
-/// found are those of the library's artist list, then the catalog artists it does not have (see
+/// found are the catalog artists Apple names for those the library holds, then those the catalog
+/// found, and the artists of the library's artist list Apple names none for (see
 /// `found_artists`), or the catalog artists alone when the list cannot be read in time, and the
 /// playlists Rune's own whose names hold the text. Catalog songs are named `catalog:<id>`, and
 /// catalog albums and artists open from the catalog. A search for playlists alone asks Apple

@@ -1078,19 +1078,31 @@ async fn an_artist_page_needs_the_sign_in_like_any_other_read_and_no_mix_keeps_i
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_search_finds_a_catalog_artist_the_list_lacks_and_opens_its_catalog_page() -> Result<()> {
+async fn a_search_finds_catalog_artists_and_opens_their_catalog_pages() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let apple = open_apple(dir.path()).await?;
     let found = searched_artists(&apple).await?;
-    // "Artist One" is on the library's artist list and is answered as that entry; "Dawn Singer"
-    // is not, and is answered as the catalog artist.
+    // "Artist One" is on the library's artist list and "Dawn Singer" is not. Both are answered
+    // as the catalog artists, so the one the library holds a part of opens whole too.
     assert_eq!(
         found
             .iter()
             .map(|id| apple.binding.resolve(AppleIdKind::Artist, *id))
             .collect::<Result<Vec<_>>>()?,
-        ["artist:300", "catalog:301"]
+        ["catalog:300", "catalog:301"]
     );
+
+    // The catalog's views are read for the artist of the list: it opens the catalog's page.
+    let reads = apple.fake.count("/v1/catalog/it/artists/300?views=");
+    let page = apple.run(&artist_page_request(found[0])).await?;
+    assert_eq!(
+        apple.fake.count("/v1/catalog/it/artists/300?views="),
+        reads + 1
+    );
+    assert_eq!(page.artist_id, found[0]);
+    // The entry of the list still opens the library's page, as from the artist list.
+    let own = apple.binding.intern(AppleIdKind::Artist, "artist:300")?;
+    assert_ne!(own, found[0]);
 
     let page = apple.run(&artist_page_request(found[1])).await?;
 
@@ -1101,6 +1113,79 @@ async fn a_search_finds_a_catalog_artist_the_list_lacks_and_opens_its_catalog_pa
     assert_eq!(
         page_keys(&apple, "lib::artist", &found[1].to_string(), 0, 10).await?,
         ["catalog:1601", "catalog:1602"]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_answers_an_artist_only_the_library_found_as_its_catalog_artist() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // The catalog finds nothing, so only the library's search finds "Artist One".
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            respond: Some(("/v1/catalog/it/search", 200, r#"{"results":{}}"#)),
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let found = searched_artists(&apple).await?;
+    // Apple names a catalog artist for it, which is what the search answers.
+    assert_eq!(
+        found
+            .iter()
+            .map(|id| apple.binding.resolve(AppleIdKind::Artist, *id))
+            .collect::<Result<Vec<_>>>()?,
+        ["catalog:300"]
+    );
+    // It is named and opens without the catalog's search having found it.
+    assert_eq!(
+        collection_names(&apple, CollectionType::Artist, &found).await?,
+        ["Artist One"]
+    );
+    let page = apple.run(&artist_page_request(found[0])).await?;
+    assert_eq!(page.artist_id, found[0]);
+    assert_eq!(apple.fake.count("/v1/catalog/it/artists/300?views="), 1);
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_search_answers_an_artist_apple_names_no_catalog_artist_for_as_the_library_s()
+-> Result<()> {
+    let dir = tempfile::tempdir()?;
+    // The library's search finds "Solo Voice", whom only the credit of a song names.
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            solo: true,
+            respond: Some((
+                "/v1/me/library/search",
+                200,
+                r#"{"results":{"library-artists":{"data":[
+                    {"id":"r.solo","type":"library-artists","attributes":{"name":"Solo Voice"}}
+                ]}}}"#,
+            )),
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let listed = listed_artists(&apple, &["S"]).await?;
+    let solo = listed
+        .iter()
+        .find(|(name, _)| name == "Solo Voice")
+        .map(|(_, id)| *id)
+        .context("Solo Voice is listed")?;
+
+    let found = searched_artists(&apple).await?;
+    // It is the entry of the artist list, which opens the library's page; the catalog's
+    // artists follow.
+    assert_eq!(found.first(), Some(&solo));
+    assert_eq!(
+        found[1..]
+            .iter()
+            .map(|id| apple.binding.resolve(AppleIdKind::Artist, *id))
+            .collect::<Result<Vec<_>>>()?,
+        ["catalog:300", "catalog:301"]
     );
     apple.finish().await
 }
