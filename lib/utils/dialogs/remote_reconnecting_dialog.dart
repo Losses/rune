@@ -35,6 +35,13 @@ class _RemoteReconnectingDialogState extends State<_RemoteReconnectingDialog> {
   void initState() {
     super.initState();
     widget.reconnecting.addListener(_changed);
+    // The library can be back before this dialog's first frame, and nothing
+    // is heard of it after that. The route leaves once it is built.
+    if (widget.reconnecting.value == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.reconnecting.value == null) _changed();
+      });
+    }
   }
 
   @override

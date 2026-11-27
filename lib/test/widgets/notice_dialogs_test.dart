@@ -301,6 +301,12 @@ void main() {
     await _frames(tester);
     expect(find.byType(ContentDialog), findsNothing);
 
+    // A library that is back before the dialog's first frame closes it too.
+    disconnect();
+    reconnect();
+    await _frames(tester);
+    expect(find.byType(ContentDialog), findsNothing);
+
     // It also leaves from under a dialog opened over it.
     disconnect();
     await _frames(tester);
