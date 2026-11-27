@@ -1951,7 +1951,7 @@ impl Signal for CancelHandoffRequest {
     ) -> Result<Option<Self::Response>> {
         let ticket = Uuid::parse_str(&request.ticket)
             .map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
-        node.handoff_tickets.cancel(ticket).await;
+        node.handoff_tickets.cancel(ticket).await?;
         Ok(Some(CancelHandoffResponse { call_id: None }))
     }
 }
@@ -1974,15 +1974,14 @@ impl Signal for HandoffRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let run = request
-            .ticket
-            .as_deref()
-            .map(|ticket| {
+        let run = match request.ticket.as_deref() {
+            Some(ticket) => {
                 let ticket =
                     Uuid::parse_str(ticket).map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
-                node.handoff_tickets.start(ticket)
-            })
-            .transpose()?;
+                Some(node.handoff_tickets.start(ticket).await?)
+            }
+            None => None,
+        };
         let generation = node.begin_handoff().await;
         run.as_ref().map_or(Ok(()), HandoffRun::check_cancelled)?;
         let attached = node.renderer_link()?;
@@ -2358,7 +2357,7 @@ async fn hand_off_to_renderer(
         call_id: None,
     };
     let response = match settle_handoff_load(run, connected_link.call(&handoff), async |error| {
-        roll_back_handoff_block(node, &connected_link, block, error).await
+        roll_back_handoff_block(node, &connected_link, block, error, run).await
     })
     .await
     {
@@ -2397,7 +2396,7 @@ async fn hand_off_to_renderer(
         None => confirm.await,
     };
     if let Err(error) = confirmed {
-        return Err(roll_back_handoff_block(node, &link, block, error).await);
+        return Err(roll_back_handoff_block(node, &link, block, error, run).await);
     }
     Ok(())
 }
@@ -2420,6 +2419,7 @@ async fn roll_back_handoff_block(
     link: &RendererLink,
     block: PlayerHandoffBlockId,
     error: Error,
+    run: Option<&HandoffRun<'_>>,
 ) -> Error {
     match link
         .call(&TakeBackHandoffBlockRequest {
@@ -2437,6 +2437,9 @@ async fn roll_back_handoff_block(
             if NodeContext::handoff_block_confirmed_absent(&rollback_error) {
                 node.forget_handoff_block(link.fingerprint(), block).await;
             } else {
+                if let Some(run) = run {
+                    run.mark_rollback_unsettled();
+                }
                 node.note_pending_handoff_rollback(link.fingerprint(), block)
                     .await;
             }
@@ -2566,7 +2569,7 @@ mod handoff_confirmation_tests {
         let (release, reply) = oneshot::channel();
         let target_applied = AtomicBool::new(false);
         let handoff = async {
-            let run = owner.start(ticket).unwrap();
+            let run = owner.start(ticket).await.unwrap();
             let result = settle_handoff_load(
                 Some(&run),
                 async {
@@ -2593,11 +2596,11 @@ mod handoff_confirmation_tests {
             assert!(futures::poll!(&mut cancel).is_pending());
             assert!(!target_applied.load(Ordering::Relaxed));
             release.send(()).unwrap();
-            cancel.await;
+            cancel.await.unwrap();
             assert!(!target_applied.load(Ordering::Relaxed));
         };
         tokio::join!(handoff, close);
-        assert!(owner.start(owner.prepare()).unwrap().commit().is_ok());
+        assert!(owner.start(owner.prepare()).await.unwrap().commit().is_ok());
     }
 
     #[tokio::test]

@@ -1,4 +1,5 @@
-use std::sync::{Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -21,14 +22,33 @@ struct Tickets {
 struct RunningHandoff {
     ticket: Uuid,
     cancel: CancellationToken,
-    done: CancellationToken,
+    completion: Arc<HandoffCompletion>,
     committed: bool,
+}
+
+#[derive(Default)]
+struct HandoffCompletion {
+    done: CancellationToken,
+    unsettled: AtomicBool,
+}
+
+impl HandoffCompletion {
+    async fn wait(&self) -> Result<(), ExpectedRequestError> {
+        self.done.cancelled().await;
+        if self.unsettled.load(Ordering::Acquire) {
+            return Err(ExpectedRequestError::Unavailable {
+                what: "the target renderer's unresolved handoff rollback",
+            });
+        }
+        Ok(())
+    }
 }
 
 pub(crate) struct HandoffRun<'a> {
     owner: &'a HandoffTickets,
     ticket: Uuid,
     cancel: CancellationToken,
+    completion: Arc<HandoffCompletion>,
 }
 
 impl HandoffTickets {
@@ -39,47 +59,70 @@ impl HandoffTickets {
         ticket
     }
 
-    pub(crate) fn start(&self, ticket: Uuid) -> Result<HandoffRun<'_>, ExpectedRequestError> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.next != Some(ticket) || state.running.is_some() {
-            return Err(ExpectedRequestError::HandoffSuperseded);
+    pub(crate) async fn start(&self, ticket: Uuid) -> Result<HandoffRun<'_>, ExpectedRequestError> {
+        loop {
+            let previous = {
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if state.next != Some(ticket) {
+                    return Err(ExpectedRequestError::HandoffSuperseded);
+                }
+                if let Some(running) = &state.running {
+                    running.completion.clone()
+                } else {
+                    let cancel = CancellationToken::new();
+                    let completion = Arc::new(HandoffCompletion::default());
+                    state.next = None;
+                    state.running = Some(RunningHandoff {
+                        ticket,
+                        cancel: cancel.clone(),
+                        completion: completion.clone(),
+                        committed: false,
+                    });
+                    return Ok(HandoffRun {
+                        owner: self,
+                        ticket,
+                        cancel,
+                        completion,
+                    });
+                }
+            };
+            // Close is immediate. A replacement must wait for the old operation to finish
+            // restoring playback, then check that its own ticket is still reserved.
+            if let Err(error) = previous.wait().await {
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if state.next == Some(ticket) {
+                    state.next = None;
+                }
+                return Err(error);
+            }
         }
-        let cancel = CancellationToken::new();
-        state.next = None;
-        state.running = Some(RunningHandoff {
-            ticket,
-            cancel: cancel.clone(),
-            done: CancellationToken::new(),
-            committed: false,
-        });
-        Ok(HandoffRun {
-            owner: self,
-            ticket,
-            cancel,
-        })
     }
 
     /// A cancellation of a running handoff settles only after its cleanup has finished.
-    pub(crate) async fn cancel(&self, ticket: Uuid) {
-        let done = {
+    pub(crate) async fn cancel(&self, ticket: Uuid) -> Result<(), ExpectedRequestError> {
+        let completion = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if state.next == Some(ticket) {
                 state.next = None;
-                return;
+                return Ok(());
             }
             let Some(running) = state.running.as_ref().filter(|run| run.ticket == ticket) else {
-                return;
+                return Ok(());
             };
             if !running.committed {
                 running.cancel.cancel();
             }
-            running.done.clone()
+            running.completion.clone()
         };
-        done.cancelled().await;
+        completion.wait().await
     }
 }
 
 impl HandoffRun<'_> {
+    pub(crate) fn mark_rollback_unsettled(&self) {
+        self.completion.unsettled.store(true, Ordering::Release);
+    }
+
     pub(crate) fn check_cancelled(&self) -> Result<(), ExpectedRequestError> {
         if self.cancel.is_cancelled() {
             return Err(ExpectedRequestError::HandoffSuperseded);
@@ -131,7 +174,7 @@ impl Drop for HandoffRun<'_> {
             .is_some_and(|run| run.ticket == self.ticket)
             && let Some(running) = state.running.take()
         {
-            running.done.cancel();
+            running.completion.done.cancel();
         }
     }
 }
@@ -144,21 +187,66 @@ mod tests {
     async fn cancelling_a_prepared_ticket_does_not_cancel_a_later_handoff() {
         let owner = HandoffTickets::default();
         let first = owner.prepare();
-        owner.cancel(first).await;
-        owner.cancel(first).await;
-        assert!(owner.start(first).is_err());
+        owner.cancel(first).await.unwrap();
+        owner.cancel(first).await.unwrap();
+        assert!(owner.start(first).await.is_err());
 
         let next = owner.prepare();
-        let run = owner.start(next).unwrap();
-        owner.cancel(first).await;
+        let run = owner.start(next).await.unwrap();
+        owner.cancel(first).await.unwrap();
         assert!(run.commit().is_ok());
+    }
+
+    #[tokio::test]
+    async fn retry_waits_for_the_cancelled_handoff_to_finish() {
+        let owner = HandoffTickets::default();
+        let ticket = owner.prepare();
+        let run = owner.start(ticket).await.unwrap();
+        let cancel = owner.cancel(ticket);
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+
+        let next = owner.prepare();
+        let retry = owner.start(next);
+        tokio::pin!(retry);
+        assert!(futures::poll!(&mut retry).is_pending());
+        drop(run);
+        cancel.await.unwrap();
+        assert!(retry.await.unwrap().commit().is_ok());
+    }
+
+    #[tokio::test]
+    async fn an_unsettled_rollback_fails_cancellation_and_a_waiting_retry() {
+        let owner = HandoffTickets::default();
+        let ticket = owner.prepare();
+        let run = owner.start(ticket).await.unwrap();
+        let cancel = owner.cancel(ticket);
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+
+        let next = owner.prepare();
+        let retry = owner.start(next);
+        tokio::pin!(retry);
+        assert!(futures::poll!(&mut retry).is_pending());
+        run.mark_rollback_unsettled();
+        drop(run);
+
+        assert!(matches!(
+            cancel.await,
+            Err(ExpectedRequestError::Unavailable { .. })
+        ));
+        assert!(matches!(
+            retry.await,
+            Err(ExpectedRequestError::Unavailable { .. })
+        ));
+        assert!(owner.start(next).await.is_err());
     }
 
     #[tokio::test]
     async fn closing_during_playback_confirmation_prevents_commit() {
         let owner = HandoffTickets::default();
         let ticket = owner.prepare();
-        let run = owner.start(ticket).unwrap();
+        let run = owner.start(ticket).await.unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
@@ -168,20 +256,20 @@ mod tests {
             Some(ExpectedRequestError::HandoffSuperseded)
         ));
         drop(run);
-        cancel.await;
+        cancel.await.unwrap();
     }
 
     #[tokio::test]
     async fn late_cancellation_waits_for_a_committed_handoff_without_undoing_it() {
         let owner = HandoffTickets::default();
         let ticket = owner.prepare();
-        let run = owner.start(ticket).unwrap();
+        let run = owner.start(ticket).await.unwrap();
         run.commit().unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
         assert!(run.check_cancelled().is_ok());
         drop(run);
-        cancel.await;
+        cancel.await.unwrap();
     }
 }
