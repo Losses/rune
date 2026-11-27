@@ -29,6 +29,109 @@ import '../../widgets/router/rune_router_frame_implementation.dart';
 final _s = AppLocalizationsEn();
 
 void main() {
+  testWidgets(
+    'only the current replica shows one retry notice until recovery',
+    (tester) async {
+      await _pumpApp(
+        tester,
+        record: const LibraryRecordSummary(
+          recordId: 'replica-record',
+          alias: 'Shared Music',
+          kind: LibraryRecordKindSummaryReplica(
+            libraryId: 'catalog',
+            ownerFingerprint: 'owner',
+          ),
+          shareSync: false,
+          syncAccess: LibraryAccessSummary.read,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> report(String owner, bool retrying) async {
+        _receive(
+          'PeerMetadataSyncStatusUpdated',
+          PeerMetadataSyncStatusUpdated(
+            libraryId: 'catalog',
+            ownerFingerprint: owner,
+            retrying: retrying,
+          ).bincodeSerialize(),
+        );
+        await _frames(tester);
+      }
+
+      final warning = find.text(_s.peerMetadataSyncRetrying);
+      await report('other owner', true);
+      expect(warning, findsNothing);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await report('owner', false);
+      expect(warning, findsNothing);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await _close(tester);
+      await report('owner', true);
+      expect(warning, findsNothing);
+    },
+  );
+
+  testWidgets('a queued retry notice follows the open replica', (tester) async {
+    LibraryRecordSummary replica(String id) => LibraryRecordSummary(
+      recordId: id,
+      alias: id,
+      kind: LibraryRecordKindSummaryReplica(
+        libraryId: id,
+        ownerFingerprint: 'owner',
+      ),
+      shareSync: false,
+      syncAccess: LibraryAccessSummary.read,
+    );
+
+    var open = 'first replica';
+    await _pumpApp(
+      tester,
+      loadRecords: () async => ListLibraryRecordsResponse(
+        records: [replica('first replica'), replica('second replica')],
+        invalidRecords: const [],
+        open: OpenRecord(
+          recordId: open,
+          generation: Uint64.fromBigInt(BigInt.one),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _receive(
+      'RequestFailedResponse',
+      const RequestFailedResponse(
+        request: 'SetVisualizerLogRequest',
+        kind: RequestErrorKind.unavailable,
+        detail: 'not running',
+      ).bincodeSerialize(),
+    );
+    await _showNotice(tester);
+    expect(find.text(_s.requestUnavailable), findsOneWidget);
+
+    for (final id in ['first replica', 'second replica']) {
+      _receive(
+        'PeerMetadataSyncStatusUpdated',
+        PeerMetadataSyncStatusUpdated(
+          libraryId: id,
+          ownerFingerprint: 'owner',
+          retrying: true,
+        ).bincodeSerialize(),
+      );
+    }
+    await _frames(tester);
+    open = 'second replica';
+    final context = tester.element(find.byType(RuneLifecycle));
+    await context.read<LibraryRegistryProvider>().refresh();
+    await tester.tap(find.text(_s.close));
+    await _frames(tester);
+    expect(find.text(_s.peerMetadataSyncRetrying), findsOneWidget);
+    await _close(tester);
+  });
+
   for (final (kind, message) in [
     (RequestErrorKind.notFound, _s.requestItemMissing),
     (RequestErrorKind.invalidInput, _s.requestInvalid),
@@ -370,7 +473,11 @@ void main() {
 
 /// Pumps [RuneLifecycle] above the root navigator, as the app does, with the
 /// providers it reads.
-Future<void> _pumpApp(WidgetTester tester) async {
+Future<void> _pumpApp(
+  WidgetTester tester, {
+  LibraryRecordSummary? record,
+  Future<ListLibraryRecordsResponse> Function()? loadRecords,
+}) async {
   // main() sets these before the app starts: cafe mode from the settings, and
   // whether the last library is reopened.
   cafeMode = false;
@@ -380,10 +487,18 @@ Future<void> _pumpApp(WidgetTester tester) async {
       providers: [
         ChangeNotifierProvider(
           create: (_) => LibraryRegistryProvider(
-            loadRecords: () async => const ListLibraryRecordsResponse(
-              records: [],
-              invalidRecords: [],
-            ),
+            loadRecords:
+                loadRecords ??
+                () async => ListLibraryRecordsResponse(
+                  records: [if (record != null) record],
+                  invalidRecords: const [],
+                  open: record == null
+                      ? null
+                      : OpenRecord(
+                          recordId: record.recordId,
+                          generation: Uint64.fromBigInt(BigInt.one),
+                        ),
+                ),
           ),
         ),
         Provider(

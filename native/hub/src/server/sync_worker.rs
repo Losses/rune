@@ -8,7 +8,7 @@ use super::sync::downloads::{
 use super::sync::{library_base, library_notification};
 use super::sync_auth::{Authorization, Challenge, TOKEN_TTL, Token, message};
 use crate::access_policy::{Action, ConnectionLevel, SyncLevel};
-use crate::messages::{LibrarySyncStatusUpdated, ShareSyncFailure};
+use crate::messages::{LibrarySyncStatusUpdated, PeerMetadataSyncStatusUpdated, ShareSyncFailure};
 use crate::request_error::ExpectedRequestError;
 use crate::service::playback_source_without_binding;
 #[cfg(test)]
@@ -20,6 +20,7 @@ use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use database::actions::file::{ManagedAudioVerifier, file_ids_by_uuid, materialized_path};
 use database::actions::library::clean_local_orphans;
+use database::actions::logging::{LogLevel, insert_log};
 use database::credentials::CredentialStore;
 use database::library_registry::{
     CatalogPlacement, FsAdapter, LibraryAccess, LibraryConnectionAccess, LibraryRecord,
@@ -1053,6 +1054,16 @@ where
     tokio::join!(metadata, audio);
 }
 
+fn publish_peer_metadata_status(global: &NodeContext, key: &PeerLibraryKey, retrying: bool) {
+    global
+        .gui_broadcaster
+        .broadcast(&PeerMetadataSyncStatusUpdated {
+            library_id: key.1.to_string(),
+            owner_fingerprint: key.0.clone(),
+            retrying,
+        });
+}
+
 async fn run_loop(
     global: Weak<NodeContext>,
     notify: Arc<dyn Fn() + Send + Sync>,
@@ -1065,13 +1076,23 @@ async fn run_loop(
         PeerLibraryKey,
         Arc<Mutex<DownloadProgress>>,
     >::new()));
+    let retrying = Arc::new(StdMutex::new(HashSet::<PeerLibraryKey>::new()));
     let discover = || async {
         let Some(global) = global.upgrade() else {
             return Some(Vec::new());
         };
         let ids = device_sync_libraries(&global).await?;
         let peers = peer_endpoints(&global, &credentials.fingerprint).await;
-        if !metadata {
+        if metadata {
+            let owners: HashSet<_> = peers.iter().map(|hosts| &hosts[0].fingerprint).collect();
+            retrying.lock().unwrap().retain(|key| {
+                let eligible = owners.contains(&key.0) && ids.contains(&key.1);
+                if !eligible {
+                    publish_peer_metadata_status(&global, key, false);
+                }
+                eligible
+            });
+        } else {
             let fingerprints: HashSet<_> =
                 peers.iter().map(|hosts| &hosts[0].fingerprint).collect();
             downloads.lock().await.retain(|(fingerprint, id), _| {
@@ -1091,6 +1112,7 @@ async fn run_loop(
         let cancel = cancel.clone();
         let locks = locks.clone();
         let downloads = downloads.clone();
+        let retrying = retrying.clone();
         async move {
             let key = (hosts[0].fingerprint.clone(), id);
             let Some(global) = global.upgrade() else {
@@ -1124,7 +1146,17 @@ async fn run_loop(
                     .clone()
             };
             let mut download_progress = progress.lock().await;
+            let replica_metadata = metadata
+                && matches!(
+                    &library.descriptor.protocol,
+                    ProtocolAdapter::RuneForward {
+                        owner_fingerprint,
+                        mode: RuneForwardMode::Replica { .. },
+                    } if owner_fingerprint == &key.0
+                );
+            let mut failed = false;
             for endpoint in hosts {
+                let mut revoked = false;
                 let result = tokio::select! {
                     _ = cancel.cancelled() => return (key, Duration::from_secs(30), false),
                     _ = library_cancel.cancelled() => {
@@ -1134,7 +1166,10 @@ async fn run_loop(
                         }
                         return (key, Duration::from_secs(30), false);
                     },
-                    _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => Err(anyhow::anyhow!("peer permission revoked")),
+                    _ = wait_for_revocation(Arc::downgrade(&global), &endpoint.fingerprint, &endpoint.trusted_host) => {
+                        revoked = true;
+                        Err(anyhow::anyhow!("peer permission revoked"))
+                    },
                     result = async {
                         let options = PassOptions {
                             credentials: &credentials,
@@ -1156,16 +1191,47 @@ async fn run_loop(
                         if !metadata && complete == PeerPass::Complete {
                             downloads.lock().await.remove(&key);
                         }
+                        if replica_metadata && complete == PeerPass::Complete {
+                            let mut retrying = retrying.lock().unwrap();
+                            if retrying.remove(&key) {
+                                publish_peer_metadata_status(&global, &key, false);
+                            }
+                        }
                         return (key, complete.retry_delay(), false);
                     }
-                    Err(error) => log::warn!(
-                        "Background {} with paired device failed: {error:#}",
-                        if metadata {
-                            "metadata synchronization"
-                        } else {
-                            "audio download"
-                        }
-                    ),
+                    Err(error) => {
+                        failed |= !revoked;
+                        log::warn!(
+                            "Background {} with paired device failed: {error:#}",
+                            if metadata {
+                                "metadata synchronization"
+                            } else {
+                                "audio download"
+                            }
+                        );
+                    }
+                }
+            }
+            if replica_metadata && failed {
+                let first_failure = {
+                    let mut retrying = retrying.lock().unwrap();
+                    let inserted = retrying.insert(key.clone());
+                    if inserted {
+                        publish_peer_metadata_status(&global, &key, true);
+                    }
+                    inserted
+                };
+                if first_failure
+                    && let Err(error) = insert_log(
+                        &*library.main_db,
+                        LogLevel::Warning,
+                        "Peer library synchronization".to_owned(),
+                        "Metadata synchronization with the paired device failed. Rune will retry."
+                            .to_owned(),
+                    )
+                    .await
+                {
+                    log::warn!("Could not log the paired library metadata retry: {error:#}");
                 }
             }
             (key, Duration::from_secs(30), true)
@@ -1196,6 +1262,11 @@ async fn run_loop(
         },
     )
     .await;
+    if let Some(global) = global.upgrade() {
+        for key in retrying.lock().unwrap().drain() {
+            publish_peer_metadata_status(&global, &key, false);
+        }
+    }
 }
 
 type PeerWorkResult<Q> = (Q, Duration, bool);

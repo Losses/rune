@@ -663,6 +663,10 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
   late final LibraryShareSyncNotice _shareSyncNotice;
+  final _retryingPeerMetadata = <(String, String)>{};
+  final _peerMetadataRetry = ValueNotifier<String?>(null);
+  late final StreamSubscription<RustSignalPack<PeerMetadataSyncStatusUpdated>>
+  _peerMetadataSyncSubscription;
   late final RemoteLibraryReconnectNotice _remoteReconnect;
   late final HostedPlayerBridge _hostedPlayer;
   LibraryOpenStateProvider? _libraryState;
@@ -795,6 +799,16 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         );
       },
     );
+    _peerMetadataSyncSubscription = PeerMetadataSyncStatusUpdated
+        .rustSignalStream
+        .listen((signal) {
+          final status = signal.message;
+          final key = (status.libraryId, status.ownerFingerprint);
+          final changed = status.retrying
+              ? _retryingPeerMetadata.add(key)
+              : _retryingPeerMetadata.remove(key);
+          if (changed && mounted) _updatePeerMetadataRetry();
+        });
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
@@ -928,6 +942,8 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
     _shareSyncNotice.dispose();
+    _peerMetadataSyncSubscription.cancel();
+    _peerMetadataRetry.dispose();
     _hostedPlayer.dispose();
     _requestFailureSubscription?.cancel();
     for (final subscription in _hostSubscriptions) {
@@ -948,6 +964,29 @@ class RuneLifecycleState extends State<RuneLifecycle> {
       _noticeOpenRecordId = recordId;
       _remoteReconnect.clear();
     }
+    _updatePeerMetadataRetry();
+  }
+
+  void _updatePeerMetadataRetry() {
+    final record = context.read<LibraryRegistryProvider>().openRecord;
+    final replica = record?.kind;
+    final retrying =
+        replica is LibraryRecordKindSummaryReplica &&
+        _retryingPeerMetadata.contains((
+          replica.libraryId,
+          replica.ownerFingerprint,
+        ));
+    final recordId = retrying ? record!.recordId : null;
+    if (_peerMetadataRetry.value == recordId) return;
+    _peerMetadataRetry.value = recordId;
+    if (recordId == null) return;
+
+    final message = S.of(context).peerMetadataSyncRetrying;
+    _notices?.add(message, (dialogContext) async {
+      if (mounted && _peerMetadataRetry.value != null) {
+        await showPeerMetadataRetryDialog(dialogContext, _peerMetadataRetry);
+      }
+    });
   }
 
   void _reconnectChanged() {

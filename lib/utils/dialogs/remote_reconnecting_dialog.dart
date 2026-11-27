@@ -10,50 +10,70 @@ import '../router/navigation.dart';
 Future<void> showRemoteReconnectingDialog(
   BuildContext context,
   ValueListenable<String?> reconnecting,
+) => _showRetryDialog(
+  context,
+  reconnecting,
+  (context, alias) => S.of(context).remoteLibraryReconnecting(alias),
+);
+
+/// Shows a dismissible retry notice for the open replica until it recovers.
+Future<void> showPeerMetadataRetryDialog(
+  BuildContext context,
+  ValueListenable<String?> retrying,
+) => _showRetryDialog(
+  context,
+  retrying,
+  (context, _) => S.of(context).peerMetadataSyncRetrying,
+);
+
+Future<void> _showRetryDialog(
+  BuildContext context,
+  ValueListenable<String?> retrying,
+  String Function(BuildContext, String) message,
 ) => $showModal<void>(
   context,
-  (context, $close) => _RemoteReconnectingDialog(reconnecting, $close),
+  (context, $close) => _RetryDialog(retrying, message, $close),
   barrierDismissible: true,
   dismissWithEsc: true,
 );
 
-class _RemoteReconnectingDialog extends StatefulWidget {
-  final ValueListenable<String?> reconnecting;
+class _RetryDialog extends StatefulWidget {
+  final ValueListenable<String?> retrying;
+  final String Function(BuildContext, String) message;
   final void Function(void result) close;
 
-  const _RemoteReconnectingDialog(this.reconnecting, this.close);
+  const _RetryDialog(this.retrying, this.message, this.close);
 
   @override
-  State<_RemoteReconnectingDialog> createState() =>
-      _RemoteReconnectingDialogState();
+  State<_RetryDialog> createState() => _RetryDialogState();
 }
 
-class _RemoteReconnectingDialogState extends State<_RemoteReconnectingDialog> {
-  late String _alias = widget.reconnecting.value ?? '';
+class _RetryDialogState extends State<_RetryDialog> {
+  late String _item = widget.retrying.value ?? '';
 
   @override
   void initState() {
     super.initState();
-    widget.reconnecting.addListener(_changed);
+    widget.retrying.addListener(_changed);
     // The library can be back before this dialog's first frame, and nothing
     // is heard of it after that. The route leaves once it is built.
-    if (widget.reconnecting.value == null) {
+    if (widget.retrying.value == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.reconnecting.value == null) _changed();
+        if (mounted && widget.retrying.value == null) _changed();
       });
     }
   }
 
   @override
   void dispose() {
-    widget.reconnecting.removeListener(_changed);
+    widget.retrying.removeListener(_changed);
     super.dispose();
   }
 
   void _changed() {
-    final alias = widget.reconnecting.value;
-    if (alias != null) {
-      setState(() => _alias = alias);
+    final item = widget.retrying.value;
+    if (item != null) {
+      setState(() => _item = item);
       return;
     }
     final route = ModalRoute.of(context);
@@ -75,7 +95,7 @@ class _RemoteReconnectingDialogState extends State<_RemoteReconnectingDialog> {
           const SizedBox(width: 16),
           Expanded(
             child: Text(
-              S.of(context).remoteLibraryReconnecting(_alias),
+              widget.message(context, _item),
               style: const TextStyle(height: 1.4),
             ),
           ),

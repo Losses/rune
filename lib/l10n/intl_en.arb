@@ -1676,6 +1676,7 @@
   },
   "requestPublicKeyMismatch": "The device key does not match its fingerprint.",
   "requestRegistrationConflict": "A device with this fingerprint is already registered.",
+  "peerMetadataSyncRetrying": "Library sync interrupted. Retrying…",
   "remoteLibraryReconnecting": "Reconnecting to {alias}…",
   "@remoteLibraryReconnecting": {
     "placeholders": {
