@@ -200,8 +200,9 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
         });
       }
     } finally {
-      if (mounted && !_closing && _working != null)
+      if (mounted && !_closing && _working != null) {
         setState(() => _working = null);
+      }
     }
   }
 
@@ -320,7 +321,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
               onPressed: () => setState(_load),
               child: Text(strings.playOnRetry),
             ),
-          Button(child: Text(strings.close), onPressed: _close),
+          Button(onPressed: _close, child: Text(strings.close)),
         ],
       ),
     );
