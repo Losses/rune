@@ -29,32 +29,35 @@ include ":app"
 // `runeAppleMusicSdkDir` (or the environment variable `ORG_GRADLE_PROJECT_runeAppleMusicSdkDir`)
 // names, and else in `apple_music/libs`, where the repository keeps them through Git LFS. A
 // checkout without LFS content has pointer files there instead of archives, and builds the app
-// without Apple Music. A folder that is named explicitly and lacks the AARs fails the build.
+// without Apple Music. So does a build that gives the property an empty value. A folder that is
+// named explicitly and lacks the AARs fails the build.
 //
 // This is the one place that decides. The module takes the archives from `gradle.ext`, and the
 // app asks whether the module is included.
 def appleMusicArchiveNames = ["MediaPlayback-release-1.1.4.aar", "MusicKitAuth-release-1.1.5.aar"]
 def appleMusicArchives = null
 
+// A real archive is a zip file, which starts with "PK". A Git LFS pointer is text.
+def isArchive = { File file ->
+    file.isFile() && file.withInputStream { input ->
+        def head = new byte[4]
+        input.read(head) == 4 && head[0] == 0x50 && head[1] == 0x4b && head[2] == 3 && head[3] == 4
+    }
+}
+
 def givenSdkDir = providers.gradleProperty("runeAppleMusicSdkDir").getOrNull()
-if (givenSdkDir != null) {
+if (givenSdkDir != null && givenSdkDir.isEmpty()) {
+    logger.lifecycle("Building without Apple Music: runeAppleMusicSdkDir is empty")
+} else if (givenSdkDir != null) {
     appleMusicArchives = appleMusicArchiveNames.collect {
         def archive = new File(new File(givenSdkDir), it)
-        if (!archive.isFile()) {
+        if (!isArchive(archive)) {
             throw new GradleException("runeAppleMusicSdkDir has no $it")
         }
         archive
     }
 } else {
-    def libs = new File(settingsDir, "apple_music/libs")
-    def found = appleMusicArchiveNames.collect { new File(libs, it) }
-    // A real archive is a zip file, which starts with "PK". A Git LFS pointer is text.
-    def isArchive = { File file ->
-        file.isFile() && file.withInputStream { input ->
-            def head = new byte[4]
-            input.read(head) == 4 && head[0] == 0x50 && head[1] == 0x4b && head[2] == 3 && head[3] == 4
-        }
-    }
+    def found = appleMusicArchiveNames.collect { new File(new File(settingsDir, "apple_music/libs"), it) }
     if (found.every(isArchive)) {
         appleMusicArchives = found
     } else {
