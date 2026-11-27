@@ -1982,7 +1982,7 @@ impl Signal for HandoffRequest {
             }
             None => None,
         };
-        let result = request.handoff(node, run.as_ref()).await;
+        let result = request.handoff(&node, run.as_ref()).await;
         if let Some(run) = run {
             run.finish();
         }
@@ -1993,7 +1993,7 @@ impl Signal for HandoffRequest {
 impl HandoffRequest {
     async fn handoff(
         &self,
-        node: Arc<NodeContext>,
+        node: &Arc<NodeContext>,
         run: Option<&HandoffRun<'_>>,
     ) -> Result<Option<HandoffResponse>> {
         let generation = node.begin_handoff().await;
@@ -2009,14 +2009,14 @@ impl HandoffRequest {
             run.map_or(Ok(()), HandoffRun::commit)?;
             return Ok(Some(HandoffResponse { call_id: None }));
         }
-        let paused = pause_handoff_source(&node, attached.clone(), generation).await?;
+        let paused = pause_handoff_source(node, attached.clone(), generation).await?;
         if target.is_none()
             && let Some(run) = run
         {
             // Returning to this device starts by taking back the previous block. Once that
             // begins, finish the existing return path to settle the queues on both sides.
             if let Err(error) = run.commit() {
-                resume_handoff_source(&node, paused).await?;
+                resume_handoff_source(node, paused).await?;
                 return Err(error.into());
             }
         }
@@ -2044,7 +2044,7 @@ impl HandoffRequest {
                     let restore_snapshot = copy_session_snapshot(&snapshot);
                     snapshot.playing = paused.was_playing;
                     let load = handoff_load(snapshot, PlaylistOperateMode::Replace);
-                    if let Err(error) = apply_cast_load(&node, &load, None).await {
+                    if let Err(error) = apply_cast_load(node, &load, None).await {
                         let restore = handoff_load(restore_snapshot, PlaylistOperateMode::PlayNext);
                         source
                             .call(&HandoffLoadRequest {
@@ -2055,7 +2055,7 @@ impl HandoffRequest {
                             .await?;
                         node.remember_handoff_block(source.fingerprint().to_owned(), block)
                             .await;
-                        resume_handoff_source(&node, paused).await?;
+                        resume_handoff_source(node, paused).await?;
                         return Err(error);
                     }
                     if resume_renderer {
@@ -2099,7 +2099,7 @@ impl HandoffRequest {
                         node.note_pending_handoff_rollback(source.fingerprint(), block)
                             .await;
                     }
-                    resume_handoff_source(&node, paused).await?;
+                    resume_handoff_source(node, paused).await?;
                     return Err(error);
                 }
             }
@@ -2122,10 +2122,9 @@ impl HandoffRequest {
                 Some(target) => {
                     let block = PlayerHandoffBlockId(Uuid::new_v4());
                     expected_item.context("handoff current item")?;
-                    hand_off_to_renderer(&node, target, block, load, expected_position, run)
-                        .await?;
+                    hand_off_to_renderer(node, target, block, load, expected_position, run).await?;
                 }
-                None => hand_off_to_this_device(&node, attached.clone(), &load).await?,
+                None => hand_off_to_this_device(node, attached.clone(), &load).await?,
             }
             Ok::<(), anyhow::Error>(())
         }
@@ -2143,7 +2142,7 @@ impl HandoffRequest {
                     node.attach_renderer(source.fingerprint()).await?;
                 }
             }
-            resume_handoff_source(&node, paused).await?;
+            resume_handoff_source(node, paused).await?;
             return Err(error);
         }
         Ok(Some(HandoffResponse { call_id: None }))
