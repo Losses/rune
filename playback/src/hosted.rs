@@ -21,6 +21,11 @@
 //! for the host, as a library that cannot be reached: the track the host plays fails, and its
 //! other tracks fail without being sent to it, until a later `hostReady` says that it can play.
 //!
+//! A host with a volume of its own, which `setGain` sets, says `ownVolume: true` there, and the
+//! app's volume control stays the player's volume while the host plays. Without it, `setGain`
+//! may do nothing, and that control moves the system volume instead. The player itself does not
+//! read it.
+//!
 //! ## Batches and the queue
 //!
 //! The player sends [`HostCommand`]s: batches of [`HostAction`]s under one revision, each higher
@@ -141,6 +146,12 @@ pub fn is_hosted_path(path: &Path) -> bool {
     path.as_os_str()
         .as_encoded_bytes()
         .starts_with(HOSTED_SCHEME.as_bytes())
+}
+
+/// The host family of the hosted track that `path` names; none for any other path.
+pub fn host_of_path(path: &Path) -> Option<&str> {
+    let rest = path.to_str()?.strip_prefix(HOSTED_SCHEME)?;
+    rest.split('/').next()
 }
 
 /// A batch of actions for one host, to be applied in order under one revision. Each batch has a
@@ -503,6 +514,17 @@ mod tests {
         assert!(is_hosted_path(&track.path()));
         assert!(!is_hosted_path(Path::new("/music/hosted.flac")));
         assert!(!is_hosted_path(Path::new("")));
+    }
+
+    #[test]
+    fn a_hosted_path_names_its_host() {
+        let track = HostedTrack {
+            host: "appleMusic".to_owned(),
+            key: "i.s1".to_owned(),
+        };
+        assert_eq!(host_of_path(&track.path()), Some("appleMusic"));
+        assert_eq!(host_of_path(Path::new("/music/hosted.flac")), None);
+        assert_eq!(host_of_path(Path::new("")), None);
     }
 
     #[test]
