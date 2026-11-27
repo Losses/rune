@@ -1,11 +1,11 @@
 <script lang="ts">
-	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
-	import type { IDevice, IServerConfig } from '$lib/authorization-manager';
+	import MediaQuery from '#lib/components/ui/MediaQuery.svelte';
+	import type { IDevice, IServerConfig } from '#lib/authorization-manager/index.ts';
 
 	import FingerprintFab from './layout/FingerprintFab.svelte';
 	import DashboardHeader from './layout/DashboardHeader.svelte';
 	import FingerprintCard from './layout/FingerprintCard.svelte';
-	import ServerConfigCard from './server/ServerConfigCard.svelte';
+	import ServerConfigCard from './server-config/ServerConfigCard.svelte';
 	import DeviceManagementSection from './layout/DeviceManagementSection.svelte';
 	import FingerprintDialog from './devices/FingerprintDialog.svelte';
 

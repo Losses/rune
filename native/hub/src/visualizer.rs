@@ -200,10 +200,7 @@ async fn random_covers(
     fsio: &FsIo,
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
-    library_id: Uuid,
-    node: &NodeContext,
 ) -> Result<Vec<PathBuf>> {
-    let queue = node.session_queue_for_library(library_id).await?;
     let files = query_mix_media_files(
         main_db,
         recommend_db,
@@ -213,7 +210,8 @@ async fn random_covers(
         ],
         0,
         RANDOM_COVERS,
-        &queue,
+        // The query has no `lib::queue`, so it selects nothing from a queue.
+        &[],
     )
     .await?;
     let ids: Vec<i32> = files.iter().map(|file| file.id).collect();
@@ -231,14 +229,12 @@ pub async fn feed_cover_bytes(
     fsio: Arc<FsIo>,
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
-    node: Arc<NodeContext>,
-    library_id: Uuid,
     playing_path: Option<PathBuf>,
 ) -> Result<(Option<Vec<u8>>, Vec<Vec<u8>>)> {
     let playing = read_cover_bytes(playing_path.as_deref()).await?;
     let mut used_bytes = playing.as_ref().map_or(0, Vec::len);
     let mut random = Vec::with_capacity(RANDOM_COVERS);
-    for path in random_covers(&fsio, &main_db, &recommend_db, library_id, &node)
+    for path in random_covers(&fsio, &main_db, &recommend_db)
         .await?
         .into_iter()
         .take(RANDOM_COVERS)

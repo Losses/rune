@@ -229,7 +229,7 @@ pub async fn get_recommendation_by_percentile(
 #[cfg(test)]
 mod tests {
     use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 
@@ -239,7 +239,7 @@ mod tests {
             .map(|id| {
                 let mut vector = [0f32; 61];
                 for x in vector.iter_mut() {
-                    *x = rng.gen_range(-1.0..1.0);
+                    *x = rng.random_range(-1.0..1.0);
                 }
                 (id, vector)
             })

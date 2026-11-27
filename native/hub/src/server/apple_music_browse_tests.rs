@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 
 use crate::apple_music_binding::{AppleIdKind, AppleMusicBinding, CONTENT_CHANGED_DELAY, Tokens};
 use crate::apple_music_translate::mix_collections::{RECENTLY_PLAYED_GROUP, UNTITLED_GROUP};
+use crate::backends::remote::open_remote_library_for_fingerprint;
 use crate::macros::{RequestSlots, capability_snapshot};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, CallerQueue, CapabilityReason,
@@ -2173,6 +2174,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type,
                 bake_cover_arts: false,
                 group_titles: vec![title.clone()],
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(page.groups[0].group_title, title);
@@ -2189,6 +2191,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type,
                 bake_cover_arts: false,
                 ids: ids.clone(),
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(
@@ -2222,6 +2225,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
                 collection_type: refused,
                 bake_cover_arts: false,
                 group_titles: vec!["A".into()],
+                queue: CallerQueue::default(),
             })
             .await
             .err()
@@ -2235,6 +2239,7 @@ async fn apple_music_collections_are_listed_grouped_and_fetched() -> Result<()> 
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             ids: vec![4242],
+            queue: CallerQueue::default(),
         })
         .await
         .err()
@@ -2339,6 +2344,7 @@ async fn apple_music_home_lists_its_groups_and_leaves_the_rest_empty() -> Result
                 group("Genres", LibraryHomeQuery::Genres(mode)),
                 group("Most", LibraryHomeQuery::Most),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2690,6 +2696,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
                     LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
                 ),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2710,6 +2717,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
                     LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
                 ),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2724,6 +2732,7 @@ async fn apple_music_home_shows_the_newest_first_in_reverse() -> Result<()> {
             "Tracks",
             LibraryHomeQuery::Tracks(LibraryHomeListMode::Random),
         )],
+        queue: CallerQueue::default(),
         call_id: None,
     };
     let first = apple.run(&random(())).await?;
@@ -2755,6 +2764,7 @@ async fn an_empty_apple_library_has_an_empty_home() -> Result<()> {
                     query,
                 })
                 .collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -2896,6 +2906,7 @@ async fn parsed_media_files_share_collection_ids_and_take_catalog_songs() -> Res
                         collection_type,
                         bake_cover_arts: false,
                         group_titles: vec![title.into()],
+                        queue: CallerQueue::default(),
                     })
                     .await?
                     .groups
@@ -3647,7 +3658,9 @@ impl Heard {
 async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire() -> Result<()> {
     let host_dir = tempfile::tempdir()?;
     let controller_dir = tempfile::tempdir()?;
-    let host = open_apple(host_dir.path()).await?;
+    let host = open_apple(host_dir.path())
+        .await
+        .context("open Apple Music on the host")?;
     let heard = Arc::new(Heard::default());
     let controller = super::fixture_with_broadcaster(
         controller_dir.path(),
@@ -3655,27 +3668,39 @@ async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire
         std::time::Duration::from_secs(300),
         heard.clone(),
     )
-    .await?;
+    .await
+    .context("create the controller fixture")?;
     // The host's own library is open while the devices pair, as in a real session.
     let host_library = host
         .fixture
         .global_params
         .library_id
         .context("host library id")?;
-    host.node.set_open_local_catalog(None, host_library).await?;
-    let address = super::paired_full(&host.fixture, &controller).await?;
-    let fingerprint = super::info(&host.fixture).await?.fingerprint;
-    controller
-        .global_params
-        .cert_validator
-        .read()
+    host.node
+        .set_open_local_catalog(None, host_library)
         .await
-        .replace_hosts_for_fingerprint(&fingerprint, vec![format!("127.0.0.1:{}", address.port())])
-        .await?;
-    super::open_remote_control_record(controller.global_params.node.clone(), &fingerprint).await?;
+        .context("show the host's local library for pairing")?;
+    let address = super::paired_full(&host.fixture, &controller)
+        .await
+        .context("pair the host and controller")?;
+    let fingerprint = super::info(&host.fixture)
+        .await
+        .context("read the host's device identity")?
+        .fingerprint;
+    // Other fixtures can replace the process-wide GUI receivers and end our listeners.
+    // Keep the remote UI alive until the controller has received the host's events.
+    let (_controller_ui, _) = open_remote_library_for_fingerprint(
+        controller.global_params.node.clone(),
+        &fingerprint,
+        vec![address.to_string()],
+        None,
+    )
+    .await
+    .context("open the host on the controller")?;
     host.node
         .open_service_catalog(Some(host.record), host.binding.clone())
-        .await?;
+        .await
+        .context("switch the host back to Apple Music")?;
 
     let task = |record_id: String| LibraryTaskStateChanged {
         state: LibraryTaskState::AnalysisRunning {
@@ -4069,6 +4094,7 @@ async fn home_names(ui: &crate::utils::GlobalParams) -> Result<Vec<Vec<String>>>
                     query,
                 })
                 .collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         },
     )
@@ -5388,6 +5414,61 @@ async fn the_ui_hears_each_change_of_the_visualizer_inputs_once() -> Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_volume_control_follows_whether_the_host_of_the_track_has_a_volume_of_its_own()
+-> Result<()> {
+    use crate::messages::PlayerHostChanged;
+
+    let dir = tempfile::tempdir()?;
+    let heard = Arc::new(Heard::default());
+    let apple = open_apple_with(
+        dir.path(),
+        AppleOptions {
+            heard: Some(heard.clone()),
+            ..AppleOptions::default()
+        },
+    )
+    .await?;
+    let told = || {
+        heard
+            .placed::<PlayerHostChanged>("PlayerHostChanged")
+            .into_iter()
+            .map(|(_, changed)| (changed.hosted, changed.own_volume))
+            .collect::<Vec<_>>()
+    };
+    let before = told().len();
+
+    apple.node.note_host_volume("appleMusic", true)?;
+    let file = Path::new(&apple.fixture.global_params.test_library().media_root).join("a-file.ogg");
+    for path in [
+        Some(Path::new("hosted://appleMusic/i.s1")),
+        None,
+        // A host that said nothing of a volume of its own has none.
+        Some(Path::new("hosted://otherHost/1")),
+        Some(Path::new("hosted://appleMusic/i.s2")),
+        Some(file.as_path()),
+    ] {
+        apple.node.note_local_track(path, true)?;
+    }
+    // A host that starts again without one, while its track is current.
+    apple
+        .node
+        .note_local_track(Some(Path::new("hosted://appleMusic/i.s3")), true)?;
+    apple.node.note_host_volume("appleMusic", false)?;
+    assert_eq!(
+        told()[before..],
+        [
+            (true, true),
+            (true, false),
+            (true, true),
+            (false, false),
+            (true, true),
+            (true, false),
+        ]
+    );
+    apple.finish().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn restored_apple_tracks_keep_their_place_before_the_sign_in_and_are_named_after_it()
 -> Result<()> {
     use crate::messages::{
@@ -6005,6 +6086,7 @@ async fn collection_names(
             collection_type,
             bake_cover_arts: false,
             ids: ids.to_vec(),
+            queue: CallerQueue::default(),
         })
         .await?
         .result
@@ -6021,6 +6103,7 @@ async fn listed_artists(apple: &OpenApple, titles: &[&str]) -> Result<Vec<(Strin
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             group_titles: titles.iter().map(|title| (*title).to_owned()).collect(),
+            queue: CallerQueue::default(),
         })
         .await?
         .groups
@@ -6703,6 +6786,7 @@ async fn an_artist_the_library_no_longer_lists_is_skipped_by_the_collections_fet
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![gone, held],
+            queue: CallerQueue::default(),
         })
         .await?;
     assert_eq!(
@@ -6848,6 +6932,7 @@ async fn home_playlists(apple: &OpenApple) -> Result<Vec<crate::messages::Comple
                 title: "Playlists".into(),
                 query: LibraryHomeQuery::Playlists(LibraryHomeListMode::Forward),
             }],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -7150,6 +7235,7 @@ async fn a_rune_playlist_is_renamed_regrouped_and_removed_but_not_put_in_apples_
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids: vec![night.id],
+            queue: CallerQueue::default(),
         })
         .await?;
     assert!(by_ids.result.is_empty());
@@ -7184,6 +7270,7 @@ async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             group_titles: vec!["Calm".into(), "Mood".into()],
+            queue: CallerQueue::default(),
         })
         .await?;
     let shown = |index: usize| {
@@ -7204,6 +7291,7 @@ async fn rune_playlists_are_listed_opened_and_played() -> Result<()> {
                 collection_type: CollectionType::Playlist,
                 bake_cover_arts: true,
                 ids: vec![night.id],
+                queue: CallerQueue::default(),
             })
             .await?;
         assert_eq!(by_ids.result[0].name, "Night Drive");
@@ -7718,6 +7806,7 @@ async fn mix_groups(apple: &OpenApple, titles: &[&str]) -> Result<Vec<Collection
             collection_type: CollectionType::Mix,
             bake_cover_arts: true,
             group_titles: titles.iter().map(|title| (*title).to_owned()).collect(),
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?
@@ -7746,6 +7835,7 @@ async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Re
                 collection_type: CollectionType::Album,
                 bake_cover_arts: bake,
                 ids: vec![album],
+                queue: CallerQueue::default(),
             })
             .await?;
         let files = apple
@@ -7760,6 +7850,7 @@ async fn a_request_that_bakes_no_covers_gets_none_though_they_are_cached() -> Re
                 collection_type: CollectionType::Mix,
                 bake_cover_arts: bake,
                 group_titles: vec!["Made for You".into()],
+                queue: CallerQueue::default(),
                 call_id: None,
             })
             .await?;
@@ -7814,6 +7905,7 @@ fn home_mixes(mode: LibraryHomeListMode) -> ComplexQueryRequest {
             title: "Mixes".into(),
             query: LibraryHomeQuery::Mixes(mode),
         }],
+        queue: CallerQueue::default(),
         call_id: None,
     }
 }
@@ -7915,6 +8007,7 @@ async fn mix_cover_names(apple: &OpenApple, mix: i32, count: usize) -> Result<Ve
                 collection_type: CollectionType::Mix,
                 bake_cover_arts: true,
                 ids: vec![mix],
+                queue: CallerQueue::default(),
                 call_id: None,
             })
             .await?;
@@ -7977,6 +8070,7 @@ async fn recommendation_groups_are_listed_as_locked_mixes_with_lasting_ids() -> 
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             ids: vec![remixes.queries[0].parameter.parse()?],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8040,6 +8134,7 @@ async fn recommendation_groups_are_listed_as_locked_mixes_with_lasting_ids() -> 
             collection_type: CollectionType::Mix,
             bake_cover_arts: false,
             ids: vec![picks.id, 9999, remixes.id],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8192,6 +8287,7 @@ async fn a_recommended_mix_lists_and_plays_the_songs_of_its_album_or_playlist() 
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids: vec![picks_playlist],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -8979,6 +9075,7 @@ async fn liked_group(apple: &OpenApple) -> Result<Vec<String>> {
                 title: "Liked".into(),
                 query: LibraryHomeQuery::Liked,
             }],
+            queue: CallerQueue::default(),
             call_id: None,
         })
         .await?;
@@ -9929,6 +10026,7 @@ async fn all_albums(apple: &OpenApple) -> Result<Vec<(String, i32)>> {
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             group_titles: titles,
+            queue: CallerQueue::default(),
         })
         .await?
         .groups

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
-	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+	import Card from '#lib/components/ui/Card.svelte';
+	import FingerprintIcon from '#lib/components/icons/FingerprintIcon.svelte';
+	import FluentButton from '#lib/components/ui/FluentButton.svelte';
 
 	interface Props {
 		onClick?: () => void;

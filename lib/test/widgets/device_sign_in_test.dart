@@ -614,7 +614,6 @@ void main() {
           expect(hub.opens, ['apple-record']);
           expect(hub.registry.openRecordId, 'apple-record');
           expect(find.byType(ContentDialog), findsNothing);
-          expect(find.byType(InfoBar), findsNothing);
           expect(thrown(), isNull);
           // It is signed in again once the network is back.
           expect(signIns.policy.awaitingRetry, ['apple-record']);
@@ -991,7 +990,6 @@ void main() {
         expect(hub.registry.openRecordId, 'apple-record');
         expect(hub.signedIn, isFalse);
         expect(find.byType(ContentDialog), findsNothing);
-        expect(find.byType(InfoBar), findsNothing);
         expect(signIns.policy.awaitingRetry, ['apple-record']);
 
         // The network comes back, and the library signs in by itself, showing
@@ -1053,7 +1051,6 @@ void main() {
       expect(hub.signIns, hasLength(1));
       expect(events, isEmpty);
       expect(find.byType(ContentDialog), findsNothing);
-      expect(find.byType(InfoBar), findsNothing);
     });
 
     testWidgets(
@@ -1121,7 +1118,6 @@ void main() {
       expect(hub.signIns, isEmpty);
       expect(events, isEmpty);
       expect(find.byType(ContentDialog), findsNothing);
-      expect(find.byType(InfoBar), findsNothing);
     });
 
     testWidgets(
@@ -1202,7 +1198,6 @@ void main() {
             find.widgetWithText(FilledButton, _strings.playOnRetry),
             findsOneWidget,
           );
-          expect(find.byType(InfoBar), findsNothing);
 
           // Close stays on the chooser.
           await tester.tap(find.widgetWithText(Button, _strings.close));
@@ -1295,7 +1290,6 @@ void main() {
         expect(events, isEmpty);
         expect(hub.registry.openRecordId, 'apple-record');
         expect(find.byType(ContentDialog), findsNothing);
-        expect(find.byType(InfoBar), findsNothing);
 
         // Requests that fail soon after are left alone, so nothing loops.
         now = now.add(const Duration(seconds: 30));

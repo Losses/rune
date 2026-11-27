@@ -33,6 +33,10 @@ void main() {
     // The search page follows the router, whose first page depends on cafe
     // mode.
     cafeMode = false;
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. So the directory is left where
+    // it is, in the system's temporary directory; nothing here removes it.
     storage = await Directory.systemTemp.createTemp('rune-search-test');
     if (Platform.isWindows) {
       stdout.writeln('RUNE_SEARCH_TEST_STORAGE=${storage.path}');
@@ -44,11 +48,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<List<dynamic>?>('search_suggestions');
-  });
-  tearDownAll(() async {
-    // GetStorage retains an open file handle until process exit on Windows.
-    // The Windows test runner removes the reported directory after exit.
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
 
   testWidgets(

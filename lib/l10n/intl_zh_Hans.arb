@@ -1420,6 +1420,10 @@
       }
     }
   },
+  "visualizerNoAnswer": "可视化效果没有响应",
+  "@visualizerNoAnswer": {
+    "description": "可视化效果没有答复时，显示在场景导入失败下方的原因。"
+  },
   "visualizerDeleteScene": "删除场景",
   "@visualizerDeleteScene": {
     "description": "删除已导入的可视化场景的按钮与对话框标题。"

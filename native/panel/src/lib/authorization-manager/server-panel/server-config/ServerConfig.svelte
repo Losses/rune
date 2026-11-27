@@ -1,8 +1,8 @@
 <script lang="ts">
-	import FluentInput from '$lib/components/ui/FluentInput.svelte';
-	import FluentSwitch from '$lib/components/ui/FluentSwitch.svelte';
-	import { type IServerConfig } from '$lib/authorization-manager';
-	import SyncIcon from '$lib/components/icons/SyncIcon.svelte';
+	import FluentInput from '#lib/components/ui/FluentInput.svelte';
+	import FluentSwitch from '#lib/components/ui/FluentSwitch.svelte';
+	import { type IServerConfig } from '#lib/authorization-manager/index.ts';
+	import SyncIcon from '#lib/components/icons/SyncIcon.svelte';
 
 	interface Props {
 		config: IServerConfig;

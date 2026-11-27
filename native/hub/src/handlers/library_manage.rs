@@ -531,18 +531,15 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     )
                     .await
                     .map_err(|_| DeduplicationFailure::ComparisonFailed)?;
-                    if !token.is_cancelled() {
-                        mark_duplicate_files(
-                            &library.main_db,
-                            similarity_threshold,
-                            move |cur, total| {
-                                progress(66 + (cur as f32 / total as f32 * 34.0) as i32)
-                            },
-                            &record_store,
-                        )
-                        .await
-                        .map_err(|_| DeduplicationFailure::MarkingDuplicatesFailed)?;
-                    }
+                    mark_duplicate_files(
+                        &library.main_db,
+                        similarity_threshold,
+                        move |cur, total| progress(66 + (cur as f32 / total as f32 * 34.0) as i32),
+                        Some(&token),
+                        &record_store,
+                    )
+                    .await
+                    .map_err(|_| DeduplicationFailure::MarkingDuplicatesFailed)?;
                     Ok::<(), DeduplicationFailure>(())
                 })
             })

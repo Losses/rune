@@ -1,3 +1,7 @@
+#[cfg(target_os = "linux")]
+#[path = "player_session_tests/mpris.rs"]
+mod mpris;
+
 use super::gui_listener_tests::start;
 use anyhow::Context;
 use crate::server::utils::device::RunMode;
@@ -788,6 +792,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             ids: search.artists.clone(),
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -800,6 +805,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Album,
             bake_cover_arts: true,
             ids: search.albums.clone(),
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -823,6 +829,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -846,6 +853,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Album,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -908,6 +916,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![search.artists[0]],
+            queue: CallerQueue::default(),
         },
     )
     .await?
@@ -946,6 +955,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
             collection_type: CollectionType::Mix,
             bake_cover_arts: false,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         },
     )
     .await
@@ -6183,7 +6193,7 @@ async fn session_d4_queue_queries_and_download_rules_are_library_scoped() -> Res
         let queue = f
             .global_params
             .node
-            .session_queue_for_library(library.library_id)
+            .own_player_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let queries = vec![("lib::queue".into(), "true".into())];
@@ -6244,7 +6254,7 @@ async fn session_f4_nodes_with_matching_sqlite_filenames_keep_queues_separate() 
         let queue = fixture
             .global_params
             .node
-            .session_queue_for_library(library.library_id)
+            .own_player_queue_for_library(library.library_id)
             .await?;
         assert_eq!(queue, expected);
         let rows = query_mix_media_files(
@@ -9831,7 +9841,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let host = fixture(host_dir.path()).await?;
     let source = fixture(source_dir.path()).await?;
     let target = fixture(target_dir.path()).await?;
-    let host_id = session_audio(&host, "handoff-source-corrupt-on-target.ogg").await?;
+    let file_name = "handoff-source-corrupt-on-target.ogg";
+    let host_id = session_audio(&host, file_name).await?;
     let (host_address, source_replica) = replicate_host_library(&host, &source)
         .await
         .context("replicate source library")?;
@@ -9861,36 +9872,21 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let (_, target_replica) = replicate_host_library_at(&host, &target, host_address)
         .await
         .context("replicate target library")?;
-    let source_file = Path::new(&source_replica.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
-    fs::copy(
-        Path::new(&host.global_params.test_library().media_root)
-            .join("handoff-source-corrupt-on-target.ogg"),
-        &source_file,
-    )?;
+    let host_file = Path::new(&host.global_params.test_library().media_root).join(file_name);
+    let source_file =
+        Path::new(&source_replica.global_params.test_library().media_root).join(file_name);
     let host_item = library_track_for_id(&host, host_id).await?;
-    let source_item = player::LibraryItem {
-        library_id: target_replica
-            .global_params
-            .library_id
-            .context("target replica library id")?,
-        file_uuid: host_item.file_uuid,
-    };
-    source
-        .global_params
-        .node
-        .session()?
-        .edit_queue(None, |player| {
-            player.add_to_playlist_with_sources(
-                vec![(
-                    PlayingItem::from(source_item),
-                    PlaybackSource::Local(source_file.clone()),
-                )],
-                AddMode::AppendToEnd,
-            );
-            true
-        })
-        .await?;
+    let source_track_id = file_ids_by_uuid(
+        &source_replica.global_params.test_library().main_db,
+        &[host_item.file_uuid],
+    )
+    .await?
+    .get(&host_item.file_uuid)
+    .copied()
+    .context("source replica track id")?;
+    // The source must keep a local copy because the host's bytes are corrupted later.
+    materialize_replica_file(&source_replica, source_track_id, &host_file, file_name).await?;
+    queue_session(&source_replica, &[source_track_id]).await?;
     source
         .global_params
         .player
@@ -9902,6 +9898,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     let source_before =
         wait_player(&source, |status| status.state == PlayerPlaybackState::Playing).await?;
     let expected_item = source_before.item.clone().context("source item")?;
+    assert_eq!(source_before.path.as_deref(), Some(source_file.as_path()));
 
     let source_fingerprint = info(&source).await?.fingerprint;
     let host_fingerprint = info(&host).await?.fingerprint;
@@ -9961,8 +9958,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     .get(&host_item.file_uuid)
     .copied()
     .context("target replica track id")?;
-    let target_file = Path::new(&target_replica.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
+    let target_file =
+        Path::new(&target_replica.global_params.test_library().media_root).join(file_name);
     if target_file.exists() {
         fs::remove_file(&target_file)?;
     }
@@ -10025,16 +10022,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         source_after_unplayable.position.abs_diff(expected_position) <= Duration::from_millis(1500)
     );
 
-    let host_file = Path::new(&host.global_params.test_library().media_root)
-        .join("handoff-source-corrupt-on-target.ogg");
     fs::write(&host_file, b"not an audio file")?;
-    materialize_replica_file(
-        &target_replica,
-        target_track_id,
-        &host_file,
-        "handoff-source-corrupt-on-target.ogg",
-    )
-    .await?;
+    materialize_replica_file(&target_replica, target_track_id, &host_file, file_name).await?;
     fs::write(&target_file, b"not an audio file")?;
     let controller_link = host
         .global_params
@@ -12039,20 +12028,20 @@ async fn rpc_target_blacklisted_request_returns_typed_failure_without_sending() 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
-    let first = tempfile::tempdir()?;
-    let second = tempfile::tempdir()?;
-    let signals = Arc::new(RecordedSignals::default());
+/// A caller, A, paired with B, which has its library open, and A's handle on B's library.
+async fn library_reached_through_remote(
+    first: &Path,
+    second: &Path,
+) -> Result<(Fixture, Fixture, Arc<GlobalParams>)> {
     let a = super::fixture_with_reconnect_config(
-        first.path(),
+        first,
         Uuid::new_v4(),
         Duration::from_secs(300),
-        signals.clone(),
+        Arc::new(RecordedSignals::default()),
         reconnect_config(Duration::from_millis(400)),
     )
     .await?;
-    let b = fixture(second.path()).await?;
+    let b = fixture(second).await?;
     b.global_params
         .node
         .set_open_local_catalog(
@@ -12070,6 +12059,14 @@ async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
         .await?;
     let remote =
         super::open_remote_control_record(a.global_params.node.clone(), &fingerprint).await?;
+    Ok((a, b, remote))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    let (a, b, remote) = library_reached_through_remote(first.path(), second.path()).await?;
 
     // B owns the library and its own player plays `playing`. The caller, which browses B's
     // library through the remote handle, controls another player whose queue holds `queued`.
@@ -12152,6 +12149,195 @@ async fn rr_mix_calls_use_the_queue_the_caller_sent() -> Result<()> {
             .collect::<Vec<_>>(),
         vec![playing_track.clone()]
     );
+
+    a.global_params.node.shutdown().await?;
+    b.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rr_library_requests_use_the_queue_the_caller_sent() -> Result<()> {
+    use crate::messages::{
+        CollectionType, ComplexQuery, ComplexQueryRequest, CreateMixRequest,
+        FetchCollectionByIdsRequest, FetchCollectionGroupsRequest,
+        GetCoverArtIdsByMixQueriesRequest, GetCoverArtIdsByMixQueriesRequestUnit,
+        LibraryHomeListMode, LibraryHomeQuery,
+    };
+
+    let first = tempfile::tempdir()?;
+    let second = tempfile::tempdir()?;
+    let (a, b, remote) = library_reached_through_remote(first.path(), second.path()).await?;
+
+    // B owns the library and its own player plays `playing`. The caller controls another
+    // player whose queue holds `queued`. Each track has its own cover, so the covers chosen for
+    // a mix of `lib::queue` tell which queue a request read.
+    let playing = session_audio(&b, "rr-library-playing.ogg").await?;
+    let queued = session_audio(&b, "rr-library-queued.ogg").await?;
+    attach_test_cover(&b, playing, b"rr-library-playing-cover").await?;
+    attach_test_cover(&b, queued, b"rr-library-queued-cover").await?;
+    queue_session(&b, &[playing]).await?;
+    let queued_ref: PlayingItemRef = library_track_for_id(&b, queued).await?.into();
+    let PlayingItemRef::LibraryTrack {
+        track: queued_track,
+        ..
+    } = &queued_ref
+    else {
+        anyhow::bail!("expected a library track");
+    };
+    // The same track named as one of another library selects nothing from this one.
+    let elsewhere = PlayingItemRef::LibraryTrack {
+        library_id: Uuid::new_v4().to_string(),
+        track: queued_track.clone(),
+    };
+    let library = b.global_params.test_library();
+    let queued_cover = media_files::Entity::find_by_id(queued)
+        .one(&*library.main_db)
+        .await?
+        .and_then(|file| file.cover_art_uuid)
+        .context("cover of the queued track")?;
+    let queued_cover = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::SourceUuid.eq(queued_cover))
+        .one(&*library.main_db)
+        .await?
+        .context("cover art of the queued track")?
+        .id;
+    let queue_query = vec![MixQuery {
+        operator: "lib::queue".into(),
+        parameter: "true".into(),
+    }];
+    let mix = dispatch_gui_request(
+        &b.global_params,
+        &CreateMixRequest {
+            name: "Queue".into(),
+            group: "Queue".into(),
+            mode: None,
+            queries: queue_query.clone(),
+            call_id: None,
+        },
+    )
+    .await?
+    .context("mix of the queue")?
+    .mix;
+    let covered_tracks = |cover_art_map: &HashMap<i32, String>| {
+        let mut tracks = cover_art_map.keys().copied().collect::<Vec<_>>();
+        tracks.sort();
+        tracks
+    };
+
+    // Through the remote handle and on B itself, each request reads the queue its caller sent,
+    // never B's own player queue.
+    for (caller, params) in [("remote", &remote), ("local", &b.global_params)] {
+        for (sent, items, tracks, covers) in [
+            (
+                "the queued track",
+                vec![queued_ref.clone()],
+                vec![queued],
+                vec![queued_cover],
+            ),
+            ("an empty queue", Vec::new(), Vec::new(), Vec::new()),
+            (
+                "a track of another library",
+                vec![elsewhere.clone()],
+                Vec::new(),
+                Vec::new(),
+            ),
+        ] {
+            let queue = || CallerQueue {
+                items: items.clone(),
+            };
+
+            let by_ids = dispatch_gui_request(
+                params,
+                &FetchCollectionByIdsRequest {
+                    collection_type: CollectionType::Mix,
+                    bake_cover_arts: true,
+                    ids: vec![mix.id],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("mix by id")?;
+            let fetched = by_ids.result.first().context("fetched mix")?;
+            assert_eq!(
+                covered_tracks(&fetched.cover_art_map),
+                tracks,
+                "{caller} mix by id with {sent}"
+            );
+
+            let groups = dispatch_gui_request(
+                params,
+                &FetchCollectionGroupsRequest {
+                    collection_type: CollectionType::Mix,
+                    bake_cover_arts: true,
+                    group_titles: vec![mix.group.clone()],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("mix groups")?;
+            let grouped = groups
+                .groups
+                .iter()
+                .flat_map(|group| &group.collections)
+                .find(|collection| collection.id == mix.id)
+                .context("grouped mix")?;
+            assert_eq!(
+                covered_tracks(&grouped.cover_art_map),
+                tracks,
+                "{caller} mix groups with {sent}"
+            );
+
+            let home = dispatch_gui_request(
+                params,
+                &ComplexQueryRequest {
+                    queries: vec![ComplexQuery {
+                        title: "Mixes".into(),
+                        query: LibraryHomeQuery::Mixes(LibraryHomeListMode::Forward),
+                    }],
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("library home")?;
+            let listed = home
+                .result
+                .iter()
+                .flat_map(|group| &group.entries)
+                .find(|entry| entry.id == mix.id)
+                .context("mix on the library home")?;
+            assert_eq!(
+                covered_tracks(&listed.cover_art_map),
+                tracks,
+                "{caller} library home with {sent}"
+            );
+
+            let cover_ids = dispatch_gui_request(
+                params,
+                &GetCoverArtIdsByMixQueriesRequest {
+                    requests: vec![GetCoverArtIdsByMixQueriesRequestUnit {
+                        id: mix.id,
+                        queries: queue_query.clone(),
+                    }],
+                    n: 18,
+                    queue: queue(),
+                    call_id: None,
+                },
+            )
+            .await?
+            .context("cover art ids")?;
+            let unit = cover_ids
+                .result
+                .first()
+                .context("cover art ids of the mix")?;
+            assert_eq!(
+                unit.cover_art_ids, covers,
+                "{caller} cover art ids with {sent}"
+            );
+        }
+    }
 
     a.global_params.node.shutdown().await?;
     b.global_params.node.shutdown().await?;
@@ -14792,6 +14978,32 @@ async fn cancelled_session_dropping_a_show_request_leaves_the_next_session_visib
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn visualizer_cover_wall_does_not_follow_a_player_queue() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture(dir.path()).await?;
+    let node = fixture.global_params.node.clone();
+    let queued = session_audio(&fixture, "visualizer-wall-queued.ogg").await?;
+    let other = session_audio(&fixture, "visualizer-wall-other.ogg").await?;
+    attach_test_cover(&fixture, queued, b"visualizer-wall-queued-cover").await?;
+    attach_test_cover(&fixture, other, b"visualizer-wall-other-cover").await?;
+    let item: PlayingItem = library_track_for_id(&fixture, queued).await?.into();
+
+    // The wall shows covers of the playing item's library, whatever this device's player has
+    // queued: with nothing queued and with one of the two tracks queued it is the same wall.
+    let (_, unqueued_wall) = Implementation::Local.visualizer_covers(&item, &node).await?;
+    queue_session(&fixture, &[queued]).await?;
+    let (_, queued_wall) = Implementation::Local.visualizer_covers(&item, &node).await?;
+    let sorted = |mut wall: Vec<String>| {
+        wall.sort();
+        wall
+    };
+    let unqueued_wall = sorted(unqueued_wall);
+    assert_eq!(unqueued_wall.len(), 2, "{unqueued_wall:?}");
+    assert_eq!(sorted(queued_wall), unqueued_wall);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
@@ -15198,6 +15410,7 @@ async fn an_open_subsonic_library_answers_its_home() -> Result<()> {
                 group("Playlists", LibraryHomeQuery::Playlists(mode)),
                 group("Tracks", LibraryHomeQuery::Tracks(mode)),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         },
     )
@@ -15987,6 +16200,142 @@ async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Res
 
     assert!(!folder.exists());
     assert_eq!(fs::read(aside.join("track.ogg"))?, b"audio");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn active_redirected_library_reopens_after_removal() -> Result<()> {
+    redirected_library_reopens_after_removal(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inactive_redirected_library_reopens_after_removal() -> Result<()> {
+    redirected_library_reopens_after_removal(false).await
+}
+
+async fn redirected_library_reopens_after_removal(remove_open: bool) -> Result<()> {
+    use crate::messages::{
+        RegisterLocalLibraryRequest, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
+    };
+    use database::{actions::playlists::create_playlist, entities::playlists};
+
+    // The fixture owns its UI binding independently of the process-wide GUI signal receivers.
+    async fn attach_catalog(
+        node: &Arc<NodeContext>,
+        record_id: LibraryRecordId,
+    ) -> Result<Arc<GlobalParams>> {
+        let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+        let library_id = registry
+            .record(record_id)?
+            .catalog_library_id()
+            .context("fixture catalog id")?;
+        let library = node.library_pool.acquire_ui(library_id).await?;
+        let params = Arc::new(node.params_for_ui()?.for_library(library.clone()));
+        *params.ui_library.lock().await = Some(library);
+        node.attach_ui(&params).await;
+        node.set_open_local_catalog(Some(record_id), library_id)
+            .await?;
+        Ok(params)
+    }
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        Arc::new(RecordedSignals::default()),
+    )
+    .await?;
+    let node = &fixture.global_params.node;
+    let folder = dir.path().join("redirected");
+    fs::create_dir_all(&folder)?;
+    let file = folder.join("track.wav");
+    fs::write(&file, b"retained media")?;
+
+    let register = RegisterLocalLibraryRequest {
+        call_id: None,
+        path: folder.to_string_lossy().into_owned(),
+        alias: "Redirected".into(),
+        mode: Some(LibraryInitializeMode::Redirected),
+    };
+    let original = register_local_library_on_node(&register, node)
+        .await?
+        .record
+        .context("original record")?;
+    let original_ui =
+        attach_catalog(node, LibraryRecordId(Uuid::parse_str(&original.record_id)?)).await?;
+    let library = original_ui.test_library();
+    let library_id = library.library_id;
+    let playlist = create_playlist(
+        &library.main_db,
+        &library.library_sync.record_store(),
+        "Kept playlist".into(),
+        String::new(),
+    )
+    .await?;
+
+    let remove = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id: original.record_id.clone(),
+        delete_device_data: false,
+    };
+    let _other_ui = if remove_open {
+        assert_eq!(
+            removal_failure_kind(remove.handle(node.clone(), None, &remove).await)?,
+            RemoveLibraryRecordFailureKind::RecordIsOpen
+        );
+        dispatch_gui_request(&original_ui, &CloseLibraryRequest { call_id: None }).await?;
+        assert!(node.capability_library_identity()?.0.is_none());
+        None
+    } else {
+        let other = fixture.global_params.test_library().descriptor.record_id;
+        let other_ui = attach_catalog(node, other).await?;
+        assert_eq!(
+            node.capability_library_identity()?.0,
+            Some(other.0.to_string())
+        );
+        Some(other_ui)
+    };
+    drop(original_ui);
+    remove
+        .handle(node.clone(), None, &remove)
+        .await?
+        .context("removal response")?;
+
+    let restored = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            mode: None,
+            ..register
+        },
+        node,
+    )
+    .await?
+    .record
+    .context("restored record")?;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let reopened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: restored.record_id.clone(),
+        },
+        node.clone(),
+        scrobbler,
+    )
+    .await?;
+    assert_eq!(reopened.record_id, restored.record_id);
+    assert_ne!(restored.record_id, original.record_id);
+    let library = node.library_pool.acquire(library_id).await?;
+    assert_eq!(library.library_id, library_id);
+    assert_eq!(
+        playlists::Entity::find_by_id(playlist.id)
+            .one(&*library.main_db)
+            .await?,
+        Some(playlist)
+    );
+    assert_eq!(fs::read(file)?, b"retained media");
     Ok(())
 }
 
@@ -18809,6 +19158,98 @@ async fn the_volume_control_leaves_the_host_while_another_player_is_current() ->
         &signals,
         "PlayerHostChanged",
         |changed: &PlayerHostChanged| changed.hosted,
+    )
+    .await?;
+
+    node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_host_with_a_volume_of_its_own_keeps_rune_s_volume_control() -> Result<()> {
+    use crate::messages::{PlayerHostChanged, VolumeRequest};
+    use playback::hosted::HostAction;
+
+    let dir = tempfile::tempdir()?;
+    let (f, signals, host, library_id) = hosted_fixture(dir.path()).await?;
+    let node = f.global_params.node.clone();
+    // The host says so when it starts, before it plays anything.
+    node.note_host_volume("host", true)?;
+    let hosted = PlayingItem::LibraryTrack {
+        library_id,
+        track: "1440".to_owned(),
+    };
+    f.global_params
+        .player
+        .lock()
+        .await
+        .add_to_playlist_with_sources(
+            vec![(hosted, PlaybackSource::LibraryStream)],
+            AddMode::AppendToEnd,
+        );
+    wait_player(&f, |status| status.playlist.len() == 1).await?;
+    dispatch_gui_request(
+        &f.global_params,
+        &VolumeRequest {
+            volume: 0.4,
+            call_id: None,
+        },
+    )
+    .await?;
+
+    // The hand-over gives the host Rune's volume, and the UI keeps that volume.
+    f.global_params.player.lock().await.switch(0);
+    host.sent(|actions| {
+        actions.contains(&HostAction::SetGain { gain: 0.4 })
+            && actions.last() == Some(&HostAction::Start)
+    })
+    .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && changed.own_volume,
+    )
+    .await?;
+
+    // A change of the volume goes to the host.
+    dispatch_gui_request(
+        &f.global_params,
+        &VolumeRequest {
+            volume: 0.25,
+            call_id: None,
+        },
+    )
+    .await?;
+    host.sent(|actions| actions == [HostAction::SetGain { gain: 0.25 }])
+        .await?;
+
+    // The host starts again without one, and the volume control is the system's.
+    node.note_host_volume("host", false)?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && !changed.own_volume,
+    )
+    .await?;
+    node.note_host_volume("host", true)?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| changed.hosted && changed.own_volume,
+    )
+    .await?;
+
+    // Another player takes over, and no host plays what the UI shows.
+    let away = CurrentPlayer::RunePeer {
+        link: None,
+        reconnecting: None,
+    };
+    node.transition_current_player(CurrentPlayer::Local, away)
+        .await?;
+    latest_signal(
+        &signals,
+        "PlayerHostChanged",
+        |changed: &PlayerHostChanged| !changed.hosted && !changed.own_volume,
     )
     .await?;
 

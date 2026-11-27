@@ -49,6 +49,12 @@ impl CGColorSpace {
             CGColorSpace::from_ptr(result)
         }
     }
+
+    /// How many components a color of this space has, without alpha.
+    #[inline]
+    pub fn number_of_components(&self) -> usize {
+        unsafe { CGColorSpaceGetNumberOfComponents(self.as_ptr()) }
+    }
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -65,5 +71,6 @@ extern {
     fn CGColorSpaceCreateDeviceGray() -> ::sys::CGColorSpaceRef;
     fn CGColorSpaceCreateWithName(name: CFStringRef) -> ::sys::CGColorSpaceRef;
     fn CGColorSpaceGetTypeID() -> CFTypeID;
+    fn CGColorSpaceGetNumberOfComponents(space: ::sys::CGColorSpaceRef) -> ::libc::size_t;
 }
 

@@ -39,7 +39,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ContentDialog), findsNWidgets(2));
       expect(find.text('The request is invalid.'), findsOneWidget);
-      expect(find.byType(InfoBar), findsNothing);
     },
   );
 

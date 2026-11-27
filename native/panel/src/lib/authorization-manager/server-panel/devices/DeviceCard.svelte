@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { format } from 'timeago.js';
 
-	import FluentButton from '$lib/components/ui/FluentButton.svelte';
-	import { type IDevice } from '$lib/authorization-manager';
+	import FluentButton from '#lib/components/ui/FluentButton.svelte';
+	import { type IDevice } from '#lib/authorization-manager/index.ts';
 
 	import StatusBadge from './StatusBadge.svelte';
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';

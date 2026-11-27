@@ -104,6 +104,10 @@ EdgeInsets _framePadding(WidgetTester tester) =>
 void main() {
   late Directory storage;
   setUpAll(() async {
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. So the directory is left where
+    // it is, in the system's temporary directory; nothing here removes it.
     storage = await Directory.systemTemp.createTemp('rune-settings-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -112,9 +116,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<String>('settings-page-frame-test');
-  });
-  tearDownAll(() async {
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
 
   // The pages run under the home indicator, so its inset is never added; the
@@ -154,7 +155,10 @@ void main() {
     testWidgets('keeps the grid clear of the cover art disk', (tester) async {
       await _open(tester, _zune, const SettingsLaboratory());
 
-      expect(gridPadding(tester), const EdgeInsets.only(top: 4, bottom: 340 / 3));
+      expect(
+        gridPadding(tester),
+        const EdgeInsets.only(top: 4, bottom: 340 / 3),
+      );
       // Below the status bar, as before.
       final back = find.ancestor(
         of: find.byIcon(Symbols.arrow_back),

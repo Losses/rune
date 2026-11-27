@@ -18,6 +18,7 @@ use core_foundation::base::{CFRelease, CFRetain, TCFType};
 use foreign_types::ForeignType;
 
 use libc::size_t;
+use std::ptr;
 
 bitflags! {
     #[repr(C)]
@@ -37,21 +38,51 @@ foreign_type! {
 }
 
 impl CGGradient {
+    /// A gradient of `count` stops. `components` holds for each stop the components of a color of
+    /// `color_space` and then its alpha. `locations` holds the place of each stop, from 0 to 1;
+    /// when it is empty the stops are spread evenly.
+    ///
+    /// # Panics
+    ///
+    /// If `components` or a `locations` that is not empty is shorter than `count` stops need, or
+    /// if Core Graphics makes no gradient, as it does of no stops.
     pub fn create_with_color_components(color_space: &CGColorSpace, components: &[CGFloat], locations: &[CGFloat], count: usize) -> CGGradient {
+        let per_stop = color_space.number_of_components() + 1;
+        let needed = count.checked_mul(per_stop).expect("the components of that many stops cannot be counted");
+        assert!(components.len() >= needed, "{} stops need {} components, got {}", count, needed, components.len());
+        let locations = locations_of(locations, count);
         unsafe {
-            let result = CGGradientCreateWithColorComponents(color_space.as_ptr(), components.as_ptr(), locations.as_ptr(), count);
+            let result = CGGradientCreateWithColorComponents(color_space.as_ptr(), components.as_ptr(), locations, count);
             assert!(!result.is_null());
             Self::from_ptr(result)
         }
     }
 
+    /// A gradient with one stop for each of `colors`. `locations` holds the place of each stop,
+    /// from 0 to 1; when it is empty the stops are spread evenly.
+    ///
+    /// # Panics
+    ///
+    /// If a `locations` that is not empty is shorter than `colors`, or if Core Graphics makes no
+    /// gradient, as it does of no colors.
     pub fn create_with_colors(color_space: &CGColorSpace, colors: &CFArray<CGColor>, locations: &[CGFloat]) -> CGGradient {
+        let locations = locations_of(locations, colors.len() as usize);
         unsafe {
-            let result = CGGradientCreateWithColors(color_space.as_ptr(), colors.as_concrete_TypeRef(), locations.as_ptr());
+            let result = CGGradientCreateWithColors(color_space.as_ptr(), colors.as_concrete_TypeRef(), locations);
             assert!(!result.is_null());
             Self::from_ptr(result)
         }
     }
+}
+
+/// What Core Graphics is given for the places of `stops` stops: it reads one of `locations` for
+/// each stop, and spreads the stops evenly when it is given none.
+fn locations_of(locations: &[CGFloat], stops: usize) -> *const CGFloat {
+    if locations.is_empty() {
+        return ptr::null();
+    }
+    assert!(locations.len() >= stops, "{} stops need {} locations, got {}", stops, stops, locations.len());
+    locations.as_ptr()
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]

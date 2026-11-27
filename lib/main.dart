@@ -27,6 +27,10 @@ import 'utils/api/request_failure.dart';
 import 'utils/device_sign_in.dart';
 import 'utils/library_sign_in.dart';
 import 'utils/dialogs/failed_to_initialize_library.dart';
+import 'utils/dialogs/information/error.dart';
+import 'utils/dialogs/information/information.dart';
+import 'utils/dialogs/notice_queue.dart';
+import 'utils/dialogs/remote_reconnecting_dialog.dart';
 import 'utils/dialogs/device_sign_in/device_sign_in_dialog.dart';
 import 'utils/remote_connection_messages.dart';
 import 'utils/share_sync_messages.dart';
@@ -120,12 +124,9 @@ void main(List<String> arguments) async {
   PlatformDispatcher.instance.onError = (error, stack) {
     if (error is! RequestFailure) return false;
     if (error.needsServiceSignIn) return true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = _noticeContext();
-      if (context != null && context.mounted) {
-        showRequestFailureInfoBar(context, error);
-      }
-    });
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _noticeRequestFailure(error),
+    );
     WidgetsBinding.instance.ensureVisualUpdate();
     return true;
   };
@@ -435,7 +436,8 @@ void mainLoop(
           // The theme follows the cover only of an item whose library gives
           // its color.
           create: (context) {
-            final capabilities = context.read<PlayingItemCapabilitiesProvider>();
+            final capabilities = context
+                .read<PlayingItemCapabilitiesProvider>();
             return PlaybackStatusProvider(
               colorCapability: (item) => capabilities.capabilityFor(
                 item,
@@ -503,20 +505,19 @@ void mainLoop(
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
-/// A context inside the root navigator's overlay, for the notices shown over
-/// every page. [Overlay.of] finds an overlay only from inside one of its
-/// entries, so the overlay's own context will not do. The context belongs to
-/// the bottom page, which can close while the notice is up, so a notice
-/// builds from its own context instead of this one.
-BuildContext? _noticeContext() {
-  final overlay = rootNavigatorKey.currentState?.overlay;
-  var context = overlay?.context;
-  while (context != null && Overlay.maybeOf(context) != overlay) {
-    BuildContext? child;
-    context.visitChildElements((element) => child ??= element);
-    context = child;
-  }
-  return context;
+/// The notices of the running app, for the failures caught outside the widget
+/// tree. [RuneLifecycle] owns them.
+NoticeQueue? _notices;
+
+/// Shows a failure nobody waits for. Failures that read the same are shown
+/// once.
+void _noticeRequestFailure(RequestFailure failure) {
+  final context = rootNavigatorKey.currentContext;
+  if (context == null) return;
+  _notices?.add(
+    requestFailureMessage(S.of(context), failure),
+    (context) => showRequestFailureDialog(context, failure),
+  );
 }
 
 Locale getLocaleFromPlatform() {
@@ -669,6 +670,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   StreamSubscription<RustSignalPack<RequestFailedResponse>>?
   _requestFailureSubscription;
   bool _subsonicReloginOpen = false;
+  bool _reconnectingOpen = false;
   late final AutomaticDeviceSignIn _automaticSignIn;
   final _hostSubscriptions = <StreamSubscription<void>>[];
   bool _startupOpenChecked = false;
@@ -677,6 +679,9 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   void initState() {
     super.initState();
 
+    _notices = NoticeQueue(
+      () => mounted ? rootNavigatorKey.currentState?.overlay?.context : null,
+    );
     final registry = context.read<LibraryRegistryProvider>();
     _automaticSignIn = AutomaticDeviceSignIn(
       signIns: context.read<DeviceSignIns>(),
@@ -694,8 +699,9 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _requestFailureSubscription = RequestFailedResponse.rustSignalStream.listen(
       (signal) {
         final failure = signal.message;
-        if (failure.cause
-            case RequestFailureCauseServiceSignInRequired(:final recordId)) {
+        if (failure.cause case RequestFailureCauseServiceSignInRequired(
+          :final recordId,
+        )) {
           // A library whose sign-in lives on this device signs in by itself.
           if (_automaticSignIn.needsSignIn(recordId)) return;
           if (_subsonicReloginOpen) return;
@@ -717,10 +723,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         if (failure.callId != null) {
           return;
         }
-        final noticeContext = _noticeContext();
-        if (noticeContext == null || !mounted || !noticeContext.mounted) return;
-        showRequestFailureInfoBar(
-          noticeContext,
+        _noticeRequestFailure(
           RequestFailure(
             failure.request,
             failure.kind,
@@ -756,6 +759,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         (signal) => signal.message,
       ),
     );
+    _remoteReconnect.addListener(_reconnectChanged);
     _remoteLoss = RemoteConnectionLossHandler(
       losses: RemoteConnectionLost.rustSignalStream.map(
         (signal) => signal.message,
@@ -778,15 +782,15 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         (signal) => signal.message,
       ),
       showNotice: (failure) {
-        final context = _noticeContext();
-        if (context == null || !context.mounted) return;
-        final message = shareSyncFailureMessage(S.of(context), failure);
-        displayInfoBar(
-          context,
-          builder: (_, close) => InfoBar(
-            title: Text(message),
-            severity: InfoBarSeverity.warning,
-            onClose: close,
+        if (!mounted) return;
+        final s = S.of(context);
+        final message = shareSyncFailureMessage(s, failure);
+        _notices?.add(
+          message,
+          (context) => showErrorDialog(
+            context: context,
+            title: s.unknownError,
+            errorMessage: message,
           ),
         );
       },
@@ -794,14 +798,15 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
-        final context = _noticeContext();
-        if (context == null || !context.mounted) return;
-        displayInfoBar(
-          context,
-          builder: (context, close) => InfoBar(
-            title: Text(S.of(context).rendererLinkLost(alias)),
-            severity: InfoBarSeverity.warning,
-            onClose: close,
+        if (!mounted) return;
+        final s = S.of(context);
+        final message = s.rendererLinkLost(alias);
+        _notices?.add(
+          message,
+          (context) => showInformationDialog(
+            context: context,
+            title: s.playOn,
+            subtitle: message,
           ),
         );
       },
@@ -919,6 +924,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   dispose() {
     super.dispose();
 
+    _notices = null;
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
     _shareSyncNotice.dispose();
@@ -942,6 +948,17 @@ class RuneLifecycleState extends State<RuneLifecycle> {
       _noticeOpenRecordId = recordId;
       _remoteReconnect.clear();
     }
+  }
+
+  void _reconnectChanged() {
+    if (_remoteReconnect.value == null || _reconnectingOpen) return;
+    final dialogContext = rootNavigatorKey.currentState?.overlay?.context;
+    if (dialogContext == null || !dialogContext.mounted) return;
+    _reconnectingOpen = true;
+    showRemoteReconnectingDialog(
+      dialogContext,
+      _remoteReconnect,
+    ).whenComplete(() => _reconnectingOpen = false);
   }
 
   void _throttleUpdateTray() {
@@ -977,27 +994,6 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String?>(
-      valueListenable: _remoteReconnect,
-      child: widget.child,
-      builder: (context, alias, child) => Stack(
-        fit: StackFit.expand,
-        children: [
-          child!,
-          if (alias != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 24,
-              child: SafeArea(
-                child: InfoBar(
-                  title: Text(S.of(context).remoteLibraryReconnecting(alias)),
-                  severity: InfoBarSeverity.info,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
+    return widget.child;
   }
 }

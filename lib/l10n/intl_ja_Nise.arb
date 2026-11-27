@@ -1597,6 +1597,10 @@
       }
     }
   },
+  "visualizerNoAnswer": "可视化效果無応答",
+  "@visualizerNoAnswer": {
+    "description": "Reason shown under a failed scene import when the visualizer gave no answer."
+  },
   "visualizerDeleteScene": "刪除景",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."

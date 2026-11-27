@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use discovery::access_policy::PeerIdentity;
 use discovery::server::{PermissionManager, UserStatus};
 use discovery::ssl;
-use rand::{RngCore, rngs::OsRng};
+use rsa::rand_core::{OsRng, RngCore};
 use rsa::{Pss, RsaPublicKey, pkcs8::DecodePublicKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

@@ -4,8 +4,9 @@ use anyhow::{Context, Result, ensure};
 use database::{
     actions::{
         downloads::{
-            DownloadReport, download_job, prepare_download, record_download_failure,
-            release_obsolete_reservations, retry_is_due, rule_queries, validate_queries,
+            DownloadReport, download_job, enabled_download_rules, pending_download_reservations,
+            prepare_download, record_download_failure, release_obsolete_reservations,
+            release_unselected_reservations, retry_is_due, rule_queries, validate_queries,
         },
         file::{attach_download, catalog_track, is_materialized},
         mixes::query_mix_media_files_with_seed,
@@ -16,7 +17,7 @@ use database::{
 };
 use fsio::FsIo;
 use http_request::sync::MetadataPeer;
-use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{DatabaseConnection, DbErr};
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
@@ -142,11 +143,8 @@ pub async fn download_audio_pass(
     progress: &mut DownloadProgress,
 ) -> Result<DownloadAudioPass> {
     release_obsolete_reservations(&db).await?;
-    let rules = sync_download_rules::Entity::find()
-        .filter(sync_download_rules::Column::Enabled.eq(true))
-        .order_by_asc(sync_download_rules::Column::Id)
-        .all(&db)
-        .await?;
+    let rules = enabled_download_rules(&db).await?;
+    let mut unselected = pending_download_reservations(&db).await?;
     if rules != progress.rules {
         *progress = DownloadProgress {
             rules,
@@ -154,6 +152,7 @@ pub async fn download_audio_pass(
         };
     }
     if progress.rules.is_empty() {
+        release_unselected_reservations(&db, &progress.rules, unselected).await?;
         return Ok(DownloadAudioPass::default());
     }
     let server = context.remote.base_url();
@@ -246,6 +245,7 @@ pub async fn download_audio_pass(
                 break;
             }
             for file in files {
+                unselected.remove(&file.source_uuid);
                 let file_id = file.id;
                 if attempted.contains(&file_id) {
                     continue;
@@ -352,6 +352,10 @@ pub async fn download_audio_pass(
                 break;
             }
         }
+    }
+    // A bounded or failed evaluation cannot establish that a pending job is unselected.
+    if report.failed_rules == 0 {
+        release_unselected_reservations(&db, &progress.rules, unselected).await?;
     }
     if !rule_query_failed {
         *progress = DownloadProgress::default();

@@ -18,9 +18,9 @@ use tokio::sync::Mutex;
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
 #[cfg(target_os = "ios")]
-use crate::ios_now_playing::MediaControls;
+use crate::dummy_souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
 #[cfg(target_os = "ios")]
-use souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
+use crate::ios_now_playing::MediaControls;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
@@ -164,6 +164,7 @@ pub async fn handle_media_control_event(
                 player.lock().await.seek(target);
             }
         }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         _ => debug!("Unhandled media control event: {event:?}"),
     }
 

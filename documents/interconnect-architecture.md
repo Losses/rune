@@ -166,9 +166,10 @@ Each implementation reports what it can do, and the UI is gated on that rather t
 - The endpoint URL grammar: the scheme names the implementation and `+` the transport.
     - `rune://<fingerprint>?v=1&addr=192.168.1.5:7863` for Rune devices: identity first, addresses as hints. The fingerprint is the SHA-256 of the public key in lowercase base32.
     - `subsonic+https://music.example.com/navidrome?v=1&user=alice` for Subsonic servers.
-    - `opendal+s3://bucket/prefix?v=1&region=…` and `opendal+webdav://…` for OpenDAL storage.
+    - `opendal+s3://bucket/prefix?v=1&region=…` for S3, with an optional `endpoint` for S3-compatible servers.
+    - `opendal+webdav://files.example.com/dav?v=1&root=music` for WebDAV, with HTTPS by default and `transport=http` for an HTTP server.
     - `file://` and Android `content://` for local libraries.
-- `v` is required, and a newer `v` reports that a newer Rune is needed. Every parameter must be understood: an unknown parameter is an error that names it, except parameters starting with `opt-`, which a reader may ignore. Parse errors are typed.
+- `v` is required, and a newer `v` reports that a newer Rune is needed. The parser rejects reserved secret names and unknown required Rune or Subsonic parameters. It ignores `opt-` hints and passes storage parameters to the OpenDAL storage adapter. The adapter validates the settings for the named service and reports unknown or invalid parameters by name. Parse and storage configuration errors are typed.
 - A device address is one type: a host or IP and a port, with one parser, one printer, one default port and one way to build a device's URLs. A discovered device is added from the fingerprint and addresses it announces, a manually added one from a host and port typed into a form; both are confirmed with the fingerprint quiz. Pairing trusts a device only when the certificate the user verified is the one the device presented. Connections between devices always use TLS.
 
 ### Secrets
@@ -482,5 +483,5 @@ Each scenario is covered by an automated test that drives the real components ac
 - A Guest controlling a player can queue songs but sees no like action.
 - The device page offers one Not shared / Read only / Read and write choice per library and sets both levels from it; a combination set through the API is shown unchanged.
 - A forwarded `UpdateClientStatusRequest` from another device is refused.
-- An endpoint URL with an unknown parameter is rejected with that parameter named; an unknown `opt-` parameter is ignored; a newer `v` asks for a newer version.
+- A Rune or Subsonic endpoint with an unknown required parameter is rejected by the parser. The storage adapter accepts known service settings and rejects unknown or invalid settings by name. An `opt-` parameter is ignored, and a newer `v` asks for a newer version.
 - While a scan runs, starting analysis on the same library from any device is refused with the running task named, and every device shows the scan's progress.

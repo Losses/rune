@@ -26,10 +26,12 @@ use discovery::{
     server::{PermissionManager, UserStatus},
 };
 use playback::{
-    PlayerCommand, hosted::is_hosted_path, player::HandoffBlockId as PlayerHandoffBlockId,
+    PlayerCommand, hosted::host_of_path, player::HandoffBlockId as PlayerHandoffBlockId,
     sfx_player::SfxPlayer,
 };
 use rinf::DartSignal;
+#[cfg(target_os = "linux")]
+use tokio::sync::watch;
 use tokio::{
     sync::{Mutex, RwLock, RwLockReadGuard, broadcast},
     task::JoinHandle,
@@ -46,6 +48,7 @@ use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::{ShareSyncRequests, SyncTokenStore};
+use crate::service::ServicePlayer;
 use crate::service::{
     ServiceBinding,
     covers::ServiceCoverCache,
@@ -256,6 +259,8 @@ pub struct NodeContext {
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    #[cfg(target_os = "linux")]
+    pub(crate) mpris_status: Option<watch::Sender<Option<PlaybackStatus>>>,
     /// Ends when another player takes over from the local player, which cancels the UI
     /// requests to the local player that are still running. The ended tenure stays here until
     /// the local player's departure has queued its pause.
@@ -263,16 +268,21 @@ pub struct NodeContext {
     /// How many `HiddenLocalSession`s are alive. The session's events stay out of the UI while
     /// any is.
     local_session_hidden: Arc<AtomicUsize>,
-    /// Whether a platform host plays the current track of this device's own player, so that
-    /// it gives the visualizer nothing. Changed only under the `current_player` lock, which
-    /// orders the inputs published.
-    local_track_hosted: AtomicBool,
+    /// The platform host that plays the current track of this device's own player, if one does,
+    /// so that it gives the visualizer nothing. Changed only under the `current_player` lock,
+    /// which orders the inputs published; that lock is taken first, this one after it.
+    local_track_host: StdMutex<Option<String>>,
     /// Whether this device's own player has a track at all. The volume control goes back to
-    /// Rune's own volume without one, though `local_track_hosted` keeps what the last track said.
+    /// Rune's own volume without one, though `local_track_host` keeps what the last track said.
     local_track_loaded: AtomicBool,
-    /// What the UI here was last told about `local_track_hosted` for the current player. Changed
-    /// only under the `current_player` lock.
+    /// The platform hosts on this device that said they have a volume of their own, which the
+    /// player's gain sets. Changed only under the `current_player` lock, taken first.
+    own_volume_hosts: StdMutex<HashSet<String>>,
+    /// What the UI here was last told about the host of the current player's track: whether one
+    /// plays it, and whether it has a volume of its own. Changed only under the `current_player`
+    /// lock.
     reported_hosted: AtomicBool,
+    reported_own_volume: AtomicBool,
     /// What Dart was last told the current source gives the visualizer. Changed only under the
     /// `current_player` lock, like the inputs themselves: that lock is taken first, this one
     /// after it.
@@ -341,6 +351,8 @@ impl Debug for NodeContext {
 
 struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    #[cfg(target_os = "linux")]
+    mpris_status: Option<watch::Sender<Option<PlaybackStatus>>>,
     local_session_hidden: Arc<AtomicUsize>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
@@ -382,12 +394,23 @@ pub(crate) enum HandoffPlaybackReport {
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let remote_event = message.remote_event();
-        let suppress_local_status = (self
-            .current_player
-            .lock()
+        let current = self.current_player.lock();
+        let suppress_local_status = (current
+            .as_ref()
             .is_ok_and(|player| player.suppresses_local_session_events())
             || self.local_session_hidden.load(Ordering::Acquire) > 0)
             && remote_event == Some(RemoteEventScope::Session);
+        #[cfg(target_os = "linux")]
+        if !suppress_local_status
+            && let Some(sender) = &self.mpris_status
+            && let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>()
+            && current
+                .as_ref()
+                .is_ok_and(|player| matches!(**player, CurrentPlayer::Local))
+        {
+            sender.send_replace(Some(status.clone()));
+        }
+        drop(current);
         if !suppress_local_status {
             self.local.broadcast(message);
         }
@@ -397,7 +420,61 @@ impl Broadcaster for NodeBroadcaster {
     }
 }
 
+#[cfg(target_os = "linux")]
+struct ServiceMprisBroadcaster {
+    current_player: Weak<StdMutex<CurrentPlayer>>,
+    sender: watch::Sender<Option<PlaybackStatus>>,
+    gui: Arc<dyn Broadcaster>,
+    service: Weak<dyn ServicePlayer>,
+}
+
+#[cfg(target_os = "linux")]
+impl Broadcaster for ServiceMprisBroadcaster {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>()
+            && let Some(current) = self.current_player.upgrade()
+            && let Ok(current) = current.lock()
+            && let CurrentPlayer::ServicePlayer(player) = &*current
+            && self.service.ptr_eq(&Arc::downgrade(player))
+        {
+            self.sender.send_replace(Some(status.clone()));
+        }
+        self.gui.broadcast(message);
+    }
+}
+
 impl NodeContext {
+    pub(crate) fn service_player_broadcaster(
+        &self,
+        service: Weak<dyn ServicePlayer>,
+    ) -> Arc<dyn Broadcaster> {
+        #[cfg(target_os = "linux")]
+        if let Some(sender) = &self.mpris_status {
+            return Arc::new(ServiceMprisBroadcaster {
+                current_player: Arc::downgrade(&self.current_player),
+                sender: sender.clone(),
+                gui: Arc::clone(&self.gui_broadcaster),
+                service,
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        drop(service);
+        Arc::clone(&self.gui_broadcaster)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn publish_renderer_mpris_status(&self, id: Uuid, status: &PlaybackStatus) {
+        if let Some(sender) = &self.mpris_status
+            && let Ok(current) = self.current_player.lock()
+            && let CurrentPlayer::RunePeer {
+                link: Some(link), ..
+            } = &*current
+            && link.id() == id
+        {
+            sender.send_replace(Some(status.clone()));
+        }
+    }
+
     pub(crate) fn subscribe_handoff_playback_events(
         &self,
     ) -> broadcast::Receiver<HandoffPlaybackEvent> {
@@ -502,6 +579,8 @@ impl NodeContext {
         let renderer_link = Arc::new(StdMutex::new(None));
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
         let current_player = Arc::new(StdMutex::new(CurrentPlayer::Local));
+        #[cfg(target_os = "linux")]
+        let mpris_status = os_media_controls.then(|| watch::Sender::new(None));
         let local_session_hidden = Arc::new(AtomicUsize::new(0));
         let sync_tokens = SyncTokenStore::default();
         let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
@@ -544,6 +623,8 @@ impl NodeContext {
             sync_settings_update: Mutex::new(()),
             broadcaster: Arc::new(NodeBroadcaster {
                 current_player: current_player.clone(),
+                #[cfg(target_os = "linux")]
+                mpris_status: mpris_status.clone(),
                 local_session_hidden: local_session_hidden.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
@@ -554,11 +635,15 @@ impl NodeContext {
             renderer_link,
             ui_library,
             current_player,
+            #[cfg(target_os = "linux")]
+            mpris_status,
             local_player_tenure: Arc::default(),
             local_session_hidden,
-            local_track_hosted: AtomicBool::new(false),
+            local_track_host: StdMutex::new(None),
             local_track_loaded: AtomicBool::new(false),
+            own_volume_hosts: StdMutex::new(HashSet::new()),
             reported_hosted: AtomicBool::new(false),
+            reported_own_volume: AtomicBool::new(false),
             published_visualizer_inputs: StdMutex::new(None),
             open_generation: AtomicU64::new(0),
             reconnect_config,
@@ -918,7 +1003,11 @@ impl NodeContext {
         }
     }
 
-    pub async fn session_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
+    /// The tracks of `library_id` in the queue of this device's own player. Only work this
+    /// device does for itself reads it: choosing which downloads to keep. A request reads the
+    /// queue its caller sent ([`crate::messages::CallerQueue`]), which may belong to another
+    /// player.
+    pub async fn own_player_queue_for_library(&self, library_id: Uuid) -> Result<Vec<i32>> {
         self.session()?.queue_for_library(library_id).await
     }
 
@@ -1294,6 +1383,22 @@ impl NodeContext {
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        #[cfg(target_os = "linux")]
+        if let Some(sender) = &self.mpris_status
+            && !match (&*current, &player) {
+                (CurrentPlayer::Local, CurrentPlayer::Local) => true,
+                (CurrentPlayer::ServicePlayer(a), CurrentPlayer::ServicePlayer(b)) => {
+                    Arc::ptr_eq(a, b)
+                }
+                (
+                    CurrentPlayer::RunePeer { link: Some(a), .. },
+                    CurrentPlayer::RunePeer { link: Some(b), .. },
+                ) => a.id() == b.id(),
+                _ => false,
+            }
+        {
+            sender.send_replace(None);
+        }
         *current = player;
         // This device's player owns the visualizer again, so its session's reports are the
         // playback to show. Until then they are ignored: the session keeps reporting the paused
@@ -1323,18 +1428,55 @@ impl NodeContext {
         lock_tenures(&self.local_player_tenure).map(|tenure| Arc::clone(&tenure))
     }
 
-    /// Tells the UI here whether a platform host plays what the current player plays, when that
-    /// changed. Only this device's own player can be hosted: with a renderer or a service's own
-    /// player current, the host is out of the picture whatever the local player still holds.
-    /// Called under the `current_player` lock, which orders what is told.
+    /// Tells the UI here whether a platform host plays what the current player plays, and
+    /// whether that host has a volume of its own, when either changed. Only this device's own
+    /// player can be hosted: with a renderer or a service's own player current, the host is out
+    /// of the picture whatever the local player still holds. Called under the `current_player`
+    /// lock, which orders what is told.
     fn publish_player_host(&self, current: &CurrentPlayer) {
-        let hosted = matches!(current, CurrentPlayer::Local)
-            && self.local_track_loaded.load(Ordering::Acquire)
-            && self.local_track_hosted.load(Ordering::Acquire);
-        if self.reported_hosted.swap(hosted, Ordering::AcqRel) != hosted {
+        let host = match current {
+            CurrentPlayer::Local if self.local_track_loaded.load(Ordering::Acquire) => self
+                .local_track_host
+                .lock()
+                .ok()
+                .and_then(|host| host.clone()),
+            _ => None,
+        };
+        let hosted = host.is_some();
+        let own_volume = host.is_some_and(|host| {
+            self.own_volume_hosts
+                .lock()
+                .is_ok_and(|hosts| hosts.contains(&host))
+        });
+        let hosted_changed = self.reported_hosted.swap(hosted, Ordering::AcqRel) != hosted;
+        let own_volume_changed =
+            self.reported_own_volume.swap(own_volume, Ordering::AcqRel) != own_volume;
+        if hosted_changed || own_volume_changed {
             self.gui_broadcaster
-                .broadcast(&PlayerHostChanged { hosted });
+                .broadcast(&PlayerHostChanged { hosted, own_volume });
         }
+    }
+
+    /// Notes whether a platform host on this device has a volume of its own, as it said when it
+    /// started, and tells the UI here when that changes what its volume control moves.
+    pub(crate) fn note_host_volume(&self, host: &str, own_volume: bool) -> Result<()> {
+        let current = self
+            .current_player
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        {
+            let mut hosts = self
+                .own_volume_hosts
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Own volume hosts lock poisoned"))?;
+            if own_volume {
+                hosts.insert(host.to_owned());
+            } else {
+                hosts.remove(host);
+            }
+        }
+        self.publish_player_host(&current);
+        Ok(())
     }
 
     /// Publishes the current player's visualizer inputs again, for when what that player
@@ -1372,12 +1514,20 @@ impl NodeContext {
     /// What `current` gives the visualizer. This device's own player gives nothing while a
     /// platform host plays its track.
     fn visualizer_inputs(&self, current: &CurrentPlayer) -> VisualizerInputs {
+        let hosted = self
+            .local_track_host
+            .lock()
+            .is_ok_and(|host| host.is_some());
         match current {
-            CurrentPlayer::Local if self.local_track_hosted.load(Ordering::Acquire) => {
-                VisualizerInputs::None
-            }
+            CurrentPlayer::Local if hosted => VisualizerInputs::None,
             current => current.visualizer_inputs(),
         }
+    }
+
+    fn local_track_host(&self) -> Result<StdMutexGuard<'_, Option<String>>> {
+        self.local_track_host
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Local track host lock poisoned"))
     }
 
     /// Notes the current track of this device's own player: its path, and whether it has a track
@@ -1392,20 +1542,25 @@ impl NodeContext {
     /// whatever the last track was. A paused hosted track, restored at startup too, still counts
     /// as hosted, because the next play goes to the host.
     pub(crate) fn note_local_track(&self, path: Option<&Path>, has_track: bool) -> Result<()> {
-        let hosted = path.map(is_hosted_path);
-        let hosted_changes =
-            hosted.is_some_and(|hosted| hosted != self.local_track_hosted.load(Ordering::Acquire));
-        if !hosted_changes && has_track == self.local_track_loaded.load(Ordering::Acquire) {
+        // The host of the track the path names, none for a file, and nothing without a path.
+        let host = path.map(|path| host_of_path(path).map(str::to_owned));
+        let host_changes = match &host {
+            Some(host) => *self.local_track_host()? != *host,
+            None => false,
+        };
+        if !host_changes && has_track == self.local_track_loaded.load(Ordering::Acquire) {
             return Ok(());
         }
         let current = self
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
-        if let Some(hosted) = hosted
-            && self.local_track_hosted.swap(hosted, Ordering::AcqRel) != hosted
-        {
-            self.publish_visualizer_inputs(&current)?;
+        if let Some(host) = host {
+            let hosted = host.is_some();
+            let was_hosted = std::mem::replace(&mut *self.local_track_host()?, host).is_some();
+            if was_hosted != hosted {
+                self.publish_visualizer_inputs(&current)?;
+            }
         }
         self.local_track_loaded.store(has_track, Ordering::Release);
         self.publish_player_host(&current);
@@ -2286,6 +2441,8 @@ mod tests {
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
             current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
+            #[cfg(target_os = "linux")]
+            mpris_status: None,
             local_session_hidden: Arc::default(),
             local: Arc::new(Quiet(None)),
             remote,

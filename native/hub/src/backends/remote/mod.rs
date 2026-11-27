@@ -667,6 +667,8 @@ async fn register_session_handlers(
                 match decode(&payload) {
                     Ok(message) => {
                         if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>() {
+                            #[cfg(target_os = "linux")]
+                            node.publish_renderer_mpris_status(id, status);
                             node.publish_handoff_playback_event(HandoffPlaybackEvent {
                                 link: id,
                                 report: HandoffPlaybackReport::Status(Box::new(status.clone())),

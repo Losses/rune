@@ -18,7 +18,7 @@ anyhow = "1.0.98"
 chart_analyzer = { path = "../chart-analyzer" }
 fsio = { path = "../fsio" }
 log = "0.4.22"
-rand = "0.8.5"
+rand = "0.10.3"
 realfft = "3.4.0"
 rtrb = "0.3.2"
 bincode = { version = "2.0.1", features = ["serde"] }

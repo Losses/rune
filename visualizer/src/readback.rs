@@ -174,7 +174,12 @@ impl Target {
             });
             self.in_flight.push_back(InFlight { buffer, state });
         }
+        self.finished(device)
+    }
 
+    /// The newest frame whose mapping has finished since the last look, if any. Never waits for
+    /// the GPU.
+    pub(crate) fn finished(&mut self, device: &wgpu::Device) -> Result<Option<MappedFrame>> {
         // Runs the callbacks of finished mappings without blocking.
         device
             .poll(PollType::Poll)

@@ -31,7 +31,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use ::fsio::{FsIo, FsNode, OpenMode};
+use ::fsio::{FsIo, FsNode, OpenMode, StorageLocation};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
@@ -922,6 +922,7 @@ async fn clean_up_database(
     root_path: &Path,
     policy: MissingHostFilePolicy,
     store: &crate::sync::SeaOrmSyncStore,
+    cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
     let files = media_files::Entity::find()
         .filter(media_files::Column::LocalAvailable.eq(true))
@@ -933,9 +934,15 @@ async fn clean_up_database(
         .count();
     let fsio_for_missing = fsio.clone();
     let root_for_missing = root_path.to_path_buf();
+    let cancel_missing = cancel_token.cloned();
     let missing: Vec<_> = task::spawn_blocking(move || {
         files
             .into_iter()
+            .take_while(|_| {
+                !cancel_missing
+                    .as_ref()
+                    .is_some_and(CancellationToken::is_cancelled)
+            })
             .filter(|file| {
                 matches!(
                     fsio_for_missing
@@ -946,6 +953,9 @@ async fn clean_up_database(
             .collect()
     })
     .await?;
+    if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+        return Ok(());
+    }
     let host_missing = missing
         .iter()
         .filter(|file| !is_managed_directory(&file.directory))
@@ -956,6 +966,9 @@ async fn clean_up_database(
     }
     let root_listable = fsio.read_dir(root_path).await.is_ok();
     for file in missing {
+        if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+            break;
+        }
         let result: Result<()> = async {
             if !is_managed_directory(&file.directory)
                 && policy == MissingHostFilePolicy::RemoveEverywhere
@@ -966,11 +979,12 @@ async fn clean_up_database(
                 let removal: Result<()> = async {
                     store.lock(&tx).await?;
                     let current = media_files::Entity::find_by_id(file.id).one(&tx).await?;
-                    if current.as_ref().is_some_and(|row| {
+                    let unchanged = current.as_ref().is_some_and(|row| {
                         row.local_available
                             && row.directory == file.directory
                             && row.file_name == file.file_name
-                    }) {
+                    });
+                    if unchanged && !cancel_token.is_some_and(CancellationToken::is_cancelled) {
                         remove_track(&tx, store, file.id).await?;
                     }
                     Ok(())
@@ -1272,9 +1286,16 @@ where
             .is_some_and(|token| token.is_cancelled())
     {
         info!("Starting cleanup process.");
-        match clean_up_database(fsio, main_db, lib_path, policy, store)
-            .await
-            .with_context(|| "Unable to cleanup database")
+        match clean_up_database(
+            fsio,
+            main_db,
+            lib_path,
+            policy,
+            store,
+            cancel_token.as_ref(),
+        )
+        .await
+        .with_context(|| "Unable to cleanup database")
         {
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("{e:#?}"),
@@ -1290,6 +1311,20 @@ where
             lib_path,
             &scanned_directories,
             scanner.take_cue_files(),
+            cancel_token.as_ref(),
+        )
+        .await?;
+    }
+    // Local sidecars can change while audio remains unchanged. Remote normal scans
+    // keep the audio-based skip; a Force Scan refreshes their covers on demand.
+    if walk_complete && !force && fsio.storage() == StorageLocation::Local {
+        super::cover_art::refresh_checked_external_artwork(
+            fsio,
+            main_db,
+            store,
+            lib_path,
+            scanned_directories,
+            scanner.take_external_cover_directories(),
             cancel_token.as_ref(),
         )
         .await?;

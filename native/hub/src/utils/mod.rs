@@ -62,7 +62,7 @@ use ::database::{
     library_registry::{
         CatalogPlacement, FsAdapter, InvalidRecord, LibraryRecord, LibraryRecordId,
         LibraryRegistry, ProtocolAdapter, RuneForwardMode, ServiceKind, SubsonicOpenMode,
-        resolve_library,
+        resolve_library_with_db_root,
     },
     playing_item::{MediaFileHandle, PlayingItemMetadataSummary},
 };
@@ -1430,12 +1430,22 @@ pub(crate) async fn register_local_library_on_node(
         });
     }
     let result = async {
-        if request.mode == Some(LibraryInitializeMode::Redirected) {
+        if matches!(state, LibraryState::Uninitialized)
+            && request.mode == Some(LibraryInitializeMode::Redirected)
+        {
             create_redirect(&fsio, path).await?;
         }
         let mode = check_storage_mode(&fsio, path)?;
         let mut registry = LibraryRegistry::load(Path::new(&*config))?;
-        resolve_library(&fsio, &mut registry, path, &request.alias, mode).await
+        resolve_library_with_db_root(
+            &fsio,
+            &mut registry,
+            node.library_pool.db_root(),
+            path,
+            &request.alias,
+            mode,
+        )
+        .await
     }
     .await;
     match result {
@@ -2348,15 +2358,17 @@ async fn open_subsonic_record(
             return Err((kind, anyhow::anyhow!(detail)));
         }
     };
-    let binding = Arc::new(SubsonicBinding::new(
-        client,
-        probe,
-        config_dir.to_path_buf(),
-        library_id,
-        play_on_this_device,
-        Arc::clone(&node.gui_broadcaster),
-        Arc::clone(node.visualizer()),
-    ));
+    let binding = Arc::<SubsonicBinding>::new_cyclic(|binding| {
+        SubsonicBinding::new(
+            client,
+            probe,
+            config_dir.to_path_buf(),
+            library_id,
+            play_on_this_device,
+            node.service_player_broadcaster(binding.clone()),
+            Arc::clone(node.visualizer()),
+        )
+    });
     if kept_probe.is_none() {
         binding.keep_probe();
     }

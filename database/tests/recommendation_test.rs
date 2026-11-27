@@ -12,7 +12,7 @@ use ::database::{
 };
 use ::fsio::FsIo;
 use anyhow::Result;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryOrder, Statement};
 use std::fs;
 use std::path::Path;
@@ -332,12 +332,12 @@ async fn loaded_vectors_are_bit_identical_to_the_model_conversion() -> Result<()
         // Mixed magnitudes and many digits, some NULLs.
         let values: Vec<String> = columns
             .iter()
-            .map(|_| match rng.gen_range(0..6) {
+            .map(|_| match rng.random_range(0..6) {
                 0 => "NULL".to_string(),
-                1 => format!("{}", rng.gen_range(-1.0e6f64..1.0e6)),
-                2 => format!("{}", rng.gen_range(-1.0e-6f64..1.0e-6)),
-                3 => format!("{}", rng.r#gen::<f64>().sin() * 1.0e-12),
-                _ => format!("{}", rng.gen_range(-1.0f64..1.0)),
+                1 => format!("{}", rng.random_range(-1.0e6f64..1.0e6)),
+                2 => format!("{}", rng.random_range(-1.0e-6f64..1.0e-6)),
+                3 => format!("{}", rng.random::<f64>().sin() * 1.0e-12),
+                _ => format!("{}", rng.random_range(-1.0f64..1.0)),
             })
             .collect();
         db.execute_unprepared(&format!(
@@ -385,14 +385,14 @@ fn perf_query_over_100k_vectors() {
     let recommend_db = RecommendationDbConnection::new();
     recommend_db.replace((1..=100_000u32).map(|id| {
         let mut v = [0f32; 61];
-        v.iter_mut().for_each(|x| *x = rng.gen_range(-1.0..1.0));
+        v.iter_mut().for_each(|x| *x = rng.random_range(-1.0..1.0));
         (id, v)
     }));
 
     let mut times: Vec<f64> = (0..200)
         .map(|_| {
             let mut q = [0f32; 61];
-            q.iter_mut().for_each(|x| *x = rng.gen_range(-1.0..1.0));
+            q.iter_mut().for_each(|x| *x = rng.random_range(-1.0..1.0));
             let start = Instant::now();
             let result = get_recommendation_by_parameter(&recommend_db, q, 30).unwrap();
             assert_eq!(result.len(), 30);

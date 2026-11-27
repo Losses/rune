@@ -121,6 +121,22 @@ jobs:
         run: |
           dart analyze .
 
+      - name: Test the Rune analyzer rules
+        # A pull request whose checkout predates the rules must still be able to
+        # run the workflow from a newer master.
+        run: |
+          if [[ -d scripts/rune_lints ]]; then
+            cd scripts/rune_lints
+          elif [[ -d rune_lints ]]; then
+            cd rune_lints
+          else
+            echo "Rune analyzer rules are not present in this checkout; skipping their tests."
+            exit 0
+          fi
+          dart pub get
+          dart analyze .
+          dart test
+
       - name: Run Flutter behavior tests
         # Widget and unit tests for the playback controls, queue edits, library
         # lifecycle, settings and dialogs. The real-app flows in integration_test/

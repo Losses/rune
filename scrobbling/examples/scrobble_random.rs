@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Arg, Command};
-use rand::Rng;
+use rand::RngExt;
 use scrobbling::{
     ScrobblingClient, ScrobblingTrack, last_fm::LastFmClient, libre_fm::LibreFmClient,
     listen_brainz::ListenBrainzClient,
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         track: "Random Track".to_string(),
         album: Some("Random Album".to_string()),
         album_artist: Some("Random Album Artist".to_string()),
-        duration: Some(rand::thread_rng().gen_range(180..300) as f64),
+        duration: Some(rand::rng().random_range(180..300) as f64),
         timestamp: None,
     };
 

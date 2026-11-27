@@ -1,10 +1,14 @@
 import 'request_failure.dart';
+import 'query_mix_tracks.dart';
 import '../../bindings/bindings.dart';
 
 Future<ComplexQueryResponse?> complexQuery(List<ComplexQuery> queries) async {
   if (queries.isEmpty) return null;
 
-  final fetchLibrarySummary = ComplexQueryRequest(queries: queries);
+  final fetchLibrarySummary = ComplexQueryRequest(
+    queries: queries,
+    queue: shownPlayerQueue(),
+  );
 
   final rustSignal = await awaitResponse(
     'ComplexQueryRequest',

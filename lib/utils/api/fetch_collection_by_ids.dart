@@ -1,4 +1,5 @@
 import 'request_failure.dart';
+import 'query_mix_tracks.dart';
 import 'dart:async';
 
 import '../../bindings/bindings.dart';
@@ -13,6 +14,7 @@ Future<List<Collection>> fetchCollectionByIds(
     ids: ids,
     collectionType: collectionType,
     bakeCoverArts: bakeCoverArts,
+    queue: shownPlayerQueue(),
   );
 
   final response = (await awaitResponse(

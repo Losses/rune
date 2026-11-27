@@ -2,7 +2,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 
-use fsio::{FileIoError, FsIo, OpenDalConfig, OpenMode, StorageLocation};
+use discovery::endpoint::{EndpointUrl, EndpointUrlError};
+use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalEndpointError, OpenMode, StorageLocation};
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 use tokio::time as tokio_time;
@@ -99,6 +100,31 @@ async fn webdav_read_and_seek_contract() {
 }
 
 #[tokio::test]
+async fn webdav_endpoint_parameters_reach_the_storage_adapter() {
+    tokio_time::timeout(DEADLINE, async {
+        let server = WebDavFixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
+            .await
+            .unwrap();
+        let authority = server.endpoint.strip_prefix("http://").unwrap();
+        for location in ["/dav", "/dav/"] {
+            let endpoint =
+                format!("opendal+webdav://{authority}{location}?v=1&transport=http&root=library")
+                    .parse()
+                    .unwrap();
+            let config =
+                OpenDalConfig::from_endpoint(&endpoint, "user".into(), "pass".into()).unwrap();
+            let OpenDalConfig::WebDav { endpoint, .. } = &config else {
+                panic!("expected a WebDAV configuration");
+            };
+            assert_eq!(endpoint, &format!("http://{authority}/dav"));
+            assert_read_contract(config).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn s3_change_token_is_absent_only_when_the_server_reports_nothing() {
     tokio_time::timeout(DEADLINE, async {
         let files = vec![("audio.mp3".to_owned(), AUDIO.to_vec())];
@@ -127,6 +153,87 @@ async fn s3_read_and_seek_contract() {
             .await
             .unwrap();
         assert_read_contract(s3_config(&server)).await;
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn s3_endpoint_parameters_reach_the_storage_adapter() {
+    tokio_time::timeout(DEADLINE, async {
+        let server = S3Fixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
+            .await
+            .unwrap();
+        let service_endpoint = server.endpoint.replacen("http://", "HTTP://", 1);
+        let endpoint = |query: &str| -> EndpointUrl {
+            format!(
+                "opendal+s3://%62ucket/%6Cibrary?v=1&endpoint={}&{query}",
+                service_endpoint
+            )
+            .parse()
+            .unwrap()
+        };
+        let config = OpenDalConfig::from_endpoint(
+            &endpoint("region=us-west-2&opt-future=1"),
+            "access".into(),
+            "secret".into(),
+        )
+        .unwrap();
+        let OpenDalConfig::S3 {
+            endpoint: base,
+            region,
+            ..
+        } = &config
+        else {
+            panic!("expected an S3 configuration");
+        };
+        assert_eq!(base, &server.endpoint);
+        assert_eq!(region, "us-west-2");
+        assert_read_contract(config).await;
+
+        let aws_endpoint = "opendal+s3://bucket?v=1&region=us-west-2".parse().unwrap();
+        let aws =
+            OpenDalConfig::from_endpoint(&aws_endpoint, "access".into(), "secret".into()).unwrap();
+        FsIo::new_opendal(aws, Handle::current()).unwrap();
+
+        let error =
+            OpenDalConfig::from_endpoint(&endpoint("region="), "access".into(), "secret".into())
+                .unwrap_err();
+        assert_eq!(
+            error,
+            OpenDalEndpointError::InvalidParameter {
+                service: "s3",
+                parameter: "region",
+            }
+        );
+        assert_eq!(error.to_string(), "invalid s3 parameter: region");
+        assert_eq!(
+            OpenDalConfig::from_endpoint(
+                &endpoint("region=us-west-2&unexpected=1"),
+                "access".into(),
+                "secret".into(),
+            )
+            .unwrap_err(),
+            OpenDalEndpointError::UnknownParameter {
+                service: "s3",
+                parameter: "unexpected".into(),
+            }
+        );
+
+        assert_eq!(
+            "subsonic+https://music.example.com?v=1&region=us-west-2".parse::<EndpointUrl>(),
+            Err(EndpointUrlError::UnknownParameter("region".into()))
+        );
+        assert_eq!(
+            "opendal+s3://bucket?v=1&secret_key=secret".parse::<EndpointUrl>(),
+            Err(EndpointUrlError::SecretNotAllowed("secret_key".into()))
+        );
+        assert_eq!(
+            "opendal+s3://bucket?v=1&SeCrEt_AcCeSs_KeY=fixture".parse::<EndpointUrl>(),
+            Err(EndpointUrlError::SecretNotAllowed(
+                "SeCrEt_AcCeSs_KeY".into()
+            ))
+        );
     })
     .await
     .unwrap();

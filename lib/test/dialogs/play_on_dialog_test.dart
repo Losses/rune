@@ -287,7 +287,6 @@ void main() {
       expect(find.byType(ContentDialog), findsOneWidget);
       expect(find.text('This is not available right now.'), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
-      expect(find.byType(InfoBar), findsNothing);
     },
   );
 

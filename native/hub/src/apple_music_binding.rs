@@ -3188,7 +3188,7 @@ impl ServiceBinding for AppleMusicBinding {
                         .collect::<BTreeSet<_>>()
                         .into_iter()
                         .collect();
-                    urls.shuffle(&mut rand::thread_rng());
+                    urls.shuffle(&mut rand::rng());
                     urls.truncate(RANDOM_COVERS);
                     urls
                 }

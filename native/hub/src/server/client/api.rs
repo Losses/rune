@@ -110,6 +110,7 @@ pub async fn fetch_collection_groups(
         collection_type,
         bake_cover_arts: false,
         group_titles,
+        queue: CallerQueue::default(),
     };
 
     connection.request(&request).await

@@ -158,6 +158,10 @@ pub struct LibraryPool {
 }
 
 impl LibraryPool {
+    pub(crate) fn db_root(&self) -> &Path {
+        &self.db_path
+    }
+
     async fn opendal_secret(
         &self,
         credential: CredentialRef,

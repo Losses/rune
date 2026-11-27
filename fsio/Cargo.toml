@@ -8,6 +8,7 @@ name = "fsio"
 path = "src/lib.rs"
 
 [features]
+endpoint-url = ["dep:discovery"]
 test-fixtures = []
 
 [dependencies]
@@ -20,6 +21,7 @@ async-trait = "0.1"
 futures = "0.3"
 dunce = "1.0.5"
 serde = { version = "1.0", features = ["derive"] }
+discovery = { path = "../discovery", optional = true }
 opendal = { version = "0.59", default-features = false, features = ["services-webdav", "services-s3"] }
 opendal-http-transport-reqwest = { version = "0.59", default-features = false, features = ["rustls-no-provider"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
@@ -36,7 +38,7 @@ ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.11" }
 
 [dev-dependencies]
 tempfile = "3.20.0"
-fsio = { path = ".", features = ["test-fixtures"] }
+fsio = { path = ".", features = ["endpoint-url", "test-fixtures"] }
 
 [lints]
 workspace = true

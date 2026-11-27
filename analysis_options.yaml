@@ -21,6 +21,12 @@ analyzer:
     - lib/bindings/**
 include: package:flutter_lints/flutter.yaml
 
+# Rune's own rules. `no_toast` reports every use of a toast (InfoBar,
+# displayInfoBar, SnackBar): Rune tells the user things in a dialog.
+plugins:
+  rune_lints:
+    path: scripts/rune_lints
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

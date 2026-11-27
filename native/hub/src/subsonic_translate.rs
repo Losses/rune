@@ -3548,6 +3548,7 @@ mod tests {
                 collection_type: CollectionType::Artist,
                 bake_cover_arts: true,
                 group_titles: vec!["A".into()],
+                queue: CallerQueue::default(),
             },
         )
         .await
@@ -4218,6 +4219,7 @@ mod tests {
                 collection_type: CollectionType::Playlist,
                 bake_cover_arts: false,
                 group_titles: vec!["A".into(), "R".into()],
+                queue: CallerQueue::default(),
             },
         )
         .await
@@ -4256,6 +4258,7 @@ mod tests {
             collection_type: CollectionType::Playlist,
             bake_cover_arts: false,
             ids,
+            queue: CallerQueue::default(),
             call_id: None,
         };
 
@@ -5506,6 +5509,7 @@ mod tests {
                     group("Genres", LibraryHomeQuery::Genres(mode)),
                     group("Most", LibraryHomeQuery::Most),
                 ],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -5548,6 +5552,7 @@ mod tests {
                     "Albums",
                     LibraryHomeQuery::Albums(LibraryHomeListMode::Reverse),
                 )],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -5602,6 +5607,7 @@ mod tests {
                     group("Albums", LibraryHomeQuery::Albums(mode)),
                     group("Artists", LibraryHomeQuery::Artists(mode)),
                 ],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -5631,6 +5637,7 @@ mod tests {
                     title: "Tracks".into(),
                     query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
                 }],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -5976,6 +5983,7 @@ mod tests {
                     title: "Artists".into(),
                     query: LibraryHomeQuery::Artists(LibraryHomeListMode::Forward),
                 }],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -6004,6 +6012,7 @@ mod tests {
                     title: "Tracks".into(),
                     query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Forward),
                 }],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -6054,6 +6063,7 @@ mod tests {
                     title: "Tracks".into(),
                     query: LibraryHomeQuery::Tracks(LibraryHomeListMode::Reverse),
                 }],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -6084,6 +6094,7 @@ mod tests {
                     title: "Albums".into(),
                     query: LibraryHomeQuery::Albums(LibraryHomeListMode::Reverse),
                 }],
+                queue: CallerQueue::default(),
                 call_id: None,
             },
         )
@@ -6805,6 +6816,7 @@ mod tests {
             collection_type: CollectionType::Artist,
             bake_cover_arts: true,
             group_titles: vec!["A".into()],
+            queue: CallerQueue::default(),
         };
         let immediate = fetch_collection_groups_request(&binding, &request)
             .await
@@ -6963,6 +6975,7 @@ mod tests {
                     LibraryHomeQuery::Albums(LibraryHomeListMode::Forward),
                 ),
             ],
+            queue: CallerQueue::default(),
             call_id: None,
         };
         let names = |response: &ComplexQueryResponse| {
@@ -7137,6 +7150,7 @@ mod tests {
             collection_type: CollectionType::Artist,
             bake_cover_arts: false,
             ids: vec![artist],
+            queue: CallerQueue::default(),
         };
         fetch_collection_by_ids_request(&binding, &fetch)
             .await

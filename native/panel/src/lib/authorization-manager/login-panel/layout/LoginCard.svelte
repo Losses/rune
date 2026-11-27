@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import FluentInput from '$lib/components/ui/FluentInput.svelte';
-	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+	import Card from '#lib/components/ui/Card.svelte';
+	import FluentInput from '#lib/components/ui/FluentInput.svelte';
+	import FluentButton from '#lib/components/ui/FluentButton.svelte';
 
 	interface Props {
 		onSubmit: (password: string) => void;
