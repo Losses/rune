@@ -365,7 +365,7 @@ mod std_fs;
 use std_fs::StdFsIo;
 
 mod opendal_fs;
-pub use opendal_fs::OpenDalConfig;
+pub use opendal_fs::{OpenDalConfig, OpenDalEndpointError};
 mod opendal_object_store;
 pub use opendal_object_store::{ObjectStoreCapabilities, OpenDalObjectStore};
 #[cfg(feature = "test-fixtures")]

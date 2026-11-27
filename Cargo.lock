@@ -2827,6 +2827,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
+ "discovery",
  "dunce",
  "fsio",
  "futures",
