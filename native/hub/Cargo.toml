@@ -138,6 +138,13 @@ migration = { path = "../../migration" }
 simple_channel = { path = "../../simple-channel" }
 tempfile = "3.17.1"
 rcgen = "0.13.2"
+# MITM test proxy only: terminate the target's TLS with its real certificate. `ring` matches
+# the workspace provider; the default features would add the aws-lc-rs C build.
+tokio-rustls = { version = "0.26.1", default-features = false, features = [
+    "logging",
+    "tls12",
+    "ring",
+] }
 
 [lints]
 workspace = true

@@ -1,5 +1,10 @@
 /// Source handing off to a target whose copy of the track does not decode, with the target's
-/// own track playing. The handoff's rollback is the moment the tests cut the transport.
+/// own track playing. Every connection the source makes to the target goes through a TLS
+/// man-in-the-middle that presents the target's own certificate, so pairing, trust, and the
+/// websocket protocol are exactly production. The proxy is the fault injection point: armed
+/// with a cut kind, it turns the first take-back request frame into a transport failure whose
+/// timing is decided by content, not by sleeps. `cut` also stops the target's original queue
+/// from being replaced, because every cut leaves the rollback outcome unknown.
 struct HandoffReconcileFixture {
     _dirs: Vec<TempDir>,
     source: Fixture,
@@ -7,11 +12,11 @@ struct HandoffReconcileFixture {
     host: Fixture,
     _target_replica: Fixture,
     target_fingerprint: String,
-    target_address: SocketAddr,
     target_file: PathBuf,
     valid_audio: Vec<u8>,
     handed_off: PlayingItem,
     expected_item: PlayingItem,
+    cut: mitm::MitmCut,
 }
 
 async fn handoff_reconcile_fixture(name: &str) -> Result<HandoffReconcileFixture> {
@@ -109,6 +114,18 @@ async fn handoff_reconcile_fixture(name: &str) -> Result<HandoffReconcileFixture
     let target_address = paired_full(&target, &source)
         .await
         .context("pair target renderer")?;
+
+    // The target's own certificate terminates TLS at the proxy: the pinned-certificate trust
+    // path the source uses is byte-for-byte production.
+    let cert_pem = fs::read_to_string(
+        Path::new(target.global_params.node.config_path.as_str()).join("certificate.pem"),
+    )
+    .context("read target certificate")?;
+    let key_pem = fs::read_to_string(
+        Path::new(target.global_params.node.config_path.as_str()).join("private_key.pem"),
+    )
+    .context("read target private key")?;
+    let cut = mitm::MitmCut::new(target_address, &cert_pem, &key_pem).await?;
     source
         .global_params
         .cert_validator
@@ -116,7 +133,7 @@ async fn handoff_reconcile_fixture(name: &str) -> Result<HandoffReconcileFixture
         .await
         .replace_hosts_for_fingerprint(
             &target_fingerprint,
-            vec![format!("127.0.0.1:{}", target_address.port())],
+            vec![format!("127.0.0.1:{}", cut.listen_addr.port())],
         )
         .await?;
 
@@ -158,96 +175,37 @@ async fn handoff_reconcile_fixture(name: &str) -> Result<HandoffReconcileFixture
         host,
         _target_replica: target_replica,
         target_fingerprint,
-        target_address,
         target_file,
         valid_audio,
         handed_off,
         expected_item,
+        cut,
     })
 }
 
 impl HandoffReconcileFixture {
-    /// The target's take-back endpoint reports the request to the test. What the override does
-    /// with it is `cut`: either it never applies the take-back, or it applies it and drops the
-    /// answer.
-    async fn install_take_back_cut(&self, apply: bool) -> Arc<Notify> {
-        let rollback_entered = Arc::new(Notify::new());
-        let entered = rollback_entered.clone();
-        let cut_once = Arc::new(AtomicBool::new(false));
-        let target_node = Arc::downgrade(&self.target.global_params.node);
-        let take_back = "TakeBackHandoffBlockRequest";
-        let entered_clone = entered.clone();
-        self.target
-            .global_params
-            .node
-            .websocket_service
-            .override_handler(take_back, move |payload, session, library_id| {
-                let target_node = target_node.clone();
-                let entered = entered_clone.clone();
-                let cut_once = cut_once.clone();
-                async move {
-                    let node = target_node.upgrade().expect("target node");
-                    if cut_once.swap(true, Ordering::SeqCst) {
-                        return dispatch_remote(take_back, &payload, session, library_id, &node)
-                            .await
-                            .expect("real handoff rollback handler");
-                    }
-                    if apply {
-                        let response =
-                            dispatch_remote(take_back, &payload, session, library_id, &node)
-                                .await
-                                .expect("real handoff rollback handler");
-                        // The block is taken back now, but this answer is never sent: the
-                        // transport goes down with it still inside the handler.
-                        let _kept = response;
-                        // Report only once the take-back is applied: stopping the server on
-                        // an earlier signal could still drop the handler mid-apply, and the
-                        // test would exercise the unapplied case it does not name.
-                    }
-                    entered.notify_one();
-                    std::future::pending::<()>().await;
-                    unreachable!("the stopped server drops this pending handler")
-                }
-            })
-            .await;
-        rollback_entered
+    /// The handed-off track is on the target's queue: the handoff load applied there.
+    async fn wait_block_held(&self) -> Result<playback::player::PlayerStatus> {
+        wait_player(&self.target, |status| {
+            status
+                .playlist
+                .iter()
+                .any(|entry| entry.item == self.handed_off)
+        })
+        .await
+        .context("the target should hold the handed-off block")
     }
 
-    /// The target's take-back endpoint answers its first request with a refusal rather than a
-    /// transport loss: the connection carrying it stays usable, but the reconciled block is
-    /// neither applied nor confirmed absent. Later requests reach the real handler.
-    async fn install_take_back_refusal(&self) -> Arc<Notify> {
-        let reconcile_refused = Arc::new(Notify::new());
-        let refused = reconcile_refused.clone();
-        let refuse_once = Arc::new(AtomicBool::new(false));
-        let target_node = Arc::downgrade(&self.target.global_params.node);
-        let take_back = "TakeBackHandoffBlockRequest";
-        self.target
-            .global_params
-            .node
-            .websocket_service
-            .override_handler(take_back, move |payload, session, library_id| {
-                let target_node = target_node.clone();
-                let refused = refused.clone();
-                let refuse_once = refuse_once.clone();
-                async move {
-                    let node = target_node.upgrade().expect("target node");
-                    if refuse_once.swap(true, Ordering::SeqCst) {
-                        return dispatch_remote(take_back, &payload, session, library_id, &node)
-                            .await
-                            .expect("real handoff rollback handler");
-                    }
-                    refused.notify_one();
-                    (
-                        String::new(),
-                        Err(anyhow::Error::new(ExpectedRequestError::invalid_input(
-                            "test: the reconciling take-back is refused",
-                        ))),
-                    )
-                }
-            })
-            .await;
-        reconcile_refused
+    /// The handed-off track left the target's queue: the take-back applied there.
+    async fn wait_block_taken_back(&self) -> Result<playback::player::PlayerStatus> {
+        wait_player(&self.target, |status| {
+            !status
+                .playlist
+                .iter()
+                .any(|entry| entry.item == self.handed_off)
+        })
+        .await
+        .context("the target should have taken the block back")
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -256,6 +214,30 @@ impl HandoffReconcileFixture {
         self.host.global_params.node.shutdown().await?;
         Ok(())
     }
+}
+
+/// Runs one handoff whose rollback is cut the way `kind` says, and returns the dispatch
+/// result. The cut fires exactly when the proxy sees the take-back frame; the handoff's own
+/// outcome then proves whether the source could learn what happened.
+async fn run_cut_handoff(f: &HandoffReconcileFixture, kind: mitm::CutKind) -> Result<Result<()>> {
+    use crate::messages::HandoffRequest;
+
+    f.cut.arm(kind);
+    let source_params = f.source.global_params.clone();
+    let handoff = HandoffRequest {
+        ticket: None,
+        call_id: None,
+        target: Some(f.target_fingerprint.clone()),
+    };
+    let handoff_task =
+        tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
+    timeout(TEST_DEADLINE, f.cut.wait_fired())
+        .await
+        .context("the decode failure should send a take-back through the proxy")?;
+    Ok(handoff_task
+        .await
+        .context("join cut-rollback handoff")?
+        .map(|_| ()))
 }
 
 /// After the rollback's transport died, the retry must not stack the new load on top of whatever
@@ -277,14 +259,7 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
 
     let _target_after_failure = if block_retained {
         // The rollback never applied: the target still holds the handed-off block.
-        let status = wait_player(&f.target, |status| {
-            status
-                .playlist
-                .iter()
-                .any(|entry| entry.item == f.handed_off)
-        })
-        .await
-        .context("the unapplied rollback leaves the handoff block on the target")?;
+        let status = f.wait_block_held().await?;
         assert!(
             status
                 .playlist
@@ -296,14 +271,7 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
         status
     } else {
         // The rollback applied, but its answer never left: the block is already gone.
-        wait_player(&f.target, |status| {
-            !status
-                .playlist
-                .iter()
-                .any(|entry| entry.item == f.handed_off)
-        })
-        .await
-        .context("the applied rollback removes the handoff block on the target")?
+        f.wait_block_taken_back().await?
     };
     wait_player(&f.source, |status| {
         status.state == PlayerPlaybackState::Playing && status.item == Some(f.expected_item.clone())
@@ -311,18 +279,8 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
     .await
     .context("the source resumes after the failed handoff")?;
 
-    // Connectivity returns; the retried handoff is the first connection to the target.
-    f.target
-        .manager
-        .clone()
-        .start(
-            f.target_address,
-            DiscoveryParams {
-                device_info: info(&f.target).await?,
-            },
-            true,
-        )
-        .await?;
+    // The server never went down: only the cut connection died, so the retried handoff's fresh
+    // connection reconciles the pending block.
     fs::write(&f.target_file, &f.valid_audio)?;
     let retry = HandoffRequest {
         ticket: None,
@@ -367,27 +325,10 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_rollback_transport_loss_reconciles_on_reconnect() -> Result<()> {
-    use crate::messages::HandoffRequest;
-
     let f = handoff_reconcile_fixture("handoff-rollback-cut").await?;
-    // The cut lands before the take-back applies: the target keeps the block, and whether it
-    // does is exactly what the source cannot know.
-    let rollback_entered = f.install_take_back_cut(false).await;
-    let source_params = f.source.global_params.clone();
-    let handoff = HandoffRequest {
-        ticket: None,
-        call_id: None,
-        target: Some(f.target_fingerprint.clone()),
-    };
-    let handoff_task = tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
-    timeout(TEST_DEADLINE, rollback_entered.notified())
-        .await
-        .context("the decode failure should request a handoff rollback")?;
-    f.target.manager.stop().await?;
-    let result = handoff_task
-        .await
-        .context("join cut-rollback handoff")?
-        .context("dispatch cut-rollback handoff");
+    // The cut swallows the take-back before it reaches the target: the target keeps the block,
+    // and whether it does is exactly what the source cannot know.
+    let result = run_cut_handoff(&f, mitm::CutKind::BeforeApply).await?;
     assert!(
         result.as_ref().is_err(),
         "a handoff whose rollback loses its connection must fail: {result:?}"
@@ -398,28 +339,30 @@ async fn handoff_rollback_transport_loss_reconciles_on_reconnect() -> Result<()>
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_rollback_answer_loss_reconciles_on_reconnect() -> Result<()> {
-    use crate::messages::HandoffRequest;
-
     let f = handoff_reconcile_fixture("handoff-rollback-answer-cut").await?;
-    // The cut lands after the take-back applied but before its answer left: the target no
-    // longer holds the block, and the reconciling take-back must read the target's `Unavailable`
-    // answer as exactly that, not as another transport failure.
-    let rollback_entered = f.install_take_back_cut(true).await;
+    // The cut passes the take-back whole and then holds the response direction: the target
+    // applies it, and the answer can never pass, because it cannot exist before the request
+    // did. The handoff runs while the connection is still up, so the source waits inside its
+    // rollback; killing the connection is what ends the wait with the outcome unknown.
+    f.cut.arm(mitm::CutKind::AfterApply);
     let source_params = f.source.global_params.clone();
-    let handoff = HandoffRequest {
+    let handoff = crate::messages::HandoffRequest {
         ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
-    let handoff_task = tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
-    timeout(TEST_DEADLINE, rollback_entered.notified())
+    let handoff_task =
+        tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
+    timeout(TEST_DEADLINE, f.cut.wait_fired())
         .await
-        .context("the decode failure should request a handoff rollback")?;
-    f.target.manager.stop().await?;
+        .context("the decode failure should send a take-back through the proxy")?;
+    // Proof by server-side state, not by timing: the block is gone, so the take-back applied.
+    f.wait_block_taken_back().await?;
+    f.cut.kill_fired_connection();
     let result = handoff_task
         .await
         .context("join answer-cut handoff")?
-        .context("dispatch answer-cut handoff");
+        .map(|_| ());
     assert!(
         result.as_ref().is_err(),
         "a handoff whose rollback answer is lost must fail: {result:?}"
@@ -429,9 +372,11 @@ async fn handoff_rollback_answer_loss_reconciles_on_reconnect() -> Result<()> {
 }
 
 /// A reconcile attempt whose answer never arrives must end, not retry the dead request inside
-/// the same connection. The target's first take-back after the restart is cut in flight, so the
-/// reconcile fails with a transport error: the connection must still finish, and the block must
-/// stay pending for the next connection to reconcile.
+/// the same connection. The reconnect's own take-back is cut before it reaches the target, so
+/// the reconcile fails with a transport error: the connection must still finish, the block must
+/// stay pending, and a handoff attempted onto the target must fail rather than load on top of
+/// the unresolved block. The next connection reconciles it and the handoff can be retried end
+/// to end.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Result<()> {
     use crate::messages::HandoffRequest;
@@ -439,114 +384,7 @@ async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Resul
     let f = handoff_reconcile_fixture("handoff-rollback-failed-reconcile").await?;
     // The rollback never applied: the target keeps the block, and the source records its
     // outcome as unknown.
-    let rollback_entered = f.install_take_back_cut(false).await;
-    let source_params = f.source.global_params.clone();
-    let handoff = HandoffRequest {
-        ticket: None,
-        call_id: None,
-        target: Some(f.target_fingerprint.clone()),
-    };
-    let handoff_task = tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
-    timeout(TEST_DEADLINE, rollback_entered.notified())
-        .await
-        .context("the decode failure should request a handoff rollback")?;
-    f.target.manager.stop().await?;
-    let result = handoff_task
-        .await
-        .context("join cut-rollback handoff")?
-        .context("dispatch cut-rollback handoff");
-    assert!(
-        result.as_ref().is_err(),
-        "a handoff whose rollback loses its connection must fail: {result:?}"
-    );
-
-    // Connectivity returns; this time the reconciling take-back is itself cut in flight, so
-    // its caller sees a transport error rather than a refusal. The connection carrying it must
-    // finish anyway: retrying the dead request inside the same connection would never end.
-    let reconcile_entered = f.install_take_back_cut(false).await;
-    f.target
-        .manager
-        .clone()
-        .start(
-            f.target_address,
-            DiscoveryParams {
-                device_info: info(&f.target).await?,
-            },
-            true,
-        )
-        .await?;
-    let source_node = f.source.global_params.node.clone();
-    let target_fingerprint = f.target_fingerprint.clone();
-    let connect = tokio::spawn(async move {
-        source_node
-            .connect_renderer(&target_fingerprint, RendererLinkUse::Cast)
-            .await
-    });
-    timeout(TEST_DEADLINE, reconcile_entered.notified())
-        .await
-        .context("the reconnecting reconcile should request its take-back")?;
-    f.target.manager.stop().await?;
-    let _ = timeout(TEST_DEADLINE, connect)
-        .await
-        .context("a failed reconcile must not hold its connection open")?
-        .context("join failed-reconcile connect")?;
-
-    // The failed attempt keeps the block pending: with the server answering normally again,
-    // the next connection reconciles it and the handoff can be retried end to end.
-    f.target
-        .manager
-        .clone()
-        .start(
-            f.target_address,
-            DiscoveryParams {
-                device_info: info(&f.target).await?,
-            },
-            true,
-        )
-        .await?;
-    timeout(
-        TEST_DEADLINE,
-        f.source
-            .global_params
-            .node
-            .connect_renderer(&f.target_fingerprint, RendererLinkUse::Cast),
-    )
-    .await
-    .context("the reconciling connection should finish")?
-    .context("the reconciling connection should succeed")?;
-    f.target.manager.stop().await?;
-    fs::write(&f.target_file, &f.valid_audio)?;
-    assert_retry_reconciled(&f, false).await?;
-    f.shutdown().await
-}
-
-/// A reconciling take-back that is refused rather than lost still leaves its connection usable,
-/// so the retried handoff reaches the load step on it. The target must not receive that load
-/// while the old block is unresolved: the handoff fails, the target's queue stays as the failed
-/// rollback left it, and a later reconciliation clears the way for the retry.
-#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
-async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> {
-    use crate::messages::HandoffRequest;
-
-    let f = handoff_reconcile_fixture("handoff-rollback-pending-retry").await?;
-    // The rollback never applies: the target keeps the block, and the source records its
-    // outcome as unknown.
-    let rollback_entered = f.install_take_back_cut(false).await;
-    let source_params = f.source.global_params.clone();
-    let handoff = HandoffRequest {
-        ticket: None,
-        call_id: None,
-        target: Some(f.target_fingerprint.clone()),
-    };
-    let handoff_task = tokio::spawn(async move { dispatch_gui_request(&source_params, &handoff).await });
-    timeout(TEST_DEADLINE, rollback_entered.notified())
-        .await
-        .context("the decode failure should request a handoff rollback")?;
-    f.target.manager.stop().await?;
-    let result = handoff_task
-        .await
-        .context("join cut-rollback handoff")?
-        .context("dispatch cut-rollback handoff");
+    let result = run_cut_handoff(&f, mitm::CutKind::BeforeApply).await?;
     assert!(
         result.as_ref().is_err(),
         "a handoff whose rollback loses its connection must fail: {result:?}"
@@ -554,14 +392,7 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
 
     // The rollback never applied, so the target still holds the handed-off block on top of its
     // original queue.
-    let held = wait_player(&f.target, |status| {
-        status
-            .playlist
-            .iter()
-            .any(|entry| entry.item == f.handed_off)
-    })
-    .await
-    .context("the unapplied rollback leaves the handoff block on the target")?;
+    let held = f.wait_block_held().await?;
     let original_items: Vec<_> = held
         .playlist
         .iter()
@@ -578,22 +409,41 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
         .map(|entry| entry.item.clone())
         .collect();
 
-    // Connectivity returns, and the reconciling take-back is refused with a non-transport
-    // failure: the connection stays open and answers, but the block stays unresolved. The retry
-    // is immediate: no other connection reconciles first.
-    let reconcile_refused = f.install_take_back_refusal().await;
-    f.target
-        .manager
-        .clone()
-        .start(
-            f.target_address,
-            DiscoveryParams {
-                device_info: info(&f.target).await?,
-            },
-            true,
-        )
-        .await?;
+    // The reconnect's reconcile is itself cut in flight: the connection carrying it must
+    // finish anyway, because retrying the dead request inside the same connection would never
+    // end. Production keeps the block pending and never fails the connection for it.
+    f.cut.arm(mitm::CutKind::BeforeApply);
+    let connect = timeout(
+        TEST_DEADLINE,
+        f.source
+            .global_params
+            .node
+            .connect_renderer(&f.target_fingerprint, RendererLinkUse::Cast),
+    )
+    .await
+    .context("a failed reconcile must not hold its connection open")?;
+    timeout(TEST_DEADLINE, f.cut.wait_fired())
+        .await
+        .context("the reconnecting reconcile should send its take-back through the proxy")?;
+    assert!(
+        connect.is_ok(),
+        "a failed reconcile must not fail its connection: {}",
+        connect.as_ref().err().map_or("ok".into(), |e| format!("{e:#}"))
+    );
+    assert!(
+        f.source
+            .global_params
+            .node
+            .has_pending_handoff_rollbacks(&f.target_fingerprint)
+            .await,
+        "the failed reconcile must keep the block pending"
+    );
+
+    // The block is still unresolved, so a handoff onto the target must not load: it fails with
+    // the typed unresolved-rollback error, and the target's queue is exactly what the failed
+    // rollback left.
     fs::write(&f.target_file, &f.valid_audio)?;
+    f.cut.arm(mitm::CutKind::BeforeApply);
     let retry = HandoffRequest {
         ticket: None,
         call_id: None,
@@ -604,16 +454,15 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
         dispatch_gui_request(&f.source.global_params, &retry),
     )
     .await
-    .context("the refused-reconcile retry did not finish")?;
-    timeout(TEST_DEADLINE, reconcile_refused.notified())
+    .context("the pending-rollback retry did not finish")?;
+    timeout(TEST_DEADLINE, f.cut.wait_fired())
         .await
-        .context("the retry should reconcile the unresolved block before its load")?;
+        .context("the retry's reconcile should send its take-back through the proxy")?;
+    let error = result.expect_err("a handoff onto a renderer with an unresolved rollback must fail");
     assert!(
-        result.as_ref().is_err(),
-        "a handoff onto a renderer with an unresolved rollback must fail: {result:?}"
+        format!("{error:#}").contains("unresolved handoff rollback"),
+        "the retry must fail on the unresolved rollback: {error:#}"
     );
-
-    // No new load reached the target: the queue is exactly what the failed rollback left.
     let after_refusal = f.target.global_params.player.lock().await.get_status();
     let after_items: Vec<_> = after_refusal
         .playlist
@@ -631,44 +480,26 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
         "the target's original queue must remain intact: {after_items:?}"
     );
 
-    // With the target answering normally again, the next connection reconciles the block and
-    // the retried handoff goes through end to end.
-    let retry = HandoffRequest {
-        ticket: None,
-        call_id: None,
-        target: Some(f.target_fingerprint.clone()),
-    };
+    // With the proxy no longer armed, the next connection reconciles the block and the retried
+    // handoff goes through end to end.
     timeout(
         TEST_DEADLINE,
-        dispatch_gui_request(&f.source.global_params, &retry),
+        f.source
+            .global_params
+            .node
+            .connect_renderer(&f.target_fingerprint, RendererLinkUse::Cast),
     )
     .await
-    .context("the reconciled retry did not finish")?
-    .context("the reconciled retry should succeed")?;
-    let target_after_retry = wait_player(&f.target, |status| {
-        status.item == Some(f.handed_off.clone()) && status.state == PlayerPlaybackState::Playing
-    })
-    .await
-    .context("the reconciled retry should play on the target")?;
-    let handed_off_count = target_after_retry
-        .playlist
-        .iter()
-        .filter(|entry| entry.item == f.handed_off)
-        .count();
-    assert_eq!(
-        handed_off_count, 1,
-        "the retry must not duplicate the handed-off track on the target's queue: {:?}",
-        target_after_retry.playlist
-    );
+    .context("the reconciling connection should finish")?
+    .context("the reconciling connection should succeed")?;
     assert!(
-        original_items
-            .iter()
-            .all(|item| target_after_retry.playlist.iter().any(|entry| &entry.item == item)),
-        "the target's original queue must survive the retry: {:?}",
-        target_after_retry.playlist
+        !f.source
+            .global_params
+            .node
+            .has_pending_handoff_rollbacks(&f.target_fingerprint)
+            .await,
+        "the reconciling connection must clear the pending block"
     );
-    wait_player(&f.source, |status| status.state == PlayerPlaybackState::Paused)
-        .await
-        .context("only the target should play after the reconciled retry")?;
+    assert_retry_reconciled(&f, false).await?;
     f.shutdown().await
 }
