@@ -1410,6 +1410,10 @@
       }
     }
   },
+  "visualizerNoAnswer": "視覺化效果沒有回應",
+  "@visualizerNoAnswer": {
+    "description": "視覺化效果沒有答覆時，顯示在場景匯入失敗下方的原因。"
+  },
   "visualizerDeleteScene": "刪除場景",
   "@visualizerDeleteScene": {
     "description": "刪除已匯入的視覺化場景的按鈕與對話框標題。"

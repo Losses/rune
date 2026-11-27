@@ -1678,6 +1678,10 @@
       }
     }
   },
+  "visualizerNoAnswer": "ビジュアライザーから応答がありません",
+  "@visualizerNoAnswer": {
+    "description": "Reason shown under a failed scene import when the visualizer gave no answer."
+  },
   "visualizerDeleteScene": "シーンを削除",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."

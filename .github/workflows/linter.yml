@@ -121,6 +121,15 @@ jobs:
         run: |
           dart analyze .
 
+      - name: Test the Rune analyzer rules
+        # `dart analyze .` above applies the rules in rune_lints, such as
+        # no_toast; this checks the rules themselves.
+        working-directory: rune_lints
+        run: |
+          dart pub get
+          dart analyze .
+          dart test
+
       - name: Run Flutter behavior tests
         # Widget and unit tests for the playback controls, queue edits, library
         # lifecycle, settings and dialogs. The real-app flows in integration_test/

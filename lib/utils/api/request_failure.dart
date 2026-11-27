@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../bindings/bindings.dart';
 import '../../l10n/app_localizations.dart';
+import '../dialogs/information/error.dart';
 import '../l10n.dart';
 import '../library_registry_messages.dart';
 import '../remote_connection_messages.dart';
@@ -128,18 +129,15 @@ String requestFailureMessage(AppLocalizations s, RequestFailure failure) =>
       },
     };
 
-/// Show a request failure in the app's error notice. The notice builds from
-/// its own context, so it can outlast [context].
-void showRequestFailureInfoBar(BuildContext context, RequestFailure failure) {
-  displayInfoBar(
-    context,
-    builder: (context, close) => InfoBar(
-      title: Text(requestFailureMessage(S.of(context), failure)),
-      severity: InfoBarSeverity.error,
-      onClose: close,
-    ),
-  );
-}
+/// Show a request failure in an error dialog.
+Future<void> showRequestFailureDialog(
+  BuildContext context,
+  RequestFailure failure,
+) => showErrorDialog(
+  context: context,
+  title: S.of(context).unknownError,
+  errorMessage: requestFailureMessage(S.of(context), failure),
+);
 
 String requestErrorText(AppLocalizations s, Object error) =>
     error is RequestFailure ? requestFailureMessage(s, error) : 'Error: $error';
