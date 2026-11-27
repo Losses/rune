@@ -40,6 +40,7 @@ pub enum SeekDirection {
     Backward,
 }
 
+#[allow(dead_code)]
 pub struct PlatformConfig<'a> {
     pub dbus_name: &'a str,
     pub display_name: &'a str,
@@ -51,8 +52,10 @@ pub struct PlatformConfig<'a> {
 pub struct Error;
 
 /// A handle to OS media controls.
+#[cfg(target_os = "android")]
 pub struct MediaControls;
 
+#[cfg(target_os = "android")]
 impl MediaControls {
     /// Create media controls with the specified config.
     pub fn new(_config: PlatformConfig<'_>) -> Result<Self, Error> {

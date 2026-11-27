@@ -126,6 +126,9 @@ mod ios {
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use crate::dummy_souvlaki::{
+        Error, MediaControlEvent, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
+    };
     use block2::RcBlock;
     use dispatch2::DispatchQueue;
     use log::{debug, error, warn};
@@ -142,9 +145,6 @@ mod ios {
         MPRemoteCommand, MPRemoteCommandCenter, MPRemoteCommandEvent, MPRemoteCommandHandlerStatus,
     };
     use objc2_ui_kit::UIImage;
-    use souvlaki::{
-        Error, MediaControlEvent, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
-    };
 
     use super::ShownPlayback;
 
