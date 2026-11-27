@@ -252,7 +252,8 @@ class JukeboxTest {
         player.flush()
         assertEquals("replace catalog:a", player.calls.last { it.startsWith("replace") })
         answerAll()
-        assertTrue(player.calls.containsAll(listOf("seek 5000", "play")))
+        advance(Jukebox.TICK_MS)
+        assertTrue(player.calls.containsAll(listOf("play", "seek 5000")))
         assertTrue(statuses.all { it.currentIndex == 0 && it.playing })
         assertTrue(failures.isEmpty())
         assertEquals(listOf("a", "b"), player.items.map { it.storeId })
@@ -278,41 +279,90 @@ class JukeboxTest {
     }
 
     @Test
-    fun `a hand-over at an offset seeks once the song's first data came, and only then plays`() {
+    fun `a hand-over at an offset plays until the song's audio starts, and seeks there at once`() {
         player.slowData = true
         handOver("catalog:a", offsetMs = 30_000)
         answerAll()
+        assertEquals("play", player.calls.last())
         advance(2_000)
-        assertFalse(player.calls.any { it.startsWith("seek") || it == "play" })
-        assertEquals(30_000L, statuses.last().positionMs)
-        assertTrue(statuses.last().playing)
-
         player.dataArrives()
         player.flush()
-        assertEquals(listOf("seek 30000", "play"), player.calls.takeLast(2))
+        assertFalse(player.calls.any { it.startsWith("seek") })
+        assertEquals(HostEvent.Status(1, 0, "catalog:a", true, 30_000, buffering = true), statuses.last())
+
+        // A seek made before the song's audio started would leave it silent.
+        advance(Jukebox.TICK_MS)
+        assertEquals("seek 30000", player.calls.last())
         advance(2_000)
+        assertFalse(player.silent)
+        assertTrue(statuses.last().positionMs > 30_000)
+        assertTrue(statuses.all { it.positionMs >= 30_000 })
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `an entry handed over paused at an offset is moved there once it plays and its audio started`() {
+        batch(HostAction.Set(listOf("catalog:a")), HostAction.Skip(0, 30_000), HostAction.Stop)
+        answerAll()
+        advance(5_000)
+        assertTrue(player.calls.none { it.startsWith("seek") || it == "play" })
+        assertEquals(HostEvent.Status(1, 0, "catalog:a", false, 30_000), statuses.last())
+
+        // The song loaded while paused: a seek in the same turn as the play would leave it silent.
+        batch(HostAction.Start)
+        assertEquals("play", player.calls.last())
+        assertEquals(HostEvent.Status(2, 0, "catalog:a", true, 30_000, buffering = true), statuses.last())
+        advance(Jukebox.TICK_MS)
+        assertEquals("seek 30000", player.calls.last())
+        advance(2_000)
+        assertFalse(player.silent)
         assertTrue(statuses.last().positionMs > 30_000)
     }
 
     @Test
-    fun `a seek before the current song's first data waits for it, paused`() {
+    fun `a pause while a seek waits for the song's audio holds it until the next start`() {
+        player.slowData = true
+        handOver("catalog:a", offsetMs = 30_000)
+        answerAll()
+        batch(HostAction.Stop)
+        assertEquals("pause", player.calls.last())
+        player.dataArrives()
+        player.flush()
+        advance(5_000)
+        assertEquals(1, player.calls.count { it == "play" })
+        assertTrue(player.calls.none { it.startsWith("seek") })
+        assertEquals(HostEvent.Status(2, 0, "catalog:a", false, 30_000), statuses.last())
+
+        batch(HostAction.Start)
+        advance(Jukebox.TICK_MS)
+        assertEquals(listOf("play", "seek 30000"), player.calls.takeLast(2))
+        advance(2_000)
+        assertTrue(statuses.last().positionMs > 30_000)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `a seek before the current song's audio started waits for it while the song loads`() {
         player.slowData = true
         handOver("catalog:a")
         answerAll()
         assertEquals("play", player.calls.last())
 
         batch(HostAction.Skip(0, 50_000))
-        assertEquals("pause", player.calls.last())
+        assertFalse(player.calls.contains("pause"))
         assertEquals(HostEvent.Status(2, 0, "catalog:a", true, 50_000, buffering = true), statuses.last())
 
         player.dataArrives()
         player.flush()
-        assertEquals(listOf("seek 50000", "play"), player.calls.takeLast(2))
+        advance(Jukebox.TICK_MS)
+        assertEquals("seek 50000", player.calls.last())
+        advance(2_000)
+        assertFalse(player.silent)
         assertTrue(failures.isEmpty())
     }
 
     @Test
-    fun `a seek once the data came overtakes the one that waited for it`() {
+    fun `a seek while another waits for the song's audio takes its place`() {
         player.slowData = true
         handOver("catalog:a")
         answerAll()
@@ -321,8 +371,66 @@ class JukeboxTest {
         batch(HostAction.Skip(0, 70_000))
         player.flush()
         advance(1_000)
-        assertEquals(listOf("seek 70000", "play"), player.calls.filter { it.startsWith("seek") || it == "play" }.takeLast(2))
-        assertFalse(player.calls.contains("seek 50000"))
+        assertEquals(listOf("seek 70000"), player.calls.filter { it.startsWith("seek") })
+    }
+
+    @Test
+    fun `a skip at an offset before the song's audio started gives the next entry a queue of its own`() {
+        batch(HostAction.Set(listOf("catalog:a", "catalog:b")), HostAction.Skip(0, 0), HostAction.Stop)
+        answerAll()
+        batch(HostAction.Skip(1, 40_000), HostAction.Start)
+        assertFalse(player.calls.contains("skip"))
+        assertEquals("replace catalog:b", player.calls.last { it.startsWith("replace") })
+        answerAll()
+        advance(Jukebox.TICK_MS)
+        assertEquals("seek 40000", player.calls.last())
+        advance(2_000)
+        assertEquals(1, statuses.last().currentIndex)
+        assertTrue(statuses.last().positionMs > 40_000)
+    }
+
+    @Test
+    fun `an entry that stands still while the platform player plays it is loaded again once`() {
+        handOver("catalog:a")
+        answerAll()
+        // As MusicKit leaves a song that was moved before its audio started.
+        player.silent = true
+        advance(Jukebox.STILL_LIMIT_MS)
+        assertEquals(1, player.calls.count { it.startsWith("replace") })
+        advance(Jukebox.TICK_MS)
+        assertEquals(2, player.calls.count { it.startsWith("replace") })
+        assertTrue(statuses.all { it.playing && it.currentIndex == 0 })
+
+        answerAll()
+        advance(2_000)
+        assertTrue(statuses.last().positionMs > 0)
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `an entry that stands still again after it was loaded again fails at the progress limit`() {
+        handOver("catalog:a")
+        answerAll()
+        player.silent = true
+        advance(Jukebox.STILL_LIMIT_MS + Jukebox.TICK_MS)
+        answerAll()
+        player.silent = true
+        advance(Jukebox.PROGRESS_LIMIT_MS - Jukebox.TICK_MS)
+        assertEquals(2, player.calls.count { it.startsWith("replace") })
+        assertTrue(failures.isEmpty())
+        advance(Jukebox.TICK_MS)
+        assertEquals(listOf(HostEvent.ItemFailed(1, index = 0, reason = Failure.NETWORK)), failures)
+    }
+
+    @Test
+    fun `an entry that Rune paused is not loaded again while it stands still`() {
+        handOver("catalog:a")
+        answerAll()
+        player.silent = true
+        batch(HostAction.Stop)
+        advance(Jukebox.STILL_LIMIT_MS * 3)
+        assertEquals(1, player.calls.count { it.startsWith("replace") })
+        assertEquals(1, player.calls.count { it == "play" })
     }
 
     @Test
@@ -330,7 +438,7 @@ class JukeboxTest {
         player.buffering = true
         handOver("catalog:a", offsetMs = 30_000)
         answerAll()
-        assertTrue(player.calls.containsAll(listOf("seek 30000", "play")))
+        assertEquals("play", player.calls.last())
         events.clear()
 
         advance(Jukebox.PROGRESS_LIMIT_MS - Jukebox.TICK_MS)
@@ -566,6 +674,7 @@ class JukeboxTest {
         player.flush()
         assertEquals("replace catalog:a", player.calls.last { it.startsWith("replace") })
         answerAll()
+        advance(Jukebox.TICK_MS)
         assertEquals("seek 5000", player.calls.last { it.startsWith("seek") })
         assertTrue(failures.isEmpty())
         assertTrue(statuses.last().playing)
@@ -575,6 +684,7 @@ class JukeboxTest {
         jukebox.onError(PlayerError.LICENSE)
         player.flush()
         answerAll()
+        advance(Jukebox.TICK_MS)
         assertTrue(failures.isEmpty())
         assertEquals("seek 66000", player.calls.last { it.startsWith("seek") })
 

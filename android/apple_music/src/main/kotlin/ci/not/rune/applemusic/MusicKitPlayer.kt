@@ -3,6 +3,7 @@ package ci.not.rune.applemusic
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.apple.android.music.playback.controller.MediaPlayerController
 import com.apple.android.music.playback.controller.MediaPlayerControllerFactory
@@ -39,11 +40,25 @@ internal class MusicKitPlayer(
 ) : QueuePlayer, MediaPlayerController.Listener {
     private companion object {
         const val TAG = "AppleMusicHost"
+
+        /** How often the position is read while the player waits for an item's audio to start. */
+        const val START_POLL_MS = 20L
+
+        /** How long the position is read for at most once MusicKit plays and does not buffer. */
+        const val START_WATCH_MS = 3_000L
     }
 
     override var listener: QueuePlayer.Listener? = null
 
     private val main = Handler(Looper.getMainLooper())
+
+    /** Where the current item stood when the watch for its audio to start began. */
+    private var watchedFrom = 0L
+
+    /** When the watch for the current item's audio to start ends, on the uptime clock. */
+    private var watchUntil = 0L
+
+    private val watch = Runnable { checkStart() }
 
     /**
      * The controller, made on a thread of its own, which takes seconds: the main thread, where the
@@ -103,7 +118,7 @@ internal class MusicKitPlayer(
 
     override val positionMs: Long get() = controller.value?.currentPosition ?: -1
 
-    override val bufferedMs: Long get() = controller.value?.bufferedPosition ?: 0
+    override val buffering: Boolean get() = controller.value?.isBuffering ?: false
 
     override val current: QueueItem? get() = controller.value?.currentItem?.let(::queueItem)
 
@@ -162,6 +177,30 @@ internal class MusicKitPlayer(
         }
     }
 
+    /**
+     * Reads the position every [START_POLL_MS] once MusicKit plays the current item and does not
+     * buffer, until it moved, and then tells the listener that the item's audio started. MusicKit
+     * says nothing of that by itself, and never calls back with its progress.
+     */
+    private fun watchStart() {
+        val made = controller.value ?: return
+        if (made.playbackState != PlaybackState.PLAYING || made.isBuffering) return
+        watchedFrom = made.currentPosition
+        watchUntil = SystemClock.uptimeMillis() + START_WATCH_MS
+        main.removeCallbacks(watch)
+        main.postDelayed(watch, START_POLL_MS)
+    }
+
+    private fun checkStart() {
+        val made = controller.value ?: return
+        if (made.playbackState != PlaybackState.PLAYING || made.isBuffering) return
+        if (made.currentPosition != watchedFrom) {
+            listener?.onAudioStarted()
+        } else if (SystemClock.uptimeMillis() < watchUntil) {
+            main.postDelayed(watch, START_POLL_MS)
+        }
+    }
+
     private fun queueItem(item: PlayerQueueItem) = QueueItem(
         queueId = item.playbackQueueId,
         storeId = item.item?.playbackStoreId ?: "",
@@ -182,6 +221,7 @@ internal class MusicKitPlayer(
         }
         Log.d(TAG, "MusicKit $state at ${source.currentPosition} ms")
         listener?.onStateChanged(state)
+        watchStart()
     }
 
     override fun onCurrentItemChanged(
@@ -248,6 +288,7 @@ internal class MusicKitPlayer(
 
     override fun onBufferingStateChanged(source: MediaPlayerController, buffering: Boolean) {
         listener?.onBufferingChanged()
+        watchStart()
     }
 
     override fun onMetadataUpdated(source: MediaPlayerController, item: PlayerQueueItem) = Unit

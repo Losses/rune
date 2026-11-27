@@ -4,8 +4,9 @@ package ci.not.rune.applemusic
  * A platform player that behaves as MusicKit for Android was measured to: queue changes show
  * only once [answer] lets the service answer, in order, each with an items-added callback, each
  * change gets the next generation of queue item ids, the service leaves out songs it lacks, and a
- * change of only such songs fails with an error and leaves the queue as it was. Callbacks wait
- * until [flush], as MusicKit posts them.
+ * change of only such songs fails with an error and leaves the queue as it was. A seek in a new
+ * queue's item before its first data fails, and one between that and the start of its audio
+ * leaves the item [silent]. Callbacks wait until [flush], as MusicKit posts them.
  */
 internal class FakePlayer : QueuePlayer {
     private class Pending(val generation: Long, val replaces: Boolean, val ids: List<String>)
@@ -20,16 +21,29 @@ internal class FakePlayer : QueuePlayer {
     val missing = mutableSetOf<String>()
 
     /** While buffering, the position stands still though the player says it plays. */
-    var buffering = false
+    override var buffering = false
 
     /** Whether a song given a queue of its own gets its first data only once [dataArrives]. */
     var slowData = false
 
+    /**
+     * Whether the current item's audio started since its queue was made: its position moved
+     * while it played.
+     */
+    private var started = false
+
+    /**
+     * Whether the current item stands still for good while the player says that it plays it, as
+     * MusicKit leaves an item that was moved between its first data and the start of its audio.
+     * A new queue clears it.
+     */
+    var silent = false
+
     /** How many of the next calls to [play] MusicKit ignores, as while a song still loads. */
     var ignorePlays = 0
 
-    override var bufferedMs = 0L
-        private set
+    /** How far the current item is buffered, 0 until its first data came. */
+    private var bufferedMs = 0L
 
     /** What the host called, in order. */
     val calls = mutableListOf<String>()
@@ -93,6 +107,8 @@ internal class FakePlayer : QueuePlayer {
         index = 0
         positionMs = 0
         bufferedMs = if (slowData) 0 else 5_000
+        started = false
+        silent = false
         state = PlayerState.PAUSED
         post { listener ->
             listener.onItemsAdded()
@@ -161,7 +177,9 @@ internal class FakePlayer : QueuePlayer {
         calls += "seek $positionMs"
         // MusicKit fails a seek in a song it has no data for yet.
         check(bufferedMs > 0) { "A seek before the song's first data" }
-        if (current != null) this.positionMs = positionMs
+        if (current == null) return
+        this.positionMs = positionMs
+        if (!started) silent = true
     }
 
     override fun skipToNext() {
@@ -178,11 +196,16 @@ internal class FakePlayer : QueuePlayer {
         }
     }
 
-    /** [ms] of the current item play, unless the player buffers. */
+    /**
+     * [ms] of the current item play, unless the player buffers, has no data, or the item is
+     * [silent]. The first time the audio starts, the listener hears of it.
+     */
     fun advance(ms: Long) {
-        if (state == PlayerState.PLAYING && !buffering) {
-            positionMs = minOf(positionMs + ms, current?.durationMs ?: 0)
-        }
+        if (state != PlayerState.PLAYING || buffering || bufferedMs <= 0 || silent) return
+        positionMs = minOf(positionMs + ms, current?.durationMs ?: 0)
+        if (started) return
+        started = true
+        post { it.onAudioStarted() }
     }
 
     /**

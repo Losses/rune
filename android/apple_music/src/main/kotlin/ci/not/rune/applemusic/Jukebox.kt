@@ -23,7 +23,13 @@ package ci.not.rune.applemusic
  * The platform player gives up on a song it fails to load: it leaves it short of its end and
  * moves on without a word. The host does not follow it past an entry that did not play through:
  * the entry plays on from where it was left in a queue of its own, once, and fails the second
- * time. A seek waits for the first data of the song, as the platform player cannot seek before.
+ * time. A seek in a song whose audio the platform player has not started since its queue was
+ * made waits for that start: before the song's first data the platform player cannot seek, and
+ * between that and the start of its audio a seek leaves the song silent for good, while the
+ * platform player says that it plays. An entry told to play is played meanwhile, silent while
+ * it loads, and the seek follows within a few tens of milliseconds of the start of its audio. An
+ * entry that stands still all the same while the platform player says that it plays it is loaded
+ * again from there in a queue of its own, once.
  *
  * Everything happens on one thread: batches, the platform player's answers, and [tick], which the
  * host calls every [TICK_MS] while [wantsTicks]. Nothing here waits. Every event carries the
@@ -83,6 +89,13 @@ internal class Jukebox(
         /** How long an entry that plays may stand still before it counts as buffering again. */
         const val STALL_AFTER_MS = 2_000L
 
+        /**
+         * How long an entry told to play may stand still before it was heard, while the platform
+         * player says that it plays it and does not buffer, before the host loads it again from
+         * there. MusicKit moves on within half a second once it stopped buffering.
+         */
+        const val STILL_LIMIT_MS = 3_000L
+
         /** How short of its end an entry that ends counts as played out. */
         const val END_TOLERANCE_MS = 1_000L
 
@@ -107,6 +120,12 @@ internal class Jukebox(
 
         /** Whether the entry played on once after the platform player left it short of its end. */
         var resumed = false
+
+        /**
+         * Whether the entry was loaded again once after it stood still while the platform player
+         * said that it played it.
+         */
+        var reloaded = false
 
         /**
          * Where the entry was queued again after its license failed, until it played on for
@@ -135,10 +154,19 @@ internal class Jukebox(
     private var pendingOffset = 0L
 
     /**
-     * A seek in the current entry that waits for its first data, before which the platform player
-     * cannot seek. The entry plays once the seek is made, so that it never starts from 0 first.
+     * A seek in the current entry that waits for the platform player to start the song's audio
+     * (see [seekOnceStarted]).
      */
     private var waitingSeek: Long? = null
+
+    /**
+     * Whether the platform player started the current entry's audio since the entry's queue was
+     * made, as its position moved while it played. Until then a seek waits.
+     */
+    private var started = false
+
+    /** Since when the current entry stands still though the platform player plays it. */
+    private var stillSince: Long? = null
 
     private var change: Change? = null
 
@@ -249,6 +277,8 @@ internal class Jukebox(
         loading = false
         pendingOffset = 0
         waitingSeek = null
+        started = false
+        stillSince = null
         change = null
         playedOut = false
         leftEarlyAt = null
@@ -302,42 +332,59 @@ internal class Jukebox(
             loading -> pendingOffset = offsetMs
             // An entry that played out goes back to the platform player first.
             playedOut -> return replaceFrom(current!!, offsetMs)
-            hasData(entry) -> {
+            hasStarted(entry) -> {
                 player.seek(offsetMs)
                 // A seek that waited is overtaken, and what it held back plays.
                 if (waitingSeek != null && wantPlaying) askToPlay()
                 waitingSeek = null
             }
             else -> {
-                if (player.state == PlayerState.PLAYING) player.pause()
                 waitingSeek = offsetMs
+                lastPosition = offsetMs
+                watchProgress()
+                // The song's audio has to start for the seek to be made.
+                if (wantPlaying && player.state != PlayerState.PLAYING) askToPlay()
+                return
             }
         }
         lastPosition = offsetMs
         watchProgress()
     }
 
-    /** Whether the platform player has the first data of [entry], which plays now. */
-    private fun hasData(entry: Entry) =
-        player.current?.queueId == entry.queueId && player.bufferedMs > 0
+    /**
+     * Whether the platform player started the audio of [entry], which is current, since its queue
+     * was made: its position moved from the start of the song while it plays.
+     */
+    private fun hasStarted(entry: Entry): Boolean {
+        if (player.current?.queueId != entry.queueId) return false
+        if (player.state == PlayerState.PLAYING && player.positionMs > 0) started = true
+        return started
+    }
 
-    /** Makes the seek that waits for the current entry's first data, once that came. */
-    private fun seekOnceBuffered() {
+    /**
+     * Makes the seek that waits for the platform player to start the current entry's audio, at
+     * once when it did. MusicKit cannot seek before the song's first data, and after that a seek
+     * drops what the song's decoder needs to start, until its audio started: the song then stays
+     * silent for good, while MusicKit says that it plays it. The entry plays meanwhile, silent
+     * while it loads, so a few tens of milliseconds of the song's start play before the seek.
+     */
+    private fun seekOnceStarted() {
         val offset = waitingSeek ?: return
         val entry = currentEntry ?: return
-        if (loading || entry.failure != null || !hasData(entry)) return
+        if (loading || entry.failure != null || !hasStarted(entry)) return
         waitingSeek = null
         player.seek(offset)
         lastPosition = offset
         watchProgress()
-        if (wantPlaying) askToPlay()
     }
 
     private fun moveOn(index: Int, offsetMs: Long) {
         val playing = currentEntry ?: return
         val next = entries[index]
+        // A skip and a seek right after it work once the platform player started its audio:
+        // before that the seek waits in a queue of its own.
         val queued = next.queueId != null && playing.queueId != null && !loading && !playedOut &&
-            player.current?.queueId == playing.queueId
+            (offsetMs == 0L || started) && player.current?.queueId == playing.queueId
         becomeCurrent(index, offsetMs)
         next.failure?.let {
             // The player moved on to an entry that cannot be played: nothing plays, and the
@@ -359,9 +406,8 @@ internal class Jukebox(
         // An entry that played out is not started again: the host moves on from it.
         if (ended || playedOut || entry.failure != null) return
         watchProgress()
-        if (!loading && waitingSeek == null && player.state != PlayerState.PLAYING) {
-            askToPlay()
-        }
+        // A seek that waits needs the song's audio to start, too.
+        if (!loading && player.state != PlayerState.PLAYING) askToPlay()
     }
 
     private fun stop() {
@@ -377,6 +423,7 @@ internal class Jukebox(
         playedOut = false
         leftEarlyAt = null
         waitingSeek = null
+        stillSince = null
         lastPosition = offsetMs
         watchProgress()
     }
@@ -397,7 +444,7 @@ internal class Jukebox(
     private fun askAgainToPlay() {
         val asked = playAskedAt ?: return
         val entry = currentEntry ?: return
-        if (!wantPlaying || heard || loading || waitingSeek != null || ended || playedOut) return
+        if (!wantPlaying || heard || loading || ended || playedOut) return
         if (entry.failure != null || player.current?.queueId != entry.queueId) return
         if (player.state == PlayerState.PLAYING || clock() - asked < PLAY_RETRY_MS) return
         log("The platform player did not play entry $current; asking again")
@@ -422,6 +469,8 @@ internal class Jukebox(
         playedOut = false
         leftEarlyAt = null
         waitingSeek = null
+        started = false
+        stillSince = null
         pendingOffset = offsetMs
         lastPosition = offsetMs
         if (player.state == PlayerState.PLAYING) player.pause()
@@ -567,11 +616,8 @@ internal class Jukebox(
         if (player.current?.queueId != queueId) return
         loading = false
         lastPosition = pendingOffset
-        if (pendingOffset > 0) {
-            waitingSeek = pendingOffset
-            watchProgress()
-            seekOnceBuffered()
-        } else if (wantPlaying) {
+        if (pendingOffset > 0) waitingSeek = pendingOffset
+        if (wantPlaying) {
             watchProgress()
             askToPlay()
         }
@@ -588,7 +634,11 @@ internal class Jukebox(
     }
 
     override fun onBufferingChanged() {
-        seekOnceBuffered()
+        report(periodic = false)
+    }
+
+    override fun onAudioStarted() {
+        seekOnceStarted()
         report(periodic = false)
     }
 
@@ -784,9 +834,10 @@ internal class Jukebox(
         noteFreeze()
         checkChange()
         settle()
-        seekOnceBuffered()
+        seekOnceStarted()
         observe()
         askAgainToPlay()
+        reloadIfStill()
         val entry = currentEntry
         if (entry != null && playedOut && clock() - playedOutAt >= PLAYED_OUT_WAIT_MS) {
             log("The platform player neither moved on nor stopped after an entry played out")
@@ -816,7 +867,31 @@ internal class Jukebox(
         progressAt += gap
         playedOutAt += gap
         leftEarlyWhen += gap
+        stillSince = stillSince?.plus(gap)
         change?.let { it.deadline += gap }
+    }
+
+    /**
+     * Loads the current entry again from where it stands in a queue of its own, once, when it was
+     * not heard yet and stands still though the platform player says that it plays it and does
+     * not buffer, as MusicKit leaves a song that was moved before it started the song's audio.
+     * The second time, the progress limit fails the entry.
+     */
+    private fun reloadIfStill() {
+        val entry = currentEntry ?: return
+        val still = wantPlaying && !heard && !loading && !ended && !playedOut &&
+            entry.failure == null && player.current?.queueId == entry.queueId &&
+            player.state == PlayerState.PLAYING && !player.buffering
+        if (!still) {
+            stillSince = null
+            return
+        }
+        val since = stillSince ?: clock().also { stillSince = it }
+        if (entry.reloaded || clock() - since < STILL_LIMIT_MS) return
+        val at = position()
+        log("Entry $current stands still at $at ms though the platform player plays it")
+        entry.reloaded = true
+        replaceFrom(current!!, at)
     }
 
     /** Notes the current entry's progress, and a resume from outside Rune. */
@@ -830,6 +905,7 @@ internal class Jukebox(
             if (!wantPlaying && clock() - stoppedAt > 1_000) wantPlaying = true
             if (position >= lastPosition + PROGRESS_STEP_MS) {
                 heard = true
+                started = true
                 progressAt = clock()
                 val relicensedAt = entry.relicensedAt
                 if (relicensedAt != null && position >= relicensedAt + RELICENSE_HOLD_MS) {

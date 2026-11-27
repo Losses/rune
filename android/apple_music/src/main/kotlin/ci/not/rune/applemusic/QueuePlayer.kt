@@ -32,6 +32,12 @@ internal interface QueuePlayer {
         /** The current item started or stopped buffering. */
         fun onBufferingChanged()
 
+        /**
+         * The current item's position moved while it plays, the first time since it was told to
+         * play or stopped buffering: its audio started.
+         */
+        fun onAudioStarted()
+
         fun onError(error: PlayerError)
     }
 
@@ -42,11 +48,8 @@ internal interface QueuePlayer {
     /** Where the current queue item stands, or a negative number when the player does not say. */
     val positionMs: Long
 
-    /**
-     * How far the current queue item is buffered, 0 until its first data came. MusicKit cannot
-     * seek in an item before that: the seek fails as if the song had no audio.
-     */
-    val bufferedMs: Long
+    /** Whether the current queue item waits for its audio, which it may do while it plays. */
+    val buffering: Boolean
 
     /** The queue item that plays or would play next. */
     val current: QueueItem?
@@ -72,6 +75,13 @@ internal interface QueuePlayer {
     /** Stops the player and lets the audio go. Its queue stays. */
     fun stop()
 
+    /**
+     * Moves the current item to [positionMs]. In a new queue MusicKit can do that only once the
+     * item's audio started ([Listener.onAudioStarted]): before the item's first data the seek
+     * fails as if the song had no audio, and after that, until the audio started, the seek drops
+     * what the song's decoder needs to start, and the item stands still for good while MusicKit
+     * says that it plays.
+     */
     fun seek(positionMs: Long)
 
     fun skipToNext()
