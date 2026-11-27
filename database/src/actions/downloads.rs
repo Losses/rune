@@ -172,14 +172,12 @@ pub async fn enabled_download_rules(
         .await?)
 }
 
-pub async fn cleanup_unselected_downloads(
+/// Determine which local audio files the enabled rules currently select.
+pub async fn selected_download_files(
     db: &DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
-    fsio: &FsIo,
-    root: &Path,
-    store: &SeaOrmSyncStore,
     playback_queue: &[i32],
-) -> Result<CleanupReport> {
+) -> Result<HashSet<i32>> {
     let rules = enabled_download_rules(db).await?;
     let mut selected = HashSet::new();
     const PAGE: usize = 100;
@@ -210,6 +208,18 @@ pub async fn cleanup_unselected_downloads(
             }
         }
     }
+    Ok(selected)
+}
+
+pub async fn cleanup_unselected_downloads(
+    db: &DatabaseConnection,
+    recommend_db: &RecommendationDbConnection,
+    fsio: &FsIo,
+    root: &Path,
+    store: &SeaOrmSyncStore,
+    playback_queue: &[i32],
+) -> Result<CleanupReport> {
+    let selected = selected_download_files(db, recommend_db, playback_queue).await?;
     let rows = media_files::Entity::find()
         .filter(media_files::Column::LocalAvailable.eq(true))
         .all(db)
