@@ -15,7 +15,9 @@ use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
 
 #[cfg(target_os = "android")]
-use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
+use crate::android_media_session::MediaControls;
+#[cfg(target_os = "android")]
+use crate::dummy_souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
 
 #[cfg(target_os = "ios")]
 use crate::dummy_souvlaki::{MediaControlEvent, PlatformConfig, SeekDirection};
@@ -27,6 +29,7 @@ use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 
+use crate::MediaPlayback;
 use crate::player::{Playable, PlaybackState};
 
 // Use include_bytes! to embed the image into the binary
@@ -133,6 +136,39 @@ impl MediaControlManager {
     pub fn reclaim_commands(&mut self) -> Result<()> {
         #[cfg(target_os = "ios")]
         if let Err(e) = self.controls.reclaim_commands() {
+            bail!(Error::msg(format!("{e:?}")));
+        }
+        Ok(())
+    }
+
+    /// Whether a platform host plays the current track, whose player looks after the audio
+    /// itself. On Android, where the media controls hold the audio focus for Rune's own player,
+    /// they then give it up and ask for none, so that the host's player keeps the focus it asks
+    /// for; elsewhere nothing changes.
+    pub fn set_hosted_audio(&mut self, hosted: bool) -> Result<()> {
+        #[cfg(target_os = "android")]
+        if let Err(e) = self.controls.set_hosted_audio(hosted) {
+            bail!(Error::msg(format!("{e:?}")));
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = hosted;
+        Ok(())
+    }
+
+    /// Shows the player's playback. `buffering` says that the player is to play a platform
+    /// host's track that does not move on yet, as while the host's player loads the audio. On
+    /// Android, where the media controls show a host's track as Rune's own, they show it as
+    /// buffering, standing still; elsewhere the hosts' players show their tracks themselves, and
+    /// nothing changes.
+    pub fn set_playback(&mut self, playback: MediaPlayback, buffering: bool) -> Result<()> {
+        #[cfg(target_os = "android")]
+        let result = self.controls.set_playback(playback, buffering);
+        #[cfg(not(target_os = "android"))]
+        let result = {
+            let _ = buffering;
+            self.controls.set_playback(playback)
+        };
+        if let Err(e) = result {
             bail!(Error::msg(format!("{e:?}")));
         }
         Ok(())

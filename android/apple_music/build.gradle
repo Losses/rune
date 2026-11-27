@@ -1,0 +1,89 @@
+// Apple Music through Apple's MusicKit for Android. This module holds the host and is the only
+// code that refers to the SDK. settings.gradle includes it only when the SDK's two AARs are
+// there, and hands their files over as `gradle.ext.appleMusicArchives`. The AARs belong in
+// `libs`, next to this file, where Git LFS keeps them (see .gitattributes), or in the folder that
+// the Gradle property `runeAppleMusicSdkDir` names.
+//
+// The developer token, a JWT, is compiled into BuildConfig from the file that the Gradle property
+// `runeAppleMusicTokenFile` names, else from `developer-token.jwt` beside this file, which a bot
+// keeps current. Without either the build has no token and the host fetches one. The host also
+// fetches the latest token from `runeAppleMusicTokenUrl` (an empty value never fetches) when the
+// one it has expires soon.
+plugins {
+    id "com.android.library"
+    id "kotlin-android"
+}
+
+def sdkArchives = gradle.ext.appleMusicArchives
+
+def developerToken = ""
+def tokenPath = providers.gradleProperty("runeAppleMusicTokenFile").getOrNull()
+def tokenFile = null
+if (tokenPath != null) {
+    tokenFile = file(tokenPath)
+    if (!tokenFile.isFile()) {
+        throw new GradleException("runeAppleMusicTokenFile names no file")
+    }
+} else if (file("developer-token.jwt").isFile()) {
+    tokenFile = file("developer-token.jwt")
+}
+if (tokenFile != null) {
+    developerToken = tokenFile.text.trim()
+    // A JWT is base64url text in three parts. Anything else would not survive as a Java string
+    // literal, and its text is never printed.
+    if (!(developerToken ==~ /[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/)) {
+        throw new GradleException("The developer token file does not hold a JWT")
+    }
+}
+
+def tokenUrl = providers.gradleProperty("runeAppleMusicTokenUrl")
+        .getOrElse("https://raw.githubusercontent.com/Losses/rune/master/android/apple_music/developer-token.jwt")
+if (!tokenUrl.isEmpty() && (!tokenUrl.startsWith("https://") || tokenUrl.contains('"') || tokenUrl.contains("\\"))) {
+    throw new GradleException("runeAppleMusicTokenUrl must be an https URL without quotes or backslashes")
+}
+
+android {
+    namespace = "ci.not.rune.applemusic"
+    compileSdk = rootProject.project(":app").android.compileSdk
+
+    defaultConfig {
+        minSdk = rootProject.project(":app").android.defaultConfig.minSdk
+        consumerProguardFiles "consumer-rules.pro"
+        buildConfigField "String", "DEVELOPER_TOKEN", "\"$developerToken\""
+        buildConfigField "String", "DEVELOPER_TOKEN_URL", "\"$tokenUrl\""
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+// The module only serves the app in this build. `flutter build` assembles every project, but an
+// AAR of this one could not hold the SDK's AARs, and none is made.
+tasks.configureEach { task ->
+    if (task.name ==~ /bundle(Debug|Profile|Release)Aar/) {
+        task.enabled = false
+    }
+}
+
+dependencies {
+    implementation files(sdkArchives)
+    // The AARs declare no dependencies. These are what their classes use: AppCompat for the
+    // sign-in screens, Gson and coroutines for the player.
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "com.google.code.gson:gson:2.10.1"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+
+    testImplementation "junit:junit:4.12"
+    // The JVM tests run without Android, whose org.json is only a stub there.
+    testImplementation "org.json:json:20180813"
+}

@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../logger.dart';
 import 'hosted_player.dart';
 
-/// Plays Apple Music through the macOS or iOS runner's MusicKit host. Dart only
-/// forwards: batches go to the runner as JSON text, and the runner's events
-/// come back the same way.
+/// Plays Apple Music through the macOS, iOS or Android runner's MusicKit host.
+/// Dart only forwards: batches go to the runner as JSON text, and the runner's
+/// events come back the same way.
 class AppleMusicHost
     implements SelfReportingHost, AuthorizingHost, NetworkReportingHost {
   AppleMusicHost({MethodChannel? channel})
@@ -63,11 +63,31 @@ class AppleMusicHost
   @override
   Stream<void> get networkBack => _networkBack.stream;
 
-  /// Registers the host on macOS and iOS, where the runner provides the
-  /// channel.
-  static void registerOnPlatform() {
-    if (Platform.isMacOS || Platform.isIOS) {
-      platformHosts[family] = AppleMusicHost();
+  /// Registers the host where the runner provides the channel: on macOS and
+  /// iOS, and on Android in a build that includes Apple Music, whose runner
+  /// says so by answering `available`.
+  static Future<void> registerOnPlatform() async {
+    final provided = switch (defaultTargetPlatform) {
+      TargetPlatform.macOS || TargetPlatform.iOS => true,
+      TargetPlatform.android => await _androidRunnerHasHost(),
+      _ => false,
+    };
+    if (provided) platformHosts[family] = AppleMusicHost();
+  }
+
+  /// Whether the Android runner answers on the channel. A build without Apple
+  /// Music has nothing that handles it.
+  static Future<bool> _androidRunnerHasHost() async {
+    try {
+      return await const MethodChannel(
+            channelName,
+          ).invokeMethod<bool>('available') ==
+          true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (error) {
+      logger.w('Apple Music availability failed: ${error.code}');
+      return false;
     }
   }
 

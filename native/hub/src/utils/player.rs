@@ -113,13 +113,15 @@ fn ios_cover_path(path: Option<&str>, default: &path::Path) -> Option<String> {
         .map(Into::into)
 }
 
+/// `buffering` says that a platform host's track that is to play does not move on yet.
 pub(crate) async fn update_media_controls_progress(
     manager: Arc<Mutex<MediaControlManager>>,
     playback: MediaPlayback,
+    buffering: bool,
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
-    match manager.controls.set_playback(playback) {
+    match manager.set_playback(playback, buffering) {
         Ok(x) => x,
         Err(e) => bail!(Error::msg(format!(
             "Failed to set media playback status: {e:?}"

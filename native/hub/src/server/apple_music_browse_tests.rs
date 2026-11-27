@@ -4826,6 +4826,7 @@ async fn apple_tracks_play_on_the_host_beside_local_ones_and_stay_on_this_device
             current_id: Some("i.s1".into()),
             playing: true,
             position_ms: 1_000,
+            buffering: false,
         });
     player
         .lock()
@@ -4943,6 +4944,7 @@ async fn the_player_bar_names_the_track_the_host_moves_on_to_by_itself() -> Resu
             current_id: Some("i.s2".into()),
             playing: true,
             position_ms: 1_000,
+            buffering: false,
         });
     let second_item = library_item(&second)?;
     player_reaches(&player, |status| {

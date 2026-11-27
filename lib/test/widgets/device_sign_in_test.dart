@@ -304,6 +304,21 @@ void main() {
         _strings.appleMusicNeedsNewerIOS,
       ),
       (
+        TargetPlatform.android,
+        HostAuthorizationFailure.unsupported,
+        _strings.appleMusicNeedsAppAndroid,
+      ),
+      (
+        TargetPlatform.android,
+        HostAuthorizationFailure.refused,
+        _strings.appleMusicAccessDeniedAndroid,
+      ),
+      (
+        TargetPlatform.android,
+        HostAuthorizationFailure.account,
+        _strings.appleMusicAccountUnavailableAndroid,
+      ),
+      (
         TargetPlatform.macOS,
         HostAuthorizationFailure.refused,
         _strings.appleMusicAccessDenied,
@@ -349,6 +364,7 @@ void main() {
     for (final (platform, text) in [
       (TargetPlatform.macOS, _strings.appleMusicSubtitle),
       (TargetPlatform.iOS, _strings.appleMusicSubtitleIOS),
+      (TargetPlatform.android, _strings.appleMusicSubtitleAndroid),
     ]) {
       test('says where it plays on ${platform.name}', () {
         debugDefaultTargetPlatformOverride = platform;
@@ -528,7 +544,7 @@ void main() {
       expect(hub.opens, isEmpty);
       expect(hub.registry.openRecordId, isNull);
       expect(thrown(), isNull);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
     testWidgets('Retry that signs in opens the library', (tester) async {
       final hub = await _hub();
@@ -590,6 +606,7 @@ void main() {
         expect(hub.registry.openRecordId, isNull);
         expect(thrown(), isNull);
       },
+      variant: TargetPlatformVariant.only(TargetPlatform.macOS),
     );
 
     for (final (reason, failure, answer) in [

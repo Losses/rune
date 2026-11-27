@@ -12,6 +12,8 @@
 //! itself at the rate it was given, so a report is only written when the rate changes, when the
 //! position jumps away from where the center has moved it, as after a seek, or when new metadata
 //! came. [`ShownPlayback`] decides that in plain Rust, built on every platform for its tests.
+//! Android's media session moves its position on the same way, and decides its writes with it
+//! too.
 //!
 //! Threads. Every MediaPlayer call happens on the main thread: registering and removing the
 //! command targets, enabling and disabling the commands, making the artwork object and setting
@@ -44,7 +46,7 @@ const JUMP: Duration = Duration::from_secs(1);
 /// The playback the center shows: the rate, and the elapsed time at the moment it was written,
 /// from which the center moves it on at that rate.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct ShownPlayback {
+pub(crate) struct ShownPlayback {
     rate: f64,
     elapsed: Duration,
     at: Instant,
@@ -54,7 +56,7 @@ struct ShownPlayback {
 }
 
 impl ShownPlayback {
-    fn new(now: Instant) -> Self {
+    pub(crate) fn new(now: Instant) -> Self {
         Self {
             rate: 0.0,
             elapsed: Duration::ZERO,
@@ -71,7 +73,7 @@ impl ShownPlayback {
     /// Takes a report of the player's playback at `now`, and returns whether the center needs it.
     /// One that it needs becomes what the center shows. A report without a position, or one of a
     /// stopped player, keeps the elapsed time where the center has it.
-    fn report(&mut self, playback: &MediaPlayback, now: Instant) -> bool {
+    pub(crate) fn report(&mut self, playback: &MediaPlayback, now: Instant) -> bool {
         let (rate, progress) = match playback {
             MediaPlayback::Playing { progress } => (1.0, progress.map(|p| p.0)),
             MediaPlayback::Paused { progress } => (0.0, progress.map(|p| p.0)),
@@ -93,7 +95,7 @@ impl ShownPlayback {
 
     /// A new item starts from its beginning, at the same rate, until the player reports
     /// otherwise.
-    fn new_item(&mut self, now: Instant) {
+    pub(crate) fn new_item(&mut self, now: Instant) {
         *self = Self {
             rate: self.rate,
             elapsed: Duration::ZERO,
@@ -104,8 +106,7 @@ impl ShownPlayback {
 
     /// The rate and elapsed time for a write at `now`. The center measures the elapsed time from
     /// the write on, so it is moved on to `now` first.
-    #[cfg(target_os = "ios")]
-    fn write_at(&mut self, now: Instant) -> (f64, Duration) {
+    pub(crate) fn write_at(&mut self, now: Instant) -> (f64, Duration) {
         self.elapsed = self.elapsed_at(now);
         self.at = now;
         (self.rate, self.elapsed)

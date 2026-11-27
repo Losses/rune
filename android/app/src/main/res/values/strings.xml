@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Rune</string>
+    <!-- The playback notification's channel, as system settings list it. -->
+    <string name="playback_channel">Playback</string>
+    <!-- The playback notification's buttons, as accessibility services read them. -->
+    <string name="previous">Previous</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="next">Next</string>
+</resources>

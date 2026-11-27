@@ -1997,7 +1997,7 @@ void main() {
       // Lets the screen-size provider's debounce timer fire before the test
       // ends.
       await tester.pump(const Duration(seconds: 2));
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
     testWidgets('authorizes, registers with both tokens and opens the record', (
       tester,
@@ -2103,7 +2103,7 @@ void main() {
         // The guide stays open for another try.
         expect(find.text(strings.appleMusic), findsOneWidget);
         await tester.pump(const Duration(seconds: 2));
-      });
+      }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
     }
 
     for (final (kind, message) in [

@@ -31,11 +31,13 @@ class SystemVolumeState {
 /// The system volume of this device, which Rune's volume control stands for while a platform
 /// host plays the track and has no volume of its own.
 abstract class SystemVolume {
-  /// The system volume on the platforms whose runner provides it, macOS and iOS; `null`
-  /// elsewhere, where no platform host plays and Rune's own volume always applies.
+  /// The system volume on the platforms whose runner provides it, macOS, iOS and Android;
+  /// `null` elsewhere, where no platform host plays and Rune's own volume always applies.
   static SystemVolume? forPlatform(TargetPlatform platform) =>
       !kIsWeb &&
-          (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS)
+          (platform == TargetPlatform.iOS ||
+              platform == TargetPlatform.macOS ||
+              platform == TargetPlatform.android)
       ? ChannelSystemVolume()
       : null;
 
@@ -53,7 +55,7 @@ abstract class SystemVolume {
   Stream<SystemVolumeState> get changes;
 }
 
-/// The runner's side of [SystemVolume], on macOS and iOS.
+/// The runner's side of [SystemVolume], on macOS, iOS and Android.
 class ChannelSystemVolume implements SystemVolume {
   ChannelSystemVolume({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(channelName) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../bindings/bindings.dart';
@@ -15,6 +16,8 @@ void main() {
         readStoredVolume: () => storedVolume.future,
         writeStoredVolume: (_) async {},
         sendVolumeRequest: sent.add,
+        // Rune's own volume, which no platform host replaces.
+        platform: TargetPlatform.linux,
       );
       addTearDown(provider.dispose);
 

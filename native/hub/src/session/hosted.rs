@@ -239,6 +239,7 @@ mod tests {
                 host: "platformHost".into(),
                 authorized: true,
                 can_play: true,
+                shows_in_media_controls: true,
             })
         );
     }
@@ -302,6 +303,7 @@ mod tests {
                     host: "host".into(),
                     authorized: false,
                     can_play: false,
+                    shows_in_media_controls: true,
                 },
                 HostEvent::JukeboxStatus {
                     host: "host".into(),
@@ -310,6 +312,7 @@ mod tests {
                     current_id: Some("track-2".into()),
                     playing: true,
                     position_ms: 2500,
+                    buffering: false,
                 },
                 HostEvent::JukeboxItemFailed {
                     host: "host".into(),

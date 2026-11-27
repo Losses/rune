@@ -1,0 +1,108 @@
+# Keeps the Apple Music developer token (android/apple_music/developer-token.jwt) fresh.
+#
+# - refresh: monthly and when run by hand, signs a new token, asks Apple Music whether it takes
+#   it, and commits it to the default branch.
+# - check: weekly, opens an issue when the committed token has under 30 days left or is missing.
+#
+# Repository secrets needed by refresh:
+#   APPLE_MUSIC_PRIVATE_KEY  the MusicKit .p8 key (PEM text)
+#   APPLE_MUSIC_KEY_ID       the key's ID
+#   APPLE_MUSIC_TEAM_ID      the Apple developer Team ID
+#
+# The branch must allow github-actions[bot] to push, or the commit step must be
+# changed to open a pull request. The token is public by design, only the key is secret.
+
+name: Apple Music Token
+
+on:
+  schedule:
+    - cron: "0 5 1 * *"
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: apple-music-token
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh Token
+    if: >-
+      github.repository == 'Losses/rune' &&
+      (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 5 1 * *')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Tests
+        run: node --test scripts/apple_music_developer_token.test.mjs
+
+      - name: Sign Token
+        env:
+          APPLE_MUSIC_PRIVATE_KEY: ${{ secrets.APPLE_MUSIC_PRIVATE_KEY }}
+          APPLE_MUSIC_KEY_ID: ${{ secrets.APPLE_MUSIC_KEY_ID }}
+          APPLE_MUSIC_TEAM_ID: ${{ secrets.APPLE_MUSIC_TEAM_ID }}
+        run: |
+          missing=""
+          for name in APPLE_MUSIC_PRIVATE_KEY APPLE_MUSIC_KEY_ID APPLE_MUSIC_TEAM_ID; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            exit 1
+          fi
+          node scripts/apple_music_developer_token.mjs sign --days 90 --out android/apple_music/developer-token.jwt
+          node scripts/apple_music_developer_token.mjs verify android/apple_music/developer-token.jwt
+
+      - name: Commit Token
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/apple_music/developer-token.jwt
+          git commit -m "chore(apple-music): refresh the developer token"
+          git push
+
+  check:
+    name: Check Expiry
+    if: github.repository == 'Losses/rune' && github.event.schedule == '0 6 * * 1'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Check Expiry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="The Apple Music developer token expires soon"
+          if output=$(node scripts/apple_music_developer_token.mjs expiry android/apple_music/developer-token.jwt --min-days 30); then
+            echo "$output"
+            exit 0
+          fi
+          echo "$output"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json title --jq "[.[] | select(.title == \"$title\")] | length")
+          if [ "$existing" != "0" ]; then
+            echo "An open issue already exists."
+            exit 0
+          fi
+          left=$(echo "$output" | sed -n 's/^\(-\{0,1\}[0-9]*\) days left$/\1/p')
+          if [ -n "$left" ]; then
+            detail="The committed token has $left days left."
+          else
+            detail="The committed token is missing or unreadable: $(echo "$output" | head -n 1)"
+          fi
+          gh issue create --title "$title" --body "$detail
+
+          Run the Apple Music Token workflow, or check that its secrets (APPLE_MUSIC_PRIVATE_KEY, APPLE_MUSIC_KEY_ID, APPLE_MUSIC_TEAM_ID) are set and still valid."

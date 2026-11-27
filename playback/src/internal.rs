@@ -1,6 +1,6 @@
 use crate::stream_utils::ManagedStream;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Debug,
     future::Future,
     io::{BufReader, Cursor, Error, ErrorKind},
@@ -670,11 +670,20 @@ pub enum PlayerEvent {
         position: Duration,
         playback_mode: PlaybackMode,
         ready: bool,
+        // The current track is a platform host's, which is to play but does not move on yet,
+        // as its host said: `position` stands still.
+        buffering: bool,
     },
     VolumeUpdate(f32),
     // The host that plays the current track, from when a hosted track becomes current until no
     // hosted track is.
     HostedChanged(Option<String>),
+    // Whether a host's platform player shows itself in the system's media controls, as the host
+    // said when it started, each time that changes. A host that says nothing of it does.
+    HostMediaControls {
+        host: String,
+        shows_in_media_controls: bool,
+    },
     PlaylistUpdated(Vec<PlaylistItem>, u64),
     RealtimeFFT(Vec<f32>),
     Log(InternalLog),
@@ -689,6 +698,7 @@ struct ProgressReport {
     position: Duration,
     playback_mode: PlaybackMode,
     ready: bool,
+    buffering: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -804,6 +814,8 @@ struct HostedPlayback {
     // when that was.
     position: Duration,
     reported_at: Instant,
+    // The host's last status said that the track is told to play but does not move on yet.
+    buffering: bool,
     // When the host was last told to play the track, and when it last reported on it since it
     // was handed over.
     started_at: Instant,
@@ -901,19 +913,23 @@ impl Drop for Lookup {
 }
 
 impl HostedPlayback {
-    // Where the track stands now: it moves on from the last report while it plays.
+    // Where the track stands now: it moves on from the last report while it plays, unless the
+    // host said that it buffers.
     fn position(&self) -> Duration {
-        if self.playing {
+        if self.playing && !self.buffering {
             self.position + self.reported_at.elapsed()
         } else {
             self.position
         }
     }
 
+    // The track stands at `position` now. Whether it buffers there is for the host's next status
+    // to say.
     fn report(&mut self, position: Duration, playing: bool) {
         self.position = position;
         self.playing = playing;
         self.reported_at = Instant::now();
+        self.buffering = false;
     }
 
     // Whether an end or a failure that the host reported in `revision` for the entry at `index`
@@ -1092,6 +1108,9 @@ pub(crate) struct PlayerInternal {
     host_revision: u64,
     // Hosts that said they cannot play, and why, until they say they can.
     hosts_unable: HashMap<String, UnavailableReason>,
+    // Hosts that said their platform player does not show itself in the system's media controls,
+    // until they say otherwise.
+    hosts_unshown: HashSet<String>,
     // The tracks marked unavailable because their host said it cannot play, with that host, so
     // that they become available again once it can. A track leaves it once its mark goes, or
     // once another cause marks it.
@@ -1171,6 +1190,7 @@ impl PlayerInternal {
             hosted: None,
             host_revision: 0,
             hosts_unable: HashMap::new(),
+            hosts_unshown: HashSet::new(),
             host_refused: HashMap::new(),
             host_run_request: 0,
             host_run_limit: RUN_LIMIT,
@@ -3182,8 +3202,9 @@ impl PlayerInternal {
             Instant::now(),
         );
 
-        if self.hosted.is_some() {
+        if let Some(hosted) = &self.hosted {
             // The host reports the end of the track, so its position stands for the sink's.
+            let buffering = hosted.playing && hosted.buffering;
             return self.report_progress(ProgressReport {
                 item: id,
                 index,
@@ -3191,6 +3212,7 @@ impl PlayerInternal {
                 position,
                 playback_mode,
                 ready: true,
+                buffering,
             });
         }
 
@@ -3263,6 +3285,7 @@ impl PlayerInternal {
                     position,
                     playback_mode,
                     ready: true,
+                    buffering: false,
                 })?;
             }
         } else {
@@ -3275,6 +3298,7 @@ impl PlayerInternal {
                 position,
                 playback_mode,
                 ready,
+                buffering: false,
             })?;
         }
 
@@ -3294,6 +3318,7 @@ impl PlayerInternal {
             position,
             playback_mode,
             ready,
+            buffering,
         } = report.clone();
         self.event_sender
             .send(PlayerEvent::Progress {
@@ -3303,6 +3328,7 @@ impl PlayerInternal {
                 playback_mode,
                 position,
                 ready,
+                buffering,
             })
             .with_context(|| "Failed to send Progress event")?;
         self.last_progress = Some(report);
@@ -3613,6 +3639,7 @@ impl PlayerInternal {
             playing: true,
             position,
             reported_at: now,
+            buffering: false,
             started_at: now,
             heard_at: None,
             recovered: false,
@@ -4009,6 +4036,7 @@ impl PlayerInternal {
         id: Option<&str>,
         playing: bool,
         position: Duration,
+        buffering: bool,
         revision: u64,
     ) -> Result<()> {
         if !self.end_current_track()? {
@@ -4023,6 +4051,7 @@ impl PlayerInternal {
         });
         if queued && self.move_along_run(steps, playing, position)? {
             if let Some(hosted) = &mut self.hosted {
+                hosted.buffering = buffering;
                 hosted.heard_at = Some(Instant::now());
             }
             return Ok(());
@@ -4195,7 +4224,21 @@ impl PlayerInternal {
                 host,
                 authorized,
                 can_play,
+                shows_in_media_controls,
             } => {
+                let changed = if shows_in_media_controls {
+                    self.hosts_unshown.remove(&host)
+                } else {
+                    self.hosts_unshown.insert(host.clone())
+                };
+                if changed {
+                    self.event_sender
+                        .send(PlayerEvent::HostMediaControls {
+                            host: host.clone(),
+                            shows_in_media_controls,
+                        })
+                        .context("Failed to send HostMediaControls event")?;
+                }
                 let current = self
                     .hosted
                     .as_ref()
@@ -4232,6 +4275,7 @@ impl PlayerInternal {
                 current_id,
                 playing,
                 position_ms,
+                buffering,
             } => {
                 let Some(hosted) = self.hosted.as_mut().filter(|hosted| {
                     hosted.track.host == host
@@ -4247,6 +4291,7 @@ impl PlayerInternal {
                     {
                         let changed = hosted.playing != playing;
                         hosted.report(position, playing);
+                        hosted.buffering = buffering;
                         hosted.heard_at = Some(Instant::now());
                         if changed {
                             self.send_track_state(playing, position)?;
@@ -4277,6 +4322,7 @@ impl PlayerInternal {
                             current_id.as_deref(),
                             playing,
                             position,
+                            buffering,
                             revision,
                         );
                     }

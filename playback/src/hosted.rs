@@ -26,6 +26,13 @@
 //! may do nothing, and that control moves the system volume instead. The player itself does not
 //! read it.
 //!
+//! `showsInMediaControls: false` says that the platform player does not show itself in the
+//! system's media controls, as on the lock screen, and takes no commands from them: the player
+//! then shows the host's tracks there as it shows its own, and what the controls ask reaches the
+//! host in batches. A host that leaves it out, or sends `true`, shows itself there, and the
+//! player's own media controls give way while it plays. Either way, the platform player looks
+//! after the audio of the host's tracks itself, such as the audio focus.
+//!
 //! ## Batches and the queue
 //!
 //! The player sends [`HostCommand`]s: batches of [`HostAction`]s under one revision, each higher
@@ -57,6 +64,11 @@
 //! every few seconds while it plays, and at once when it moves on by itself. Once told to play,
 //! it has 10 s for its first report; after that, 15 s without a report while it plays counts as
 //! a failure of its track.
+//!
+//! Between two statuses the player moves the track on by itself while it plays. `buffering: true`
+//! says that the entry is told to play but does not move on yet, as while the platform player
+//! loads its audio: it still counts as playing, and stays where the status puts it until a status
+//! without it. A host that tells the two apart reports a status at once when either begins.
 //!
 //! At the end of an entry with an entry after it, the host makes that one current, plays it
 //! without a gap, and reports a status with its index, one higher, and its id.
@@ -208,6 +220,10 @@ pub enum HostEvent {
         host: String,
         authorized: bool,
         can_play: bool,
+        /// Whether the platform player shows itself in the system's media controls. A host that
+        /// leaves it out does, and it is written only when it is false.
+        #[serde(default = "shows_itself", skip_serializing_if = "is_true")]
+        shows_in_media_controls: bool,
     },
     /// Which entry is current, by its index and its id, whether it plays and where it stands.
     /// `current_index` and `current_id` are none when the host holds no track, as after it
@@ -221,6 +237,10 @@ pub enum HostEvent {
         playing: bool,
         #[serde(deserialize_with = "position_ms")]
         position_ms: u64,
+        /// Whether the entry is told to play but does not move on yet. A host that leaves it out
+        /// says that it moves on, and it is written only when it is true.
+        #[serde(default, skip_serializing_if = "is_false")]
+        buffering: bool,
     },
     /// The entry at `index` cannot be played.
     JukeboxItemFailed {
@@ -259,6 +279,19 @@ impl HostEvent {
             }
         }
     }
+}
+
+// What a `hostReady` without `showsInMediaControls` says.
+fn shows_itself() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 // Hosts written in JavaScript may report a fractional position.
@@ -385,6 +418,7 @@ mod tests {
                 host: "host".to_owned(),
                 authorized: true,
                 can_play: false,
+                shows_in_media_controls: true,
             },
             r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":false}"#,
         );
@@ -396,6 +430,7 @@ mod tests {
                 current_id: Some("track-1".to_owned()),
                 playing: true,
                 position_ms: 1500,
+                buffering: false,
             },
             r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":1500}"#,
         );
@@ -407,8 +442,21 @@ mod tests {
                 current_id: None,
                 playing: false,
                 position_ms: 0,
+                buffering: false,
             },
             r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":null,"currentId":null,"playing":false,"positionMs":0}"#,
+        );
+        assert_json(
+            HostEvent::JukeboxStatus {
+                host: "host".to_owned(),
+                revision: 3,
+                current_index: Some(0),
+                current_id: Some("track-1".to_owned()),
+                playing: true,
+                position_ms: 0,
+                buffering: true,
+            },
+            r#"{"type":"jukeboxStatus","host":"host","revision":3,"currentIndex":0,"currentId":"track-1","playing":true,"positionMs":0,"buffering":true}"#,
         );
         for (reason, json) in [
             (HostFailure::Unplayable, "unplayable"),
@@ -446,6 +494,30 @@ mod tests {
     }
 
     #[test]
+    fn a_host_says_only_when_its_platform_player_does_not_show_itself_in_the_media_controls() {
+        let ready = |shows_in_media_controls| HostEvent::HostReady {
+            host: "host".to_owned(),
+            authorized: true,
+            can_play: true,
+            shows_in_media_controls,
+        };
+        assert_json(
+            ready(false),
+            r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true,"showsInMediaControls":false}"#,
+        );
+        assert_json(
+            ready(true),
+            r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true}"#,
+        );
+        assert_eq!(
+            HostEvent::parse(
+                r#"{"type":"hostReady","host":"host","authorized":true,"canPlay":true,"showsInMediaControls":true}"#
+            ),
+            Some(ready(true))
+        );
+    }
+
+    #[test]
     fn a_status_without_a_current_entry_has_none() {
         let event: HostEvent = serde_json::from_str(
             r#"{"type":"jukeboxStatus","host":"host","revision":1,"playing":false,"positionMs":0}"#,
@@ -474,6 +546,7 @@ mod tests {
                 current_id: Some("track-1".to_owned()),
                 playing: true,
                 position_ms: 81251,
+                buffering: false,
             })
         );
         assert!(matches!(

@@ -5,8 +5,8 @@ import 'apple_music_host.dart';
 
 /// Adds the hosts this platform provides, before the player bridge or a sign-in
 /// looks one up.
-void registerPlatformHosts() {
-  AppleMusicHost.registerOnPlatform();
+Future<void> registerPlatformHosts() async {
+  await AppleMusicHost.registerOnPlatform();
 }
 
 /// How the libraries that sign in through those hosts do it, by the type of
