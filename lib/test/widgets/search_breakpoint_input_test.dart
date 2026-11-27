@@ -10,6 +10,7 @@ import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/search/search.dart';
 import 'package:rune/utils/storage_key_manager.dart';
 import 'package:rune/utils/settings_manager.dart';
+import '../settings_folder.dart';
 
 class _Responsive extends ChangeNotifier implements ResponsiveProvider {
   @override
@@ -33,7 +34,7 @@ void main() {
     // The search page follows the router, whose first page depends on cafe
     // mode.
     cafeMode = false;
-    storage = await Directory.systemTemp.createTemp('rune-search-test');
+    storage = await emptySettingsFolder('rune-search-test');
     if (Platform.isWindows) {
       stdout.writeln('RUNE_SEARCH_TEST_STORAGE=${storage.path}');
     }
@@ -44,11 +45,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<List<dynamic>?>('search_suggestions');
-  });
-  tearDownAll(() async {
-    // GetStorage retains an open file handle until process exit on Windows.
-    // The Windows test runner removes the reported directory after exit.
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
 
   testWidgets(

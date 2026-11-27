@@ -19,6 +19,7 @@ import 'package:rune/widgets/navigation_bar/page_content_frame.dart';
 import 'package:rune/widgets/playback_controller/constants/controller_items.dart';
 import 'package:rune/widgets/playback_controller/constants/playback_controller_height.dart';
 import 'package:rune/widgets/rune_clickable.dart';
+import '../settings_folder.dart';
 
 // An iPhone's status bar and home indicator, in points.
 const _iPhone = EdgeInsets.only(top: 62, bottom: 34);
@@ -104,7 +105,7 @@ EdgeInsets _framePadding(WidgetTester tester) =>
 void main() {
   late Directory storage;
   setUpAll(() async {
-    storage = await Directory.systemTemp.createTemp('rune-settings-test');
+    storage = await emptySettingsFolder('rune-settings-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -112,9 +113,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<String>('settings-page-frame-test');
-  });
-  tearDownAll(() async {
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
 
   // The pages run under the home indicator, so its inset is never added; the
@@ -154,7 +152,10 @@ void main() {
     testWidgets('keeps the grid clear of the cover art disk', (tester) async {
       await _open(tester, _zune, const SettingsLaboratory());
 
-      expect(gridPadding(tester), const EdgeInsets.only(top: 4, bottom: 340 / 3));
+      expect(
+        gridPadding(tester),
+        const EdgeInsets.only(top: 4, bottom: 340 / 3),
+      );
       // Below the status bar, as before.
       final back = find.ancestor(
         of: find.byIcon(Symbols.arrow_back),

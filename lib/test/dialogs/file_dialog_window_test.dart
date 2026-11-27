@@ -23,6 +23,7 @@ import 'package:rune/utils/dialogs/file_dialog/widgets/items_view.dart';
 import 'package:rune/utils/dialogs/file_dialog/widgets/navigation_pane.dart';
 import 'package:rune/utils/settings_manager.dart';
 import 'package:rune/utils/storage_key_manager.dart';
+import '../settings_folder.dart';
 
 /// Breakpoints from the window width, as the real provider finds them.
 class _Responsive extends ChangeNotifier implements ResponsiveProvider {
@@ -213,7 +214,7 @@ Finder _tooltip(String message) => find.byWidgetPredicate(
 void main() {
   late Directory storage;
   setUpAll(() async {
-    storage = await Directory.systemTemp.createTemp('rune-dialog-window');
+    storage = await emptySettingsFolder('rune-dialog-window');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -221,9 +222,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<String>('file-dialog-window-test');
-  });
-  tearDownAll(() async {
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
   setUp(() async {
     for (final key in [
