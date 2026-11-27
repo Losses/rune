@@ -1569,6 +1569,7 @@ async fn sync_one(
                     library.fsio.clone(),
                     library.media_root.clone().into(),
                     DownloadAudioContext {
+                        rules: &library.download_rules,
                         node_id: global.node_id.parse()?,
                         remote: &peer,
                         notify: notify.clone(),

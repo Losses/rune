@@ -229,6 +229,7 @@ impl Fixture {
             self.fs.clone(),
             self.root.path().into(),
             DownloadAudioContext {
+                rules: &Mutex::default(),
                 node_id: self.node,
                 remote: &peer,
                 notify: Arc::new(|| {}),
@@ -926,6 +927,7 @@ async fn transfer_finishes_after_pass_deadline_without_starting_next_file() -> R
         fixture.fs.clone(),
         fixture.root.path().into(),
         DownloadAudioContext {
+            rules: &Mutex::default(),
             node_id: fixture.node,
             remote: &MetadataPeer::new(&fixture.base, Client::new()),
             notify: Arc::new(|| {}),

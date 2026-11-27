@@ -1,12 +1,13 @@
 //! Network execution for device-local download rules.
-use super::blobs::download_track_blob;
+use super::blobs::fetch_track_blob;
 use anyhow::{Context, Result, ensure};
 use database::{
     actions::{
         downloads::{
             DownloadReport, download_job, enabled_download_rules, pending_download_reservations,
             prepare_download, record_download_failure, release_obsolete_reservations,
-            release_unselected_reservations, retry_is_due, rule_queries, validate_queries,
+            release_unselected_reservations, retry_is_due, rule_queries, selected_download_files,
+            validate_queries,
         },
         file::{attach_download, catalog_track, is_materialized},
         mixes::query_mix_media_files_with_seed,
@@ -25,11 +26,30 @@ use std::{
     sync::Arc,
 };
 use sync::SyncPeer;
+use tokio::sync::Mutex;
 use tokio::time as tokio_time;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+/// Shared by one library's rule requests and audio worker. It is never locked during a transfer.
+#[derive(Default)]
+pub struct DownloadRuleState {
+    revision: u64,
+    cleanup_revision: u64,
+}
+
+impl DownloadRuleState {
+    pub(crate) fn changed(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub(crate) fn cleaned(&mut self) {
+        self.cleanup_revision = self.revision;
+    }
+}
+
 pub struct DownloadAudioContext<'a> {
+    pub rules: &'a Mutex<DownloadRuleState>,
     pub node_id: Uuid,
     pub remote: &'a MetadataPeer<RuneModel>,
     pub notify: Arc<dyn Fn() + Send + Sync>,
@@ -55,6 +75,8 @@ pub enum DownloadPassOutcome {
     Deadline,
     /// The pass used its inspection and transfer budget.
     AttemptLimit,
+    /// A rule request committed before the next transfer was reserved.
+    RulesChanged,
     /// A rule query failed and the worker should retry with backoff.
     RuleQueryFailed,
 }
@@ -93,7 +115,9 @@ pub async fn download_requested_audio(
     remote: &MetadataPeer<RuneModel>,
     notify: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<DownloadReport> {
+    let rules = Mutex::default();
     let context = DownloadAudioContext {
+        rules: &rules,
         node_id,
         remote,
         notify,
@@ -143,7 +167,10 @@ pub async fn download_audio_pass(
     progress: &mut DownloadProgress,
 ) -> Result<DownloadAudioPass> {
     release_obsolete_reservations(&db).await?;
-    let rules = enabled_download_rules(&db).await?;
+    let (revision, rules) = {
+        let state = context.rules.lock().await;
+        (state.revision, enabled_download_rules(&db).await?)
+    };
     let mut unselected = pending_download_reservations(&db).await?;
     if rules != progress.rules {
         *progress = DownloadProgress {
@@ -293,6 +320,14 @@ pub async fn download_audio_pass(
                     report.pending += 1;
                     continue;
                 }
+                let rules = context.rules.lock().await;
+                if rules.revision != revision {
+                    return Ok(DownloadAudioPass::finish(
+                        report,
+                        DownloadPassOutcome::RulesChanged,
+                        false,
+                    ));
+                }
                 if Instant::now() >= deadline {
                     report.deadline_reached = true;
                     return Ok(DownloadAudioPass::finish(
@@ -306,10 +341,21 @@ pub async fn download_audio_pass(
                     // Keep the path reserved until attachment commits, including
                     // cancellation and failures after publication of verified bytes.
                     prepare_download(&db, &fsio, &root, track_id, &blob, &extension).await?;
-                    let path = download_track_blob(
-                        &fsio, client, server, &root, track_id, &blob, &extension,
-                    )
-                    .await?;
+                    let cleanup_revision = rules.cleanup_revision;
+                    drop(rules);
+
+                    let verified =
+                        fetch_track_blob(&fsio, client, server, &root, track_id, &blob, &extension)
+                            .await?;
+                    let rules = context.rules.lock().await;
+                    if rules.cleanup_revision != cleanup_revision
+                        && !selected_download_files(&db, recommend_db, context.playback_queue)
+                            .await?
+                            .contains(&file_id)
+                    {
+                        return Ok(false);
+                    }
+                    let path = verified.publish().await?;
                     #[cfg(feature = "sync-crash-probe")]
                     super::fault_hook::stop("scanned");
                     attach_download(
@@ -324,12 +370,13 @@ pub async fn download_audio_pass(
                     .await?;
                     #[cfg(feature = "sync-crash-probe")]
                     super::fault_hook::stop("attached");
-                    Ok::<_, anyhow::Error>(())
+                    Ok::<_, anyhow::Error>(true)
                 }
                 .await;
                 attempted.insert(file_id);
                 match transfer {
-                    Ok(()) => {
+                    Ok(false) => {}
+                    Ok(true) => {
                         report.downloaded += 1;
                         (context.notify)();
                     }

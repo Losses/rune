@@ -1,3 +1,6 @@
+#[path = "player_session_tests/download_rules.rs"]
+mod download_rules;
+
 #[cfg(target_os = "linux")]
 #[path = "player_session_tests/mpris.rs"]
 mod mpris;

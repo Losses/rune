@@ -74,6 +74,7 @@ impl Signal for SetDownloadRuleRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(p.library.clone())?;
+        let mut rules = library.download_rules.lock().await;
         let rule_id = set_download_rule(
             &library.main_db,
             request
@@ -85,8 +86,10 @@ impl Signal for SetDownloadRuleRequest {
             request.enabled,
         )
         .await?;
+        rules.changed();
         if !request.enabled && request.delete_unselected_files {
             p.cleanup(&library).await?;
+            rules.cleaned();
         }
         Ok(Some(Self::Response {
             call_id: None,
@@ -111,9 +114,12 @@ impl Signal for RemoveDownloadRuleRequest {
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let library = require_library(p.library.clone())?;
+        let mut rules = library.download_rules.lock().await;
         remove_download_rule(&library.main_db, &request.rule_id).await?;
+        rules.changed();
         if request.delete_unselected_files {
             p.cleanup(&library).await?;
+            rules.cleaned();
         }
         Ok(Some(Self::Response {
             call_id: None,

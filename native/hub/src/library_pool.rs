@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     request_error::ExpectedRequestError,
+    server::sync::downloads::DownloadRuleState,
     utils::{initialize_databases, initialize_library_replica, initialize_opendal_databases},
 };
 use anyhow::Error;
@@ -79,6 +80,7 @@ impl LibraryResources {
 
 struct Entry {
     resources: Arc<LibraryResources>,
+    download_rules: Arc<Mutex<DownloadRuleState>>,
     ui_users: usize,
     last_released: Arc<StdMutex<Instant>>,
 }
@@ -97,6 +99,7 @@ pub struct LibraryHandle {
     /// the library counted as in use.
     pooled: Option<Arc<LibraryResources>>,
     pool: Arc<LibraryPool>,
+    pub(crate) download_rules: Arc<Mutex<DownloadRuleState>>,
     last_released: Arc<StdMutex<Instant>>,
     library_use: LibraryUse,
 }
@@ -122,6 +125,7 @@ impl LibraryHandle {
                     .unwrap_or_else(|| self.resources.clone()),
             ),
             pool: self.pool.clone(),
+            download_rules: self.download_rules.clone(),
             last_released: self.last_released.clone(),
             library_use: self.library_use,
         }
@@ -281,6 +285,7 @@ impl LibraryPool {
             resources: entry.resources.clone(),
             pooled: None,
             pool: self.clone(),
+            download_rules: entry.download_rules.clone(),
             last_released: entry.last_released.clone(),
             library_use,
         }
@@ -519,6 +524,7 @@ impl LibraryPool {
                 media_root: path.clone(),
                 descriptor,
             }),
+            download_rules: Arc::default(),
             ui_users: 0,
             last_released: Arc::new(StdMutex::new(Instant::now())),
         };
@@ -579,6 +585,7 @@ impl LibraryPool {
         }
         let entry = Entry {
             resources: Arc::new(resources),
+            download_rules: Arc::default(),
             ui_users: 1,
             last_released: Arc::new(StdMutex::new(Instant::now())),
         };

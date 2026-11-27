@@ -31,6 +31,28 @@ impl Drop for TempFile {
     }
 }
 
+pub(super) struct VerifiedBlob {
+    path: PathBuf,
+    temporary: Option<TempFile>,
+}
+
+impl VerifiedBlob {
+    pub(super) async fn publish(self) -> Result<PathBuf> {
+        if let Some(temp) = self.temporary {
+            if temp.fsio.exists(&self.path)? {
+                temp.fsio.remove_file(&self.path).await?;
+            }
+            temp.fsio
+                .rename_file(&temp.path, &self.path)
+                .await
+                .context("could not publish downloaded blob")?;
+            #[cfg(feature = "sync-crash-probe")]
+            super::fault_hook::stop("published");
+        }
+        Ok(self.path)
+    }
+}
+
 /// Download to a temporary file and publish only after full size and digest verification.
 pub async fn download_blob(
     fsio: &FsIo,
@@ -41,11 +63,14 @@ pub async fn download_blob(
     extension: &str,
 ) -> Result<PathBuf> {
     let final_path = blob_path(fsio, root, &blob.digest, extension)?;
-    download_to_path(fsio, client, base_url, blob, final_path).await
+    fetch_to_path(fsio, client, base_url, blob, final_path)
+        .await?
+        .publish()
+        .await
 }
 
-/// Download audio for one logical track into its own managed location.
-pub async fn download_track_blob(
+/// Verify audio for one track before publishing it into its managed location.
+pub(super) async fn fetch_track_blob(
     fsio: &FsIo,
     client: &reqwest::Client,
     base_url: &str,
@@ -53,18 +78,18 @@ pub async fn download_track_blob(
     track_id: Uuid,
     blob: &BlobRef,
     extension: &str,
-) -> Result<PathBuf> {
+) -> Result<VerifiedBlob> {
     let final_path = blob_path_for_track(fsio, root, track_id, &blob.digest, extension)?;
-    download_to_path(fsio, client, base_url, blob, final_path).await
+    fetch_to_path(fsio, client, base_url, blob, final_path).await
 }
 
-async fn download_to_path(
+async fn fetch_to_path(
     fsio: &FsIo,
     client: &reqwest::Client,
     base_url: &str,
     blob: &BlobRef,
     final_path: PathBuf,
-) -> Result<PathBuf> {
+) -> Result<VerifiedBlob> {
     validate_digest(&blob.digest)?;
     ensure!(blob.size <= MAX_BLOB_BYTES, "blob too large");
     if fsio.exists(&final_path)? {
@@ -84,7 +109,10 @@ async fn download_to_path(
             .context("existing blob verification task failed")??
             == *blob
         {
-            return Ok(final_path);
+            return Ok(VerifiedBlob {
+                path: final_path,
+                temporary: None,
+            });
         }
     }
     let temp = TempFile {
@@ -134,17 +162,12 @@ async fn download_to_path(
             size == blob.size && hash.finalize().to_hex().as_str() == blob.digest,
             "blob verification failed"
         );
-        if fsio.exists(&final_path)? {
-            fsio.remove_file(&final_path).await?;
-        }
-        fsio.rename_file(&temp.path, &final_path)
-            .await
-            .context("could not publish downloaded blob")?;
-        #[cfg(feature = "sync-crash-probe")]
-        super::fault_hook::stop("published");
         Ok::<_, anyhow::Error>(())
     }
     .await;
     result?;
-    Ok(final_path)
+    Ok(VerifiedBlob {
+        path: final_path,
+        temporary: Some(temp),
+    })
 }
