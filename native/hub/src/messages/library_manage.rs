@@ -34,7 +34,7 @@ pub struct ScanAudioLibraryRequest {
     pub call_id: Option<u64>,
 }
 
-#[derive(Serialize, Deserialize, SignalPiece)]
+#[derive(Serialize, Deserialize, SignalPiece, NamedLibraries)]
 pub struct EmptyLibraryCleanupProposal {
     pub generation: u64,
     pub scan_run_id: String,
