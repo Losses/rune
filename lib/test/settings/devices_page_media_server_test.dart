@@ -135,6 +135,10 @@ void main() {
   late Directory storage;
 
   setUpAll(() async {
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. So the directory is left where
+    // it is, in the system's temporary directory; nothing here removes it.
     storage = await Directory.systemTemp.createTemp('rune-devices-page-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -143,9 +147,6 @@ void main() {
         );
     StorageKeyManager.initialize(null);
     await SettingsManager().getValue<String>('devices-page-test');
-  });
-  tearDownAll(() async {
-    if (!Platform.isWindows) await storage.delete(recursive: true);
   });
 
   testWidgets('the Media Server switches show the loaded settings', (
