@@ -486,6 +486,78 @@ async fn normal_local_scan_refreshes_external_album_artwork() -> Result<()> {
 }
 
 #[tokio::test]
+async fn artwork_inspected_before_a_move_cannot_be_assigned_to_the_new_location() -> Result<()> {
+    use database::actions::cover_art::assign_inspected;
+    use metadata::cover_art::extract_cover_art_binary_checked;
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let original = root.join("original");
+    let destination = root.join("destination");
+    fs::create_dir(&original)?;
+    fs::create_dir(&destination)?;
+    let track_path = original.join("track.wav");
+    write_tagged_wav(&track_path, "Moved track")?;
+    fs::write(
+        original.join("cover.png"),
+        include_bytes!("../../assets/available_app_store.png"),
+    )?;
+    let fs = FsIo::new();
+    let node = Uuid::new_v4();
+    let actor = node.to_string();
+    let db = connect_main_db(&fs, root.to_str().context("library path")?, None, &actor).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let scan = || {
+        fixtures::cleanup_scan(
+            &fs,
+            &db,
+            &actor,
+            root,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+    };
+    scan().await?;
+    let observed = media_files::Entity::find()
+        .one(&db)
+        .await?
+        .context("indexed track")?;
+    let artwork = extract_cover_art_binary_checked(&fs, Some(root), &track_path)?;
+    assert!(artwork.is_some());
+
+    // Finish the track's actual move after inspection and before assignment.
+    fs::rename(track_path, destination.join("renamed.wav"))?;
+    scan().await?;
+    let moved = media_files::Entity::find_by_id(observed.id)
+        .one(&db)
+        .await?
+        .context("move should preserve the track row")?;
+    assert_eq!(moved.source_uuid, observed.source_uuid);
+    assert_eq!(moved.content_hash, observed.content_hash);
+    assert_eq!(moved.last_modified, observed.last_modified);
+    assert_eq!(moved.directory, "destination");
+    assert_eq!(moved.file_name, "renamed.wav");
+    assert!(moved.cover_art_uuid.is_none());
+    let head = causal_progress::head_on(&db, store.namespace()).await?;
+
+    let error = assign_inspected(&db, &store, &observed, artwork)
+        .await
+        .expect_err("an inspection from the old path must not publish artwork after a move");
+    assert_eq!(error.to_string(), "file changed during artwork inspection");
+    assert_eq!(
+        media_files::Entity::find_by_id(moved.id).one(&db).await?,
+        Some(moved)
+    );
+    assert_eq!(
+        causal_progress::head_on(&db, store.namespace()).await?,
+        head
+    );
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

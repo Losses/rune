@@ -848,6 +848,8 @@ pub async fn assign_inspected(
         .ok_or_else(|| anyhow::anyhow!("inspected file disappeared"))?;
     ensure!(
         current.source_uuid == observed.source_uuid
+            && current.directory == observed.directory
+            && current.file_name == observed.file_name
             && current.last_modified == observed.last_modified
             && current.content_hash == observed.content_hash
             && current.content_size == observed.content_size
