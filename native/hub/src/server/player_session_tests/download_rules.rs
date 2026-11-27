@@ -31,6 +31,11 @@ use tokio::{
 use uuid::Uuid;
 
 #[tokio::test]
+async fn an_unchanged_offline_rule_downloads_both_files_in_one_pass() -> Result<()> {
+    exercise_rule_change(RuleEdit::KeepEnabled, Cleanup::Off).await
+}
+
+#[tokio::test]
 async fn disabling_an_offline_rule_stops_before_the_next_file() -> Result<()> {
     exercise_rule_change(RuleEdit::Disable, Cleanup::Off).await
 }
@@ -51,6 +56,7 @@ async fn overlapping_rules_keep_the_in_flight_file_and_download_the_next() -> Re
 }
 
 enum RuleEdit {
+    KeepEnabled,
     Disable,
     Remove,
 }
@@ -62,6 +68,7 @@ enum Cleanup {
 }
 
 async fn exercise_rule_change(edit: RuleEdit, cleanup: Cleanup) -> Result<()> {
+    let rule_stays_enabled = matches!(edit, RuleEdit::KeepEnabled);
     let overlap = matches!(cleanup, Cleanup::WithOverlap);
     let cleanup = !matches!(cleanup, Cleanup::Off);
     let dir = tempfile::tempdir()?;
@@ -207,7 +214,7 @@ async fn exercise_rule_change(edit: RuleEdit, cleanup: Cleanup) -> Result<()> {
                 .handle(request.extract_params(params), None, &request)
                 .await?
                 .context("remove response")?;
-        } else {
+        } else if matches!(edit, RuleEdit::Disable) {
             let request = SetDownloadRuleRequest {
                 request_id: "disable".into(),
                 enabled: false,
@@ -224,28 +231,36 @@ async fn exercise_rule_change(edit: RuleEdit, cleanup: Cleanup) -> Result<()> {
     };
     let (transfer, ()) =
         timeout(TEST_DEADLINE, async { tokio::try_join!(transfer, change) }).await??;
+    let expected_requests = if rule_stays_enabled { 2 } else { 1 };
     let first = {
         let requests = requests.lock().unwrap();
         assert_eq!(
             requests.len(),
-            1,
-            "the stale rule started a second transfer"
+            expected_requests,
+            "unexpected number of transfers before the pass returned"
         );
         files[&requests[0]]
     };
     let keep_first = !cleanup || overlap;
-    assert_eq!(transfer.report.downloaded, usize::from(keep_first));
-    assert_eq!(
-        is_materialized(
-            &*library.main_db,
-            &library.fsio,
-            std::path::Path::new(&library.media_root),
-            first,
-        )
-        .await?,
-        keep_first,
-        "the in-flight file has the wrong final offline state"
-    );
+    let expected_downloads = if rule_stays_enabled {
+        2
+    } else {
+        usize::from(keep_first)
+    };
+    assert_eq!(transfer.report.downloaded, expected_downloads);
+    for &file in files.values() {
+        assert_eq!(
+            is_materialized(
+                &*library.main_db,
+                &library.fsio,
+                std::path::Path::new(&library.media_root),
+                file,
+            )
+            .await?,
+            rule_stays_enabled || (keep_first && file == first),
+            "file {file} has the wrong final offline state"
+        );
+    }
     if overlap {
         let next = download_audio_pass(
             library.main_db.as_ref().clone(),
