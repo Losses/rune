@@ -170,7 +170,10 @@ impl RuneOutputStream {
 /// Whether `device` is ALSA's `null` device, which takes any stream and throws its samples away as
 /// fast as they come: a track that plays there runs to its end at full speed without a sound.
 /// cpal 0.15 left it out of the output devices it listed; cpal 0.18 lists it.
-#[cfg(any(test, not(feature = "test-output")))]
+#[cfg(any(
+    not(any(feature = "test-output", test)),
+    all(test, target_os = "linux")
+))]
 fn discards_samples(device: &cpal::Device) -> bool {
     device.id().is_ok_and(|id| id.id() == "null")
 }
