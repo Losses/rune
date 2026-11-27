@@ -22,7 +22,7 @@
 		</dict>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>Player</string>
+	<string>Rune</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -30,7 +30,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>player</string>
+	<string>Rune</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -39,6 +39,8 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
