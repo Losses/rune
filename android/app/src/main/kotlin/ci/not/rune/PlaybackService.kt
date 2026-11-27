@@ -103,10 +103,11 @@ class PlaybackService : Service() {
 
         private val main = Handler(Looper.getMainLooper())
 
-        // Only the main thread touches these: the last write, and the service from its first start
-        // until it is released.
+        // Only the main thread touches these: the last write, the service from its first start
+        // until it is released, and when the app's task was last removed.
         private var latest: Shown? = null
         private var running: PlaybackService? = null
+        private var taskRemovedAt = Long.MIN_VALUE
 
         /**
          * Shows what the hub sends, from any thread. A duration of -1 is none, and the position is
@@ -139,7 +140,9 @@ class PlaybackService : Service() {
             val service = running
             if (service != null) {
                 service.show(shown)
-            } else if (shown.service == SERVICE_FOREGROUND) {
+            } else if (shown.service == SERVICE_FOREGROUND && shown.at > taskRemovedAt) {
+                // A write made before the app's task was removed is of the playback that ended
+                // with it, and starts nothing.
                 start(context)
             }
         }
@@ -281,6 +284,7 @@ class PlaybackService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Playback ends with the app's task.
+        taskRemovedAt = SystemClock.elapsedRealtime()
         nativeCommand(COMMAND_PAUSE, 0)
         release()
         super.onTaskRemoved(rootIntent)
@@ -314,7 +318,9 @@ class PlaybackService : Service() {
                 if (foreground) leaveForegroundLater()
             }
         }
-        if (plays(shown.state)) registerNoisy() else unregisterNoisy()
+        // In the foreground the player plays, or waits to play again once audio focus comes back,
+        // which headphones that go away meanwhile call off.
+        if (shown.service == SERVICE_FOREGROUND) registerNoisy() else unregisterNoisy()
         when (shown.focus) {
             // After the service is in the foreground: Android 15 and later refuse audio focus
             // to an app in the background without one.
@@ -373,7 +379,11 @@ class PlaybackService : Service() {
         val shown = latest
         if (!released && shown != null) {
             enterForeground(notification(shown))
-            if (foreground && shown.service != SERVICE_FOREGROUND) leaveForegroundLater()
+            if (foreground && shown.service != SERVICE_FOREGROUND) {
+                // The time counts from this press, not from a pause before it.
+                cancelLeavingForeground()
+                leaveForegroundLater()
+            }
         }
         nativeCommand(COMMAND_PLAY, 0)
     }
