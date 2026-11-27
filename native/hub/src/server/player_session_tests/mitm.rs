@@ -337,12 +337,16 @@ where
                         if writer.write_all(&bytes).await.is_err() {
                             return;
                         }
+                        // A TLS writer buffers plaintext until flush: without it the frame
+                        // has not been transmitted when the cut is recorded.
+                        let _ = writer.flush().await;
                         note_fired(&state, &ctl);
                     }
                     None => {
                         if writer.write_all(&bytes).await.is_err() {
                             return;
                         }
+                        let _ = writer.flush().await;
                     }
                 }
                 continue;
@@ -603,7 +607,7 @@ mod mitm_self_tests {
             let (tcp, _) = upstream_listener.accept().await.expect("accept");
             let mut tls = upstream_acceptor.accept(tcp).await.expect("upstream tls");
             let mut buf = vec![0u8; 4096];
-            let read = tls.read(&mut buf).await.expect("upstream read");
+            let _read = tls.read(&mut buf).await.expect("upstream read");
             tls.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello")
                 .await
                 .expect("upstream write");
@@ -629,7 +633,7 @@ mod mitm_self_tests {
             .expect("client write");
         let _ = tls.flush().await;
         let mut response = Vec::new();
-        let read = tokio::time::timeout(
+        let _read = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             tls.read_to_end(&mut response),
         )
