@@ -19,6 +19,13 @@ internal object TokenPolicy {
     const val ATTEMPT_INTERVAL_MS = 60L * 60 * 1000
     const val FORCED_INTERVAL_MS = 5L * 60 * 1000
 
+    /** The least time after an attempt that got no answer, as when the device was offline. */
+    const val FAILED_INTERVAL_MS = 60L * 1000
+
+    /** The longest life Apple allows a developer token, and a day for clocks that differ. */
+    const val MAX_LIFETIME_SECONDS = 15_777_000L
+    const val CLOCK_SLACK_SECONDS = 24L * 60 * 60
+
     /** The most that is read of an answer. A token is far shorter. */
     const val MAX_BYTES = 4096
 
@@ -36,19 +43,25 @@ internal object TokenPolicy {
 
     /**
      * Whether an attempt may be made [sinceLastMs] after the last one, which is null if there was
-     * none yet. A forced attempt waits less.
+     * none yet. A forced attempt waits less, and so does one after an attempt that got no answer
+     * ([lastFailed]), which is worth trying again soon.
      */
-    fun attemptAllowed(sinceLastMs: Long?, forced: Boolean): Boolean =
-        sinceLastMs == null || sinceLastMs >= if (forced) FORCED_INTERVAL_MS else ATTEMPT_INTERVAL_MS
+    fun attemptAllowed(sinceLastMs: Long?, forced: Boolean, lastFailed: Boolean = false): Boolean {
+        if (sinceLastMs == null) return true
+        var wait = if (forced) FORCED_INTERVAL_MS else ATTEMPT_INTERVAL_MS
+        if (lastFailed) wait = minOf(wait, FAILED_INTERVAL_MS)
+        return sinceLastMs >= wait
+    }
 
     /**
      * The token in a fetched [text], or null when it is not one worth keeping: it must be a JWT
-     * that holds and expires later than the [best] one.
+     * that holds, expires later than the [best] one, and does not live longer than Apple allows.
      */
     fun accept(text: String, best: String, nowSeconds: Long): String? {
         val token = text.trim()
         if (!DeveloperToken.holds(token, nowSeconds)) return null
         val expiry = DeveloperToken.expiry(token) ?: return null
+        if (expiry > nowSeconds + MAX_LIFETIME_SECONDS + CLOCK_SLACK_SECONDS) return null
         val bestExpiry = DeveloperToken.expiry(best) ?: 0L
         return if (expiry > bestExpiry) token else null
     }
@@ -78,6 +91,9 @@ internal class DeveloperTokens(context: Context) {
     private var lastAttemptMs: Long? = null
     private var fetching = false
 
+    /** Whether the last attempt got no answer from the token URL. */
+    private var lastFailed = false
+
     /** The developer token to use now, or empty when none holds. */
     val current: String
         get() = TokenPolicy.best(candidates(), nowSeconds())
@@ -88,9 +104,9 @@ internal class DeveloperTokens(context: Context) {
 
     /**
      * Fetches a newer token in the background if one is wanted: none holds or the best expires
-     * soon, and the last attempt is long enough ago. A [forced] attempt skips the first condition,
-     * for a token that holds by its `exp` but that Apple Music refuses. [stored] runs on the
-     * fetching thread after a new token was kept.
+     * soon, and the last attempt is long enough ago, sooner when it got no answer. A [forced]
+     * attempt skips the first condition, for a token that holds by its `exp` but that Apple Music
+     * refuses. [stored] runs on the fetching thread after a new token was kept.
      */
     fun refresh(forced: Boolean, stored: () -> Unit) {
         if (url.isEmpty()) return
@@ -98,7 +114,7 @@ internal class DeveloperTokens(context: Context) {
             if (fetching) return
             val now = System.currentTimeMillis()
             val since = lastAttemptMs?.let { now - it }
-            if (!TokenPolicy.attemptAllowed(since, forced)) return
+            if (!TokenPolicy.attemptAllowed(since, forced, lastFailed)) return
             if (!forced && !TokenPolicy.refreshDue(current, nowSeconds())) return
             fetching = true
             lastAttemptMs = now
@@ -117,11 +133,13 @@ internal class DeveloperTokens(context: Context) {
             fetch()
         } catch (error: Exception) {
             Log.w(TAG, "The developer token could not be fetched: ${error.javaClass.simpleName}")
+            synchronized(lock) { lastFailed = true }
             return false
         }
+        synchronized(lock) { lastFailed = false }
         val token = TokenPolicy.accept(text, current, nowSeconds())
         if (token == null) {
-            Log.w(TAG, "The fetched developer token was not newer than the one in use")
+            Log.w(TAG, "The fetched developer token was not newer than the one in use, or not valid")
             return false
         }
         preferences.edit().putString(FETCHED, token).apply()

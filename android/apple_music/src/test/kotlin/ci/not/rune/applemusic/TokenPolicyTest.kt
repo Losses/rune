@@ -63,4 +63,21 @@ class TokenPolicyTest {
         assertNull(TokenPolicy.accept("<html>not found</html>", "", now))
         assertNull(TokenPolicy.accept("", "", now))
     }
+
+    @Test
+    fun `an attempt after one that got no answer waits a minute`() {
+        assertFalse(TokenPolicy.attemptAllowed(59_000L, false, lastFailed = true))
+        assertTrue(TokenPolicy.attemptAllowed(60_000L, false, lastFailed = true))
+        assertFalse(TokenPolicy.attemptAllowed(60_000L, false, lastFailed = false))
+        assertTrue(TokenPolicy.attemptAllowed(60_000L, true, lastFailed = true))
+    }
+
+    @Test
+    fun `a token that lives longer than Apple allows is not accepted`() {
+        val limit = now + TokenPolicy.MAX_LIFETIME_SECONDS + TokenPolicy.CLOCK_SLACK_SECONDS
+        val longest = jwt(limit)
+        assertEquals(longest, TokenPolicy.accept(longest, "", now))
+        assertNull(TokenPolicy.accept(jwt(limit + 1), "", now))
+        assertNull(TokenPolicy.accept(jwt(now + 3650 * day), jwt(now + 3 * day), now))
+    }
 }
