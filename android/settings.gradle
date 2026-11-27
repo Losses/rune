@@ -30,7 +30,8 @@ include ":app"
 // names, and else in `apple_music/libs`, where the repository keeps them through Git LFS. A
 // checkout without LFS content has pointer files there instead of archives, and builds the app
 // without Apple Music. So does a build that gives the property an empty value. A folder that is
-// named explicitly and lacks the AARs fails the build.
+// named explicitly and lacks the AARs fails the build. A relative folder is taken from this
+// file's folder.
 //
 // This is the one place that decides. The module takes the archives from `gradle.ext`, and the
 // app asks whether the module is included.
@@ -50,7 +51,7 @@ if (givenSdkDir != null && givenSdkDir.isEmpty()) {
     logger.lifecycle("Building without Apple Music: runeAppleMusicSdkDir is empty")
 } else if (givenSdkDir != null) {
     appleMusicArchives = appleMusicArchiveNames.collect {
-        def archive = new File(new File(givenSdkDir), it)
+        def archive = new File(file(givenSdkDir), it)
         if (!isArchive(archive)) {
             throw new GradleException("runeAppleMusicSdkDir has no $it")
         }
