@@ -35,8 +35,8 @@ void main() {
     cafeMode = false;
     // GetStorage writes its file and a backup from unawaited futures, which can
     // still be on their way when the tests end. Deleting the directory then
-    // fails as not empty, or fails the write. Leave the directory for the test
-    // process's temporary-directory cleanup.
+    // fails as not empty, or fails the write. So the directory is left where
+    // it is, in the system's temporary directory; nothing here removes it.
     storage = await Directory.systemTemp.createTemp('rune-search-test');
     if (Platform.isWindows) {
       stdout.writeln('RUNE_SEARCH_TEST_STORAGE=${storage.path}');
