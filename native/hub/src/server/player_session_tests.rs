@@ -16200,6 +16200,121 @@ async fn a_library_whose_folder_was_moved_is_not_opened_as_an_empty_one() -> Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn active_redirected_library_reopens_after_removal() -> Result<()> {
+    redirected_library_reopens_after_removal(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inactive_redirected_library_reopens_after_removal() -> Result<()> {
+    redirected_library_reopens_after_removal(false).await
+}
+
+async fn redirected_library_reopens_after_removal(remove_open: bool) -> Result<()> {
+    use crate::messages::{RegisterLocalLibraryRequest, RemoveLibraryRecordRequest};
+    use database::{actions::playlists::create_playlist, entities::playlists};
+
+    let dir = tempfile::tempdir()?;
+    let fixture = super::fixture_with_broadcaster(
+        dir.path(),
+        Uuid::new_v4(),
+        Duration::from_secs(300),
+        Arc::new(RecordedSignals::default()),
+    )
+    .await?;
+    let node = &fixture.global_params.node;
+    let folder = dir.path().join("redirected");
+    fs::create_dir_all(&folder)?;
+    let file = folder.join("track.wav");
+    fs::write(&file, b"retained media")?;
+
+    let register = RegisterLocalLibraryRequest {
+        call_id: None,
+        path: folder.to_string_lossy().into_owned(),
+        alias: "Redirected".into(),
+        mode: Some(LibraryInitializeMode::Redirected),
+    };
+    let original = register_local_library_on_node(&register, node)
+        .await?
+        .record
+        .context("original record")?;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let open = |record_id| {
+        let node = node.clone();
+        let scrobbler = scrobbler.clone();
+        async move {
+            open_library_by_record_on_node(
+                &OpenLibraryRequest {
+                    call_id: None,
+                    record_id,
+                },
+                node,
+                scrobbler,
+            )
+            .await
+        }
+    };
+    open(original.record_id.clone()).await?;
+    let (library_id, playlist) = {
+        let current = node.current_ui().await?;
+        let library = current.test_library();
+        let playlist = create_playlist(
+            &library.main_db,
+            &library.library_sync.record_store(),
+            "Kept playlist".into(),
+            String::new(),
+        )
+        .await?;
+        (library.library_id, playlist)
+    };
+
+    if remove_open {
+        let current = node.current_ui().await?;
+        node.close_ui(&current.main_token).await;
+        assert!(node.current_ui().await.is_err());
+    } else {
+        let other = fixture.global_params.test_library().descriptor.record_id;
+        open(other.0.to_string()).await?;
+        assert_ne!(node.current_ui().await?.library_id, Some(library_id));
+    }
+    let remove = RemoveLibraryRecordRequest {
+        call_id: None,
+        record_id: original.record_id.clone(),
+        delete_device_data: false,
+    };
+    remove
+        .handle(node.clone(), None, &remove)
+        .await?
+        .context("removal response")?;
+
+    let restored = register_local_library_on_node(
+        &RegisterLocalLibraryRequest {
+            mode: None,
+            ..register
+        },
+        node,
+    )
+    .await?
+    .record
+    .context("restored record")?;
+    open(restored.record_id.clone()).await?;
+    assert_ne!(restored.record_id, original.record_id);
+    let current = node.current_ui().await?;
+    let library = current.test_library();
+    assert_eq!(library.library_id, library_id);
+    assert_eq!(
+        playlists::Entity::find_by_id(playlist.id)
+            .one(&*library.main_db)
+            .await?,
+        Some(playlist)
+    );
+    assert_eq!(fs::read(file)?, b"retained media");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn library_records_register_open_and_preserve_previous_ui_on_failure() -> Result<()> {
     use crate::messages::{
         InvalidRecordReasonSummary, LibraryInitializeMode, LibraryRecordKindSummary,

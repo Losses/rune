@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
-use crate::connection::StorageMode;
+use crate::connection::{MAIN_DATABASE_FILE, StorageMode, redirected_db_dir};
 use crate::credentials::{CredentialRef, CredentialStore, CredentialStoreError};
+use crate::sync::replica::retained_catalog_id;
 use anyhow::Error;
 
 static REGISTRY_WRITE: Mutex<()> = Mutex::const_new(());
@@ -1193,6 +1194,23 @@ pub async fn resolve_library(
     alias: &str,
     mode: StorageMode,
 ) -> Result<LibraryRecord> {
+    let db_root = registry
+        .path
+        .parent()
+        .context("Library registry has no directory")?
+        .to_owned();
+    resolve_library_with_db_root(fsio, registry, &db_root, root, alias, mode).await
+}
+
+/// Resolve a local library when redirected catalogs are stored outside the registry directory.
+pub async fn resolve_library_with_db_root(
+    fsio: &FsIo,
+    registry: &mut LibraryRegistry,
+    db_root: &Path,
+    root: &str,
+    alias: &str,
+    mode: StorageMode,
+) -> Result<LibraryRecord> {
     let _guard = REGISTRY_WRITE.lock().await;
     registry.reload()?;
     let rune_dir = if cfg!(target_os = "android") && root.starts_with("content://") {
@@ -1224,14 +1242,32 @@ pub async fn resolve_library(
             (id, DbPlacement::Portable)
         }
         StorageMode::Redirected(key) => {
-            let id = registry
+            let registered_id = registry
                 .libraries
                 .iter()
                 .find(|entry| {
                     entry.db_placement() == Some(DbPlacement::Redirected { storage_key: key })
                 })
-                .and_then(LibraryRecord::catalog_library_id)
-                .unwrap_or_else(Uuid::new_v4);
+                .and_then(LibraryRecord::catalog_library_id);
+            let id = match registered_id {
+                Some(id) => id,
+                None => {
+                    let path = redirected_db_dir(db_root, key).join(MAIN_DATABASE_FILE);
+                    let retained_id = retained_catalog_id(&path).await.with_context(|| {
+                        format!("Could not read catalog identity from {}", path.display())
+                    })?;
+                    if let Some(id) = retained_id {
+                        ensure!(
+                            !registry
+                                .libraries
+                                .iter()
+                                .any(|entry| entry.catalog_library_id() == Some(id)),
+                            "Catalog {id} is already registered at another storage location"
+                        );
+                    }
+                    retained_id.unwrap_or_else(Uuid::new_v4)
+                }
+            };
             (id, DbPlacement::Redirected { storage_key: key })
         }
     };
@@ -1862,6 +1898,47 @@ mod tests {
         );
         assert_eq!(f.registry.libraries, vec![owned]);
         assert!(!f.dir.path().join("replicas").exists());
+    }
+
+    #[tokio::test]
+    async fn removed_redirected_library_reopens_with_its_retained_catalog() -> Result<()> {
+        let mut fixture = Fixture::new();
+        let db_root = fixture.dir.path().join("catalogs");
+        let root = fixture.root("media");
+        crate::connection::create_redirect(&fixture.fsio, &root).await?;
+        let mode = crate::connection::check_storage_mode(&fixture.fsio, &root)?;
+        let original = fixture.resolve(&root, "Original", mode.clone()).await;
+        let node = Uuid::new_v4();
+        let node_string = node.to_string();
+        let connect = || {
+            crate::connection::connect_main_db(&fixture.fsio, &root, db_root.to_str(), &node_string)
+        };
+        let db = connect().await?;
+        crate::sync::LibrarySyncStore::open(db.clone(), node, original.catalog_library_id())
+            .await?;
+        db.close().await?;
+
+        let credentials = CredentialStore::open(fixture.dir.path());
+        assert!(
+            LibraryRegistry::remove_record(fixture.dir.path(), original.record_id, &credentials)
+                .await?
+        );
+        let restored = resolve_library_with_db_root(
+            &fixture.fsio,
+            &mut fixture.registry,
+            &db_root,
+            &root,
+            "Restored",
+            mode,
+        )
+        .await?;
+        let db = connect().await?;
+        crate::sync::LibrarySyncStore::open(db.clone(), node, restored.catalog_library_id())
+            .await?;
+        db.close().await?;
+        assert_eq!(restored.catalog_library_id(), original.catalog_library_id());
+        assert_ne!(restored.record_id, original.record_id);
+        Ok(())
     }
 
     #[tokio::test]

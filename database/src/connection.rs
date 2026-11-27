@@ -37,6 +37,12 @@ pub enum StorageMode {
     Redirected(Uuid),
 }
 
+pub(crate) fn redirected_db_dir(db_root: &Path, key: Uuid) -> PathBuf {
+    db_root.join(key.to_string())
+}
+
+pub(crate) const MAIN_DATABASE_FILE: &str = ".0.db";
+
 pub struct StorageInfo {
     pub state: LibraryState,
     pub rune_dir: PathBuf,
@@ -45,7 +51,7 @@ pub struct StorageInfo {
 
 impl StorageInfo {
     pub fn get_main_db_path(&self) -> PathBuf {
-        self.db_dir.join(".0.db")
+        self.db_dir.join(MAIN_DATABASE_FILE)
     }
 
     /// Where older versions kept the LMDB recommendation index: a directory
@@ -170,7 +176,7 @@ pub fn get_storage_info(fsio: &FsIo, lib_path: &str, db_path: Option<&str>) -> R
             StorageMode::Portable => rune_dir.clone(),
             StorageMode::Redirected(uuid) => {
                 let db_path = db_path.context("db_path is required for redirected storage")?;
-                PathBuf::from(db_path).join(uuid.to_string())
+                redirected_db_dir(Path::new(db_path), *uuid)
             }
         },
     };
