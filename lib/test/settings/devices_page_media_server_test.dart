@@ -15,7 +15,6 @@ import 'package:rune/utils/api/set_sync_settings.dart';
 import 'package:rune/utils/settings_manager.dart';
 import 'package:rune/utils/storage_key_manager.dart';
 import 'package:rune/widgets/settings/settings_box_toggle.dart';
-import '../settings_folder.dart';
 
 const _mediaServer = 'Media Server';
 const _broadcast = 'Enable Broadcast';
@@ -136,7 +135,11 @@ void main() {
   late Directory storage;
 
   setUpAll(() async {
-    storage = await emptySettingsFolder('rune-devices-page-test');
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. Leave the directory for the test
+    // process's temporary-directory cleanup.
+    storage = await Directory.systemTemp.createTemp('rune-devices-page-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),

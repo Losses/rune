@@ -19,7 +19,6 @@ import 'package:rune/widgets/navigation_bar/page_content_frame.dart';
 import 'package:rune/widgets/playback_controller/constants/controller_items.dart';
 import 'package:rune/widgets/playback_controller/constants/playback_controller_height.dart';
 import 'package:rune/widgets/rune_clickable.dart';
-import '../settings_folder.dart';
 
 // An iPhone's status bar and home indicator, in points.
 const _iPhone = EdgeInsets.only(top: 62, bottom: 34);
@@ -105,7 +104,11 @@ EdgeInsets _framePadding(WidgetTester tester) =>
 void main() {
   late Directory storage;
   setUpAll(() async {
-    storage = await emptySettingsFolder('rune-settings-test');
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. Leave the directory for the test
+    // process's temporary-directory cleanup.
+    storage = await Directory.systemTemp.createTemp('rune-settings-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),

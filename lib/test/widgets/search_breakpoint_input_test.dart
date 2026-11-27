@@ -10,7 +10,6 @@ import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/screens/search/search.dart';
 import 'package:rune/utils/storage_key_manager.dart';
 import 'package:rune/utils/settings_manager.dart';
-import '../settings_folder.dart';
 
 class _Responsive extends ChangeNotifier implements ResponsiveProvider {
   @override
@@ -34,7 +33,11 @@ void main() {
     // The search page follows the router, whose first page depends on cafe
     // mode.
     cafeMode = false;
-    storage = await emptySettingsFolder('rune-search-test');
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. Leave the directory for the test
+    // process's temporary-directory cleanup.
+    storage = await Directory.systemTemp.createTemp('rune-search-test');
     if (Platform.isWindows) {
       stdout.writeln('RUNE_SEARCH_TEST_STORAGE=${storage.path}');
     }

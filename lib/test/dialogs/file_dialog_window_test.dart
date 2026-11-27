@@ -23,7 +23,6 @@ import 'package:rune/utils/dialogs/file_dialog/widgets/items_view.dart';
 import 'package:rune/utils/dialogs/file_dialog/widgets/navigation_pane.dart';
 import 'package:rune/utils/settings_manager.dart';
 import 'package:rune/utils/storage_key_manager.dart';
-import '../settings_folder.dart';
 
 /// Breakpoints from the window width, as the real provider finds them.
 class _Responsive extends ChangeNotifier implements ResponsiveProvider {
@@ -214,7 +213,11 @@ Finder _tooltip(String message) => find.byWidgetPredicate(
 void main() {
   late Directory storage;
   setUpAll(() async {
-    storage = await emptySettingsFolder('rune-dialog-window');
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. Leave the directory for the test
+    // process's temporary-directory cleanup.
+    storage = await Directory.systemTemp.createTemp('rune-dialog-window');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),

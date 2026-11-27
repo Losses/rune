@@ -9,7 +9,6 @@ import 'package:rune/utils/dialogs/file_dialog/file_dialog_controller.dart';
 import 'package:rune/utils/dialogs/file_dialog/file_dialog_model.dart';
 import 'package:rune/utils/settings_manager.dart';
 import 'package:rune/utils/storage_key_manager.dart';
-import '../settings_folder.dart';
 
 FileDialogLocation _at(String path) =>
     FileDialogLocation(root: const FileDialogRootFileSystem(), path: path);
@@ -151,7 +150,11 @@ void main() {
   late Directory storage;
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    storage = await emptySettingsFolder('rune-file-dialog-test');
+    // GetStorage writes its file and a backup from unawaited futures, which can
+    // still be on their way when the tests end. Deleting the directory then
+    // fails as not empty, or fails the write. Leave the directory for the test
+    // process's temporary-directory cleanup.
+    storage = await Directory.systemTemp.createTemp('rune-file-dialog-test');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
