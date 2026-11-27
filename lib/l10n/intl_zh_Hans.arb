@@ -1653,6 +1653,7 @@
   },
   "requestPublicKeyMismatch": "设备密钥与指纹不匹配",
   "requestRegistrationConflict": "此指纹对应的设备已注册",
+  "peerMetadataSyncRetrying": "资料库同步中断，正在重试…",
   "remoteLibraryReconnecting": "正在重新连接到 {alias}…",
   "@remoteLibraryReconnecting": {
     "placeholders": {

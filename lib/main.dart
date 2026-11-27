@@ -663,6 +663,9 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   late final RemoteConnectionLossHandler _remoteLoss;
   late final RendererLinkLossHandler _rendererLinkLoss;
   late final LibraryShareSyncNotice _shareSyncNotice;
+  final _retryingPeerMetadata = <(String, String)>{};
+  late final StreamSubscription<RustSignalPack<PeerMetadataSyncStatusUpdated>>
+  _peerMetadataSyncSubscription;
   late final RemoteLibraryReconnectNotice _remoteReconnect;
   late final HostedPlayerBridge _hostedPlayer;
   LibraryOpenStateProvider? _libraryState;
@@ -795,6 +798,16 @@ class RuneLifecycleState extends State<RuneLifecycle> {
         );
       },
     );
+    _peerMetadataSyncSubscription = PeerMetadataSyncStatusUpdated
+        .rustSignalStream
+        .listen((signal) {
+          final status = signal.message;
+          final key = (status.libraryId, status.ownerFingerprint);
+          final changed = status.retrying
+              ? _retryingPeerMetadata.add(key)
+              : _retryingPeerMetadata.remove(key);
+          if (changed && mounted) setState(() {});
+        });
     _rendererLinkLoss = RendererLinkLossHandler(
       losses: RendererLinkLost.rustSignalStream.map((signal) => signal.message),
       showNotice: (alias) {
@@ -928,6 +941,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
     _remoteLoss.dispose();
     _rendererLinkLoss.dispose();
     _shareSyncNotice.dispose();
+    _peerMetadataSyncSubscription.cancel();
     _hostedPlayer.dispose();
     _requestFailureSubscription?.cancel();
     for (final subscription in _hostSubscriptions) {
@@ -994,6 +1008,31 @@ class RuneLifecycleState extends State<RuneLifecycle> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.child;
+    final replica = context
+        .select<LibraryRegistryProvider, LibraryRecordKindSummary?>(
+          (registry) => registry.openRecord?.kind,
+        );
+    final retrying =
+        replica is LibraryRecordKindSummaryReplica &&
+        _retryingPeerMetadata.contains((
+          replica.libraryId,
+          replica.ownerFingerprint,
+        ));
+    return Column(
+      children: [
+        Expanded(child: widget.child),
+        if (retrying)
+          SafeArea(
+            top: false,
+            child: Semantics(
+              liveRegion: true,
+              child: InfoBar(
+                title: Text(S.of(context).peerMetadataSyncRetrying),
+                severity: InfoBarSeverity.warning,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }

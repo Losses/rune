@@ -1643,6 +1643,7 @@
   },
   "requestPublicKeyMismatch": "設備密鑰與指紋不匹配。",
   "requestRegistrationConflict": "此指纹對應的設備已注册",
+  "peerMetadataSyncRetrying": "資料庫同步中斷，正在重試…",
   "remoteLibraryReconnecting": "正在重新連接到 {alias}…",
   "@remoteLibraryReconnecting": {
     "placeholders": {

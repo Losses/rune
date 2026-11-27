@@ -6290,6 +6290,63 @@ mod lifecycle_tests {
         .await
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_offline_replica_owner_is_logged_and_sync_recovers() -> Result<()> {
+        use crate::messages::ListLogRequest;
+
+        let owner_dir = tempfile::tempdir()?;
+        let replica_dir = tempfile::tempdir()?;
+        let id = Uuid::new_v4();
+        let owner = fixture_with_library(owner_dir.path(), id).await?;
+        let peer = fixture(replica_dir.path()).await?;
+        let addr = paired_full(&owner, &peer).await?;
+        let (_, replica) =
+            player_session_tests::replicate_host_library_at(&owner, &peer, addr).await?;
+        let owner_library = owner.global_params.test_library();
+        let replica_library = replica.global_params.test_library();
+
+        let initial = write_album(owner_library, "before the owner goes offline").await?;
+        replica.manager.start_worker().await?;
+        wait_for_album(replica_library, &initial).await?;
+
+        owner.manager.stop().await?;
+        let pending = write_album(owner_library, "while the owner is offline").await?;
+        assert!(replica_library.library_sync.get(&pending).await?.is_none());
+        let retry_log_count = || async {
+            let request = ListLogRequest {
+                call_id: None,
+                cursor: 0,
+                page_size: 50,
+            };
+            let logs = request
+                .handle(
+                    request.extract_params(&replica.global_params),
+                    None,
+                    &request,
+                )
+                .await?
+                .context("application log response")?;
+            Ok::<_, Error>(
+                logs.result
+                    .iter()
+                    .filter(|entry| entry.domain == "Peer library synchronization")
+                    .count(),
+            )
+        };
+        wait_until("offline owner to appear in the application log", || async {
+            Ok((retry_log_count().await? == 1).then_some(()))
+        })
+        .await?;
+
+        paired_full(&owner, &replica).await?;
+        wait_for_album(replica_library, &pending).await?;
+        assert!(replica_library.library_sync.get(&initial).await?.is_some());
+        assert_eq!(retry_log_count().await?, 1);
+        replica.manager.stop_worker().await?;
+        owner.manager.stop().await?;
+        Ok(())
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn node_without_ui_serves_and_syncs_held_libraries_bidirectionally() -> Result<()> {
         let first = tempfile::tempdir()?;

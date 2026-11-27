@@ -29,6 +29,47 @@ import '../../widgets/router/rune_router_frame_implementation.dart';
 final _s = AppLocalizationsEn();
 
 void main() {
+  testWidgets('only the current replica shows one retry banner until recovery', (
+    tester,
+  ) async {
+    await _pumpApp(
+      tester,
+      record: const LibraryRecordSummary(
+        recordId: 'replica-record',
+        alias: 'Shared Music',
+        kind: LibraryRecordKindSummaryReplica(
+          libraryId: 'catalog',
+          ownerFingerprint: 'owner',
+        ),
+        shareSync: false,
+        syncAccess: LibraryAccessSummary.read,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Future<void> report(String owner, bool retrying) async {
+      _receive(
+        'PeerMetadataSyncStatusUpdated',
+        PeerMetadataSyncStatusUpdated(
+          libraryId: 'catalog',
+          ownerFingerprint: owner,
+          retrying: retrying,
+        ).bincodeSerialize(),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final warning = find.text(_s.peerMetadataSyncRetrying);
+    await report('other owner', true);
+    expect(warning, findsNothing);
+    await report('owner', true);
+    expect(warning, findsOneWidget);
+    await report('owner', true);
+    expect(warning, findsOneWidget);
+    await report('owner', false);
+    expect(warning, findsNothing);
+  });
+
   for (final (kind, message) in [
     (RequestErrorKind.notFound, _s.requestItemMissing),
     (RequestErrorKind.invalidInput, _s.requestInvalid),
@@ -370,7 +411,10 @@ void main() {
 
 /// Pumps [RuneLifecycle] above the root navigator, as the app does, with the
 /// providers it reads.
-Future<void> _pumpApp(WidgetTester tester) async {
+Future<void> _pumpApp(
+  WidgetTester tester, {
+  LibraryRecordSummary? record,
+}) async {
   // main() sets these before the app starts: cafe mode from the settings, and
   // whether the last library is reopened.
   cafeMode = false;
@@ -380,9 +424,15 @@ Future<void> _pumpApp(WidgetTester tester) async {
       providers: [
         ChangeNotifierProvider(
           create: (_) => LibraryRegistryProvider(
-            loadRecords: () async => const ListLibraryRecordsResponse(
-              records: [],
-              invalidRecords: [],
+            loadRecords: () async => ListLibraryRecordsResponse(
+              records: [if (record != null) record],
+              invalidRecords: const [],
+              open: record == null
+                  ? null
+                  : OpenRecord(
+                      recordId: record.recordId,
+                      generation: Uint64.fromBigInt(BigInt.one),
+                    ),
             ),
           ),
         ),

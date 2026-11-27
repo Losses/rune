@@ -23,6 +23,16 @@ pub struct LibrarySyncStatusUpdated {
 
 crate::implement_rinf_rust_signal_trait!(LibrarySyncStatusUpdated);
 
+/// Whether a paired-device replica is waiting for its metadata pass to retry.
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct PeerMetadataSyncStatusUpdated {
+    pub library_id: String,
+    pub owner_fingerprint: String,
+    pub retrying: bool,
+}
+
+crate::implement_rinf_rust_signal_trait!(PeerMetadataSyncStatusUpdated);
+
 /// A device-local selection for persistent audio downloads.
 #[derive(Serialize, Deserialize, DartSignal)]
 pub struct SetDownloadRuleRequest {
