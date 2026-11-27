@@ -120,11 +120,15 @@ pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
 fn group_similar_files(
     similarities: &[media_file_similarity::Model],
     zero_score_files: &[String],
-) -> Vec<Vec<String>> {
+    cancelled: impl Fn() -> bool,
+) -> Option<Vec<Vec<String>>> {
     let mut adjacency_list: HashMap<String, Vec<String>> = HashMap::new();
 
     // Build an adjacency list for our similarity graph
     for similarity in similarities {
+        if cancelled() {
+            return None;
+        }
         adjacency_list
             .entry(similarity.first_track_uuid.clone())
             .or_default()
@@ -135,6 +139,9 @@ fn group_similar_files(
             .push(similarity.first_track_uuid.clone());
     }
     for pair in zero_score_files.windows(2) {
+        if cancelled() {
+            return None;
+        }
         adjacency_list
             .entry(pair[0].clone())
             .or_default()
@@ -151,6 +158,9 @@ fn group_similar_files(
 
     // Perform a depth-first search to find connected components (groups)
     for file_id in adjacency_list.keys().cloned() {
+        if cancelled() {
+            return None;
+        }
         if visited.contains(&file_id) {
             continue;
         }
@@ -164,6 +174,9 @@ fn group_similar_files(
 
             if let Some(neighbors) = adjacency_list.get(&current_id) {
                 for neighbor in neighbors.iter().cloned() {
+                    if cancelled() {
+                        return None;
+                    }
                     if !visited.contains(&neighbor) {
                         visited.insert(neighbor.clone());
                         stack.push(neighbor);
@@ -177,13 +190,23 @@ fn group_similar_files(
         }
     }
 
-    groups
+    Some(groups)
 }
 
 // Function to get all duplicated files
 pub async fn get_duplicate_files<C: ConnectionTrait>(db: &C) -> Result<Vec<media_files::Model>> {
+    collect_duplicate_files(db, None).await
+}
+
+async fn collect_duplicate_files<C: ConnectionTrait>(
+    db: &C,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<Vec<media_files::Model>> {
     let mut duplicates = Vec::new();
     for file in MediaFiles::find().all(db).await? {
+        if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+            break;
+        }
         if let Some(row) = current_fingerprint(db, &file).await?
             && row.is_duplicated == 1
             && fingerprint_status(&row, &file) == SourceStatus::Verified
@@ -411,24 +434,33 @@ where
 ///
 /// In each group the file with the highest sample rate (then the smallest source identity) is
 /// kept and the others are marked. Verified marks on files outside every group are cleared. All
-/// mark changes are committed in one transaction, so a failed run leaves the previous marks.
-/// Returns the number of files marked as duplicates.
+/// mark changes are committed in one transaction. Failure or cancellation before commit leaves
+/// the previous marks and audio files intact. Returns the number of files marked, or zero on
+/// cancellation.
 pub async fn mark_duplicate_files<F>(
     db: &DatabaseConnection,
     threshold: f32,
     progress: F,
+    cancel_token: Option<&CancellationToken>,
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<usize>
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
     use sea_orm::TransactionTrait;
+    let cancelled = || cancel_token.is_some_and(CancellationToken::is_cancelled);
+    if cancelled() {
+        return Ok(0);
+    }
     let rows = MediaFileSimilarity::find()
         .filter(media_file_similarity::Column::Similarity.gte(threshold))
         .all(db)
         .await?;
     let mut verified = Vec::new();
     for row in rows {
+        if cancelled() {
+            return Ok(0);
+        }
         let Some(first) = MediaFiles::find()
             .filter(media_files::Column::SourceUuid.eq(row.first_track_uuid.clone()))
             .one(db)
@@ -467,6 +499,9 @@ where
             .all(db)
             .await?;
         for file in files {
+            if cancelled() {
+                return Ok(0);
+            }
             let Some(fingerprint) = current_fingerprint(db, &file).await? else {
                 continue;
             };
@@ -475,10 +510,15 @@ where
             }
         }
     }
-    let groups = group_similar_files(&verified, &zero_score_files);
+    let Some(groups) = group_similar_files(&verified, &zero_score_files, cancelled) else {
+        return Ok(0);
+    };
     let total = groups.len();
     let mut marks = HashMap::new();
     for (index, group) in groups.into_iter().enumerate() {
+        if cancelled() {
+            return Ok(0);
+        }
         let files = MediaFiles::find()
             .filter(media_files::Column::SourceUuid.is_in(group))
             .all(db)
@@ -505,15 +545,28 @@ where
         }
         progress(index + 1, total);
     }
+    if cancelled() {
+        return Ok(0);
+    }
+
     let tx = db.begin().await?;
     store.lock(&tx).await?;
-    for file in get_duplicate_files(&tx).await? {
-        if !marks.contains_key(&file.id) {
-            source::assign_duplicate_mark_on(&tx, store, file.id, 0).await?;
-        }
+    if cancelled() {
+        tx.rollback().await?;
+        return Ok(0);
     }
-    for (&file_id, &mark) in &marks {
+    let previous = collect_duplicate_files(&tx, cancel_token).await?;
+    let clear = previous
+        .into_iter()
+        .filter(|file| !marks.contains_key(&file.id))
+        .map(|file| (file.id, 0));
+    let changes = clear.chain(marks.iter().map(|(&file_id, &mark)| (file_id, mark)));
+    for (file_id, mark) in changes.take_while(|_| !cancelled()) {
         source::assign_duplicate_mark_on(&tx, store, file_id, mark).await?;
+    }
+    if cancelled() {
+        tx.rollback().await?;
+        return Ok(0);
     }
     tx.commit().await?;
     Ok(marks.values().filter(|&&mark| mark == 1).count())

@@ -455,7 +455,7 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
     };
     author_zero_similarity(&db, &store, &first, &third).await?;
 
-    let marked_before = mark_duplicate_files(&db, 0.0, |_, _| {}, &store).await?;
+    let marked_before = mark_duplicate_files(&db, 0.0, |_, _| {}, None, &store).await?;
     let before: Vec<_> = media_file_fingerprint::Entity::find()
         .order_by_asc(media_file_fingerprint::Column::TrackUuid)
         .all(&db)
@@ -480,7 +480,7 @@ async fn missing_zero_score_pairs_preserve_zero_threshold_duplicate_marks() -> R
         tx.commit().await?;
     }
     assert_eq!(
-        mark_duplicate_files(&db, 0.0, |_, _| {}, &store).await?,
+        mark_duplicate_files(&db, 0.0, |_, _| {}, None, &store).await?,
         marked_before
     );
     let after: Vec<_> = media_file_fingerprint::Entity::find()
@@ -546,9 +546,15 @@ async fn raising_the_threshold_unmarks_pairs_below_it() -> Result<()> {
         "similarity {similarity}"
     );
 
-    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 1);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.85, |_, _| {}, None, &store).await?,
+        1
+    );
     assert_eq!(get_duplicate_files(&db).await?.len(), 1);
-    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 0);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.95, |_, _| {}, None, &store).await?,
+        0
+    );
     assert!(get_duplicate_files(&db).await?.is_empty());
     assert_eq!(
         duplicate_marks(&db, &store).await?,
@@ -569,12 +575,18 @@ async fn raising_the_threshold_keeps_groups_that_still_qualify() -> Result<()> {
     fingerprinted_file(&db, &store, 3, Uuid::from_u128(3), vec![0x1111_111e; 64]).await?;
     compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
 
-    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 2);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.85, |_, _| {}, None, &store).await?,
+        2
+    );
     assert_eq!(
         duplicate_marks(&db, &store).await?,
         vec![(1, 0, 0), (2, 1, 1), (3, 1, 1)]
     );
-    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 1);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.95, |_, _| {}, None, &store).await?,
+        1
+    );
     assert_eq!(
         duplicate_marks(&db, &store).await?,
         vec![(1, 0, 0), (2, 1, 1), (3, 0, 0)]
@@ -601,7 +613,10 @@ async fn failed_mark_replacement_keeps_previous_marks() -> Result<()> {
     fingerprinted_file(&db, &store, 3, Uuid::from_u128(3), vec![0x7777_7777; 64]).await?;
     fingerprinted_file(&db, &store, 4, Uuid::from_u128(4), vec![0x7777_7778; 64]).await?;
     compare_all_pairs(&db, |_, _| {}, &Configuration::default(), None, &store).await?;
-    assert_eq!(mark_duplicate_files(&db, 0.85, |_, _| {}, &store).await?, 2);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.85, |_, _| {}, None, &store).await?,
+        2
+    );
     let marks = duplicate_marks(&db, &store).await?;
     assert_eq!(marks, vec![(1, 0, 0), (2, 1, 1), (3, 0, 0), (4, 1, 1)]);
     let head = sync_orm::causal_progress::head_on(&db, store.namespace())
@@ -616,7 +631,7 @@ async fn failed_mark_replacement_keeps_previous_marks() -> Result<()> {
     ))
     .await?;
     assert!(
-        mark_duplicate_files(&db, 0.95, |_, _| {}, &store)
+        mark_duplicate_files(&db, 0.95, |_, _| {}, None, &store)
             .await
             .is_err()
     );
@@ -631,7 +646,10 @@ async fn failed_mark_replacement_keeps_previous_marks() -> Result<()> {
 
     db.execute_unprepared("DROP TRIGGER reject_second_mark")
         .await?;
-    assert_eq!(mark_duplicate_files(&db, 0.95, |_, _| {}, &store).await?, 0);
+    assert_eq!(
+        mark_duplicate_files(&db, 0.95, |_, _| {}, None, &store).await?,
+        0
+    );
     assert_eq!(
         duplicate_marks(&db, &store).await?,
         vec![(1, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0)]
