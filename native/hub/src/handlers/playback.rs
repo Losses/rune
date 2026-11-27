@@ -2333,9 +2333,8 @@ async fn hand_off_to_renderer(
     expected_position: f64,
     run: &HandoffRun<'_>,
 ) -> Result<()> {
-    run.check_cancelled()?;
-    let (connected_link, alias) = node
-        .connect_renderer(target, RendererLinkUse::Control)
+    let (connected_link, alias) = run
+        .until_cancelled(node.connect_renderer(target, RendererLinkUse::Control))
         .await?;
     // A rollback whose outcome is still unknown may have left its block on the target: loading
     // the new one on top of it would stack both. The connection just reconciled what it could,

@@ -197,15 +197,22 @@ impl HandoffRun<'_> {
         Ok(())
     }
 
+    pub(crate) async fn until_cancelled<T>(
+        &self,
+        operation: impl Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => Err(ExpectedRequestError::HandoffSuperseded.into()),
+            outcome = operation => outcome,
+        }
+    }
+
     pub(crate) async fn confirm(
         &self,
         confirmation: impl Future<Output = anyhow::Result<()>>,
     ) -> anyhow::Result<()> {
-        tokio::select! {
-            biased;
-            _ = self.cancel.cancelled() => return Err(ExpectedRequestError::HandoffSuperseded.into()),
-            outcome = confirmation => outcome?,
-        }
+        self.until_cancelled(confirmation).await?;
         self.commit()?;
         Ok(())
     }
@@ -276,6 +283,32 @@ mod tests {
                 .commit()
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn closing_library_cancels_renderer_setup_before_load() {
+        let owner = HandoffTickets::default();
+        let ui = Arc::new(CancellationToken::new());
+        let run = owner.start(None, &ui).await.unwrap();
+        let close = owner.close_ui(&ui);
+        tokio::pin!(close);
+        let outcome = {
+            let setup = run.until_cancelled(std::future::pending::<anyhow::Result<()>>());
+            tokio::pin!(setup);
+            assert!(futures::poll!(&mut setup).is_pending());
+            assert!(futures::poll!(&mut close).is_pending());
+            match futures::poll!(&mut setup) {
+                std::task::Poll::Ready(outcome) => outcome,
+                std::task::Poll::Pending => panic!("closing the library must stop pending setup"),
+            }
+        };
+        assert!(matches!(
+            outcome.unwrap_err().downcast_ref(),
+            Some(ExpectedRequestError::HandoffSuperseded)
+        ));
+        run.finish();
+        drop(run);
+        close.await.unwrap();
     }
 
     #[tokio::test]
