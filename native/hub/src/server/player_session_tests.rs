@@ -368,22 +368,19 @@ async fn subsonic_hub_response(
         }
         let id = query.get("id").map(String::as_str).unwrap_or_default();
         let held = state.gate.held_streams.lock().unwrap().iter().any(|held| held == id);
-        if held && !state.gate.released.load(Ordering::SeqCst) {
-            // Register for the wakeup before the second released check: a release landing
-            // between them must not be missed, or the stream hangs forever.
+        if held {
+            // Register for the wakeup before the released check: a release landing between
+            // them must not be missed, or the stream hangs forever. Announce entry on every
+            // path, parked or not: the waiter gates the release on this signal.
             let release = state.gate.stream_release.notified();
+            state.gate.stream_entered.notify_one();
             if state.gate.released.load(Ordering::SeqCst) {
                 drop(release);
             } else {
-                state.gate.stream_entered.notify_one();
                 // A real stream held at a real resource: nothing the song feeds can finish
                 // until the test releases the endpoint.
                 release.await;
             }
-        } else if held {
-            // Released before the first check: announce entry so a waiter holding off the
-            // release is not stuck behind a stream that never parks.
-            state.gate.stream_entered.notify_one();
         }
         let bytes = include_bytes!("../../../../assets/startup_0.ogg");
         if let Some(range) = range
