@@ -24,10 +24,45 @@ plugins {
 
 include ":app"
 
-// Apple Music plays through Apple's MusicKit for Android, whose AARs may not be redistributed. The
-// module that uses them is only part of a build that is given the folder holding them, as the
-// Gradle property `runeAppleMusicSdkDir` (or the environment variable
-// `ORG_GRADLE_PROJECT_runeAppleMusicSdkDir`). Without it the app has no Apple Music at all.
-if (providers.gradleProperty("runeAppleMusicSdkDir").isPresent()) {
+// Apple Music plays through Apple's MusicKit for Android. The module that uses it is part of a
+// build that has the SDK's two AARs, which are found in the folder that the Gradle property
+// `runeAppleMusicSdkDir` (or the environment variable `ORG_GRADLE_PROJECT_runeAppleMusicSdkDir`)
+// names, and else in `apple_music/libs`, where the repository keeps them through Git LFS. A
+// checkout without LFS content has pointer files there instead of archives, and builds the app
+// without Apple Music. A folder that is named explicitly and lacks the AARs fails the build.
+//
+// This is the one place that decides. The module takes the archives from `gradle.ext`, and the
+// app asks whether the module is included.
+def appleMusicArchiveNames = ["MediaPlayback-release-1.1.4.aar", "MusicKitAuth-release-1.1.5.aar"]
+def appleMusicArchives = null
+
+def givenSdkDir = providers.gradleProperty("runeAppleMusicSdkDir").getOrNull()
+if (givenSdkDir != null) {
+    appleMusicArchives = appleMusicArchiveNames.collect {
+        def archive = new File(new File(givenSdkDir), it)
+        if (!archive.isFile()) {
+            throw new GradleException("runeAppleMusicSdkDir has no $it")
+        }
+        archive
+    }
+} else {
+    def libs = new File(settingsDir, "apple_music/libs")
+    def found = appleMusicArchiveNames.collect { new File(libs, it) }
+    // A real archive is a zip file, which starts with "PK". A Git LFS pointer is text.
+    def isArchive = { File file ->
+        file.isFile() && file.withInputStream { input ->
+            def head = new byte[4]
+            input.read(head) == 4 && head[0] == 0x50 && head[1] == 0x4b && head[2] == 3 && head[3] == 4
+        }
+    }
+    if (found.every(isArchive)) {
+        appleMusicArchives = found
+    } else {
+        logger.lifecycle("Building without Apple Music: no MusicKit AARs in apple_music/libs")
+    }
+}
+
+gradle.ext.appleMusicArchives = appleMusicArchives
+if (appleMusicArchives != null) {
     include ":apple_music"
 }

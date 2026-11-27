@@ -1,38 +1,45 @@
 // Apple Music through Apple's MusicKit for Android. This module holds the host and is the only
-// code that refers to the SDK. It is only part of a build that is given the folder holding the
-// SDK's AARs (see settings.gradle), which are used from there and never copied into the
-// repository: Apple's licence does not let them be redistributed.
+// code that refers to the SDK. settings.gradle includes it only when the SDK's two AARs are
+// there, and hands their files over as `gradle.ext.appleMusicArchives`. The AARs belong in
+// `libs`, next to this file, where Git LFS keeps them (see .gitattributes), or in the folder that
+// the Gradle property `runeAppleMusicSdkDir` names.
 //
-// The developer token is read from the file that the Gradle property `runeAppleMusicTokenFile`
-// (or the environment variable `ORG_GRADLE_PROJECT_runeAppleMusicTokenFile`) names, and compiled
-// into BuildConfig. Without it the host reports that it cannot play.
+// The developer token, a JWT, is compiled into BuildConfig from the file that the Gradle property
+// `runeAppleMusicTokenFile` names, else from `developer-token.jwt` beside this file, which a bot
+// keeps current. Without either the build has no token and the host fetches one. The host also
+// fetches the latest token from `runeAppleMusicTokenUrl` (an empty value never fetches) when the
+// one it has expires soon.
 plugins {
     id "com.android.library"
     id "kotlin-android"
 }
 
-def sdkDir = file(providers.gradleProperty("runeAppleMusicSdkDir").get())
-def sdkArchives = ["MediaPlayback-release-1.1.4.aar", "MusicKitAuth-release-1.1.5.aar"].collect {
-    def archive = new File(sdkDir, it)
-    if (!archive.isFile()) {
-        throw new GradleException("runeAppleMusicSdkDir has no $it")
-    }
-    archive
-}
+def sdkArchives = gradle.ext.appleMusicArchives
 
 def developerToken = ""
 def tokenPath = providers.gradleProperty("runeAppleMusicTokenFile").getOrNull()
+def tokenFile = null
 if (tokenPath != null) {
-    def tokenFile = file(tokenPath)
+    tokenFile = file(tokenPath)
     if (!tokenFile.isFile()) {
         throw new GradleException("runeAppleMusicTokenFile names no file")
     }
+} else if (file("developer-token.jwt").isFile()) {
+    tokenFile = file("developer-token.jwt")
+}
+if (tokenFile != null) {
     developerToken = tokenFile.text.trim()
     // A JWT is base64url text in three parts. Anything else would not survive as a Java string
     // literal, and its text is never printed.
     if (!(developerToken ==~ /[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/)) {
-        throw new GradleException("runeAppleMusicTokenFile does not hold a JWT")
+        throw new GradleException("The developer token file does not hold a JWT")
     }
+}
+
+def tokenUrl = providers.gradleProperty("runeAppleMusicTokenUrl")
+        .getOrElse("https://raw.githubusercontent.com/Losses/rune/master/android/apple_music/developer-token.jwt")
+if (!tokenUrl.isEmpty() && (!tokenUrl.startsWith("https://") || tokenUrl.contains('"') || tokenUrl.contains("\\"))) {
+    throw new GradleException("runeAppleMusicTokenUrl must be an https URL without quotes or backslashes")
 }
 
 android {
@@ -43,6 +50,7 @@ android {
         minSdk = rootProject.project(":app").android.defaultConfig.minSdk
         consumerProguardFiles "consumer-rules.pro"
         buildConfigField "String", "DEVELOPER_TOKEN", "\"$developerToken\""
+        buildConfigField "String", "DEVELOPER_TOKEN_URL", "\"$tokenUrl\""
     }
 
     buildFeatures {
