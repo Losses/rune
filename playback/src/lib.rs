@@ -19,13 +19,13 @@ pub mod sfx_player;
 pub mod strategies;
 pub mod stream_utils;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 mod dummy_souvlaki;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 pub use dummy_souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
 pub use internal::{InternalLog, OutputEvent, PlaybackMode, PlayerCommand, PlayerEvent};
