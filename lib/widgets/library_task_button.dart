@@ -244,26 +244,14 @@ Future<bool> _reviewEmptyLibraryCleanup(
   bool stillOpen() =>
       context.mounted &&
       context.read<LibraryOpenStateProvider>().openRecord?.recordId == recordId;
-  Future<EmptyLibraryCleanupResponse> request([
-    EmptyLibraryCleanupProposal? confirmation,
-  ]) async {
-    final signal = await awaitResponse(
-      'EmptyLibraryCleanupRequest',
-      EmptyLibraryCleanupResponse.rustSignalStream,
-      responseCallId: (response) => response.message.callId?.toInt(),
-      send: (callId) => EmptyLibraryCleanupRequest(
-        recordId: recordId,
-        confirmation: confirmation,
-        callId: callId,
-      ).sendSignalToRust(),
-    );
-    return signal.message;
-  }
 
   if (!stillOpen()) return true;
+  final manager = context.read<LibraryManagerProvider>();
   final EmptyLibraryCleanupProposal? preview;
   try {
-    preview = (await request()).proposal;
+    preview = (await manager.requestEmptyLibraryCleanup(recordId)).proposal;
+  } on TimeoutException {
+    return false;
   } on RequestFailure {
     return false;
   }
@@ -279,7 +267,10 @@ Future<bool> _reviewEmptyLibraryCleanup(
   );
   if (confirmed != true || !stillOpen()) return true;
   try {
-    final result = await request(preview);
+    final result = await manager.requestEmptyLibraryCleanup(
+      recordId,
+      confirmation: preview,
+    );
     if (!result.removed && context.mounted && stillOpen()) {
       await showErrorDialog(
         context: context,
@@ -287,6 +278,13 @@ Future<bool> _reviewEmptyLibraryCleanup(
         errorMessage: labels.emptyLibraryCleanupChanged,
       );
     }
+  } on TimeoutException {
+    if (!context.mounted || !stillOpen()) return true;
+    await showErrorDialog(
+      context: context,
+      title: labels.emptyLibraryCleanupTitle,
+      errorMessage: labels.emptyLibraryCleanupOutcomeUnknown,
+    );
   } on RequestFailure catch (failure) {
     if (!context.mounted || !stillOpen()) return true;
     await showErrorDialog(

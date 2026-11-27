@@ -28,6 +28,7 @@ struct TaskEntry {
     state: LibraryTaskState,
     worker: RunningWorker,
     empty_cleanup_deferred: bool,
+    empty_cleanup_committing: bool,
 }
 
 struct RunningWorker {
@@ -81,6 +82,7 @@ impl LibraryTaskOwner {
             TaskEntry {
                 state: state.clone(),
                 empty_cleanup_deferred: false,
+                empty_cleanup_committing: false,
                 worker: RunningWorker {
                     token: token.clone(),
                     attach: Some(attach),
@@ -118,6 +120,21 @@ impl LibraryTaskOwner {
             return None;
         }
         entry.state.run_id()
+    }
+
+    /// Serialize the last cancellation check with accepting a cancel request.
+    pub(crate) fn begin_empty_cleanup_commit(&mut self, record_id: &str, run_id: &str) -> bool {
+        let Some(entry) = self
+            .tasks
+            .get_mut(&(record_id.to_owned(), LibraryTaskKind::Scan))
+        else {
+            return false;
+        };
+        if entry.state.run_id() != Some(run_id) || !entry.state.is_running() {
+            return false;
+        }
+        entry.empty_cleanup_committing = true;
+        true
     }
 
     pub fn ensure_can_start(&self, record_id: &str) -> Result<(), ExpectedRequestError> {
@@ -223,30 +240,26 @@ impl LibraryTaskOwner {
 
     /// Cancels the task and waits for its worker to stop.
     ///
-    /// The state is captured before the wait because the worker may take a
-    /// while to stop. A new run can start once it has, before this call
-    /// resumes, so the captured state is only returned while it still belongs
-    /// to the run the owner tracks.
+    /// A worker committing an empty-library cleanup finishes before the
+    /// caller receives that run's actual outcome.
     pub async fn cancel(
         owner: &Mutex<Self>,
         record_id: &str,
         task: LibraryTaskKind,
     ) -> Option<LibraryTaskState> {
-        let (state, mut worker_done) = {
+        let (run_id, mut worker_done) = {
             let mut owner = owner.lock().unwrap_or_else(PoisonError::into_inner);
             let entry = owner.tasks.get_mut(&(record_id.to_owned(), task))?;
-            if entry.state.is_running() {
+            if entry.state.is_running() && !entry.empty_cleanup_committing {
                 entry.worker.token.cancel();
                 entry.state = entry.state.clone().cancelled();
             }
-            (entry.state.clone(), Some(entry.worker.done.clone()))
+            (entry.state.run_id()?.to_owned(), entry.worker.done.clone())
         };
-        if let Some(worker_done) = &mut worker_done {
-            wait_for_worker(worker_done).await;
-        }
+        wait_for_worker(&mut worker_done).await;
         let owner = owner.lock().unwrap_or_else(PoisonError::into_inner);
         let current = owner.tasks.get(&(record_id.to_owned(), task))?;
-        (current.state.run_id() == state.run_id()).then_some(state)
+        (current.state.run_id() == Some(run_id.as_str())).then(|| current.state.clone())
     }
 
     pub fn current(&self, record_id: &str, task: LibraryTaskKind) -> LibraryTaskState {
@@ -265,7 +278,7 @@ impl LibraryTaskOwner {
             let mut states = Vec::new();
             let mut workers = Vec::new();
             for entry in owner.tasks.values_mut() {
-                if entry.state.is_running() {
+                if entry.state.is_running() && !entry.empty_cleanup_committing {
                     entry.worker.token.cancel();
                     entry.state = entry.state.clone().cancelled();
                     states.push(entry.state.clone());
@@ -377,6 +390,52 @@ mod tests {
             cancelled,
             LibraryTaskState::AnalysisEnded {
                 outcome: AnalysisOutcome::Cancelled,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancelling_after_empty_cleanup_commit_begins_returns_the_committed_result() {
+        let owner = Arc::new(Mutex::new(LibraryTaskOwner::default()));
+        let (state, token) = owner
+            .lock()
+            .unwrap()
+            .start("library", LibraryTaskKind::Scan)
+            .unwrap();
+        let (_, run_id) = running(state);
+        let (commit_tx, commit_rx) = oneshot::channel();
+        let worker_owner = owner.clone();
+        let worker_run = run_id.clone();
+        let worker = tokio::spawn(async move {
+            commit_rx.await.unwrap();
+            worker_owner
+                .lock()
+                .unwrap()
+                .end(
+                    "library",
+                    &worker_run,
+                    LibraryTaskEnd::Scan(ScanOutcome::Finished),
+                    0,
+                    0,
+                )
+                .unwrap();
+        });
+        {
+            let mut owner = owner.lock().unwrap();
+            owner.attach_worker("library", LibraryTaskKind::Scan, &run_id, worker);
+            assert!(owner.begin_empty_cleanup_commit("library", &run_id));
+        }
+
+        let cancel = LibraryTaskOwner::cancel(&owner, "library", LibraryTaskKind::Scan);
+        tokio::pin!(cancel);
+        assert!(futures::poll!(&mut cancel).is_pending());
+        assert!(!token.is_cancelled());
+        commit_tx.send(()).unwrap();
+        assert!(matches!(
+            timeout(TEST_DEADLINE, cancel).await.unwrap().unwrap(),
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Finished,
                 ..
             }
         ));

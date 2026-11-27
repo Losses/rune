@@ -2193,6 +2193,7 @@
   "emptyLibraryCleanupRemove": "Remove Missing Tracks",
   "emptyLibraryCleanupKeep": "Keep Tracks",
   "emptyLibraryCleanupChanged": "The library or missing tracks changed. Scan again before confirming cleanup.",
+  "emptyLibraryCleanupOutcomeUnknown": "Rune did not receive the cleanup result in time. Check your library before trying again.",
   "lookUpLyricsOnLrclib": "Look Up Lyrics on LRCLIB",
   "@lookUpLyricsOnLrclib": {
     "description": "The label of the switch in the Lyrics dialog of a streaming library in Settings that allows or stops looking lyrics up at LRCLIB."

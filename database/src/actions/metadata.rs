@@ -1002,6 +1002,7 @@ pub async fn confirm_empty_library_cleanup(
     store: &crate::sync::SeaOrmSyncStore,
     fingerprint: &str,
     still_current: impl Fn() -> bool,
+    begin_commit: impl FnOnce() -> bool,
 ) -> Result<bool> {
     let tx = db.begin().await?;
     store.lock(&tx).await?;
@@ -1016,7 +1017,7 @@ pub async fn confirm_empty_library_cleanup(
     for track in tracks {
         remove_track(&tx, store, track.id).await?;
     }
-    if !empty_local_root(fsio, root_path).await || !still_current() {
+    if !empty_local_root(fsio, root_path).await || !still_current() || !begin_commit() {
         tx.rollback().await?;
         return Ok(false);
     }

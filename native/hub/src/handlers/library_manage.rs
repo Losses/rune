@@ -424,6 +424,12 @@ impl Signal for EmptyLibraryCleanupRequest {
                             .capability_library_identity()
                             .is_ok_and(|current| current == identity)
                 },
+                || {
+                    worker_owner
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .begin_empty_cleanup_commit(&worker_record_id, &worker_run_id)
+                },
             )
             .await;
             drop(settings);

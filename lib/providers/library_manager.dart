@@ -444,6 +444,23 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<EmptyLibraryCleanupResponse> requestEmptyLibraryCleanup(
+    String recordId, {
+    EmptyLibraryCleanupProposal? confirmation,
+  }) async {
+    final signal = await awaitResponse(
+      'EmptyLibraryCleanupRequest',
+      EmptyLibraryCleanupResponse.rustSignalStream,
+      responseCallId: (response) => response.message.callId?.toInt(),
+      send: (callId) => EmptyLibraryCleanupRequest(
+        recordId: recordId,
+        confirmation: confirmation,
+        callId: callId,
+      ).sendSignalToRust(),
+    );
+    return signal.message;
+  }
+
   Future<void> scanLibrary(
     String recordId, {
     bool isInitializeTask = false,

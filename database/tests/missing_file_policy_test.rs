@@ -298,7 +298,8 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             a.root.path(),
             &store,
             &preview.fingerprint,
-            || false
+            || false,
+            || true
         )
         .await?
     );
@@ -310,6 +311,7 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             a.root.path(),
             &store,
             &preview.fingerprint,
+            || true,
             || true
         )
         .await?
@@ -322,12 +324,36 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
     );
     fs::remove_file(path)?;
     assert!(
+        !confirm_empty_library_cleanup(
+            &fs,
+            &a.db,
+            a.root.path(),
+            &store,
+            &preview.fingerprint,
+            || true,
+            || false,
+        )
+        .await?
+    );
+    assert!(
+        media_files::Entity::find_by_id(id)
+            .one(&a.db)
+            .await?
+            .is_some()
+    );
+    let key = ObjectKey {
+        collection: Collection::Tracks,
+        id: uuid.parse()?,
+    };
+    assert!(store.get_on(&a.db, &key).await?.unwrap().value.is_some());
+    assert!(
         confirm_empty_library_cleanup(
             &fs,
             &a.db,
             a.root.path(),
             &store,
             &preview.fingerprint,
+            || true,
             || true
         )
         .await?
