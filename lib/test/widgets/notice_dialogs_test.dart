@@ -29,46 +29,52 @@ import '../../widgets/router/rune_router_frame_implementation.dart';
 final _s = AppLocalizationsEn();
 
 void main() {
-  testWidgets('only the current replica shows one retry banner until recovery', (
-    tester,
-  ) async {
-    await _pumpApp(
-      tester,
-      record: const LibraryRecordSummary(
-        recordId: 'replica-record',
-        alias: 'Shared Music',
-        kind: LibraryRecordKindSummaryReplica(
-          libraryId: 'catalog',
-          ownerFingerprint: 'owner',
+  testWidgets(
+    'only the current replica shows one retry notice until recovery',
+    (tester) async {
+      await _pumpApp(
+        tester,
+        record: const LibraryRecordSummary(
+          recordId: 'replica-record',
+          alias: 'Shared Music',
+          kind: LibraryRecordKindSummaryReplica(
+            libraryId: 'catalog',
+            ownerFingerprint: 'owner',
+          ),
+          shareSync: false,
+          syncAccess: LibraryAccessSummary.read,
         ),
-        shareSync: false,
-        syncAccess: LibraryAccessSummary.read,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    Future<void> report(String owner, bool retrying) async {
-      _receive(
-        'PeerMetadataSyncStatusUpdated',
-        PeerMetadataSyncStatusUpdated(
-          libraryId: 'catalog',
-          ownerFingerprint: owner,
-          retrying: retrying,
-        ).bincodeSerialize(),
       );
       await tester.pumpAndSettle();
-    }
 
-    final warning = find.text(_s.peerMetadataSyncRetrying);
-    await report('other owner', true);
-    expect(warning, findsNothing);
-    await report('owner', true);
-    expect(warning, findsOneWidget);
-    await report('owner', true);
-    expect(warning, findsOneWidget);
-    await report('owner', false);
-    expect(warning, findsNothing);
-  });
+      Future<void> report(String owner, bool retrying) async {
+        _receive(
+          'PeerMetadataSyncStatusUpdated',
+          PeerMetadataSyncStatusUpdated(
+            libraryId: 'catalog',
+            ownerFingerprint: owner,
+            retrying: retrying,
+          ).bincodeSerialize(),
+        );
+        await _frames(tester);
+      }
+
+      final warning = find.text(_s.peerMetadataSyncRetrying);
+      await report('other owner', true);
+      expect(warning, findsNothing);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await report('owner', false);
+      expect(warning, findsNothing);
+      await report('owner', true);
+      expect(warning, findsOneWidget);
+      await _close(tester);
+      await report('owner', true);
+      expect(warning, findsNothing);
+    },
+  );
 
   for (final (kind, message) in [
     (RequestErrorKind.notFound, _s.requestItemMissing),
