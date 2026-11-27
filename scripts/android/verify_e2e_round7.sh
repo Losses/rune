@@ -8,14 +8,23 @@
 set -euo pipefail
 
 run_playback_test() {
-    local tree_id=$1 log=$2
+    local tree_id=$1 log_dir=$2 pid
+    local log="$log_dir/playback.txt" native_log="$log_dir/native-playback.txt"
     flutter test integration_test/android_saf_playback_test.dart \
         -d "$ANDROID_SERIAL" --dart-define="RUNE_SAF_TREE_ID=$tree_id" \
-        --reporter expanded | tee "$log" || return 1
+        --reporter expanded 2>&1 | tee "$log" || return 1
 
     # Only the device test can emit this after observing the fixture advance.
     if ! grep -Fq 'Verified Android SAF playback: startup_0.ogg ' "$log"; then
         echo "Missing playback evidence for startup_0.ogg" >&2
+        return 1
+    fi
+    # Rust load failures go to the Android playback log, even when Flutter
+    # reports a passing test. Read only this run's Rune process there.
+    read -r pid < "$log_dir/app.pid" || return 1
+    adb logcat -d --pid="$pid" -s playback:W > "$native_log" || return 1
+    if grep -E 'Failed to open file|Failed to load track|Request (LoadResolvedItemsRequest|PlayRequest) failed|RequestFailure:' "$log" "$native_log"; then
+        echo "Playback failed during verification" >&2
         return 1
     fi
 }
@@ -57,6 +66,7 @@ verify_android() (
     fi
 
     local volume documents folder tree_id
+    local pkg=ci.not.rune picker=''
     volume=$(adb shell sm list-volumes public | tr -d '\r' | awk '$2 == "mounted" { print $3 }')
     if [[ ! $volume =~ ^[[:xdigit:]]{4}-[[:xdigit:]]{4}$ ]]; then
         echo "Expected one mounted FAT SD card, found volume UUID(s): $volume" >&2
@@ -65,11 +75,31 @@ verify_android() (
     documents=/storage/$volume/Documents
     adb shell mkdir -p "$documents"
     folder=$(adb shell mktemp -d "$documents/rune-e2e.XXXXXX" | tr -d '\r')
-    tree_id="$volume:Documents/${folder##*/}"
     [[ $folder == "$documents"/rune-e2e.?????? ]]
+    cleanup() {
+        local status=$? mode
+        if [[ -n $picker ]]; then
+            kill "$picker" 2>/dev/null || true
+            wait "$picker" 2>/dev/null || true
+        fi
+        # Save evidence before clearing the test's library and SAF grants.
+        adb logcat -d >"$log_dir/logcat.txt" || true
+        adb exec-out screencap -p >"$log_dir/screen.png" || true
+        if [[ -s "$log_dir/app.pid" ]]; then
+            adb shell pm clear "$pkg" || status=1
+            if [[ -s "$log_dir/storage-mode" ]]; then
+                read -r mode < "$log_dir/storage-mode"
+                adb shell appops set --uid "$pkg" MANAGE_EXTERNAL_STORAGE "$mode" || status=1
+            fi
+        fi
+        adb shell rm -rf "$folder" || status=1
+        if (( status == 0 )); then echo "Android scan, playback and storage checks passed."; fi
+        exit "$status"
+    }
+    trap cleanup EXIT
+    tree_id="$volume:Documents/${folder##*/}"
     adb push assets/startup_0.ogg "$folder/startup_0.ogg"
 
-    local pkg=ci.not.rune
     if adb shell pm list packages "$pkg" | tr -d '\r' | grep -Fxq "package:$pkg"; then
         adb shell pm clear "$pkg"
     fi
@@ -78,26 +108,24 @@ verify_android() (
     # Grant access to the newly launched test APK. An install can replace an
     # older package and reset any app-op that was granted during the build.
     (
-        until adb shell pidof "$pkg" >/dev/null 2>&1; do sleep 1; done
+        until pid=$(adb shell pidof -s "$pkg" 2>/dev/null | tr -d '\r'); do sleep 1; done
+        [[ $pid =~ ^[0-9]+$ ]]
+        printf '%s\n' "$pid" > "$log_dir/app.pid"
+        mode=$(adb shell appops get --uid "$pkg" MANAGE_EXTERNAL_STORAGE |
+            sed -nE 's/.*MANAGE_EXTERNAL_STORAGE: ([a-z]+).*/\1/p')
+        printf '%s\n' "${mode:-default}" > "$log_dir/storage-mode"
         adb shell appops set --uid "$pkg" MANAGE_EXTERNAL_STORAGE allow
         exec python3 "$here/confirm_saf_tree.py" "${folder##*/}"
     ) &
-    local picker=$!
-    # Keep logcat and a final screenshot even if a device assertion fails.
-    trap 'kill "$picker" 2>/dev/null || true; wait "$picker" 2>/dev/null || true
-          adb logcat -d >"$log_dir/logcat.txt" || true
-          adb exec-out screencap -p >"$log_dir/screen.png" || true' EXIT
+    picker=$!
 
-    run_playback_test "$tree_id" "$log_dir/playback.txt"
+    run_playback_test "$tree_id" "$log_dir"
 
     adb shell ls -la "$folder"
     adb shell "test -f '$folder/startup_0.ogg' && test ! -e '$folder/data'" || {
         echo "Fixture folder is missing its track or contains an unexpected data/ entry" >&2
         return 1
     }
-    # Local mode also writes its .rune redirect inside this disposable tree.
-    adb shell rm -r "$folder"
-    echo "Android scan, playback and storage checks passed."
 )
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

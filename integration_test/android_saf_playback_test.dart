@@ -123,6 +123,8 @@ void main() {
       PlaybackStatus.rustSignalStream.map((signal) => signal.message),
       expected,
     );
+    expect(fixture.audioAvailability, AudioAvailability.local);
+    expect(fixture.audioOrigin, AudioOrigin.host);
     debugPrint(
       'Verified Android SAF playback: $filename '
       'library=${fixture.libraryId} track=${fixture.track} '
