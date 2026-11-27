@@ -1,5 +1,5 @@
 use rodio::source::SeekError;
-use rodio::{Sample, Source};
+use rodio::{ChannelCount, Sample, SampleRate, Source};
 use std::time::Duration;
 
 /// Internal function that builds a `RuneBuffered` object.
@@ -7,7 +7,6 @@ use std::time::Duration;
 pub fn rune_buffered<I>(input: I) -> RuneBuffered<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     RuneBuffered {
         source: input,
@@ -21,13 +20,12 @@ where
 pub struct RuneBuffered<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     /// The underlying source
     source: I,
 
     /// Current frame data for current_samples() support
-    current_frame_data: Vec<I::Item>,
+    current_frame_data: Vec<Sample>,
 
     /// Number of channels in current frame
     current_frame_channels: u16,
@@ -39,12 +37,11 @@ where
 impl<I> RuneBuffered<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     /// Returns all channels of the sample frame containing the current scalar position,
     /// starting at the first channel. Returns `None` when there is no complete buffered frame
     /// at that position.
-    pub fn current_samples(&self) -> Option<Vec<I::Item>> {
+    pub fn current_samples(&self) -> Option<Vec<Sample>> {
         let channels = self.current_frame_channels as usize;
         if channels == 0 {
             return None;
@@ -60,9 +57,9 @@ where
     /// Updates the current frame data from source
     fn update_frame(&mut self) {
         self.current_frame_data.clear();
-        self.current_frame_channels = self.source.channels();
+        self.current_frame_channels = self.source.channels().get();
 
-        let frame_len = self.source.current_frame_len().unwrap_or(0);
+        let frame_len = self.source.current_span_len().unwrap_or(0);
         if frame_len > 0 {
             self.current_frame_data = (&mut self.source).take(frame_len).collect();
         }
@@ -74,12 +71,11 @@ where
 impl<I> Iterator for RuneBuffered<I>
 where
     I: Source,
-    I::Item: Sample,
 {
-    type Item = I::Item;
+    type Item = Sample;
 
     #[inline]
-    fn next(&mut self) -> Option<I::Item> {
+    fn next(&mut self) -> Option<Sample> {
         // If we've exhausted current frame data, get next frame
         if self.position_in_frame >= self.current_frame_data.len() {
             self.update_frame();
@@ -103,20 +99,19 @@ where
 impl<I> Source for RuneBuffered<I>
 where
     I: Source,
-    I::Item: Sample,
 {
     #[inline]
-    fn current_frame_len(&self) -> Option<usize> {
-        self.source.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
     }
 
     #[inline]
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.source.channels()
     }
 
     #[inline]
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.source.sample_rate()
     }
 
@@ -140,7 +135,6 @@ where
 impl<I> Clone for RuneBuffered<I>
 where
     I: Source + Clone,
-    I::Item: Sample,
 {
     #[inline]
     fn clone(&self) -> RuneBuffered<I> {
@@ -180,23 +174,39 @@ mod tests {
         rune_buffered(RuneDecoder::new(Cursor::new(bytes), Some("wav")).unwrap())
     }
 
+    /// The samples of the 16-bit file as the decoder yields them, on the scale of -1 to 1.
+    fn decoded(samples: &[i16]) -> Vec<Sample> {
+        samples
+            .iter()
+            .map(|&sample| f32::from(sample) / 32768.0)
+            .collect()
+    }
+
     #[test]
     fn stereo_samples_follow_the_scalar_position() {
         let input: Vec<i16> = (0..24).collect();
+        let expected = decoded(&input);
         let mut source = buffered_wav(2, &input);
 
-        assert_eq!(source.by_ref().take(10).collect::<Vec<_>>(), input[..10]);
-        assert_eq!(source.current_samples(), Some(vec![10, 11]));
-        assert_eq!(source.next(), Some(10));
-        assert_eq!(source.current_samples(), Some(vec![10, 11]), "mid-frame");
-        assert_eq!(source.by_ref().take(11).collect::<Vec<_>>(), input[11..22]);
+        assert_eq!(source.by_ref().take(10).collect::<Vec<_>>(), expected[..10]);
+        assert_eq!(source.current_samples(), Some(expected[10..12].to_vec()));
+        assert_eq!(source.next(), Some(expected[10]));
         assert_eq!(
             source.current_samples(),
-            Some(vec![22, 23]),
+            Some(expected[10..12].to_vec()),
+            "mid-frame"
+        );
+        assert_eq!(
+            source.by_ref().take(11).collect::<Vec<_>>(),
+            expected[11..22]
+        );
+        assert_eq!(
+            source.current_samples(),
+            Some(expected[22..24].to_vec()),
             "near packet end"
         );
-        assert_eq!(source.next(), Some(22));
-        assert_eq!(source.next(), Some(23));
+        assert_eq!(source.next(), Some(expected[22]));
+        assert_eq!(source.next(), Some(expected[23]));
         assert_eq!(source.current_samples(), None, "exhausted packet");
         assert_eq!(source.next(), None);
     }
@@ -204,12 +214,13 @@ mod tests {
     #[test]
     fn mono_samples_and_seeking_use_the_current_position() {
         let input: Vec<i16> = (0..32).collect();
+        let expected = decoded(&input);
         let mut source = buffered_wav(1, &input);
 
-        assert_eq!(source.next(), Some(0));
-        assert_eq!(source.current_samples(), Some(vec![1]));
+        assert_eq!(source.next(), Some(expected[0]));
+        assert_eq!(source.current_samples(), Some(vec![expected[1]]));
         source.try_seek(Duration::from_millis(1)).unwrap();
-        assert_eq!(source.current_samples(), Some(vec![8]));
-        assert_eq!(source.next(), Some(8));
+        assert_eq!(source.current_samples(), Some(vec![expected[8]]));
+        assert_eq!(source.next(), Some(expected[8]));
     }
 }

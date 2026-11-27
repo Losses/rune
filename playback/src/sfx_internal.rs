@@ -3,7 +3,7 @@ use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use log::{debug, error, info};
-use rodio::{OutputStream, Sink};
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 use tokio::{sync::mpsc, time::interval};
 use tokio_util::sync::CancellationToken;
 
@@ -26,8 +26,8 @@ enum InternalSfxPlaybackState {
 pub(crate) struct SfxPlayerInternal {
     commands: mpsc::UnboundedReceiver<SfxPlayerCommand>,
     current_track_path: Option<PathBuf>,
-    sink: Option<Sink>,
-    _stream: Option<OutputStream>,
+    sink: Option<Player>,
+    _stream: Option<MixerDeviceSink>,
     state: InternalSfxPlaybackState,
     cancellation_token: CancellationToken,
     volume: f32,
@@ -105,9 +105,12 @@ impl SfxPlayerInternal {
             let ext = path.extension().and_then(|e| e.to_str());
             let source = RuneDecoder::new(BufReader::new(file), ext)
                 .with_context(|| "Failed to decode audio")?;
-            let (stream, stream_handle) =
-                OutputStream::try_default().context("Failed to create output stream")?;
-            let sink = Sink::try_new(&stream_handle).context("Failed to create sink")?;
+            let mut stream =
+                DeviceSinkBuilder::open_default_sink().context("Failed to create output stream")?;
+            // The output closes once each effect has finished, which is not worth a line on
+            // stderr each time.
+            stream.log_on_drop(false);
+            let sink = Player::connect_new(stream.mixer());
 
             sink.set_volume(self.volume);
             sink.append(source);
@@ -126,7 +129,7 @@ impl SfxPlayerInternal {
     // Closes the output once its sound has finished. An open output keeps the device's audio
     // running, and on iOS the system then takes the app for one that plays.
     fn close_finished_output(&mut self) {
-        if self.sink.as_ref().is_some_and(Sink::empty) {
+        if self.sink.as_ref().is_some_and(Player::empty) {
             self.sink = None;
             self._stream = None;
             self.state = InternalSfxPlaybackState::Empty;
@@ -205,7 +208,7 @@ mod tests {
         let (commands_sender, commands) = mpsc::unbounded_channel();
         let mut internal = SfxPlayerInternal::new(commands, CancellationToken::new());
         // A sink without a device, whose queue the test plays by hand.
-        let (sink, mut queue) = Sink::new_idle();
+        let (sink, mut queue) = Player::new();
         sink.append(SineWave::new(440.0).take_duration(Duration::from_millis(10)));
         internal.sink = Some(sink);
         internal.state = InternalSfxPlaybackState::Playing;
@@ -217,7 +220,7 @@ mod tests {
         for _ in 0..48_000 {
             queue.next();
         }
-        assert!(internal.sink.as_ref().is_some_and(Sink::empty));
+        assert!(internal.sink.as_ref().is_some_and(Player::empty));
         run_briefly(&mut internal, &commands_sender).await;
         assert!(internal.sink.is_none());
         assert_eq!(internal.state, InternalSfxPlaybackState::Empty);

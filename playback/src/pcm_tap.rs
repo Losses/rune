@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use rodio::source::SeekError;
-use rodio::{Sample, Source};
+use rodio::{ChannelCount, Sample, SampleRate, Source};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 /// Capacity of the ring in samples (about 1.4 s of 48 kHz stereo).
@@ -119,12 +119,9 @@ impl PcmTap {
     }
 
     /// Wrap `source` so that its samples are copied into the ring while the tap is enabled.
-    pub fn wrap<S: Source>(self: &Arc<Self>, source: S) -> PcmTapSource<S>
-    where
-        S::Item: Sample,
-    {
-        let new_channels = u32::from(source.channels());
-        let new_sample_rate = source.sample_rate();
+    pub fn wrap<S: Source>(self: &Arc<Self>, source: S) -> PcmTapSource<S> {
+        let new_channels = u32::from(source.channels().get());
+        let new_sample_rate = source.sample_rate().get();
         let old_channels = self.channels.load(Ordering::Relaxed);
         let old_sample_rate = self.sample_rate.load(Ordering::Relaxed);
 
@@ -186,10 +183,7 @@ impl PcmTap {
     }
 }
 
-pub struct PcmTapSource<S: Source>
-where
-    S::Item: Sample,
-{
+pub struct PcmTapSource<S: Source> {
     inner: S,
     tap: Arc<PcmTap>,
     staged: [f32; BATCH],
@@ -203,10 +197,7 @@ where
     source_generation: u64,
 }
 
-impl<S: Source> PcmTapSource<S>
-where
-    S::Item: Sample,
-{
+impl<S: Source> PcmTapSource<S> {
     fn flush(&mut self) {
         // Only flush if we're still on the current generation
         if self.source_generation == self.tap.generation.load(Ordering::Relaxed) {
@@ -217,24 +208,21 @@ where
     }
 }
 
-impl<S: Source> Iterator for PcmTapSource<S>
-where
-    S::Item: Sample,
-{
-    type Item = S::Item;
+impl<S: Source> Iterator for PcmTapSource<S> {
+    type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
         let Some(sample) = self.inner.next() else {
             self.flush();
             return None;
         };
-        let channels = self.inner.channels().max(1);
+        let channels = self.inner.channels().get();
         if !self.tap.is_enabled() {
             self.active = false;
             self.len = 0;
         } else if self.active || self.position == 0 {
             self.active = true;
-            self.staged[self.len] = sample.to_f32();
+            self.staged[self.len] = sample;
             self.len += 1;
             // Flush when the next whole frame would not fit, so batches never split a frame.
             if self.position + 1 == channels && self.len + usize::from(channels) > BATCH {
@@ -250,19 +238,16 @@ where
     }
 }
 
-impl<S: Source> Source for PcmTapSource<S>
-where
-    S::Item: Sample,
-{
-    fn current_frame_len(&self) -> Option<usize> {
-        self.inner.current_frame_len()
+impl<S: Source> Source for PcmTapSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.inner.channels()
     }
 
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.inner.sample_rate()
     }
 
@@ -279,10 +264,28 @@ where
 mod tests {
     use super::*;
     use rodio::buffer::SamplesBuffer;
+    use rodio::cpal;
     use std::iter;
+    use std::num::NonZero;
 
-    fn source(samples: Vec<i16>) -> SamplesBuffer<i16> {
-        SamplesBuffer::new(2, 48_000, samples)
+    /// 16-bit samples as a source yields them, on the scale of -1 to 1.
+    fn scaled(samples: &[i16]) -> Vec<Sample> {
+        samples
+            .iter()
+            .map(|&sample| cpal::Sample::to_sample(sample))
+            .collect()
+    }
+
+    fn buffer(channels: u16, sample_rate: u32, samples: &[i16]) -> SamplesBuffer {
+        SamplesBuffer::new(
+            NonZero::new(channels).unwrap(),
+            NonZero::new(sample_rate).unwrap(),
+            scaled(samples),
+        )
+    }
+
+    fn source(samples: Vec<i16>) -> SamplesBuffer {
+        buffer(2, 48_000, &samples)
     }
 
     #[test]
@@ -291,8 +294,8 @@ mod tests {
         tap.set_enabled(true);
         let mut consumer = tap.take_consumer().unwrap();
         let input: Vec<i16> = (0..3000).map(|i| (i % 2000 - 1000) as i16 * 16).collect();
-        let played: Vec<i16> = tap.wrap(source(input.clone())).collect();
-        assert_eq!(played, input);
+        let played: Vec<f32> = tap.wrap(source(input.clone())).collect();
+        assert_eq!(played, scaled(&input));
 
         let mut got = Vec::new();
         while let Ok(sample) = consumer.pop() {
@@ -310,7 +313,7 @@ mod tests {
     fn disabled_tap_copies_nothing() {
         let tap = PcmTap::new();
         let mut consumer = tap.take_consumer().unwrap();
-        let _: Vec<i16> = tap.wrap(source(vec![1; 4000])).collect();
+        let _: Vec<f32> = tap.wrap(source(vec![1; 4000])).collect();
         assert!(consumer.pop().is_err());
     }
 
@@ -338,7 +341,7 @@ mod tests {
         let mut source = tap.wrap(source(input));
         source.next(); // left of frame 0
         tap.set_enabled(true);
-        let _: Vec<i16> = source.collect(); // starts on a right sample
+        let _: Vec<f32> = source.collect(); // starts on a right sample
         let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(!got.is_empty() && got.len().is_multiple_of(2));
         assert!(
@@ -356,7 +359,7 @@ mod tests {
         tap.set_enabled(true);
         let mut consumer = tap.take_consumer().unwrap();
         let input: Vec<i16> = (0..3 * 2000).map(|i| (i % 3) as i16 * 1000).collect();
-        let _: Vec<i16> = tap.wrap(SamplesBuffer::new(3, 48_000, input)).collect();
+        let _: Vec<f32> = tap.wrap(buffer(3, 48_000, &input)).collect();
         let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
         assert!(got.len().is_multiple_of(3));
         assert!(
@@ -375,7 +378,7 @@ mod tests {
         let input: Vec<i16> = (0..10_000)
             .map(|i| if i % 2 == 0 { 1000 } else { -1000 })
             .collect();
-        let _: Vec<i16> = tap.wrap(source(input)).collect();
+        let _: Vec<f32> = tap.wrap(source(input)).collect();
         // One 1024-sample batch fits; the next would only partly fit and is dropped whole.
         assert_eq!(consumer.slots(), 1024);
         let got: Vec<f32> = iter::from_fn(|| consumer.pop().ok()).collect();
@@ -406,13 +409,13 @@ mod tests {
 
         // Fill with samples at one format
         let input1: Vec<i16> = vec![1000; 1000];
-        let _: Vec<i16> = tap.wrap(source(input1)).collect();
+        let _: Vec<f32> = tap.wrap(source(input1)).collect();
         assert!(consumer.slots() > 0);
 
         // Change to a different channel count - should clear the ring
         let input2: Vec<i16> = vec![2000; 1000];
-        let mono_source = SamplesBuffer::new(1, 44_100, input2.clone());
-        let _: Vec<i16> = tap.wrap(mono_source).collect();
+        let mono_source = buffer(1, 44_100, &input2);
+        let _: Vec<f32> = tap.wrap(mono_source).collect();
 
         // Verify the format changed
         assert_eq!(tap.channels().load(Ordering::Relaxed), 1);
@@ -441,7 +444,7 @@ mod tests {
 
         // Fill ring with samples from one format (stereo, 48kHz)
         let input1: Vec<i16> = vec![1000; 20000];
-        let _: Vec<i16> = tap.wrap(source(input1.clone())).collect();
+        let _: Vec<f32> = tap.wrap(source(input1.clone())).collect();
         let initial_slots = consumer.slots();
         assert!(initial_slots > 0);
 
@@ -450,8 +453,8 @@ mod tests {
 
         // Change to a different format (mono, 44100Hz) - should recreate ring and clear old samples
         let input2: Vec<i16> = vec![2000; 5000];
-        let mono_source = SamplesBuffer::new(1, 44_100, input2.clone());
-        let _: Vec<i16> = tap.wrap(mono_source).collect();
+        let mono_source = buffer(1, 44_100, &input2);
+        let _: Vec<f32> = tap.wrap(mono_source).collect();
 
         // The format atomics should have been updated
         assert_eq!(tap.channels().load(Ordering::Relaxed), 1);
@@ -490,15 +493,15 @@ mod tests {
         let mut source1 = tap.wrap(source(input1.clone()));
 
         // Fill with some samples
-        let _: Vec<i16> = source1.by_ref().take(1000).collect();
+        let _: Vec<f32> = source1.by_ref().take(1000).collect();
 
         // Change format to recreate ring (mono, 44100Hz)
         let input2: Vec<i16> = vec![2000; 5000];
-        let source2 = tap.wrap(SamplesBuffer::new(1, 44_100, input2.clone()));
-        let _: Vec<i16> = source2.collect();
+        let source2 = tap.wrap(buffer(1, 44_100, &input2));
+        let _: Vec<f32> = source2.collect();
 
         // Continue with old source - it should not write to new ring
-        let _: Vec<i16> = source1.collect();
+        let _: Vec<f32> = source1.collect();
 
         // Get new consumer and verify only new format samples are there
         let mut new_consumer = tap.take_consumer().unwrap();
@@ -524,7 +527,7 @@ mod tests {
 
         // Fill ring with stereo samples
         let input1: Vec<i16> = vec![1000; 20000];
-        let _: Vec<i16> = tap.wrap(source(input1.clone())).collect();
+        let _: Vec<f32> = tap.wrap(source(input1.clone())).collect();
 
         // Get the current generation
         let initial_generation = tap.generation.load(Ordering::Relaxed);
@@ -537,8 +540,8 @@ mod tests {
         let handle = std::thread::spawn({
             let tap = Arc::clone(&tap);
             move || {
-                let source = SamplesBuffer::new(1, 44_100, input2.clone());
-                tap.wrap(source).collect::<Vec<i16>>()
+                let source = buffer(1, 44_100, &input2);
+                tap.wrap(source).collect::<Vec<f32>>()
             }
         });
 
@@ -584,7 +587,7 @@ mod tests {
         let mut source1 = tap.wrap(source(input1.clone()));
 
         // Fill with some samples
-        let _: Vec<i16> = source1.by_ref().take(1000).collect();
+        let _: Vec<f32> = source1.by_ref().take(1000).collect();
 
         // Spawn a thread to hold the producer lock
         let producer_guard = tap.producer.lock().unwrap_or_else(PoisonError::into_inner);
@@ -594,14 +597,14 @@ mod tests {
         let handle = std::thread::spawn({
             let tap = Arc::clone(&tap);
             move || {
-                let source = SamplesBuffer::new(1, 44_100, input2.clone());
-                tap.wrap(source).collect::<Vec<i16>>()
+                let source = buffer(1, 44_100, &input2);
+                tap.wrap(source).collect::<Vec<f32>>()
             }
         });
 
         // Continue with old source while format change is pending
         // This should NOT write to the new ring if format change completes
-        let _: Vec<i16> = source1.collect();
+        let _: Vec<f32> = source1.collect();
 
         // Release the lock
         drop(producer_guard);
