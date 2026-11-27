@@ -9,7 +9,7 @@ use database::sync::share::{
     SharePullError, SharePushError, SharePushResult, ShareState, ShareWriter, cut_base,
     load_or_create_state, publish_journal, save_state,
 };
-use rand::{Rng, SeedableRng, distributions::Alphanumeric, rngs::StdRng};
+use rand::{RngExt, SeedableRng, distr::Alphanumeric, rngs::StdRng};
 use sea_orm::{
     ConnectionTrait, Database, ExprTrait, TransactionTrait,
     sea_query::{Alias, Expr, Query},
@@ -1019,7 +1019,7 @@ async fn new_device_receives_every_record_of_a_multi_bucket_base() -> Result<()>
     }
     let mut rng = StdRng::seed_from_u64(577);
     while ids.len() < 1024 {
-        ids.insert(rng.gen_range(1..=u128::MAX));
+        ids.insert(rng.random_range(1..=u128::MAX));
     }
     let mut keys = Vec::with_capacity(ids.len());
     for id in ids {

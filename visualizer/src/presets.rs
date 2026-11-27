@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::scene::{SceneInputs, Source};
 use anyhow::{Context, Result, bail};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use std::error;
 use std::fs;
 use std::mem;
@@ -487,7 +487,7 @@ impl PresetList {
             !choices.is_empty(),
             "No scene supports the available inputs"
         );
-        let preset = choices[rng.gen_range(0..choices.len())].preset.clone();
+        let preset = choices[rng.random_range(0..choices.len())].preset.clone();
         self.remember(preset)
     }
 

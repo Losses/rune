@@ -35,9 +35,8 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, deco
 use log::{error, info};
 use playback::player::{RemoteAudioError, UnavailableReason};
 use rand::{
-    RngCore,
-    distributions::{Alphanumeric, DistString},
-    thread_rng,
+    Rng,
+    distr::{Alphanumeric, SampleString},
 };
 use serde::{Deserialize, Serialize};
 use tower_governor::{
@@ -822,7 +821,7 @@ pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
 }
 
 fn generate_random_alias() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let suffix: String = Alphanumeric.sample_string(&mut rng, 8);
     format!("R-{suffix}")
 }
@@ -875,7 +874,7 @@ async fn get_or_generate_jwt_secret<P: AsRef<Path>>(config_path: P) -> Result<Ve
             .context("Failed to decode JWT secret")
     } else {
         let mut secret = vec![0u8; 32];
-        thread_rng().fill_bytes(&mut secret);
+        rand::rng().fill_bytes(&mut secret);
 
         let base64_secret = URL_SAFE.encode(&secret);
         write(&secret_path, base64_secret)

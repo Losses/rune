@@ -1206,7 +1206,7 @@ impl Visualizer {
         if library.folder.len() == 0 {
             return Ok(());
         }
-        let preset = library.folder.random(&mut rand::thread_rng())?;
+        let preset = library.folder.random(&mut rand::rng())?;
         drop(library);
         self.load_entry(&preset)
     }

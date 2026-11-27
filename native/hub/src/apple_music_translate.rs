@@ -1759,7 +1759,7 @@ pub(crate) async fn mix_query_request(
                 Some(seed) => {
                     mixes::sample_indices(&mut StdRng::seed_from_u64(seed), pool.len(), wanted)
                 }
-                None => mixes::sample_indices(&mut rand::thread_rng(), pool.len(), wanted),
+                None => mixes::sample_indices(&mut rand::rng(), pool.len(), wanted),
             };
             picked
                 .into_iter()

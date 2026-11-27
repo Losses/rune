@@ -12,6 +12,7 @@ use rcgen::{
 use rsa::{
     RsaPrivateKey, RsaPublicKey,
     pkcs8::{EncodePrivateKey, EncodePublicKey},
+    rand_core::OsRng,
 };
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -37,7 +38,7 @@ pub fn generate_self_signed_cert(
     country: &str,
     validity_days: u32,
 ) -> Result<CertificateResult> {
-    let mut rng = rand::thread_rng();
+    let mut rng = OsRng;
     let bits = 2048;
 
     let private_key = RsaPrivateKey::new(&mut rng, bits)?;

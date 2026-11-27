@@ -472,7 +472,7 @@ mod tests {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
-        let picked = sample_indices(&mut rand::thread_rng(), 100, 10);
+        let picked = sample_indices(&mut rand::rng(), 100, 10);
         assert_eq!(picked.len(), 10);
         assert!(picked.iter().all(|index| *index < 100));
         assert_eq!(
@@ -480,8 +480,8 @@ mod tests {
             10,
             "no repeats"
         );
-        assert_eq!(sample_indices(&mut rand::thread_rng(), 3, 10).len(), 3);
-        assert!(sample_indices(&mut rand::thread_rng(), 3, 0).is_empty());
+        assert_eq!(sample_indices(&mut rand::rng(), 3, 10).len(), 3);
+        assert!(sample_indices(&mut rand::rng(), 3, 0).is_empty());
         let seeded = |seed| sample_indices(&mut StdRng::seed_from_u64(seed), 100, 10);
         assert_eq!(seeded(7), seeded(7));
     }

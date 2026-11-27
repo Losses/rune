@@ -45,12 +45,12 @@ use playback::player::{
     LibraryPlaybackSource, LibraryTrackKey, PlaybackSourceResolver, RemoteAudioError,
     RemoteAudioSource, ServiceItem, ServiceTarget, validate_audio_response,
 };
-use rand::rngs::OsRng;
 use reqwest::Client;
 use reqwest::StatusCode as ReqwestStatusCode;
 use reqwest::header;
 use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
+use rsa::rand_core::OsRng;
 use rsa::{Pss, RsaPrivateKey, pkcs8::DecodePrivateKey};
 use rustls::ClientConfig;
 use rustls::Error as RustlsError;
