@@ -507,4 +507,89 @@ class JukeboxTest {
         assertEquals(calls, player.calls.size)
         assertEquals(HostEvent.Ended(2, index = 0), ends.last())
     }
+
+    @Test
+    fun `a play that the platform player ignored is asked again until it starts`() {
+        player.ignorePlays = 2
+        handOver("catalog:a")
+        answerAll()
+        assertEquals(1, player.calls.count { it == "play" })
+
+        advance(Jukebox.PLAY_RETRY_MS - Jukebox.TICK_MS)
+        assertEquals(1, player.calls.count { it == "play" })
+        advance(Jukebox.TICK_MS)
+        assertEquals(2, player.calls.count { it == "play" })
+        advance(Jukebox.PLAY_RETRY_MS)
+        assertEquals(3, player.calls.count { it == "play" })
+
+        // It plays now, and the entry is not failed for the time it took.
+        advance(Jukebox.PROGRESS_LIMIT_MS)
+        assertEquals(3, player.calls.count { it == "play" })
+        assertTrue(failures.isEmpty())
+        assertTrue(statuses.last().playing)
+        assertTrue(statuses.last().positionMs > 0)
+    }
+
+    @Test
+    fun `a pause that the platform player made after the entry was heard is not undone`() {
+        handOver("catalog:a")
+        answerAll()
+        advance(5_000)
+        val plays = player.calls.count { it == "play" }
+
+        // As for a transient loss of audio focus.
+        player.pause()
+        player.flush()
+        advance(10_000)
+        assertEquals(plays, player.calls.count { it == "play" })
+        assertTrue(failures.isEmpty())
+    }
+
+    @Test
+    fun `a play is not asked again while Rune does not want it`() {
+        player.ignorePlays = 1
+        handOver("catalog:a")
+        answerAll()
+        batch(HostAction.Stop)
+        advance(10_000)
+        assertEquals(1, player.calls.count { it == "play" })
+    }
+
+    @Test
+    fun `a license that failed after a pause plays the entry on from where it stood, once`() {
+        handOver("catalog:a", "catalog:b")
+        answerAll()
+        advance(5_000)
+        events.clear()
+
+        jukebox.onError(PlayerError.LICENSE)
+        player.flush()
+        assertEquals("replace catalog:a", player.calls.last { it.startsWith("replace") })
+        answerAll()
+        assertEquals("seek 5000", player.calls.last { it.startsWith("seek") })
+        assertTrue(failures.isEmpty())
+        assertTrue(statuses.last().playing)
+
+        // Once it played on for a while, a later failure is another one that it plays on from.
+        advance(Jukebox.RELICENSE_HOLD_MS + 1_000)
+        jukebox.onError(PlayerError.LICENSE)
+        player.flush()
+        answerAll()
+        assertTrue(failures.isEmpty())
+        assertEquals("seek 66000", player.calls.last { it.startsWith("seek") })
+
+        // A failure soon after is the song's own.
+        advance(10_000)
+        jukebox.onError(PlayerError.LICENSE)
+        assertEquals(listOf(HostEvent.ItemFailed(1, index = 0, reason = Failure.NETWORK)), failures)
+        assertFalse(statuses.last().playing)
+    }
+
+    @Test
+    fun `a license that failed on an entry that never played fails it`() {
+        handOver("catalog:a")
+        answerAll()
+        jukebox.onError(PlayerError.LICENSE)
+        assertEquals(listOf(HostEvent.ItemFailed(1, index = 0, reason = Failure.NETWORK)), failures)
+    }
 }

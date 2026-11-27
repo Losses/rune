@@ -25,6 +25,9 @@ internal class FakePlayer : QueuePlayer {
     /** Whether a song given a queue of its own gets its first data only once [dataArrives]. */
     var slowData = false
 
+    /** How many of the next calls to [play] MusicKit ignores, as while a song still loads. */
+    var ignorePlays = 0
+
     override var bufferedMs = 0L
         private set
 
@@ -124,6 +127,10 @@ internal class FakePlayer : QueuePlayer {
 
     override fun play() {
         calls += "play"
+        if (ignorePlays > 0) {
+            ignorePlays--
+            return
+        }
         if (current == null || state == PlayerState.PLAYING) return
         state = PlayerState.PLAYING
         if (positionMs < 0) positionMs = 0

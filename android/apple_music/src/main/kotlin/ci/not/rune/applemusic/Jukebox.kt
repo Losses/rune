@@ -64,6 +64,19 @@ internal class Jukebox(
          */
         const val PROGRESS_LIMIT_MS = 30_000L
 
+        /**
+         * How long after asking the platform player to play, and hearing nothing of it, the host
+         * asks again. MusicKit ignores a play while a song still loads, and the request for audio
+         * focus can be refused at that moment.
+         */
+        const val PLAY_RETRY_MS = 2_000L
+
+        /**
+         * How far an entry has to play on after its license was renewed for a later failure to
+         * count as another one. A song that Apple Music refuses fails again within seconds.
+         */
+        const val RELICENSE_HOLD_MS = 60_000L
+
         /** How far the position has to move for an entry to count as heard playing. */
         const val PROGRESS_STEP_MS = 100L
 
@@ -94,6 +107,12 @@ internal class Jukebox(
 
         /** Whether the entry played on once after the platform player left it short of its end. */
         var resumed = false
+
+        /**
+         * Where the entry was queued again after its license failed, until it played on for
+         * [RELICENSE_HOLD_MS] from there. A failure before that is the entry's own.
+         */
+        var relicensedAt: Long? = null
     }
 
     /** A queue change that has yet to show: a new queue for [entries]' only one, or an append. */
@@ -152,6 +171,13 @@ internal class Jukebox(
 
     /** Whether the current entry was heard playing since it was last told to play or moved. */
     private var heard = true
+
+    /**
+     * When the platform player was last asked to play the current entry, null when it was not
+     * since the entry was last told to play or to move. Only an entry not yet heard playing is
+     * asked again: a pause that MusicKit makes after that, as for a lost audio focus, is its own.
+     */
+    private var playAskedAt: Long? = null
 
     /** When the current entry last moved on, or was told to play or to move. */
     private var progressAt = 0L
@@ -279,7 +305,7 @@ internal class Jukebox(
             hasData(entry) -> {
                 player.seek(offsetMs)
                 // A seek that waited is overtaken, and what it held back plays.
-                if (waitingSeek != null && wantPlaying) player.play()
+                if (waitingSeek != null && wantPlaying) askToPlay()
                 waitingSeek = null
             }
             else -> {
@@ -304,7 +330,7 @@ internal class Jukebox(
         player.seek(offset)
         lastPosition = offset
         watchProgress()
-        if (wantPlaying) player.play()
+        if (wantPlaying) askToPlay()
     }
 
     private fun moveOn(index: Int, offsetMs: Long) {
@@ -324,7 +350,7 @@ internal class Jukebox(
         player.skipToNext()
         // A seek right after the skip applies to the new item.
         if (offsetMs > 0) player.seek(offsetMs)
-        if (wantPlaying) player.play() else player.pause()
+        if (wantPlaying) askToPlay() else player.pause()
     }
 
     private fun start() {
@@ -333,7 +359,9 @@ internal class Jukebox(
         // An entry that played out is not started again: the host moves on from it.
         if (ended || playedOut || entry.failure != null) return
         watchProgress()
-        if (!loading && waitingSeek == null && player.state != PlayerState.PLAYING) player.play()
+        if (!loading && waitingSeek == null && player.state != PlayerState.PLAYING) {
+            askToPlay()
+        }
     }
 
     private fun stop() {
@@ -357,6 +385,23 @@ internal class Jukebox(
     private fun watchProgress() {
         heard = !wantPlaying
         progressAt = clock()
+        playAskedAt = null
+    }
+
+    private fun askToPlay() {
+        playAskedAt = clock()
+        player.play()
+    }
+
+    /** Asks again to play an entry that was told to, and that the platform player ignored. */
+    private fun askAgainToPlay() {
+        val asked = playAskedAt ?: return
+        val entry = currentEntry ?: return
+        if (!wantPlaying || heard || loading || waitingSeek != null || ended || playedOut) return
+        if (entry.failure != null || player.current?.queueId != entry.queueId) return
+        if (player.state == PlayerState.PLAYING || clock() - asked < PLAY_RETRY_MS) return
+        log("The platform player did not play entry $current; asking again")
+        askToPlay()
     }
 
     // The platform queue
@@ -528,7 +573,7 @@ internal class Jukebox(
             seekOnceBuffered()
         } else if (wantPlaying) {
             watchProgress()
-            player.play()
+            askToPlay()
         }
         pendingOffset = 0
         feed()
@@ -612,8 +657,25 @@ internal class Jukebox(
             PlayerError.RESTRICTED -> failPlaying(Failure.NOT_AUTHORIZED)
             // The platform player tries again by itself while it still plays.
             PlayerError.IO -> if (player.state != PlayerState.PLAYING) failPlaying(Failure.NETWORK)
+            PlayerError.LICENSE -> relicense()
             PlayerError.OTHER -> failPlaying(Failure.NETWORK)
         }
+    }
+
+    /**
+     * The license of what plays failed, as when it ran out during a long pause. An entry that
+     * stood somewhere plays on from there in a queue of its own, which gets a fresh license. A
+     * song whose license fails again shortly after is one that Apple Music does not let play, and
+     * fails, as does an entry that never played.
+     */
+    private fun relicense() {
+        val entry = currentEntry ?: return
+        if (loading || ended || playedOut || entry.failure != null) return
+        val at = position()
+        if (at <= 0 || entry.relicensedAt != null) return fail(entry, Failure.NETWORK)
+        log("The license of entry $current failed at $at ms; it plays on in a queue of its own")
+        entry.relicensedAt = at
+        replaceFrom(current!!, at)
     }
 
     /**
@@ -724,6 +786,7 @@ internal class Jukebox(
         settle()
         seekOnceBuffered()
         observe()
+        askAgainToPlay()
         val entry = currentEntry
         if (entry != null && playedOut && clock() - playedOutAt >= PLAYED_OUT_WAIT_MS) {
             log("The platform player neither moved on nor stopped after an entry played out")
@@ -768,6 +831,10 @@ internal class Jukebox(
             if (position >= lastPosition + PROGRESS_STEP_MS) {
                 heard = true
                 progressAt = clock()
+                val relicensedAt = entry.relicensedAt
+                if (relicensedAt != null && position >= relicensedAt + RELICENSE_HOLD_MS) {
+                    entry.relicensedAt = null
+                }
             }
         }
         lastPosition = position

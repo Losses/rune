@@ -109,11 +109,17 @@ internal enum class PlayerError {
     /** A network or read error, which the player tries again by itself. */
     IO,
 
-    /** Anything else, such as the account playing on another device or the DRM failing. */
+    /**
+     * The song's license or lease failed, as after a long pause, when the key it was loaded with
+     * ran out. A new queue gets a fresh one.
+     */
+    LICENSE,
+
+    /** Anything else, such as the account playing on another device. */
     OTHER,
 }
 
-/** The prefix of a catalogue song's id. Every other id is a library song's, `i.…`. */
+/** The prefix of a catalogue song's id. Every other id is a library song's, `i.` and more. */
 private const val CATALOG_PREFIX = "catalog:"
 
 /** Whether [id] names a song of the catalogue rather than of the user's library. */

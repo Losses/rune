@@ -20,8 +20,10 @@ import com.apple.android.sdk.authentication.TokenError
  * attaches with [status], whose answer is the host's `hostReady`.
  *
  * There is one host per process, made on first use and kept for as long as the process lives,
- * since MusicKit's player must be: Flutter engines connect and disconnect, and the host plays on
- * in between. Everything happens on the main thread, where MusicKit calls back too.
+ * since MusicKit's player must be: Flutter engines connect and disconnect. Every command comes
+ * through an engine, so when the last one disconnects the host stops and holds nothing, as a host
+ * that starts does, and the hub hands its track over again once an engine attaches. Everything
+ * happens on the main thread, where MusicKit calls back too.
  *
  * The host can play once this build has a developer token that holds and MusicKit's native
  * libraries load, and the user signed in through the Apple Music app. It requests no audio focus
@@ -93,7 +95,11 @@ class AppleMusicHost private constructor(context: Context) {
         keepTicking()
     }
 
-    private val reach = Runnable { reportReach(onlyIfChanged = true) }
+    private val reach = Runnable {
+        reportReach(onlyIfChanged = true)
+        // A token that could not be fetched while offline is looked for again.
+        if (network.online) refreshDeveloperToken(forced = false)
+    }
 
     /** Sends every event to [sink] from now on, as a Flutter engine attaches. */
     fun connect(sink: (String) -> Unit) {
@@ -101,9 +107,14 @@ class AppleMusicHost private constructor(context: Context) {
         network.start()
     }
 
-    /** Stops sending events to [sink], unless another sink replaced it already. */
+    /**
+     * Stops sending events to [sink], unless another sink replaced it already. With no sink left
+     * nothing can command the host, so it stops playing and drops what it holds.
+     */
     fun disconnect(sink: (String) -> Unit) {
-        if (this.sink === sink) this.sink = null
+        if (this.sink !== sink) return
+        this.sink = null
+        jukebox.drop()
     }
 
     /** Answers with the `hostReady` of a host that just started, as Dart attaches. */
