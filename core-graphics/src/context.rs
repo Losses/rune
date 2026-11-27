@@ -318,6 +318,7 @@ impl CGContextRef {
         }
     }
 
+    #[cfg(not(feature = "apple-app-store"))]
     pub fn set_font_smoothing_style(&self, style: i32) {
         unsafe {
             CGContextSetFontSmoothingStyle(self.as_ptr(), style as _);
@@ -744,6 +745,7 @@ extern {
     fn CGContextSetBlendMode(c: ::sys::CGContextRef, blendMode: CGBlendMode);
     fn CGContextSetAllowsFontSmoothing(c: ::sys::CGContextRef, allowsFontSmoothing: bool);
     fn CGContextSetShouldSmoothFonts(c: ::sys::CGContextRef, shouldSmoothFonts: bool);
+    #[cfg(not(feature = "apple-app-store"))]
     fn CGContextSetFontSmoothingStyle(c: ::sys::CGContextRef, style: c_int);
     fn CGContextSetAllowsAntialiasing(c: ::sys::CGContextRef, allowsAntialiasing: bool);
     fn CGContextSetShouldAntialias(c: ::sys::CGContextRef, shouldAntialias: bool);
