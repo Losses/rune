@@ -1013,39 +1013,45 @@ impl LibraryRegistry {
         record_id: LibraryRecordId,
         credentials: &CredentialStore,
     ) -> Result<bool> {
-        let (removed, credential) = Self::update(config_dir, |registry| {
-            let Some(index) = registry
-                .libraries
-                .iter()
-                .position(|record| record.record_id == record_id)
-            else {
-                let Some(index) = registry
-                    .invalid_records
-                    .iter()
-                    .position(|record| record.record_id == record_id)
-                else {
-                    return Ok((false, None));
-                };
-                let record = registry.invalid_records.remove(index);
-                registry.invalid.retain(|(id, _)| *id != record_id);
-                let credential = record_credential(&record);
-                return Ok((true, credential));
-            };
-            let record = registry.libraries.remove(index);
-            let credential = record_credential(&record);
-            if registry.last_open_record == Some(record_id) {
-                registry.last_open_record = None;
-            }
-            Ok((true, credential))
-        })
-        .await?;
+        // The credential goes first: until the record is dropped it remains the durable
+        // reference, so a failed removal can be retried instead of orphaning the secret.
+        let registry = Self::load(config_dir)?;
+        let credential = registry
+            .libraries
+            .iter()
+            .chain(registry.invalid_records.iter())
+            .find(|record| record.record_id == record_id)
+            .and_then(record_credential);
         if let Some(credential) = credential {
             match credentials.remove(credential).await {
                 Ok(()) | Err(CredentialStoreError::CredentialMissing(_)) => {}
                 Err(error) => return Err(error.into()),
             }
         }
-        Ok(removed)
+        Self::update(config_dir, |registry| {
+            if let Some(index) = registry
+                .libraries
+                .iter()
+                .position(|record| record.record_id == record_id)
+            {
+                registry.libraries.remove(index);
+                if registry.last_open_record == Some(record_id) {
+                    registry.last_open_record = None;
+                }
+                return Ok(true);
+            }
+            let Some(index) = registry
+                .invalid_records
+                .iter()
+                .position(|record| record.record_id == record_id)
+            else {
+                return Ok(false);
+            };
+            registry.invalid_records.remove(index);
+            registry.invalid.retain(|(id, _)| *id != record_id);
+            Ok(true)
+        })
+        .await
     }
 
     /// Record an authority's current grant on its replica.
@@ -2284,6 +2290,108 @@ mod tests {
             credentials.get(credential).await,
             Err(CredentialStoreError::CredentialMissing(_))
         ));
+    }
+
+    async fn register_webdav_record(
+        dir: &Path,
+        credentials: &CredentialStore,
+    ) -> (LibraryRecord, CredentialRef) {
+        use crate::credentials::{Credential, Secret};
+
+        let credential = credentials
+            .put(Credential {
+                username: "user".into(),
+                secret: Secret::new(b"secret".to_vec()),
+            })
+            .await
+            .unwrap();
+        let record = LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "WebDAV".into(),
+            library_id: Some(Uuid::new_v4()),
+            protocol: ProtocolAdapter::Native,
+            fs: vec![FsAdapter::WebDav {
+                endpoint: "http://example.test".into(),
+                root: "/music/".into(),
+                username: "user".into(),
+                credential,
+            }],
+            catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
+            background_sync: true,
+        };
+        LibraryRegistry::update(dir, |registry| {
+            registry.libraries.push(record.clone());
+            Ok(())
+        })
+        .await
+        .unwrap();
+        (record, credential)
+    }
+
+    #[tokio::test]
+    async fn failed_credential_removal_keeps_record_for_retry() {
+        let dir = TempDir::new().unwrap();
+        let credentials = CredentialStore::open(dir.path());
+        let (record, credential) = register_webdav_record(dir.path(), &credentials).await;
+
+        let key_file = dir.path().join("credentials.key");
+        let key = fs::read(&key_file).unwrap();
+        fs::write(&key_file, &key[..key.len() - 1]).unwrap();
+        assert!(
+            LibraryRegistry::remove_record(dir.path(), record.record_id, &credentials)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            LibraryRegistry::load(dir.path())
+                .unwrap()
+                .record(record.record_id)
+                .unwrap(),
+            &record
+        );
+
+        fs::write(&key_file, &key).unwrap();
+        assert!(credentials.get(credential).await.is_ok());
+        assert!(
+            LibraryRegistry::remove_record(dir.path(), record.record_id, &credentials)
+                .await
+                .unwrap()
+        );
+        assert!(
+            LibraryRegistry::load(dir.path())
+                .unwrap()
+                .libraries
+                .is_empty()
+        );
+        assert!(matches!(
+            credentials.get(credential).await,
+            Err(CredentialStoreError::CredentialMissing(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn removal_completes_when_credential_is_already_gone() {
+        let dir = TempDir::new().unwrap();
+        let credentials = CredentialStore::open(dir.path());
+        let (record, credential) = register_webdav_record(dir.path(), &credentials).await;
+        credentials.remove(credential).await.unwrap();
+
+        assert!(
+            LibraryRegistry::remove_record(dir.path(), record.record_id, &credentials)
+                .await
+                .unwrap()
+        );
+        assert!(
+            LibraryRegistry::load(dir.path())
+                .unwrap()
+                .libraries
+                .is_empty()
+        );
+        assert!(
+            !LibraryRegistry::remove_record(dir.path(), record.record_id, &credentials)
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

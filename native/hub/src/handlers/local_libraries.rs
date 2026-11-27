@@ -405,7 +405,10 @@ mod tests {
     use super::*;
     use database::{
         connection::StorageMode,
-        library_registry::{LibraryRecord, create_replica, resolve_library},
+        credentials::{Credential, CredentialStoreError, Secret},
+        library_registry::{
+            CatalogPlacement, FsAdapter, LibraryRecord, create_replica, resolve_library,
+        },
     };
     use fsio::FsIo;
 
@@ -470,6 +473,86 @@ mod tests {
         expected.sort();
         assert_eq!(again, expected);
         assert_eq!(LibraryRegistry::load(dir.path())?.libraries.len(), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_credential_removal_keeps_record_listed_until_retry() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config = Arc::new(dir.path().to_string_lossy().into_owned());
+        crate::test_node::disable_sync_listener(dir.path())?;
+        let node = NodeContext::new(
+            &config,
+            &config,
+            Arc::new(LocalGuiBroadcaster),
+            false,
+            RunMode::App,
+            Arc::new(::visualizer::Visualizer::new()),
+        )
+        .await?;
+        let credential = node
+            .credentials
+            .put(Credential {
+                username: "user".into(),
+                secret: Secret::new(b"secret".to_vec()),
+            })
+            .await?;
+        let record = LibraryRecord {
+            record_id: LibraryRecordId(Uuid::new_v4()),
+            alias: "WebDAV".into(),
+            library_id: Some(Uuid::new_v4()),
+            protocol: ProtocolAdapter::Native,
+            fs: vec![FsAdapter::WebDav {
+                endpoint: "http://example.test".into(),
+                root: "/music/".into(),
+                username: "user".into(),
+                credential,
+            }],
+            catalog: CatalogPlacement::Redirected(Uuid::new_v4()),
+            background_sync: true,
+        };
+        LibraryRegistry::update(dir.path(), |registry| {
+            registry.libraries.push(record.clone());
+            Ok(())
+        })
+        .await?;
+        let listed = || async {
+            let request = ListLibraryRecordsRequest { call_id: None };
+            let response = request.handle(node.clone(), None, &request).await?.unwrap();
+            Ok::<_, anyhow::Error>(
+                response
+                    .records
+                    .iter()
+                    .any(|listed| listed.record_id == record.record_id.0.to_string()),
+            )
+        };
+        let remove = || async {
+            let request = RemoveLibraryRecordRequest {
+                record_id: record.record_id.0.to_string(),
+                call_id: None,
+            };
+            request.handle(node.clone(), None, &request).await
+        };
+
+        let key_file = dir.path().join("credentials.key");
+        let key = std::fs::read(&key_file)?;
+        std::fs::write(&key_file, &key[..key.len() - 1])?;
+        assert!(remove().await.is_err());
+        assert!(listed().await?);
+        assert!(
+            LibraryRegistry::load(dir.path())?
+                .record(record.record_id)
+                .is_ok()
+        );
+
+        std::fs::write(&key_file, &key)?;
+        assert!(remove().await?.is_some());
+        assert!(!listed().await?);
+        assert!(LibraryRegistry::load(dir.path())?.libraries.is_empty());
+        assert!(matches!(
+            node.credentials.get(credential).await,
+            Err(CredentialStoreError::CredentialMissing(_))
+        ));
         Ok(())
     }
 }
