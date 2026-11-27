@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { main, readExpiry, signToken } from './apple_music_developer_token.mjs';
+import { main, MAX_DAYS, readExpiry, signToken } from './apple_music_developer_token.mjs';
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
@@ -37,7 +37,7 @@ test('lifetime bounds are enforced', () => {
   assert.throws(() => sign({ days: 0 }));
   assert.doesNotThrow(() => sign({ days: 182 }));
   assert.doesNotThrow(() => sign({ days: 1 }));
-  assert.ok(182 * 86400 <= 15777000);
+  assert.ok(MAX_DAYS * 86400 <= 15777000);
 });
 
 test('a key with literal backslash-n sequences works', () => {
@@ -54,27 +54,48 @@ test('expiry reports whole days left', () => {
   assert.equal(readExpiry(file, now + 11 * 86400).daysLeft, -1);
 });
 
-test('expiry exit codes follow --min-days and bad files', () => {
+test('expiry exit codes follow --min-days and bad files', async () => {
   const dir = tmp();
   const file = path.join(dir, 't.jwt');
   fs.writeFileSync(file, `${sign({ days: 20, now: Math.floor(Date.now() / 1000) }).token}\n`);
   const quiet = () => {};
-  assert.equal(main(['expiry', file], {}, quiet), 0);
-  assert.equal(main(['expiry', file, '--min-days', '10'], {}, quiet), 0);
-  assert.equal(main(['expiry', file, '--min-days', '30'], {}, quiet), 1);
-  assert.equal(main(['expiry', path.join(dir, 'missing.jwt'), '--min-days', '1'], {}, quiet), 1);
+  assert.equal(await main(['expiry', file], {}, quiet), 0);
+  assert.equal(await main(['expiry', file, '--min-days', '10'], {}, quiet), 0);
+  assert.equal(await main(['expiry', file, '--min-days', '30'], {}, quiet), 1);
+  assert.equal(await main(['expiry', path.join(dir, 'missing.jwt'), '--min-days', '1'], {}, quiet), 1);
   const junk = path.join(dir, 'junk.jwt');
   fs.writeFileSync(junk, 'not a jwt\n');
-  assert.equal(main(['expiry', junk, '--min-days', '1'], {}, quiet), 1);
+  assert.equal(await main(['expiry', junk, '--min-days', '1'], {}, quiet), 1);
 });
 
-test('sign command writes one line and never logs the token', () => {
+test('sign command writes one line and never logs the token', async () => {
   const out = path.join(tmp(), 'out.jwt');
   const lines = [];
   const env = { APPLE_MUSIC_PRIVATE_KEY: pem, APPLE_MUSIC_KEY_ID: 'K', APPLE_MUSIC_TEAM_ID: 'T' };
-  assert.equal(main(['sign', '--out', out, '--days', '5'], env, (l) => lines.push(l)), 0);
+  assert.equal(await main(['sign', '--out', out, '--days', '5'], env, (l) => lines.push(l)), 0);
   const text = fs.readFileSync(out, 'utf8');
   assert.match(text, /^[^\n]+\n$/);
   assert.ok(!lines.join('\n').includes(text.trim()));
-  assert.equal(main(['sign', '--out', out, '--days', '400'], env, () => {}), 2);
+  assert.equal(await main(['sign', '--out', out, '--days', '400'], env, () => {}), 2);
+});
+
+test('verify asks Apple Music with the token and follows its answer', async () => {
+  const file = path.join(tmp(), 't.jwt');
+  const { token } = sign({ days: 20, now: Math.floor(Date.now() / 1000) });
+  fs.writeFileSync(file, `${token}\n`);
+  const asked = [];
+  const answering = (status) => async (url, options) => {
+    asked.push([url, options.headers.Authorization]);
+    return { status };
+  };
+  const lines = [];
+  assert.equal(await main(['verify', file], {}, (l) => lines.push(l), answering(200)), 0);
+  assert.deepEqual(asked, [['https://api.music.apple.com/v1/storefronts/us', `Bearer ${token}`]]);
+  assert.equal(await main(['verify', file], {}, (l) => lines.push(l), answering(401)), 1);
+  assert.ok(!lines.join('\n').includes(token));
+  const failing = async () => {
+    throw new Error('offline');
+  };
+  assert.equal(await main(['verify', file], {}, () => {}, failing), 1);
+  assert.equal(await main(['verify', path.join(tmp(), 'missing.jwt')], {}, () => {}, answering(200)), 1);
 });

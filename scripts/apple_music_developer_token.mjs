@@ -5,6 +5,8 @@
 //   node scripts/apple_music_developer_token.mjs sign --days 90 --out android/apple_music/developer-token.jwt
 // Check (no secrets needed, the signature is not verified):
 //   node scripts/apple_music_developer_token.mjs expiry android/apple_music/developer-token.jwt --min-days 30
+// Verify (asks Apple Music whether it takes the token):
+//   node scripts/apple_music_developer_token.mjs verify android/apple_music/developer-token.jwt
 //
 // The token is never printed. Apple allows a lifetime of at most 15777000 s.
 
@@ -61,9 +63,18 @@ export function readExpiry(file, now = Math.floor(Date.now() / 1000)) {
   return { exp, daysLeft: Math.floor((exp - now) / DAY) };
 }
 
+// Asks Apple Music whether it takes the token, and returns the HTTP status. A wrong key, key ID
+// or team ID signs a token that reads fine and is refused.
+export async function verifyToken(token, fetchImpl = fetch) {
+  const response = await fetchImpl('https://api.music.apple.com/v1/storefronts/us', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.status;
+}
+
 const iso = (exp) => new Date(exp * 1000).toISOString();
 
-export function main(argv, env = process.env, log = console.log) {
+export async function main(argv, env = process.env, log = console.log, fetchImpl = fetch) {
   const [command, ...rest] = argv;
   const opts = {};
   const positional = [];
@@ -96,13 +107,25 @@ export function main(argv, env = process.env, log = console.log) {
       }
       return 0;
     }
-    throw new Error('usage: sign --out <file> [--days N] | expiry <file> [--min-days N]');
+    if (command === 'verify') {
+      if (!positional[0]) throw new Error('usage: verify <file>');
+      readExpiry(positional[0]);
+      const token = fs.readFileSync(positional[0], 'utf8').trim();
+      const status = await verifyToken(token, fetchImpl);
+      if (status !== 200) {
+        log(`Apple Music refuses the token: HTTP ${status}`);
+        return 1;
+      }
+      log('Apple Music takes the token');
+      return 0;
+    }
+    throw new Error('usage: sign --out <file> [--days N] | expiry <file> [--min-days N] | verify <file>');
   } catch (e) {
     log(`error: ${e.message}`);
-    return command === 'expiry' ? 1 : 2;
+    return command === 'sign' ? 2 : 1;
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }

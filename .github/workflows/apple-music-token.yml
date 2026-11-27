@@ -1,7 +1,8 @@
 # Keeps the Apple Music developer token (android/apple_music/developer-token.jwt) fresh.
 #
-# - refresh: monthly, signs a new token and commits it to the default branch.
-# - check: weekly, opens an issue when the committed token has under 30 days left.
+# - refresh: monthly and when run by hand, signs a new token, asks Apple Music whether it takes
+#   it, and commits it to the default branch.
+# - check: weekly, opens an issue when the committed token has under 30 days left or is missing.
 #
 # Repository secrets needed by refresh:
 #   APPLE_MUSIC_PRIVATE_KEY  the MusicKit .p8 key (PEM text)
@@ -57,6 +58,7 @@ jobs:
             exit 1
           fi
           node scripts/apple_music_developer_token.mjs sign --days 90 --out android/apple_music/developer-token.jwt
+          node scripts/apple_music_developer_token.mjs verify android/apple_music/developer-token.jwt
 
       - name: Commit Token
         run: |
@@ -68,9 +70,7 @@ jobs:
 
   check:
     name: Check Expiry
-    if: >-
-      github.repository == 'Losses/rune' &&
-      (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 6 * * 1')
+    if: github.repository == 'Losses/rune' && github.event.schedule == '0 6 * * 1'
     runs-on: ubuntu-latest
     permissions:
       contents: read
