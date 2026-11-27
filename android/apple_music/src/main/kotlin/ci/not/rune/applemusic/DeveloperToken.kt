@@ -10,15 +10,24 @@ internal object DeveloperToken {
      * not read as a JWT, and one that has expired do not hold. Its text is never logged.
      */
     fun holds(token: String, nowSeconds: Long): Boolean {
+        val expiry = expiry(token) ?: return false
+        return expiry > nowSeconds
+    }
+
+    /**
+     * The `exp` of [token] in seconds, or null when it is not a JWT with one. Its text is never
+     * logged.
+     */
+    fun expiry(token: String): Long? {
         val parts = token.split('.')
-        if (parts.size != 3 || parts.any { it.isEmpty() }) return false
-        val payload = decodeBase64Url(parts[1]) ?: return false
+        if (parts.size != 3 || parts.any { it.isEmpty() }) return null
+        val payload = decodeBase64Url(parts[1]) ?: return null
         val expiry = try {
             JSONObject(String(payload, Charsets.UTF_8)).optLong("exp", 0)
         } catch (error: JSONException) {
-            return false
+            return null
         }
-        return expiry > nowSeconds
+        return if (expiry > 0) expiry else null
     }
 
     private const val ALPHABET =

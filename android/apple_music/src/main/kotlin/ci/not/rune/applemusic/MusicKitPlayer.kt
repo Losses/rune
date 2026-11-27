@@ -67,7 +67,11 @@ internal class MusicKitPlayer(
         }
     }
 
-    /** Tells MusicKit that the user's token changed, or was forgotten. */
+    /**
+     * Tells MusicKit that the developer token or the user's token changed, or that the user's was
+     * forgotten. MusicKit keeps its own copy of the tokens and reads them from [tokens] again only
+     * when told so.
+     */
     fun tokensChanged() {
         controller?.playbackStoreConfiguration?.notifyTokenChanged(context, tokens)
     }

@@ -51,7 +51,8 @@ class AppleMusicHost private constructor(context: Context) {
 
     private val context = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
-    private val tokens = TokenStore(this.context)
+    private val developerTokens = DeveloperTokens(this.context)
+    private val tokens = TokenStore(this.context, developerTokens)
     private val player = MusicKitPlayer(this.context, tokens)
     private val network = NetworkWatch(this.context, ::reachChanged)
     private val jukebox = Jukebox(
@@ -71,6 +72,9 @@ class AppleMusicHost private constructor(context: Context) {
 
     /** What the latest `hostReady` said about the user's access, so that only a change restarts. */
     private var lastAuthorized: Boolean? = null
+
+    /** Whether the latest `hostReady` came from a host that could play, null before the first. */
+    private var lastUsable: Boolean? = null
 
     /** The answers that wait for the sign-in under way. */
     private val signIns = mutableListOf<(Map<String, Any>?) -> Unit>()
@@ -98,6 +102,7 @@ class AppleMusicHost private constructor(context: Context) {
 
     /** Answers with the `hostReady` of a host that just started, as Dart attaches. */
     fun status(reply: (String) -> Unit) {
+        refreshDeveloperToken(forced = false)
         val answer: () -> Unit = {
             // The player takes the answer for a host that just started, so whatever is still
             // held from before goes in the same turn as the answer.
@@ -138,6 +143,7 @@ class AppleMusicHost private constructor(context: Context) {
      * [onActivityResult], and stores the token.
      */
     fun authorize(activity: Activity?, interactive: Boolean, reply: (Map<String, Any>?) -> Unit) {
+        if (interactive) refreshDeveloperToken(forced = false)
         if (!usable()) return reply(null)
         if (!interactive) return reply(tokens.userToken?.let(::authorization) ?: refused)
         if (!appleMusicInstalled()) return reply(unsupported)
@@ -146,7 +152,7 @@ class AppleMusicHost private constructor(context: Context) {
         // One sign-in at a time: whoever asks meanwhile gets its answer.
         if (signIns.size > 1) return
         try {
-            val intent = authentication.createIntentBuilder(BuildConfig.DEVELOPER_TOKEN)
+            val intent = authentication.createIntentBuilder(developerTokens.current)
                 .setHideStartScreen(false)
                 .build()
             activity.startActivityForResult(intent, SIGN_IN_REQUEST)
@@ -193,7 +199,7 @@ class AppleMusicHost private constructor(context: Context) {
     private fun authorization(token: String): Map<String, Any> = mapOf(
         "authorized" to true,
         "token" to token,
-        "developerToken" to BuildConfig.DEVELOPER_TOKEN,
+        "developerToken" to developerTokens.current,
     )
 
     /**
@@ -220,8 +226,28 @@ class AppleMusicHost private constructor(context: Context) {
     /** Whether this build can play: its developer token holds and MusicKit's libraries load. */
     private fun usable() = developerTokenHolds() && natives.value
 
-    private fun developerTokenHolds() =
-        DeveloperToken.holds(BuildConfig.DEVELOPER_TOKEN, System.currentTimeMillis() / 1000)
+    private fun developerTokenHolds() = developerTokens.current.isNotEmpty()
+
+    /**
+     * Looks for a newer developer token in the background, when one is wanted. If it finds one
+     * and the host could not play before for lack of a token that holds, it reports the host as
+     * started again, for the hub to learn that it can play. Otherwise nothing is restarted: that
+     * would drop the queue. MusicKit keeps its own copy of the tokens, so it is told of the new one.
+     */
+    private fun refreshDeveloperToken(forced: Boolean) {
+        developerTokens.refresh(forced) {
+            // On the fetching thread. MusicKit's libraries load off the main thread.
+            natives.value
+            main.post(::developerTokenStored)
+        }
+    }
+
+    private fun developerTokenStored() {
+        player.tokensChanged()
+        if (lastUsable != false || !usable()) return
+        restart()
+        if (tokens.userToken != null) inBackground(::warmUp)
+    }
 
     /** Whether MusicKit's native libraries, which it never loads by itself, loaded, once. */
     private val natives = lazy {
@@ -260,6 +286,7 @@ class AppleMusicHost private constructor(context: Context) {
         val usable = usable()
         val authorized = tokens.userToken != null
         lastAuthorized = authorized
+        lastUsable = usable
         // A build that cannot play has nothing to sign in to, so Rune is not asked to.
         return HostMessages.ready(
             authorized = authorized || !usable,
@@ -280,8 +307,11 @@ class AppleMusicHost private constructor(context: Context) {
      * Apple Music refused the user's token while playing. The token is forgotten, so that the next
      * sign-in goes through the Apple Music app again, and the host starts again without access.
      * A developer token that expired is refused the same way, and the user's token is kept then.
+     * Either may mean that the key behind the developer token was rotated, so a newer token is
+     * looked for even if this one still holds by its `exp`.
      */
     private fun accessLost() {
+        refreshDeveloperToken(forced = true)
         if (developerTokenHolds()) {
             Log.w(TAG, "Apple Music refused the user's token, which is forgotten")
             tokens.forget()

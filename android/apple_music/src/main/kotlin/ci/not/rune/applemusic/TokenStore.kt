@@ -4,11 +4,14 @@ import android.content.Context
 import com.apple.android.sdk.authentication.TokenProvider
 
 /**
- * The tokens MusicKit plays with: the developer token this build was given, and the user's
+ * The tokens MusicKit plays with: the developer token of [DeveloperTokens], and the user's
  * Music User Token with the storefronts that came with it, kept in the app's private
  * preferences. None of them is ever logged.
  */
-internal class TokenStore(context: Context) : TokenProvider {
+internal class TokenStore(
+    context: Context,
+    private val developerTokens: DeveloperTokens,
+) : TokenProvider {
     private companion object {
         const val USER_TOKEN = "userToken"
         const val STOREFRONT = "storefront"
@@ -17,7 +20,7 @@ internal class TokenStore(context: Context) : TokenProvider {
 
     private val preferences = context.getSharedPreferences("apple_music", Context.MODE_PRIVATE)
 
-    override fun getDeveloperToken(): String = BuildConfig.DEVELOPER_TOKEN
+    override fun getDeveloperToken(): String = developerTokens.current
 
     override fun getUserToken(): String? = preferences.getString(USER_TOKEN, null)
 
