@@ -23,17 +23,23 @@ struct ScanEntries {
     files: Vec<FsNode>,
     skipped: Vec<PathBuf>,
     cues: Vec<PathBuf>,
+    external_cover_directories: HashSet<PathBuf>,
 }
 
 fn scan_audio_files(fsio: &FsIo, root: &Path) -> Result<ScanEntries, fsio::FileIoError> {
     let walk = fsio.walk_dir(root, true)?;
     let mut candidates = Vec::new();
     let mut cues = Vec::new();
+    let mut external_cover_directories = HashSet::new();
     for node in walk.nodes {
         if is_audio_file(&node) {
             candidates.push(node);
         } else if is_cue_file(&node) {
             cues.push(node.path);
+        } else if crate::cover_art::resembles_external_cover(&node.filename)
+            && let Some(directory) = node.path.parent()
+        {
+            external_cover_directories.insert(directory.to_path_buf());
         }
     }
     let albums: HashSet<_> = candidates
@@ -68,6 +74,7 @@ fn scan_audio_files(fsio: &FsIo, root: &Path) -> Result<ScanEntries, fsio::FileI
             .collect(),
         skipped: walk.skipped,
         cues,
+        external_cover_directories,
     })
 }
 
@@ -86,6 +93,7 @@ pub struct AudioScanner {
     iterator: IntoIter<FsNode>,
     skipped: Vec<PathBuf>,
     cues: Vec<PathBuf>,
+    external_cover_directories: HashSet<PathBuf>,
     ended: bool,
 }
 
@@ -96,12 +104,14 @@ impl AudioScanner {
             files,
             skipped,
             cues,
+            external_cover_directories,
         } = scan_audio_files(fsio, root)?;
         Ok(AudioScanner {
             root_path: root.to_path_buf(),
             iterator: files.into_iter(),
             skipped,
             cues,
+            external_cover_directories,
             ended: false,
         })
     }
@@ -115,6 +125,11 @@ impl AudioScanner {
     /// Sidecar paths found during the same walk as the audio files.
     pub fn take_cue_files(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.cues)
+    }
+
+    /// Directories with possible external covers from the same filesystem walk.
+    pub fn take_external_cover_directories(&mut self) -> HashSet<PathBuf> {
+        std::mem::take(&mut self.external_cover_directories)
     }
 
     pub fn read_files(&mut self, count: usize) -> Vec<FsNode> {

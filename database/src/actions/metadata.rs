@@ -31,7 +31,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use ::fsio::{FsIo, FsNode, OpenMode};
+use ::fsio::{FsIo, FsNode, OpenMode, StorageLocation};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
@@ -1290,6 +1290,20 @@ where
             lib_path,
             &scanned_directories,
             scanner.take_cue_files(),
+            cancel_token.as_ref(),
+        )
+        .await?;
+    }
+    // Local sidecars can change while audio remains unchanged. Remote normal scans
+    // keep the audio-based skip; a Force Scan refreshes their covers on demand.
+    if walk_complete && !force && fsio.storage() == StorageLocation::Local {
+        super::cover_art::refresh_checked_external_artwork(
+            fsio,
+            main_db,
+            store,
+            lib_path,
+            scanned_directories,
+            scanner.take_external_cover_directories(),
             cancel_token.as_ref(),
         )
         .await?;
