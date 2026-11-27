@@ -7,19 +7,26 @@
 //! The state is Rust's, as on iOS: the metadata, the playback, and what audio focus asks of the
 //! player. Every write hands the service all of it, together with whether the service is to run
 //! and whether in the foreground, so the service keeps nothing that a write does not give it. It
-//! runs in the foreground while the player plays, and while it is paused only until it is to play
-//! again once audio focus comes back, so that playing again needs no foreground start from the
-//! background, which Android 12 and later refuse. Paused otherwise, it runs in the background and
-//! keeps its notification. Stopped, it does not run.
+//! is to run in the foreground while the player plays, and while it is paused until it is to play
+//! again once audio focus comes back, however long that takes, so that playing again needs no
+//! foreground start from the background, which Android 12 and later refuse. Paused otherwise, it
+//! is to run in the background and keep its notification; the service stays in the foreground
+//! for a while after such a pause all the same, as Media3's `MediaSessionService` does, so that
+//! playing again soon needs no foreground start either, and keeps that time itself, as nothing
+//! here runs between writes. Stopped, it does not run.
 //!
 //! The hub reports playback about ten times a second, and the session moves the position on by
 //! itself, as the Now Playing center does on iOS, so a report is written under the same rules
-//! ([`ShownPlayback`]), and also whenever the player's state changes.
+//! ([`ShownPlayback`]), and also whenever the player's state changes. A platform host's track
+//! that is to play but does not move on yet, as while its player loads the audio, shows as
+//! buffering, and stands still where the reports put it.
 //!
 //! Audio focus. The service asks for it when playback starts. A transient loss pauses the player,
 //! and the gain that ends it plays again, but only if that loss paused it. A loss for good pauses
-//! the player. A loss that only ducks does nothing, as the system lowers the volume itself.
-//! Headphones that go away pause the player, by a pause command from the service.
+//! the player, and nothing asks for the focus again before the player reports that pause, as the
+//! request would take the focus back from the app that took it. A loss that only ducks does
+//! nothing, as the system lowers the volume itself. Headphones that go away pause the player, by
+//! a pause command from the service.
 //!
 //! A platform host that plays the current track asks for audio focus with a player of its own,
 //! and follows its changes itself. Audio focus belongs to one request at a time, so while the
@@ -66,9 +73,20 @@ enum State {
     Stopped = 0,
     Paused = 1,
     Playing = 2,
+    /// The player is to play a platform host's track, which does not move on yet.
+    Buffering = 3,
 }
 
-/// Whether the service runs, and in the foreground. The values are `PlaybackService.SERVICE_*`.
+impl State {
+    /// Whether the player is to play, whether or not its track moves on yet.
+    fn plays(self) -> bool {
+        matches!(self, Self::Playing | Self::Buffering)
+    }
+}
+
+/// Whether the service is to run, and in the foreground. The values are
+/// `PlaybackService.SERVICE_*`. Told to run in the background, the service stays in the
+/// foreground for a while first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Service {
     Stopped = 0,
@@ -130,6 +148,9 @@ struct Session {
     playback: ShownPlayback,
     state: State,
     resume: Resume,
+    /// Audio focus was lost for good while the player played, and the player has not reported
+    /// the pause that this asked for yet.
+    focus_lost: bool,
     /// Whether a platform host plays the current track, with a player of its own.
     hosted: bool,
 }
@@ -145,6 +166,7 @@ impl Session {
             playback: ShownPlayback::new(now),
             state: State::Stopped,
             resume: Resume::No,
+            focus_lost: false,
             hosted: false,
         }
     }
@@ -153,14 +175,14 @@ impl Session {
         match self.state {
             State::Stopped => Service::Stopped,
             State::Paused if self.resume == Resume::No => Service::Background,
-            State::Paused | State::Playing => Service::Foreground,
+            State::Paused | State::Playing | State::Buffering => Service::Foreground,
         }
     }
 
     fn focus(&self) -> Focus {
         if self.hosted {
             Focus::Abandon
-        } else if self.state == State::Playing {
+        } else if self.state.plays() && !self.focus_lost {
             Focus::Request
         } else {
             Focus::Keep
@@ -197,18 +219,33 @@ impl Session {
     }
 
     /// Takes a report of the player's playback at `now`, and returns the write it needs, if any.
-    fn report(&mut self, playback: &MediaPlayback, now: Instant) -> Option<Info> {
+    /// `buffering` says that a platform host's track that is to play does not move on yet.
+    fn report(&mut self, playback: &MediaPlayback, buffering: bool, now: Instant) -> Option<Info> {
         let state = match playback {
+            MediaPlayback::Playing { .. } if buffering => State::Buffering,
             MediaPlayback::Playing { .. } => State::Playing,
             MediaPlayback::Paused { .. } => State::Paused,
             MediaPlayback::Stopped => State::Stopped,
         };
-        let moved = self.playback.report(playback, now);
+        let moved = match playback {
+            // A track that buffers stands still where the report puts it, so the session does
+            // not move it on.
+            MediaPlayback::Playing { progress } if buffering => {
+                let still = MediaPlayback::Paused {
+                    progress: *progress,
+                };
+                self.playback.report(&still, now)
+            }
+            _ => self.playback.report(playback, now),
+        };
         // Playback that starts, whether audio focus asked for it or not, or that stops, waits
         // for nothing. A report that the player still plays is not a start: it may have been
         // made before the pause that a loss of focus asked for.
-        if (state == State::Playing && self.state != State::Playing) || state == State::Stopped {
+        if (state.plays() && !self.state.plays()) || state == State::Stopped {
             self.resume = Resume::No;
+        }
+        if !state.plays() {
+            self.focus_lost = false;
         }
         let changed = state != self.state;
         self.state = state;
@@ -245,12 +282,17 @@ impl Session {
         if self.hosted {
             return (None, None);
         }
-        let playing = self.state == State::Playing || self.resume == Resume::Asked;
+        let playing = self.state.plays() || self.resume == Resume::Asked;
         let (resume, event) = match change {
             AUDIOFOCUS_LOSS_TRANSIENT if playing => {
                 (Resume::OnGain, Some(MediaControlEvent::Pause))
             }
-            AUDIOFOCUS_LOSS => (Resume::No, playing.then_some(MediaControlEvent::Pause)),
+            AUDIOFOCUS_LOSS => {
+                // The service gave up its request, so the writes that come before the pause is
+                // reported ask for none.
+                self.focus_lost |= playing;
+                (Resume::No, playing.then_some(MediaControlEvent::Pause))
+            }
             AUDIOFOCUS_GAIN if self.resume == Resume::OnGain => {
                 (Resume::Asked, Some(MediaControlEvent::Play))
             }
@@ -269,6 +311,7 @@ impl Session {
         self.hosted = hosted;
         if hosted {
             self.resume = Resume::No;
+            self.focus_lost = false;
         }
         Some(self.info(now))
     }
@@ -284,6 +327,7 @@ impl Session {
     fn stop(&mut self, now: Instant) -> Info {
         self.state = State::Stopped;
         self.resume = Resume::No;
+        self.focus_lost = false;
         self.info(now)
     }
 }
@@ -377,10 +421,15 @@ mod android {
             Ok(())
         }
 
-        /// Shows the player's playback, if the session does not show it already.
-        pub fn set_playback(&mut self, playback: MediaPlayback) -> Result<(), Error> {
+        /// Shows the player's playback, if the session does not show it already. `buffering`
+        /// says that a platform host's track that is to play does not move on yet.
+        pub fn set_playback(
+            &mut self,
+            playback: MediaPlayback,
+            buffering: bool,
+        ) -> Result<(), Error> {
             let mut session = lock(&self.shared.session);
-            if let Some(info) = session.report(&playback, Instant::now()) {
+            if let Some(info) = session.report(&playback, buffering, Instant::now()) {
                 self.write(&info);
             }
             Ok(())
@@ -608,7 +657,7 @@ mod tests {
     /// A session whose player plays from `start`.
     fn playing_session(start: Instant) -> Session {
         let mut session = Session::new(start);
-        assert!(session.report(&playing(0.0), start).is_some());
+        assert!(session.report(&playing(0.0), false, start).is_some());
         session
     }
 
@@ -660,23 +709,26 @@ mod tests {
     }
 
     #[test]
-    fn the_service_runs_in_the_foreground_only_while_the_player_plays() {
+    fn the_service_is_to_run_in_the_foreground_only_while_the_player_plays() {
         let start = Instant::now();
         let mut session = Session::new(start);
-        let info = session.report(&playing(0.0), start).expect("written");
+        let info = session
+            .report(&playing(0.0), false, start)
+            .expect("written");
         assert_eq!(
             (info.state, info.service),
             (State::Playing, Service::Foreground)
         );
+        // The service itself stays in the foreground for a while after it is told this.
         let info = session
-            .report(&paused(1.0), after(start, 1.0))
+            .report(&paused(1.0), false, after(start, 1.0))
             .expect("written");
         assert_eq!(
             (info.state, info.service),
             (State::Paused, Service::Background)
         );
         let info = session
-            .report(&MediaPlayback::Stopped, after(start, 2.0))
+            .report(&MediaPlayback::Stopped, false, after(start, 2.0))
             .expect("written");
         assert_eq!(
             (info.state, info.service),
@@ -688,19 +740,23 @@ mod tests {
     fn every_change_of_state_is_written_even_where_the_position_shows_none() {
         let start = Instant::now();
         let mut session = Session::new(start);
-        assert!(session.report(&paused(10.0), start).is_some());
+        assert!(session.report(&paused(10.0), false, start).is_some());
         // A stopped player keeps the shown position where it was, and is still written.
         assert!(
             session
-                .report(&MediaPlayback::Stopped, after(start, 1.0))
+                .report(&MediaPlayback::Stopped, false, after(start, 1.0))
                 .is_some()
         );
         assert!(
             session
-                .report(&MediaPlayback::Stopped, after(start, 1.1))
+                .report(&MediaPlayback::Stopped, false, after(start, 1.1))
                 .is_none()
         );
-        assert!(session.report(&paused(10.0), after(start, 2.0)).is_some());
+        assert!(
+            session
+                .report(&paused(10.0), false, after(start, 2.0))
+                .is_some()
+        );
     }
 
     #[test]
@@ -711,12 +767,12 @@ mod tests {
             let seconds = f64::from(tenth) / 10.0;
             assert!(
                 session
-                    .report(&playing(seconds), after(start, seconds))
+                    .report(&playing(seconds), false, after(start, seconds))
                     .is_none()
             );
         }
         let seek = session
-            .report(&playing(60.0), after(start, 5.1))
+            .report(&playing(60.0), false, after(start, 5.1))
             .expect("written");
         assert_eq!((seek.elapsed, seek.rate), (Duration::from_secs(60), 1.0));
     }
@@ -744,7 +800,11 @@ mod tests {
         );
         // A new item starts from its beginning, and the next report is written whatever it says.
         assert_eq!((info.elapsed, info.rate), (Duration::ZERO, 1.0));
-        assert!(session.report(&playing(0.05), after(start, 3.05)).is_some());
+        assert!(
+            session
+                .report(&playing(0.05), false, after(start, 3.05))
+                .is_some()
+        );
     }
 
     #[test]
@@ -756,19 +816,19 @@ mod tests {
         assert!(write.is_none());
         // The service stays in the foreground while the player waits for the focus.
         assert_eq!(
-            service_of(session.report(&paused(1.0), after(start, 1.0))),
+            service_of(session.report(&paused(1.0), false, after(start, 1.0))),
             Some(Service::Foreground)
         );
         let (event, write) = session.focus_changed(AUDIOFOCUS_GAIN, after(start, 5.0));
         assert!(matches!(event, Some(MediaControlEvent::Play)));
         assert!(write.is_none());
         assert_eq!(
-            service_of(session.report(&playing(1.0), after(start, 5.1))),
+            service_of(session.report(&playing(1.0), false, after(start, 5.1))),
             Some(Service::Foreground)
         );
         // Paused again by the user, the service leaves the foreground, and a gain plays nothing.
         assert_eq!(
-            service_of(session.report(&paused(2.0), after(start, 6.0))),
+            service_of(session.report(&paused(2.0), false, after(start, 6.0))),
             Some(Service::Background)
         );
         assert!(
@@ -783,7 +843,7 @@ mod tests {
     fn a_transient_loss_while_paused_plays_nothing_once_it_ends() {
         let start = Instant::now();
         let mut session = Session::new(start);
-        assert!(session.report(&paused(1.0), start).is_some());
+        assert!(session.report(&paused(1.0), false, start).is_some());
         assert!(nothing(
             session.focus_changed(AUDIOFOCUS_LOSS_TRANSIENT, start)
         ));
@@ -803,8 +863,16 @@ mod tests {
                 .is_some()
         );
         // Made before the pause took effect.
-        assert!(session.report(&playing(0.1), after(start, 0.1)).is_none());
-        assert!(session.report(&paused(0.2), after(start, 0.2)).is_some());
+        assert!(
+            session
+                .report(&playing(0.1), false, after(start, 0.1))
+                .is_none()
+        );
+        assert!(
+            session
+                .report(&paused(0.2), false, after(start, 0.2))
+                .is_some()
+        );
         assert!(matches!(
             session.focus_changed(AUDIOFOCUS_GAIN, after(start, 3.0)).0,
             Some(MediaControlEvent::Play)
@@ -821,9 +889,21 @@ mod tests {
                 .0
                 .is_some()
         );
-        assert!(session.report(&paused(0.2), after(start, 0.2)).is_some());
-        assert!(session.report(&playing(0.2), after(start, 1.0)).is_some());
-        assert!(session.report(&paused(0.5), after(start, 1.3)).is_some());
+        assert!(
+            session
+                .report(&paused(0.2), false, after(start, 0.2))
+                .is_some()
+        );
+        assert!(
+            session
+                .report(&playing(0.2), false, after(start, 1.0))
+                .is_some()
+        );
+        assert!(
+            session
+                .report(&paused(0.5), false, after(start, 1.3))
+                .is_some()
+        );
         assert!(nothing(
             session.focus_changed(AUDIOFOCUS_GAIN, after(start, 2.0))
         ));
@@ -839,7 +919,11 @@ mod tests {
                 .0
                 .is_some()
         );
-        assert!(session.report(&paused(0.2), after(start, 0.2)).is_some());
+        assert!(
+            session
+                .report(&paused(0.2), false, after(start, 0.2))
+                .is_some()
+        );
         let (event, write) = session.command(COMMAND_PAUSE, 0, after(start, 1.0));
         assert!(matches!(event, Some(MediaControlEvent::Pause)));
         assert_eq!(service_of(write), Some(Service::Background));
@@ -856,12 +940,46 @@ mod tests {
         assert!(matches!(event, Some(MediaControlEvent::Pause)));
         assert!(write.is_none());
         assert_eq!(
-            service_of(session.report(&paused(0.2), after(start, 0.2))),
+            service_of(session.report(&paused(0.2), false, after(start, 0.2))),
             Some(Service::Background)
         );
         assert!(nothing(
             session.focus_changed(AUDIOFOCUS_GAIN, after(start, 1.0))
         ));
+    }
+
+    #[test]
+    fn nothing_asks_for_the_focus_lost_for_good_before_the_pause_is_reported() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        assert!(matches!(
+            session.focus_changed(AUDIOFOCUS_LOSS, start).0,
+            Some(MediaControlEvent::Pause)
+        ));
+        // A new item and a jump of the position still come while the player plays, and would take
+        // the focus back from the app that took it.
+        let metadata = MediaMetadata {
+            title: Some("Next"),
+            ..MediaMetadata::default()
+        };
+        assert_eq!(
+            session.set_metadata(&metadata, after(start, 0.1)).focus,
+            Focus::Keep
+        );
+        let info = session
+            .report(&playing(60.0), false, after(start, 0.2))
+            .expect("written");
+        assert_eq!((info.state, info.focus), (State::Playing, Focus::Keep));
+        // Once the pause is reported, playback that the user starts asks for the focus again.
+        let focus_of = |info: Option<Info>| info.map(|info| info.focus);
+        assert_eq!(
+            focus_of(session.report(&paused(60.0), false, after(start, 0.3))),
+            Some(Focus::Keep)
+        );
+        assert_eq!(
+            focus_of(session.report(&playing(60.0), false, after(start, 2.0))),
+            Some(Focus::Request)
+        );
     }
 
     #[test]
@@ -874,7 +992,11 @@ mod tests {
                 .0
                 .is_some()
         );
-        assert!(session.report(&paused(0.2), after(start, 0.2)).is_some());
+        assert!(
+            session
+                .report(&paused(0.2), false, after(start, 0.2))
+                .is_some()
+        );
         let (event, write) = session.focus_changed(AUDIOFOCUS_LOSS, after(start, 1.0));
         assert!(event.is_none());
         assert_eq!(service_of(write), Some(Service::Background));
@@ -893,7 +1015,11 @@ mod tests {
                 .0
                 .is_some()
         );
-        assert!(session.report(&paused(0.2), after(start, 0.2)).is_some());
+        assert!(
+            session
+                .report(&paused(0.2), false, after(start, 0.2))
+                .is_some()
+        );
         assert!(
             session
                 .focus_changed(AUDIOFOCUS_GAIN, after(start, 1.0))
@@ -932,7 +1058,7 @@ mod tests {
                 .is_some()
         );
         assert_eq!(
-            service_of(session.report(&MediaPlayback::Stopped, after(start, 0.2))),
+            service_of(session.report(&MediaPlayback::Stopped, false, after(start, 0.2))),
             Some(Service::Stopped)
         );
         assert!(nothing(
@@ -950,7 +1076,11 @@ mod tests {
             (State::Stopped, Service::Stopped)
         );
         // Playback that starts again afterwards is written.
-        assert!(session.report(&playing(1.0), after(start, 2.0)).is_some());
+        assert!(
+            session
+                .report(&playing(1.0), false, after(start, 2.0))
+                .is_some()
+        );
     }
 
     #[test]
@@ -959,15 +1089,15 @@ mod tests {
         let mut session = Session::new(start);
         let focus_of = |info: Option<Info>| info.map(|info| info.focus);
         assert_eq!(
-            focus_of(session.report(&playing(0.0), start)),
+            focus_of(session.report(&playing(0.0), false, start)),
             Some(Focus::Request)
         );
         assert_eq!(
-            focus_of(session.report(&paused(1.0), after(start, 1.0))),
+            focus_of(session.report(&paused(1.0), false, after(start, 1.0))),
             Some(Focus::Keep)
         );
         assert_eq!(
-            focus_of(session.report(&MediaPlayback::Stopped, after(start, 2.0))),
+            focus_of(session.report(&MediaPlayback::Stopped, false, after(start, 2.0))),
             Some(Focus::Keep)
         );
     }
@@ -986,14 +1116,14 @@ mod tests {
         // Every write while the host plays says so, and the service runs in the foreground while
         // the host's track plays, as for Rune's own.
         let info = session
-            .report(&paused(2.0), after(start, 2.0))
+            .report(&paused(2.0), false, after(start, 2.0))
             .expect("written");
         assert_eq!(
             (info.service, info.focus),
             (Service::Background, Focus::Abandon)
         );
         let info = session
-            .report(&playing(2.0), after(start, 3.0))
+            .report(&playing(2.0), false, after(start, 3.0))
             .expect("written");
         assert_eq!(
             (info.service, info.focus),
@@ -1038,7 +1168,7 @@ mod tests {
                 .is_some()
         );
         assert_eq!(
-            service_of(session.report(&paused(0.2), after(start, 0.2))),
+            service_of(session.report(&paused(0.2), false, after(start, 0.2))),
             Some(Service::Foreground)
         );
         let info = session
@@ -1059,13 +1189,17 @@ mod tests {
         let mut session = playing_session(start);
         assert!(session.set_hosted(true, start).is_some());
         // The host lets go, and Rune's own track loads paused, then plays.
-        assert!(session.report(&paused(1.0), after(start, 1.0)).is_some());
+        assert!(
+            session
+                .report(&paused(1.0), false, after(start, 1.0))
+                .is_some()
+        );
         let info = session
             .set_hosted(false, after(start, 1.5))
             .expect("written");
         assert_eq!(info.focus, Focus::Keep);
         let info = session
-            .report(&playing(0.0), after(start, 2.0))
+            .report(&playing(0.0), false, after(start, 2.0))
             .expect("written");
         assert_eq!(info.focus, Focus::Request);
         // Changes of focus act on Rune's own player again.
@@ -1075,5 +1209,78 @@ mod tests {
                 .0,
             Some(MediaControlEvent::Pause)
         ));
+    }
+
+    #[test]
+    fn a_hosts_track_that_buffers_shows_as_buffering_and_stands_still() {
+        let start = Instant::now();
+        let mut session = playing_session(start);
+        assert!(session.set_hosted(true, start).is_some());
+        // The host's track is to play, and its player loads the audio at 10 s, which the hub
+        // reports as playing at a position that stands still.
+        let info = session
+            .report(&playing(10.0), true, after(start, 1.0))
+            .expect("written");
+        assert_eq!(
+            (info.state, info.service, info.focus),
+            (State::Buffering, Service::Foreground, Focus::Abandon)
+        );
+        assert_eq!((info.elapsed, info.rate), (Duration::from_secs(10), 0.0));
+        // Nothing is written again for as long as it buffers, which may take half a minute.
+        for tenth in 1..=300 {
+            let seconds = 1.0 + f64::from(tenth) / 10.0;
+            assert!(
+                session
+                    .report(&playing(10.0), true, after(start, seconds))
+                    .is_none(),
+                "{seconds} s"
+            );
+        }
+        // Once it moves on, that is written once, from where it stood.
+        let info = session
+            .report(&playing(10.0), false, after(start, 31.1))
+            .expect("written");
+        assert_eq!(
+            (info.state, info.elapsed, info.rate),
+            (State::Playing, Duration::from_secs(10), 1.0)
+        );
+        assert!(
+            session
+                .report(&playing(10.1), false, after(start, 31.2))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_track_that_buffers_counts_as_playing() {
+        let start = Instant::now();
+        let mut session = Session::new(start);
+        let info = session.report(&playing(0.0), true, start).expect("written");
+        assert_eq!(
+            (info.state, info.service, info.focus),
+            (State::Buffering, Service::Foreground, Focus::Request)
+        );
+        // Moving on from buffering is no start, so a transient loss still waits for its gain.
+        assert!(
+            session
+                .focus_changed(AUDIOFOCUS_LOSS_TRANSIENT, after(start, 0.5))
+                .0
+                .is_some()
+        );
+        assert!(
+            session
+                .report(&playing(0.0), false, after(start, 0.6))
+                .is_some()
+        );
+        assert_eq!(
+            service_of(session.report(&paused(0.1), false, after(start, 0.7))),
+            Some(Service::Foreground)
+        );
+        // A report that buffers while paused is a pause.
+        assert!(
+            session
+                .report(&paused(0.1), true, after(start, 0.8))
+                .is_none()
+        );
     }
 }

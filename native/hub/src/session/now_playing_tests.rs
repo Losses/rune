@@ -83,6 +83,7 @@ async fn now_playing_waits_for_each_tracks_first_start() -> Result<()> {
                 volume: 1.0,
                 hosted_by: None,
                 host_shows_in_media_controls: false,
+                host_buffering: false,
             },
             &mut item_state,
             &None,
@@ -128,29 +129,68 @@ fn the_position_of_an_item_waits_for_its_name_and_its_state_does_not() {
         volume: 1.0,
         hosted_by: None,
         host_shows_in_media_controls: false,
+        host_buffering: false,
     };
     let at_seven = |progress: Option<MediaPosition>| {
         progress.is_some_and(|position| position.0 == Duration::from_secs(7))
     };
     assert!(matches!(
         now_playing_playback(&status(Playing), true),
-        MediaPlayback::Playing { progress } if at_seven(progress)
+        (MediaPlayback::Playing { progress }, false) if at_seven(progress)
     ));
     assert!(matches!(
         now_playing_playback(&status(Paused), true),
-        MediaPlayback::Paused { progress } if at_seven(progress)
+        (MediaPlayback::Paused { progress }, false) if at_seven(progress)
     ));
     assert!(matches!(
         now_playing_playback(&status(Playing), false),
-        MediaPlayback::Playing { progress: None }
+        (MediaPlayback::Playing { progress: None }, false)
     ));
     assert!(matches!(
         now_playing_playback(&status(Paused), false),
-        MediaPlayback::Paused { progress: None }
+        (MediaPlayback::Paused { progress: None }, false)
     ));
     assert!(matches!(
         now_playing_playback(&status(Stopped), false),
-        MediaPlayback::Stopped
+        (MediaPlayback::Stopped, false)
+    ));
+}
+
+/// A platform host's track that is to play but does not move on yet goes to the media controls
+/// as playing where it stands, and as buffering, which they show where they show such a track.
+#[test]
+fn a_hosts_track_that_buffers_goes_out_as_buffering_where_it_stands() {
+    use PlaybackState::{Paused, Playing};
+
+    let item = PlayingItem::LibraryTrack {
+        library_id: Uuid::new_v4(),
+        track: "hosted".to_owned(),
+    };
+    let status = |state| PlayerStatus {
+        item: Some(item.clone()),
+        index: Some(0),
+        path: Some(PathBuf::from("hosted://host/hosted")),
+        position: Duration::from_secs(7),
+        state,
+        playlist: vec![item.clone().into()],
+        unavailable: Vec::new(),
+        unavailable_reasons: HashMap::new(),
+        playback_mode: PlaybackMode::Sequential,
+        ready: true,
+        volume: 1.0,
+        hosted_by: Some("host".to_owned()),
+        host_shows_in_media_controls: false,
+        host_buffering: true,
+    };
+    assert!(matches!(
+        now_playing_playback(&status(Playing), true),
+        (MediaPlayback::Playing { progress: Some(MediaPosition(position)) }, true)
+            if position == Duration::from_secs(7)
+    ));
+    // A paused track buffers nothing.
+    assert!(matches!(
+        now_playing_playback(&status(Paused), true),
+        (MediaPlayback::Paused { .. }, false)
     ));
 }
 
@@ -446,6 +486,7 @@ async fn a_late_name_comes_from_the_binding_that_looked_it_up() -> Result<()> {
             volume: 1.0,
             hosted_by: None,
             host_shows_in_media_controls: false,
+            host_buffering: false,
         },
         &mut item_state,
         &None,
@@ -586,6 +627,7 @@ async fn a_track_named_late_goes_to_runes_scrobblers_unless_its_service_counts_i
                 volume: 1.0,
                 hosted_by: None,
                 host_shows_in_media_controls: false,
+                host_buffering: false,
             },
             &mut item_state,
             &None,
@@ -901,6 +943,7 @@ impl ScriptedSession {
             volume: 1.0,
             hosted_by: None,
             host_shows_in_media_controls: false,
+            host_buffering: false,
         }
     }
 
@@ -1093,6 +1136,7 @@ async fn what_the_item_supports_is_told_once_it_can_be() -> Result<()> {
         volume: 1.0,
         hosted_by: None,
         host_shows_in_media_controls: false,
+        host_buffering: false,
     };
     let registry = dir.path().join("libraries.json");
     let _ = fs::remove_file(&registry);
@@ -1311,6 +1355,7 @@ impl ReportingPlayback {
             volume: 1.0,
             hosted_by: None,
             host_shows_in_media_controls: false,
+            host_buffering: false,
         }
     }
 

@@ -1495,17 +1495,22 @@ fn late_metadata_update(yielded: bool, behind: bool) -> (bool, bool) {
 /// What a status report sends to the system's Now Playing, and the hand-off it makes, which
 /// `item_state` records. A host holds Now Playing only if it shows itself in the system's media
 /// controls, as it said when it started: the track of a host that does not goes out as Rune's
-/// own tracks do, and Rune's commands stay.
+/// own tracks do, and Rune's commands stay. A host that says that it does not only while it
+/// plays the track, as when the track was handed over before the host said so as it started,
+/// leaves the track to Rune's own Now Playing from then on, which publishes it as a new item, as
+/// nothing of it has gone out.
 fn now_playing_step(
     item_state: &mut ItemEventState,
     status: &PlayerStatus,
     item_changed: bool,
 ) -> (NowPlayingUpdate, Option<NowPlayingHandOff>) {
     let hosted = status.hosted_by.is_some() && status.host_shows_in_media_controls;
+    // Unlike a host that lets go of its ending track, this one still plays the track.
+    let left_to_rune = item_state.controls_yielded && !hosted && status.hosted_by.is_some();
     let (behind, update) = now_playing_update(
         item_state.controls_behind,
         NowPlayingReport {
-            item_changed,
+            item_changed: item_changed || left_to_rune,
             metadata_found: item_state.metadata_found,
             hosted,
             playing: status.state == PlaybackState::Playing,
@@ -1912,8 +1917,8 @@ async fn handle_status_event(
     if let Some(manager) = controls
         && system_now_playing.progress
     {
-        let playback = now_playing_playback(&value, item_state.metadata_found);
-        let _ = update_media_controls_progress(manager.clone(), playback).await;
+        let (playback, buffering) = now_playing_playback(&value, item_state.metadata_found);
+        let _ = update_media_controls_progress(manager.clone(), playback, buffering).await;
     }
     broadcaster.broadcast(&report);
 
@@ -2010,14 +2015,17 @@ async fn handle_status_event(
 /// was last given. The state always goes, so that a pause or a stop shows at once, even when the
 /// item's metadata is never found. The position of an item whose metadata was not found waits
 /// until it is, as when a slow service names its track late: it would go out against the item
-/// before.
-fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> MediaPlayback {
+/// before. With it goes whether a platform host's track that plays does not move on yet, which
+/// the media controls show as buffering where they show such a track.
+fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> (MediaPlayback, bool) {
     let progress = metadata_found.then_some(MediaPosition(status.position));
-    match status.state {
+    let playback = match status.state {
         PlaybackState::Playing => MediaPlayback::Playing { progress },
         PlaybackState::Paused => MediaPlayback::Paused { progress },
         PlaybackState::Stopped => MediaPlayback::Stopped,
-    }
+    };
+    let buffering = status.state == PlaybackState::Playing && status.host_buffering;
+    (playback, buffering)
 }
 
 #[cfg(target_os = "linux")]
@@ -2631,6 +2639,7 @@ mod system_now_playing_tests {
             volume: 1.0,
             hosted_by: host.map(|(host, _)| host.to_owned()),
             host_shows_in_media_controls: host.is_some_and(|(_, shows)| shows),
+            host_buffering: false,
         }
     }
 
@@ -2718,6 +2727,53 @@ mod system_now_playing_tests {
         assert_eq!(
             steps(&mut item_state, &[(status("local", None, Playing), true)]),
             [(METADATA_AND_PROGRESS, Some(Reclaim))]
+        );
+    }
+
+    #[test]
+    fn a_host_that_stops_showing_itself_mid_track_has_the_track_published_at_once() {
+        use NowPlayingHandOff::{Reclaim, YieldToHost};
+        use PlaybackState::Playing;
+        // The track was handed over before the host started, so the host counts as showing
+        // itself, until it says that it does not.
+        let (shown, unshown) = (Some(("host", true)), Some(("host", false)));
+        let mut item_state = ItemEventState::default();
+        assert_eq!(
+            steps(
+                &mut item_state,
+                &[
+                    (status("first", shown, Playing), true),
+                    (status("first", unshown, Playing), false),
+                    (status("first", unshown, Playing), false),
+                ]
+            ),
+            [
+                (NOTHING, Some(YieldToHost)),
+                (METADATA_AND_PROGRESS, Some(Reclaim)),
+                (PROGRESS, None),
+            ]
+        );
+        assert_eq!(
+            late_metadata_update(item_state.controls_yielded, item_state.controls_behind),
+            (false, true)
+        );
+
+        // A host that lets go of its ending track still has that track not published again.
+        let mut item_state = ItemEventState::default();
+        assert_eq!(
+            steps(
+                &mut item_state,
+                &[
+                    (status("first", shown, Playing), true),
+                    (status("first", None, Playing), false),
+                    (status("local", None, Playing), true),
+                ]
+            ),
+            [
+                (NOTHING, Some(YieldToHost)),
+                (NOTHING, Some(Reclaim)),
+                (METADATA_AND_PROGRESS, None),
+            ]
         );
     }
 

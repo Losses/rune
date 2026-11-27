@@ -155,6 +155,11 @@ pub struct PlayerStatus {
     /// when it started. A host that said nothing of it does. False when no host plays the track.
     /// Not sent over the network.
     pub host_shows_in_media_controls: bool,
+    /// Whether the track of the host in `hosted_by` is to play but does not move on yet, as
+    /// while the host's player loads the audio, so that `position` stands still. Progress reports
+    /// say so, and any other report of the track's state, or a change of host, makes it false
+    /// until the next one. Not sent over the network.
+    pub host_buffering: bool,
 }
 
 /// A track that reached its end, with the time it actually played.
@@ -773,6 +778,7 @@ impl Player {
             volume: 1.0,
             hosted_by: None,
             host_shows_in_media_controls: false,
+            host_buffering: false,
         }));
 
         let pcm_tap = PcmTap::new();
@@ -862,6 +868,7 @@ impl Player {
                         status.position = position;
                         status.ready = true;
                         status.state = PlaybackState::Paused;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::Playing {
                         item,
@@ -876,6 +883,7 @@ impl Player {
                         status.playback_mode = playback_mode;
                         status.position = position;
                         status.state = PlaybackState::Playing;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::Paused {
                         item,
@@ -890,6 +898,7 @@ impl Player {
                         status.playback_mode = playback_mode;
                         status.position = position;
                         status.state = PlaybackState::Paused;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::Stopped => {
                         status.item = None;
@@ -897,6 +906,7 @@ impl Player {
                         status.path = None;
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::Progress {
                         item,
@@ -905,6 +915,7 @@ impl Player {
                         playback_mode,
                         position,
                         ready,
+                        buffering,
                     } => {
                         status.item = item;
                         status.index = index;
@@ -912,6 +923,7 @@ impl Player {
                         status.playback_mode = playback_mode;
                         status.position = position;
                         status.ready = ready;
+                        status.host_buffering = buffering;
                     }
                     PlayerEvent::EndOfPlaylist => {
                         status.item = None;
@@ -919,6 +931,7 @@ impl Player {
                         status.path = None;
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::EndOfTrack {
                         item,
@@ -1007,6 +1020,7 @@ impl Player {
                         status.host_shows_in_media_controls =
                             host_shows(&hosts_unshown, host.as_ref());
                         status.hosted_by = host;
+                        status.host_buffering = false;
                     }
                     PlayerEvent::HostMediaControls {
                         host,
@@ -1519,6 +1533,7 @@ impl Playable for MockPlayer {
             volume: 1.0,
             hosted_by: None,
             host_shows_in_media_controls: false,
+            host_buffering: false,
         }
     }
     fn status_after_pending(&self) -> BoxFuture<'static, PlayerStatus> {

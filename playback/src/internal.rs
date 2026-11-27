@@ -670,6 +670,9 @@ pub enum PlayerEvent {
         position: Duration,
         playback_mode: PlaybackMode,
         ready: bool,
+        // The current track is a platform host's, which is to play but does not move on yet,
+        // as its host said: `position` stands still.
+        buffering: bool,
     },
     VolumeUpdate(f32),
     // The host that plays the current track, from when a hosted track becomes current until no
@@ -695,6 +698,7 @@ struct ProgressReport {
     position: Duration,
     playback_mode: PlaybackMode,
     ready: bool,
+    buffering: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -3198,8 +3202,9 @@ impl PlayerInternal {
             Instant::now(),
         );
 
-        if self.hosted.is_some() {
+        if let Some(hosted) = &self.hosted {
             // The host reports the end of the track, so its position stands for the sink's.
+            let buffering = hosted.playing && hosted.buffering;
             return self.report_progress(ProgressReport {
                 item: id,
                 index,
@@ -3207,6 +3212,7 @@ impl PlayerInternal {
                 position,
                 playback_mode,
                 ready: true,
+                buffering,
             });
         }
 
@@ -3279,6 +3285,7 @@ impl PlayerInternal {
                     position,
                     playback_mode,
                     ready: true,
+                    buffering: false,
                 })?;
             }
         } else {
@@ -3291,6 +3298,7 @@ impl PlayerInternal {
                 position,
                 playback_mode,
                 ready,
+                buffering: false,
             })?;
         }
 
@@ -3310,6 +3318,7 @@ impl PlayerInternal {
             position,
             playback_mode,
             ready,
+            buffering,
         } = report.clone();
         self.event_sender
             .send(PlayerEvent::Progress {
@@ -3319,6 +3328,7 @@ impl PlayerInternal {
                 playback_mode,
                 position,
                 ready,
+                buffering,
             })
             .with_context(|| "Failed to send Progress event")?;
         self.last_progress = Some(report);

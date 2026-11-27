@@ -1807,6 +1807,68 @@ async fn a_hosted_track_that_buffers_stays_where_its_host_puts_it() -> Result<()
     .await
 }
 
+#[tokio::test(start_paused = true)]
+async fn the_progress_of_a_hosted_track_says_whether_it_buffers() -> Result<()> {
+    // The place and the buffering of the next progress report that `wanted` picks by its
+    // buffering.
+    async fn progress(
+        events: &mut mpsc::UnboundedReceiver<PlayerEvent>,
+        wanted: impl Fn(bool) -> bool,
+    ) -> Result<(Duration, bool)> {
+        let event = wait_for(
+            events,
+            |event| matches!(event, PlayerEvent::Progress { buffering, .. } if wanted(*buffering)),
+        )
+        .await?;
+        let PlayerEvent::Progress {
+            position,
+            buffering,
+            ..
+        } = event
+        else {
+            unreachable!()
+        };
+        Ok((position, buffering))
+    }
+
+    let (internal, f) = hosted_engine(2, &[]);
+    with_engine(internal, f, async |f| {
+        let hosted = f.hosted("1440");
+        start_first(f, std::slice::from_ref(&hosted), None).await?;
+        f.report(buffering(1, 10_000))?;
+        f.settle().await?;
+        tokio::time::advance(Duration::from_millis(400)).await;
+        assert_eq!(
+            progress(&mut f.events, |_| true).await?,
+            (Duration::from_secs(10), true)
+        );
+
+        // Once a status says that it moves on, the reports say so too.
+        f.report(status(1, true, 10_000))?;
+        let (position, _) = progress(&mut f.events, |buffering| !buffering).await?;
+        assert!(position >= Duration::from_secs(10), "{position:?}");
+
+        // Paused, it buffers nothing, whatever its host says.
+        f.send(PlayerCommand::Pause)?;
+        expect_paused(&mut f.events, &hosted).await?;
+        f.report(HostEvent::JukeboxStatus {
+            host: HOST.to_owned(),
+            revision: 2,
+            current_index: Some(0),
+            current_id: Some("1440".to_owned()),
+            playing: false,
+            position_ms: 11_000,
+            buffering: true,
+        })?;
+        assert_eq!(
+            progress(&mut f.events, |_| true).await?,
+            (Duration::from_secs(11), false)
+        );
+        Ok(())
+    })
+    .await
+}
+
 // The host holds the next track, so it moves on to it without a gap.
 
 #[tokio::test]
@@ -3494,6 +3556,49 @@ async fn the_status_says_whether_the_host_shows_itself_in_the_media_controls() -
     .await?;
     assert_eq!(status.hosted_by, None);
     assert!(!status.host_shows_in_media_controls);
+
+    player.terminate();
+    let _ = std::fs::remove_file(wav_path);
+    host.check()
+}
+
+#[tokio::test]
+async fn the_status_says_while_a_hosted_track_buffers() -> Result<()> {
+    let (player, statuses, host, hosted_library, wav_path) = hosted_player(Uuid::new_v4());
+    let hosted = PlayingItem::LibraryTrack {
+        library_id: hosted_library,
+        track: "1440".to_owned(),
+    };
+    player.add_to_playlist_with_sources(
+        vec![(hosted.clone(), PlaybackSource::LibraryStream)],
+        AddMode::AppendToEnd,
+    );
+    player.switch(0);
+    status_until(&statuses, |shown| {
+        shown.item.as_ref() == Some(&hosted) && shown.state == PlaybackState::Playing
+    })
+    .await?;
+    assert_eq!(host.take(1).await?, vec![handed_over("1440", 1)]);
+
+    // The host loads the track's audio: the track plays, and stands still.
+    player.deliver_host_event(buffering(1, 10_000));
+    let shown = status_until(&statuses, |shown| shown.host_buffering).await?;
+    assert_eq!(
+        (shown.state, shown.position),
+        (PlaybackState::Playing, Duration::from_secs(10))
+    );
+
+    // It moves on.
+    player.deliver_host_event(status(1, true, 10_000));
+    let shown = status_until(&statuses, |shown| !shown.host_buffering).await?;
+    assert_eq!(shown.state, PlaybackState::Playing);
+
+    // A pause buffers nothing.
+    player.deliver_host_event(buffering(1, 12_000));
+    status_until(&statuses, |shown| shown.host_buffering).await?;
+    player.pause();
+    let shown = status_until(&statuses, |shown| shown.state == PlaybackState::Paused).await?;
+    assert!(!shown.host_buffering);
 
     player.terminate();
     let _ = std::fs::remove_file(wav_path);
