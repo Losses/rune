@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 
 use crate::apple_music_binding::{AppleIdKind, AppleMusicBinding, CONTENT_CHANGED_DELAY, Tokens};
 use crate::apple_music_translate::mix_collections::{RECENTLY_PLAYED_GROUP, UNTITLED_GROUP};
+use crate::backends::remote::open_remote_library_for_fingerprint;
 use crate::macros::{RequestSlots, capability_snapshot};
 use crate::messages::{
     AddItemToMixRequest, AddItemToPlaylistRequest, CallerQueue, CapabilityReason,
@@ -3688,7 +3689,7 @@ async fn the_outgoing_loop_keeps_a_device_only_librarys_task_events_off_the_wire
         .fingerprint;
     // Other fixtures can replace the process-wide GUI receivers and end our listeners.
     // Keep the remote UI alive until the controller has received the host's events.
-    let (_controller_ui, _) = crate::backends::remote::open_remote_library_for_fingerprint(
+    let (_controller_ui, _) = open_remote_library_for_fingerprint(
         controller.global_params.node.clone(),
         &fingerprint,
         vec![address.to_string()],
