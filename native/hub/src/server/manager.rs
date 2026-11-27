@@ -1459,6 +1459,7 @@ mod lifecycle_tests {
             node_id: node_context.node_id.clone(),
             library: Some(library.clone()),
             ui_library: Arc::new(Mutex::new(Some(library))),
+            handoff_token: Arc::new(token.child_token()),
             main_token: token.clone(),
             library_tasks: node_context.library_tasks.clone(),
             player: node_context.session()?.player.clone(),

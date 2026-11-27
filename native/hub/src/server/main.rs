@@ -161,6 +161,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         sync_settings: node.sync_settings.clone(),
         config_path,
         node_id,
+        handoff_token: Arc::new(main_cancel_token.child_token()),
         main_token: main_cancel_token,
         library_tasks: node.library_tasks.clone(),
         player,

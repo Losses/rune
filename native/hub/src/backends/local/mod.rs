@@ -53,6 +53,7 @@ pub async fn local_player_loop(
         ui_library: Arc::new(Mutex::new(Some(library))),
         config_path,
         node_id,
+        handoff_token: Arc::new(main_cancel_token.child_token()),
         main_token: Arc::clone(&main_cancel_token),
         library_tasks: node.library_tasks.clone(),
         player,
