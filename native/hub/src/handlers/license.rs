@@ -13,19 +13,28 @@ use sha2::{Digest, Sha256};
 use std::env;
 
 #[cfg(target_os = "windows")]
-pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
+use windows::Foundation::AsyncStatus;
+
+#[cfg(target_os = "windows")]
+async fn store_operation_result<T>(
+    status: impl Fn() -> windows::core::Result<AsyncStatus>,
+    get_results: impl FnOnce() -> windows::core::Result<T>,
+) -> windows::core::Result<T> {
     use tokio::time::{Duration, sleep};
-    use windows::Foundation::AsyncStatus;
+
+    while status()? == AsyncStatus::Started {
+        sleep(Duration::from_millis(100)).await;
+    }
+    get_results()
+}
+
+#[cfg(target_os = "windows")]
+pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
     use windows::Services::Store::StoreContext;
 
     let context = StoreContext::GetDefault()?;
     let operation = context.GetAppLicenseAsync()?;
-
-    while operation.Status()? != AsyncStatus::Completed {
-        sleep(Duration::from_millis(100)).await;
-    }
-
-    let license = operation.GetResults()?;
+    let license = store_operation_result(|| operation.Status(), || operation.GetResults()).await?;
 
     let sku_store_id = license.SkuStoreId()?.to_string();
 
@@ -215,6 +224,53 @@ mod tests {
     use crate::Signal;
     use crate::messages::{RegisterLicenseRequest, RequestErrorKind, RequestFailureCause};
     use crate::request_error::{classify, request_failure_cause};
+
+    #[cfg(target_os = "windows")]
+    mod store {
+        use std::time::Duration;
+        use tokio::time::timeout;
+        use windows::Foundation::AsyncStatus;
+        use windows::core::{Error, HRESULT};
+
+        use super::super::store_operation_result;
+
+        #[tokio::test]
+        async fn an_error_status_finishes_with_the_operation_error() {
+            assert_terminal_error(AsyncStatus::Error, HRESULT(0x80004005_u32 as i32)).await;
+        }
+
+        #[tokio::test]
+        async fn a_canceled_status_finishes_with_the_operation_error() {
+            assert_terminal_error(AsyncStatus::Canceled, HRESULT(0x8000000E_u32 as i32)).await;
+        }
+
+        async fn assert_terminal_error(status: AsyncStatus, code: HRESULT) {
+            let result = timeout(
+                Duration::from_secs(1),
+                store_operation_result::<()>(|| Ok(status), || Err(Error::from_hresult(code))),
+            )
+            .await
+            .expect("a terminal Store operation must finish");
+            assert_eq!(result.unwrap_err().code(), code);
+        }
+
+        #[tokio::test]
+        async fn a_completed_operation_returns_its_result() {
+            let result = store_operation_result(|| Ok(AsyncStatus::Completed), || Ok(42)).await;
+            assert_eq!(result.unwrap(), 42);
+        }
+
+        #[tokio::test]
+        async fn a_status_read_error_returns_without_getting_results() {
+            let code = HRESULT(0x80000013_u32 as i32);
+            let result = store_operation_result::<()>(
+                || Err(Error::from_hresult(code)),
+                || panic!("GetResults after a failed Status call"),
+            )
+            .await;
+            assert_eq!(result.unwrap_err().code(), code);
+        }
+    }
 
     async fn register(path: &std_path::Path) -> Result<anyhow::Error> {
         let request = RegisterLicenseRequest {
