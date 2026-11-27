@@ -17,10 +17,10 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use fsio::{FileIoError, FsIo};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
-    sea_query::OnConflict,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set, TransactionTrait, sea_query::OnConflict,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -162,6 +162,16 @@ pub struct CleanupReport {
     pub delete_failures: usize,
 }
 
+pub async fn enabled_download_rules(
+    db: &impl ConnectionTrait,
+) -> Result<Vec<sync_download_rules::Model>> {
+    Ok(sync_download_rules::Entity::find()
+        .filter(sync_download_rules::Column::Enabled.eq(true))
+        .order_by_asc(sync_download_rules::Column::Id)
+        .all(db)
+        .await?)
+}
+
 pub async fn cleanup_unselected_downloads(
     db: &DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
@@ -170,11 +180,7 @@ pub async fn cleanup_unselected_downloads(
     store: &SeaOrmSyncStore,
     playback_queue: &[i32],
 ) -> Result<CleanupReport> {
-    let rules = sync_download_rules::Entity::find()
-        .filter(sync_download_rules::Column::Enabled.eq(true))
-        .order_by_asc(sync_download_rules::Column::Id)
-        .all(db)
-        .await?;
+    let rules = enabled_download_rules(db).await?;
     let mut selected = HashSet::new();
     const PAGE: usize = 100;
     for rule in rules {
@@ -436,7 +442,6 @@ pub async fn record_download_failure(
 }
 
 pub async fn release_obsolete_reservations(db: &DatabaseConnection) -> Result<()> {
-    use sea_orm::QuerySelect;
     let mut after = String::new();
     loop {
         let jobs = sync_download_jobs::Entity::find()
@@ -467,6 +472,45 @@ pub async fn release_obsolete_reservations(db: &DatabaseConnection) -> Result<()
             tx.commit().await?;
         }
     }
+}
+
+/// Returns the pending job IDs keyed by track after obsolete content is released.
+pub async fn pending_download_reservations(
+    db: &DatabaseConnection,
+) -> Result<HashMap<String, String>> {
+    let pending = sync_download_jobs::Entity::find()
+        .select_only()
+        .column(sync_download_jobs::Column::FileUuid)
+        .column(sync_download_jobs::Column::Id)
+        .filter(sync_download_jobs::Column::State.eq("pending"))
+        .into_tuple::<(String, String)>()
+        .all(db)
+        .await?;
+    Ok(pending.into_iter().collect())
+}
+
+/// Releases the pending jobs a complete pass left unselected, while its rules still apply.
+pub async fn release_unselected_reservations(
+    db: &DatabaseConnection,
+    rules: &[sync_download_rules::Model],
+    unselected: HashMap<String, String>,
+) -> Result<()> {
+    if unselected.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<_> = unselected.into_values().collect();
+    let tx = db.begin().await?;
+    if enabled_download_rules(&tx).await?.as_slice() == rules {
+        for ids in ids.chunks(128) {
+            sync_download_jobs::Entity::delete_many()
+                .filter(sync_download_jobs::Column::Id.is_in(ids.iter().cloned()))
+                .filter(sync_download_jobs::Column::State.eq("pending"))
+                .exec(&tx)
+                .await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(test)]
