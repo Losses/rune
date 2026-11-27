@@ -16210,8 +16210,29 @@ async fn inactive_redirected_library_reopens_after_removal() -> Result<()> {
 }
 
 async fn redirected_library_reopens_after_removal(remove_open: bool) -> Result<()> {
-    use crate::messages::{RegisterLocalLibraryRequest, RemoveLibraryRecordRequest};
+    use crate::messages::{
+        RegisterLocalLibraryRequest, RemoveLibraryRecordFailureKind, RemoveLibraryRecordRequest,
+    };
     use database::{actions::playlists::create_playlist, entities::playlists};
+
+    // The fixture owns its UI binding independently of the process-wide GUI signal receivers.
+    async fn attach_catalog(
+        node: &Arc<NodeContext>,
+        record_id: LibraryRecordId,
+    ) -> Result<Arc<GlobalParams>> {
+        let registry = LibraryRegistry::load(Path::new(&*node.config_path))?;
+        let library_id = registry
+            .record(record_id)?
+            .catalog_library_id()
+            .context("fixture catalog id")?;
+        let library = node.library_pool.acquire_ui(library_id).await?;
+        let params = Arc::new(node.params_for_ui()?.for_library(library.clone()));
+        *params.ui_library.lock().await = Some(library);
+        node.attach_ui(&params).await;
+        node.set_open_local_catalog(Some(record_id), library_id)
+            .await?;
+        Ok(params)
+    }
 
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture_with_broadcaster(
@@ -16237,53 +16258,41 @@ async fn redirected_library_reopens_after_removal(remove_open: bool) -> Result<(
         .await?
         .record
         .context("original record")?;
-    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
-        10,
-        Duration::from_secs(5),
-    )));
-    let open = |record_id| {
-        let node = node.clone();
-        let scrobbler = scrobbler.clone();
-        async move {
-            open_library_by_record_on_node(
-                &OpenLibraryRequest {
-                    call_id: None,
-                    record_id,
-                },
-                node,
-                scrobbler,
-            )
-            .await
-        }
-    };
-    open(original.record_id.clone()).await?;
-    let (library_id, playlist) = {
-        let current = node.current_ui().await?;
-        let library = current.test_library();
-        let playlist = create_playlist(
-            &library.main_db,
-            &library.library_sync.record_store(),
-            "Kept playlist".into(),
-            String::new(),
-        )
-        .await?;
-        (library.library_id, playlist)
-    };
+    let original_ui =
+        attach_catalog(node, LibraryRecordId(Uuid::parse_str(&original.record_id)?)).await?;
+    let library = original_ui.test_library();
+    let library_id = library.library_id;
+    let playlist = create_playlist(
+        &library.main_db,
+        &library.library_sync.record_store(),
+        "Kept playlist".into(),
+        String::new(),
+    )
+    .await?;
 
-    if remove_open {
-        let current = node.current_ui().await?;
-        node.close_ui(&current.main_token).await;
-        assert!(node.current_ui().await.is_err());
-    } else {
-        let other = fixture.global_params.test_library().descriptor.record_id;
-        open(other.0.to_string()).await?;
-        assert_ne!(node.current_ui().await?.library_id, Some(library_id));
-    }
     let remove = RemoveLibraryRecordRequest {
         call_id: None,
         record_id: original.record_id.clone(),
         delete_device_data: false,
     };
+    let _other_ui = if remove_open {
+        assert_eq!(
+            removal_failure_kind(remove.handle(node.clone(), None, &remove).await)?,
+            RemoveLibraryRecordFailureKind::RecordIsOpen
+        );
+        dispatch_gui_request(&original_ui, &CloseLibraryRequest { call_id: None }).await?;
+        assert!(node.capability_library_identity()?.0.is_none());
+        None
+    } else {
+        let other = fixture.global_params.test_library().descriptor.record_id;
+        let other_ui = attach_catalog(node, other).await?;
+        assert_eq!(
+            node.capability_library_identity()?.0,
+            Some(other.0.to_string())
+        );
+        Some(other_ui)
+    };
+    drop(original_ui);
     remove
         .handle(node.clone(), None, &remove)
         .await?
@@ -16299,10 +16308,22 @@ async fn redirected_library_reopens_after_removal(remove_open: bool) -> Result<(
     .await?
     .record
     .context("restored record")?;
-    open(restored.record_id.clone()).await?;
+    let scrobbler = Arc::new(Mutex::new(ScrobblingManager::new(
+        10,
+        Duration::from_secs(5),
+    )));
+    let reopened = open_library_by_record_on_node(
+        &OpenLibraryRequest {
+            call_id: None,
+            record_id: restored.record_id.clone(),
+        },
+        node.clone(),
+        scrobbler,
+    )
+    .await?;
+    assert_eq!(reopened.record_id, restored.record_id);
     assert_ne!(restored.record_id, original.record_id);
-    let current = node.current_ui().await?;
-    let library = current.test_library();
+    let library = node.library_pool.acquire(library_id).await?;
     assert_eq!(library.library_id, library_id);
     assert_eq!(
         playlists::Entity::find_by_id(playlist.id)
