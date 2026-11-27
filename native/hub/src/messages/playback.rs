@@ -384,8 +384,36 @@ pub struct PlaylistRevisionResponse {
 }
 
 #[derive(Serialize, Deserialize, DartSignal)]
+pub struct PrepareHandoffRequest {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct PrepareHandoffResponse {
+    pub ticket: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
+pub struct CancelHandoffRequest {
+    pub ticket: String,
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, RustSignal)]
+pub struct CancelHandoffResponse {
+    #[serde(default)]
+    pub call_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, DartSignal)]
 pub struct HandoffRequest {
     pub target: Option<String>,
+    #[serde(default)]
+    pub ticket: Option<String>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

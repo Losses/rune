@@ -1,5 +1,7 @@
+mod handoff;
 mod reconnect;
 use anyhow::Error as AnyhowError;
+pub(crate) use handoff::{HandoffRun, HandoffTickets};
 pub(crate) use reconnect::ReconnectConfig;
 use reconnect::ReconnectTask;
 
@@ -301,6 +303,7 @@ pub struct NodeContext {
     current_ui: Mutex<Option<Weak<GlobalParams>>>,
     last_capabilities: StdMutex<Option<RequestCapabilities>>,
     event_handles: Mutex<Vec<JoinHandle<()>>>,
+    pub(crate) handoff_tickets: HandoffTickets,
     handoff_generation: AtomicU64,
     handoff_gate: Mutex<()>,
     handoff_blocks: Mutex<HashMap<String, PlayerHandoffBlockId>>,
@@ -658,6 +661,7 @@ impl NodeContext {
             current_ui: Mutex::new(None),
             last_capabilities: StdMutex::new(None),
             event_handles: Mutex::new(Vec::new()),
+            handoff_tickets: HandoffTickets::default(),
             handoff_generation: AtomicU64::new(0),
             handoff_gate: Mutex::new(()),
             handoff_blocks: Mutex::new(HashMap::new()),

@@ -30,7 +30,7 @@ use ::playback::player::{
 
 use crate::backends::remote::{RendererLink, RendererLinkUse};
 use crate::macros::RequestSlots;
-use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport};
+use crate::node::{HandoffPause, HandoffPlaybackEvent, HandoffPlaybackReport, HandoffRun};
 use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{Implementation, refuse_libraries_kept_here};
 use crate::rpc::NamedLibraries;
@@ -1906,6 +1906,56 @@ pub(crate) fn session_snapshot_from_status(
     })
 }
 
+impl ParamsExtractor for PrepareHandoffRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for PrepareHandoffRequest {
+    type Params = Arc<NodeContext>;
+    type Response = PrepareHandoffResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        _request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        Ok(Some(PrepareHandoffResponse {
+            ticket: node.handoff_tickets.prepare().to_string(),
+            call_id: None,
+        }))
+    }
+}
+
+impl ParamsExtractor for CancelHandoffRequest {
+    type Params = Arc<NodeContext>;
+
+    fn extract_params(&self, params: &GlobalParams) -> Self::Params {
+        params.node.clone()
+    }
+}
+
+impl Signal for CancelHandoffRequest {
+    type Params = Arc<NodeContext>;
+    type Response = CancelHandoffResponse;
+
+    async fn handle(
+        &self,
+        node: Self::Params,
+        _session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let ticket = Uuid::parse_str(&request.ticket)
+            .map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
+        node.handoff_tickets.cancel(ticket).await;
+        Ok(Some(CancelHandoffResponse { call_id: None }))
+    }
+}
+
 impl ParamsExtractor for HandoffRequest {
     type Params = (Arc<NodeContext>,);
 
@@ -1924,7 +1974,17 @@ impl Signal for HandoffRequest {
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        let run = request
+            .ticket
+            .as_deref()
+            .map(|ticket| {
+                let ticket =
+                    Uuid::parse_str(ticket).map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
+                node.handoff_tickets.start(ticket)
+            })
+            .transpose()?;
         let generation = node.begin_handoff().await;
+        run.as_ref().map_or(Ok(()), HandoffRun::check_cancelled)?;
         let attached = node.renderer_link()?;
         let target = request.target.as_deref();
         let already_there = match (target, &attached) {
@@ -1933,9 +1993,20 @@ impl Signal for HandoffRequest {
             _ => false,
         };
         if already_there {
+            run.as_ref().map_or(Ok(()), HandoffRun::commit)?;
             return Ok(Some(HandoffResponse { call_id: None }));
         }
         let paused = pause_handoff_source(&node, attached.clone(), generation).await?;
+        if target.is_none()
+            && let Some(run) = &run
+        {
+            // Returning to this device starts by taking back the previous block. Once that
+            // begins, finish the existing return path to settle the queues on both sides.
+            if let Err(error) = run.commit() {
+                resume_handoff_source(&node, paused).await?;
+                return Err(error.into());
+            }
+        }
         if target.is_none()
             && let PausedSource::Renderer(source) = &paused.source
             && let Some(block) = node.take_handoff_block(source.fingerprint()).await
@@ -2038,7 +2109,15 @@ impl Signal for HandoffRequest {
                 Some(target) => {
                     let block = PlayerHandoffBlockId(Uuid::new_v4());
                     expected_item.context("handoff current item")?;
-                    hand_off_to_renderer(&node, target, block, load, expected_position).await?;
+                    hand_off_to_renderer(
+                        &node,
+                        target,
+                        block,
+                        load,
+                        expected_position,
+                        run.as_ref(),
+                    )
+                    .await?;
                 }
                 None => hand_off_to_this_device(&node, attached.clone(), &load).await?,
             }
@@ -2051,10 +2130,11 @@ impl Signal for HandoffRequest {
                     .renderer_link()?
                     .is_some_and(|link| link.fingerprint() == target)
             {
+                node.detach_renderer().await?;
                 if let Some(source) = &attached {
+                    // The failed target already has its own session back. Attaching over it
+                    // directly would pause that restored session again.
                     node.attach_renderer(source.fingerprint()).await?;
-                } else {
-                    node.detach_renderer().await?;
                 }
             }
             resume_handoff_source(&node, paused).await?;
@@ -2243,7 +2323,10 @@ async fn hand_off_to_renderer(
     block: PlayerHandoffBlockId,
     load: LoadResolvedItemsRequest,
     expected_position: f64,
+    run: Option<&HandoffRun<'_>>,
 ) -> Result<()> {
+    let check_cancelled = || run.map_or(Ok(()), HandoffRun::check_cancelled);
+    check_cancelled()?;
     let (connected_link, alias) = node
         .connect_renderer(target, RendererLinkUse::Control)
         .await?;
@@ -2258,6 +2341,10 @@ async fn hand_off_to_renderer(
         }
         .into());
     }
+    if let Err(error) = check_cancelled() {
+        connected_link.close();
+        return Err(error.into());
+    }
     let mut events = node.subscribe_handoff_playback_events();
     // The target starts the handed-off track as the load asks: playing, or paused at its place.
     let expected_state = if load.play != LoadPlay::Pause {
@@ -2270,7 +2357,11 @@ async fn hand_off_to_renderer(
         load,
         call_id: None,
     };
-    let response = match connected_link.call(&handoff).await {
+    let response = match settle_handoff_load(run, connected_link.call(&handoff), async |error| {
+        roll_back_handoff_block(node, &connected_link, block, error).await
+    })
+    .await
+    {
         Ok(response) => response,
         Err(error) => {
             connected_link.close();
@@ -2288,50 +2379,71 @@ async fn hand_off_to_renderer(
         .context("renderer link disappeared after handoff load")?;
     node.remember_handoff_block(target.to_owned(), block).await;
     node.publish_capabilities()?;
-    if let Some(link) = node.renderer_link()?
-        && let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await
-    {
-        warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
-    }
-    if let Err(error) = wait_for_handoff_start(
-        &mut events,
-        target_link,
-        &target_item,
-        expected_position,
-        expected_state,
-    )
-    .await
-    {
-        let rollback = link
-            .call(&TakeBackHandoffBlockRequest {
-                block: block.into(),
-                resume: true,
-                call_id: None,
-            })
-            .await;
-        match rollback {
-            Err(rollback_error) => {
-                if NodeContext::handoff_block_confirmed_absent(&rollback_error) {
-                    // The target answered that the block is not there, so nothing is left to
-                    // take back and the remembered record would only shadow a later handoff.
-                    node.forget_handoff_block(link.fingerprint(), block).await;
-                } else {
-                    // Whether the take-back applied is unknown: it may still run on the target
-                    // or never have arrived. It stays pending until a connection to the target
-                    // can ask again, so a retry does not pile the new block on top of it.
-                    node.note_pending_handoff_rollback(link.fingerprint(), block)
-                        .await;
-                }
-                warn!("Could not roll back failed handoff block: {rollback_error:#}");
-                return Err(error.context(format!("handoff rollback failed: {rollback_error:#}")));
-            }
-            Ok(_removed_block) => {
-                node.take_handoff_block(link.fingerprint()).await;
-            }
+    let confirm = async {
+        if let Err(error) = link.call(&RefreshSessionRequest { call_id: None }).await {
+            warn!("Handoff succeeded, but renderer state refresh failed: {error:#}");
         }
-        return Err(error);
+        wait_for_handoff_start(
+            &mut events,
+            target_link,
+            &target_item,
+            expected_position,
+            expected_state,
+        )
+        .await
+    };
+    let confirmed = match run {
+        Some(run) => run.confirm(confirm).await,
+        None => confirm.await,
+    };
+    if let Err(error) = confirmed {
+        return Err(roll_back_handoff_block(node, &link, block, error).await);
     }
     Ok(())
+}
+
+/// An already sent Load may still apply. Wait for the reply before removing its block.
+async fn settle_handoff_load<T>(
+    run: Option<&HandoffRun<'_>>,
+    load: impl Future<Output = Result<T>>,
+    roll_back: impl AsyncFnOnce(Error) -> Error,
+) -> Result<T> {
+    let response = load.await;
+    match run.map_or(Ok(()), HandoffRun::check_cancelled) {
+        Ok(()) => response,
+        Err(error) => Err(roll_back(error.into()).await),
+    }
+}
+
+async fn roll_back_handoff_block(
+    node: &NodeContext,
+    link: &RendererLink,
+    block: PlayerHandoffBlockId,
+    error: Error,
+) -> Error {
+    match link
+        .call(&TakeBackHandoffBlockRequest {
+            block: block.into(),
+            resume: true,
+            call_id: None,
+        })
+        .await
+    {
+        Ok(_) => {
+            node.forget_handoff_block(link.fingerprint(), block).await;
+            error
+        }
+        Err(rollback_error) => {
+            if NodeContext::handoff_block_confirmed_absent(&rollback_error) {
+                node.forget_handoff_block(link.fingerprint(), block).await;
+            } else {
+                node.note_pending_handoff_rollback(link.fingerprint(), block)
+                    .await;
+            }
+            warn!("Could not roll back failed handoff block: {rollback_error:#}");
+            error.context(format!("handoff rollback failed: {rollback_error:#}"))
+        }
+    }
 }
 
 /// Load the paused snapshot locally, then detach from its renderer source.
@@ -2441,6 +2553,52 @@ mod handoff_confirmation_tests {
     use super::*;
     use std::time::Instant;
     use tokio::time as tokio_time;
+
+    #[tokio::test]
+    async fn cancelled_load_waits_for_the_reply_and_rolls_back_before_settling() {
+        use crate::node::HandoffTickets;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::sync::{Notify, oneshot};
+
+        let owner = HandoffTickets::default();
+        let ticket = owner.prepare();
+        let entered = Notify::new();
+        let (release, reply) = oneshot::channel();
+        let target_applied = AtomicBool::new(false);
+        let handoff = async {
+            let run = owner.start(ticket).unwrap();
+            let result = settle_handoff_load(
+                Some(&run),
+                async {
+                    entered.notify_one();
+                    reply.await?;
+                    target_applied.store(true, Ordering::Relaxed);
+                    Ok(())
+                },
+                async |error| {
+                    assert!(target_applied.swap(false, Ordering::Relaxed));
+                    error
+                },
+            )
+            .await;
+            assert!(matches!(
+                result.unwrap_err().downcast_ref(),
+                Some(ExpectedRequestError::HandoffSuperseded)
+            ));
+        };
+        let close = async {
+            entered.notified().await;
+            let cancel = owner.cancel(ticket);
+            tokio::pin!(cancel);
+            assert!(futures::poll!(&mut cancel).is_pending());
+            assert!(!target_applied.load(Ordering::Relaxed));
+            release.send(()).unwrap();
+            cancel.await;
+            assert!(!target_applied.load(Ordering::Relaxed));
+        };
+        tokio::join!(handoff, close);
+        assert!(owner.start(owner.prepare()).unwrap().commit().is_ok());
+    }
 
     #[tokio::test]
     async fn slow_handoff_playback_confirmation_completes_when_status_arrives() -> Result<()> {

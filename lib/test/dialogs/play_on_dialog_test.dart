@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +14,7 @@ import '../../providers/library_open_state.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 import '../../widgets/settings/settings_tile_title.dart';
+import '../../utils/api/renderers.dart';
 import '../../utils/api/request_failure.dart';
 import '../../utils/dialogs/play_on/play_on_dialog.dart';
 import '../../utils/dialogs/play_queue_dialog.dart';
@@ -36,7 +39,7 @@ void main() {
     await _open(
       tester,
       candidates: candidates,
-      handoff: (_) async => attached++,
+      handoff: (_) => HandoffOperation(Future<void>(() => attached++), () {}),
     );
 
     expect(find.text('Offline'), findsOneWidget);
@@ -75,7 +78,8 @@ void main() {
           ),
         ],
         initial: RendererAttachmentChanged(renderer: renderer),
-        handoff: (target) async => handoffTarget = target,
+        handoff: (target) =>
+            HandoffOperation(Future<void>(() => handoffTarget = target), () {}),
       );
 
       expect(find.text('Bedroom'), findsOneWidget);
@@ -117,7 +121,10 @@ void main() {
           ),
         ];
       },
-      handoff: (target) async => handedOffToThisDevice = target == null,
+      handoff: (target) => HandoffOperation(
+        Future<void>(() => handedOffToThisDevice = target == null),
+        () {},
+      ),
     );
     expect(find.text("This is not available right now."), findsOneWidget);
     await tester.tap(find.text('Retry'));
@@ -296,17 +303,20 @@ void main() {
     await _open(
       tester,
       candidates: [_candidate('Bedroom', RendererAvailability.available)],
-      handoff: (_) async {
-        throw const RequestFailure(
-          'HandoffRequest',
-          RequestErrorKind.permissionDenied,
-          'denied',
-          RequestFailureCauseCastNotPossible(
-            libraryId: 'blocked-library',
-            state: CastLibraryState.notHeld,
+      handoff: (_) => HandoffOperation(
+        Future<void>.error(
+          const RequestFailure(
+            'HandoffRequest',
+            RequestErrorKind.permissionDenied,
+            'denied',
+            RequestFailureCauseCastNotPossible(
+              libraryId: 'blocked-library',
+              state: CastLibraryState.notHeld,
+            ),
           ),
-        );
-      },
+        ),
+        () {},
+      ),
     );
 
     await tester.tap(find.text('Bedroom'));
@@ -315,6 +325,47 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text("Bedroom cannot play My Music."), findsOneWidget);
     expect(find.text('Play On'), findsNWidgets(2));
+  });
+
+  testWidgets('Close cancels the pending handoff once and allows a retry', (
+    tester,
+  ) async {
+    final pending = Completer<void>();
+    var starts = 0;
+    var cancellations = 0;
+    await _open(
+      tester,
+      candidates: [_candidate('Bedroom', RendererAvailability.available)],
+      handoff: (_) {
+        starts++;
+        return HandoffOperation(
+          starts == 1 ? pending.future : Future<void>.value(),
+          () => cancellations++,
+        );
+      },
+    );
+
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    await _tapPlayAction(tester);
+    await tester.pump();
+    expect(starts, 1);
+    await tester.tap(find.text('Close'));
+    expect(cancellations, 1);
+    pending.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('open'), findsOneWidget);
+    expect(cancellations, 1);
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bedroom'));
+    await tester.pumpAndSettle();
+    await _tapPlayAction(tester);
+    await tester.pumpAndSettle();
+    expect(starts, 2);
+    expect(cancellations, 1);
+    expect(find.byType(ContentDialog), findsNothing);
   });
 
   testWidgets('queue panel opens Play on and hides it for a remote library', (
@@ -380,7 +431,9 @@ Future<void> _open(
             onPressed: () => showPlayOnDialog(
               context,
               loader: loader ?? (_) async => candidates,
-              handoff: handoff ?? (_) async {},
+              handoff:
+                  handoff ??
+                  (_) => HandoffOperation(Future<void>.value(), () {}),
               loadLibraryNames: () async => {'blocked-library': 'My Music'},
               castLibraryIds: castLibraryIds,
               cast: cast,

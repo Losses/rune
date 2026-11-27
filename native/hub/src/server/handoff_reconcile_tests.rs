@@ -325,6 +325,7 @@ async fn assert_retry_reconciled(f: &HandoffReconcileFixture, block_retained: bo
         .await?;
     fs::write(&f.target_file, &f.valid_audio)?;
     let retry = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -374,6 +375,7 @@ async fn handoff_rollback_transport_loss_reconciles_on_reconnect() -> Result<()>
     let rollback_entered = f.install_take_back_cut(false).await;
     let source_params = f.source.global_params.clone();
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -405,6 +407,7 @@ async fn handoff_rollback_answer_loss_reconciles_on_reconnect() -> Result<()> {
     let rollback_entered = f.install_take_back_cut(true).await;
     let source_params = f.source.global_params.clone();
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -439,6 +442,7 @@ async fn handoff_rollback_failed_reconcile_retries_on_next_connection() -> Resul
     let rollback_entered = f.install_take_back_cut(false).await;
     let source_params = f.source.global_params.clone();
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -530,6 +534,7 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
     let rollback_entered = f.install_take_back_cut(false).await;
     let source_params = f.source.global_params.clone();
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -590,6 +595,7 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
         .await?;
     fs::write(&f.target_file, &f.valid_audio)?;
     let retry = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
@@ -628,6 +634,7 @@ async fn handoff_rollback_pending_blocks_retry_until_reconciled() -> Result<()> 
     // With the target answering normally again, the next connection reconciles the block and
     // the retried handoff goes through end to end.
     let retry = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(f.target_fingerprint.clone()),
     };
