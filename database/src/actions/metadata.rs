@@ -4,6 +4,7 @@ use crate::actions::{
     },
     logging::{LogLevel, insert_log},
 };
+use crate::connection::RUNE_INDEX_DIRECTORY;
 use crate::entities::music_metadata::{
     audio as catalog_audio, credits as catalog_credits, values as catalog_values,
 };
@@ -927,12 +928,18 @@ pub struct EmptyLibraryCleanupPreview {
     pub fingerprint: String,
 }
 
+fn root_has_only_index_entries(entries: &[FsNode]) -> bool {
+    entries
+        .iter()
+        .all(|entry| entry.is_dir && entry.filename == RUNE_INDEX_DIRECTORY)
+}
+
 async fn empty_local_root(fsio: &FsIo, root_path: &Path) -> bool {
     fsio.storage() == StorageLocation::Local
         && fsio
             .read_dir(root_path)
             .await
-            .is_ok_and(|entries| entries.is_empty())
+            .is_ok_and(|entries| root_has_only_index_entries(&entries))
 }
 
 async fn empty_library_cleanup_candidates(
@@ -1067,7 +1074,7 @@ async fn clean_up_database(
     }
     let root_listing = fsio.read_dir(root_path).await;
     let root_listable = root_listing.is_ok();
-    let empty_root = root_listing.is_ok_and(|entries| entries.is_empty());
+    let empty_root = root_listing.is_ok_and(|entries| root_has_only_index_entries(&entries));
     let defer_host_cleanup = empty_root
         && fsio.storage() == StorageLocation::Local
         && host_missing > 0

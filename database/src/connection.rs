@@ -84,11 +84,13 @@ impl LibraryState {
 /// Native folders, including replicas in app storage, use the full path.
 fn rune_dir_path(lib_path: &str) -> PathBuf {
     if cfg!(target_os = "android") && lib_path.starts_with("content://") {
-        PathBuf::from(".rune")
+        PathBuf::from(RUNE_INDEX_DIRECTORY)
     } else {
-        Path::new(lib_path).join(".rune")
+        Path::new(lib_path).join(RUNE_INDEX_DIRECTORY)
     }
 }
+
+pub(crate) const RUNE_INDEX_DIRECTORY: &str = ".rune";
 
 /// Redirected databases live in the app's local storage (an absolute path),
 /// which FsIo on Android cannot address (it is rooted at the SAF tree).

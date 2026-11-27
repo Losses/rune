@@ -258,6 +258,35 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             .is_some()
     );
     fs::remove_file(&path)?;
+    let index = a.root.path().join(".rune");
+    fs::create_dir(&index)?;
+    fs::write(index.join(".redirect"), namespace.to_string())?;
+    let hidden_item = a.root.path().join(".keep");
+    fs::write(&hidden_item, "fixture")?;
+    assert!(
+        preview_empty_library_cleanup(&fs, &a.db, a.root.path())
+            .await?
+            .is_none()
+    );
+    fs::remove_file(hidden_item)?;
+    let visible_dir = a.root.path().join("visible");
+    fs::create_dir(&visible_dir)?;
+    assert!(
+        preview_empty_library_cleanup(&fs, &a.db, a.root.path())
+            .await?
+            .is_none()
+    );
+    fs::remove_dir(visible_dir)?;
+    let outcome = fixtures::cleanup_scan(
+        &fs,
+        &a.db,
+        &node.to_string(),
+        a.root.path(),
+        &store,
+        MissingHostFilePolicy::RemoveEverywhere,
+    )
+    .await;
+    assert!(outcome.is_err_and(|error| error.is::<EmptyLibraryCleanupDeferred>()));
     let preview = preview_empty_library_cleanup(&fs, &a.db, a.root.path())
         .await?
         .unwrap();
