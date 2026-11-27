@@ -1,3 +1,7 @@
+#[cfg(target_os = "linux")]
+#[path = "player_session_tests/mpris.rs"]
+mod mpris;
+
 use super::gui_listener_tests::start;
 use anyhow::Context;
 use crate::server::utils::device::RunMode;

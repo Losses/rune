@@ -1316,7 +1316,7 @@ mod lifecycle_tests {
             idle_timeout,
             broadcaster,
             reconnect_config,
-            (run_mode, wrap_player),
+            (run_mode, wrap_player, false),
             ServiceSetup::default(),
         )
         .await
@@ -1334,7 +1334,11 @@ mod lifecycle_tests {
             Duration::from_secs(300),
             broadcaster,
             ReconnectConfig::default(),
-            (RunMode::App, crate::session::PlayerSession::real_player()),
+            (
+                RunMode::App,
+                crate::session::PlayerSession::real_player(),
+                false,
+            ),
             services,
         )
         .await
@@ -1346,7 +1350,7 @@ mod lifecycle_tests {
         idle_timeout: Duration,
         broadcaster: Arc<dyn Broadcaster>,
         reconnect_config: ReconnectConfig,
-        (run_mode, wrap_player): (RunMode, crate::session::PlayerWrap),
+        (run_mode, wrap_player, os_media_controls): (RunMode, crate::session::PlayerWrap, bool),
         services: ServiceSetup,
     ) -> Result<Fixture> {
         use database::credentials::CredentialStore;
@@ -1382,7 +1386,7 @@ mod lifecycle_tests {
             dir.to_str().context("config path")?,
             dir.to_str().context("db path")?,
             broadcaster,
-            false,
+            os_media_controls,
             run_mode,
             reconnect_config,
             wrap_player,
