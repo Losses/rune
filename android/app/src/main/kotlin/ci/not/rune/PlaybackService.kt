@@ -39,9 +39,12 @@ import kotlin.math.roundToInt
  * What the user does with the controls, and what audio focus does, goes back to it.
  *
  * The service starts when playback starts. It runs in the foreground while the player plays, or
- * waits to play again once audio focus comes back. Paused, it runs in the background and keeps
- * its notification. It stops when playback stops, when the app's task is removed, and when the
- * system stops it in the background.
+ * waits to play again once audio focus comes back. Paused otherwise, it stays in the foreground
+ * for [PAUSED_FOREGROUND_MS] more, as Media3's `MediaSessionService` does, so that playing again
+ * soon, whether the user or a host's player that audio focus paused plays again, needs no
+ * foreground start from the background, which Android 12 and later refuse; then it runs in the
+ * background and keeps its notification. It stops when playback stops, when the app's task is
+ * removed, and when the system stops it in the background.
  *
  * While a platform host plays the track, the host's player asks for audio focus itself, and the
  * service gives up the focus it holds and asks for none, as the hub tells it.
@@ -50,10 +53,12 @@ class PlaybackService : Service() {
     companion object {
         private const val TAG = "PlaybackService"
 
-        // What the session shows, `State` in the hub.
+        // What the session shows, `State` in the hub. Buffering is a host's track that is to play
+        // but does not move on yet.
         private const val STATE_STOPPED = 0
         private const val STATE_PAUSED = 1
         private const val STATE_PLAYING = 2
+        private const val STATE_BUFFERING = 3
 
         // Whether the service runs, and in the foreground, `Service` in the hub.
         private const val SERVICE_STOPPED = 0
@@ -85,6 +90,9 @@ class PlaybackService : Service() {
         /** The longer side of the cover, in pixels, small enough for a binder transaction. */
         private const val ARTWORK_SIZE = 320
 
+        /** How long the service stays in the foreground after playback pauses, as Media3's. */
+        private const val PAUSED_FOREGROUND_MS = 10 * 60 * 1000L
+
         private const val ACTIONS = PlaybackState.ACTION_PLAY or
             PlaybackState.ACTION_PAUSE or
             PlaybackState.ACTION_PLAY_PAUSE or
@@ -95,7 +103,8 @@ class PlaybackService : Service() {
 
         private val main = Handler(Looper.getMainLooper())
 
-        // Only the main thread touches these: the last write, and the service while it runs.
+        // Only the main thread touches these: the last write, and the service from its first start
+        // until it is released.
         private var latest: Shown? = null
         private var running: PlaybackService? = null
 
@@ -149,6 +158,9 @@ class PlaybackService : Service() {
                 Log.w(TAG, "Could not start the playback service: $e")
             }
         }
+
+        /** Whether the player is to play, whether or not its track moves on yet. */
+        private fun plays(state: Int) = state == STATE_PLAYING || state == STATE_BUFFERING
     }
 
     /** One write of the hub. */
@@ -174,12 +186,26 @@ class PlaybackService : Service() {
     private var focusHeld = false
     private var noisyRegistered = false
     private var foreground = false
+    private var leaving = false
     private var released = false
     private var artworkPath: String? = null
     private var artwork: Bitmap? = null
 
+    /** Leaves the foreground once playback has stayed paused for [PAUSED_FOREGROUND_MS]. */
+    private val leaveForeground = Runnable {
+        leaving = false
+        val shown = latest
+        if (released || !foreground || shown == null || shown.service != SERVICE_BACKGROUND) {
+            return@Runnable
+        }
+        // The notification stays, and can be dismissed.
+        stopForeground(STOP_FOREGROUND_DETACH)
+        foreground = false
+        notifications.notify(NOTIFICATION_ID, notification(shown))
+    }
+
     private val callback = object : MediaSession.Callback() {
-        override fun onPlay() = nativeCommand(COMMAND_PLAY, 0)
+        override fun onPlay() = play()
         override fun onPause() = nativeCommand(COMMAND_PAUSE, 0)
         override fun onSkipToNext() = nativeCommand(COMMAND_NEXT, 0)
         override fun onSkipToPrevious() = nativeCommand(COMMAND_PREVIOUS, 0)
@@ -223,7 +249,6 @@ class PlaybackService : Service() {
         session.setFlags(
             MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
         )
-        running = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -233,14 +258,18 @@ class PlaybackService : Service() {
             release()
             return START_NOT_STICKY
         }
+        // Writes reach the service only from now on, so that none stops it before it entered
+        // the foreground that `startForegroundService` asks for, which would crash the app.
+        // Meanwhile they only change `latest`.
+        if (!released) running = this
         when (intent?.action) {
-            ACTION_PLAY -> nativeCommand(COMMAND_PLAY, 0)
+            ACTION_PLAY -> play()
             ACTION_PAUSE -> nativeCommand(COMMAND_PAUSE, 0)
             ACTION_NEXT -> nativeCommand(COMMAND_NEXT, 0)
             ACTION_PREVIOUS -> nativeCommand(COMMAND_PREVIOUS, 0)
             else -> {
                 // Started by `start`: the service goes to the foreground at once, as
-                // `startForegroundService` asks, even if playback paused meanwhile.
+                // `startForegroundService` asks, even if playback paused or stopped meanwhile.
                 enterForeground(notification(shown))
                 show(shown)
             }
@@ -274,17 +303,18 @@ class PlaybackService : Service() {
         session.isActive = true
         val notification = notification(shown)
         when (shown.service) {
-            SERVICE_FOREGROUND -> enterForeground(notification)
+            SERVICE_FOREGROUND -> {
+                cancelLeavingForeground()
+                enterForeground(notification)
+            }
             SERVICE_BACKGROUND -> {
-                // The notification stays, and can be dismissed.
-                if (foreground) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                    foreground = false
-                }
+                // The notification stays. A service in the foreground stays there for a while from
+                // the first such write on, which the writes after it do not make longer.
                 notifications.notify(NOTIFICATION_ID, notification)
+                if (foreground) leaveForegroundLater()
             }
         }
-        if (shown.state == STATE_PLAYING) registerNoisy() else unregisterNoisy()
+        if (plays(shown.state)) registerNoisy() else unregisterNoisy()
         when (shown.focus) {
             // After the service is in the foreground: Android 15 and later refuse audio focus
             // to an app in the background without one.
@@ -295,6 +325,12 @@ class PlaybackService : Service() {
     }
 
     private fun enterForeground(notification: Notification) {
+        if (foreground) {
+            // Only the notification changes, and asking for the foreground again could be refused
+            // in the background.
+            notifications.notify(NOTIFICATION_ID, notification)
+            return
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -308,15 +344,45 @@ class PlaybackService : Service() {
             foreground = true
         } catch (e: IllegalStateException) {
             // Android 12 and later refuse the foreground to a service in the background without
-            // an exemption.
+            // an exemption. The notification still shows what plays.
             Log.w(TAG, "Could not run the playback service in the foreground: $e")
+            notifications.notify(NOTIFICATION_ID, notification)
         }
+    }
+
+    /** Leaves the foreground once [PAUSED_FOREGROUND_MS] have passed, unless that is under way. */
+    private fun leaveForegroundLater() {
+        if (leaving) return
+        leaving = true
+        main.postDelayed(leaveForeground, PAUSED_FOREGROUND_MS)
+    }
+
+    private fun cancelLeavingForeground() {
+        main.removeCallbacks(leaveForeground)
+        leaving = false
+    }
+
+    /**
+     * A play from the session or the notification. The service enters the foreground at once,
+     * while the system allows it after the user's press, rather than once the hub reports that the
+     * player plays: a host's player asks for audio focus as it starts, which Android 15 and later
+     * refuse to an app in the background without a foreground service. Should the player not
+     * play, the service leaves the foreground again as after a pause.
+     */
+    private fun play() {
+        val shown = latest
+        if (!released && shown != null) {
+            enterForeground(notification(shown))
+            if (foreground && shown.service != SERVICE_FOREGROUND) leaveForegroundLater()
+        }
+        nativeCommand(COMMAND_PLAY, 0)
     }
 
     /** Ends the session and stops the service. Once released, the service shows nothing more. */
     private fun release() {
         if (released) return
         released = true
+        cancelLeavingForeground()
         if (running === this) running = null
         abandonFocus()
         unregisterNoisy()
@@ -398,6 +464,7 @@ class PlaybackService : Service() {
     private fun playbackState(shown: Shown): PlaybackState {
         val state = when (shown.state) {
             STATE_PLAYING -> PlaybackState.STATE_PLAYING
+            STATE_BUFFERING -> PlaybackState.STATE_BUFFERING
             STATE_PAUSED -> PlaybackState.STATE_PAUSED
             else -> PlaybackState.STATE_STOPPED
         }
@@ -408,7 +475,7 @@ class PlaybackService : Service() {
     }
 
     private fun notification(shown: Shown): Notification {
-        val playing = shown.state == STATE_PLAYING
+        val playing = plays(shown.state)
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
