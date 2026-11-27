@@ -1009,6 +1009,8 @@ pub(crate) struct PlayerInternal {
     fft_enabled: Arc<Mutex<bool>>,
     pcm_tap: Arc<PcmTap>,
     playlist: Vec<PlaylistItem>,
+    // Playlist positions of the occurrences interrupted by live handoff blocks.
+    interrupted_occurrences: HashMap<HandoffBlockId, usize>,
     current_item: Option<PlayingItem>,
     current_track_index: Option<usize>,
     // Whether `current_track_index` is an index the playback mode maps to a playlist position, as
@@ -1122,6 +1124,7 @@ impl PlayerInternal {
             fsio,
             source_resolver,
             playlist: Vec::new(),
+            interrupted_occurrences: HashMap::new(),
             current_item: None,
             current_track_index: None,
             current_track_mapped: false,
@@ -1262,6 +1265,7 @@ impl PlayerInternal {
                             self.last_pause_report = None;
                             self.queue_revision = revision;
                             self.clear_unavailable(None)?;
+                            self.interrupted_occurrences.clear();
                             self.playlist = entries
                                 .into_iter()
                                 .map(|entry| PlaylistItem {
@@ -1530,6 +1534,12 @@ impl PlayerInternal {
                             // not answer a pause that follows.
                             self.last_pause_report = None;
                             let interrupted = self.interrupted_item();
+                            if let InterruptedItem::Item { index_hint, item, .. } = &interrupted
+                                && !tracks.is_empty()
+                                && self.playlist.get(*index_hint).is_some_and(|entry| &entry.item == item)
+                            {
+                                self.interrupted_occurrences.insert(block, *index_hint);
+                            }
                             let current_index = self.current_queue_edit_index()
                                 .and_then(|_| self.current_playlist_index());
                             let insertion = current_index.map_or(self.playlist.len(), |index| index + 1);
@@ -1557,10 +1567,9 @@ impl PlayerInternal {
                                 continue;
                             }
                             let current_index = self.current_playlist_index();
-                            let current_item = self.current_item.clone();
                             let was_playing = self.plays_or_starts_playing();
                             let was_inside = self.state != InternalPlaybackState::Stopped
-                                && current_item.is_some()
+                                && self.current_item.is_some()
                                 && current_index
                                 .and_then(|index| self.playlist.get(index))
                                 .is_some_and(|item| item.block == Some(block));
@@ -1578,6 +1587,11 @@ impl PlayerInternal {
                             let indices = self.playlist.iter().enumerate()
                                 .filter_map(|(index, item)| (item.block == Some(block)).then_some(index))
                                 .collect::<Vec<_>>();
+                            let interrupted_occurrence = self.interrupted_occurrences.remove(&block)
+                                .and_then(|index| {
+                                    let removed_before = indices.partition_point(|&removed| removed < index);
+                                    (indices.get(removed_before) != Some(&index)).then_some(index - removed_before)
+                                });
                             for index in indices.iter().copied().rev() {
                                 self.remove_from_playlist(index)?;
                             }
@@ -1602,13 +1616,14 @@ impl PlayerInternal {
                                         if self.playlist.is_empty() {
                                             self.stop()?;
                                         } else {
-                                            // The hint names where the interruption stood. Of the
-                                            // equal occurrences the removal leaves, the nearest is
-                                            // the one that played, not the first copy in the queue.
-                                            let index = self.playlist.iter().enumerate()
-                                                .filter(|(_, entry)| entry.item == item)
-                                                .min_by_key(|(index, _)| index.abs_diff(index_hint))
-                                                .map(|(index, _)| index)
+                                            // Restored sessions and removed occurrences still use
+                                            // the hint to find the closest surviving copy.
+                                            let index = interrupted_occurrence
+                                                .filter(|&index| self.playlist.get(index).is_some_and(|entry| entry.item == item))
+                                                .or_else(|| self.playlist.iter().enumerate()
+                                                    .filter(|(_, entry)| entry.item == item)
+                                                    .min_by_key(|(index, _)| index.abs_diff(index_hint))
+                                                    .map(|(index, _)| index))
                                                 .unwrap_or_else(|| index_hint.min(self.playlist.len() - 1));
                                             // A rollback load is no part of the failure chain that
                                             // led here, so its failure is told on its own.
@@ -1620,10 +1635,10 @@ impl PlayerInternal {
                                         }
                                     }
                                 }
-                            } else if let Some(item) = current_item {
-                                self.current_track_index = self.playlist.iter()
-                                    .position(|entry| entry.item == item);
-                                self.current_track_mapped = false;
+                            } else if self.current_item.is_some() {
+                                let current = self.current_track_request();
+                                self.current_track_index = current.map(|(index, _)| index);
+                                self.current_track_mapped = current.is_some_and(|(_, mapped)| mapped);
                             }
                             let _ = response.send(Some(TakeBackBlockResult {
                                 items: block_items,
@@ -2911,6 +2926,12 @@ impl PlayerInternal {
             // the surviving occurrence before the old map is replaced.
             let current_position = self.resolved_current_position();
             let removed = self.playlist.remove(index);
+            if let Some(block) = removed.block
+                && self.interrupted_occurrences.contains_key(&block)
+                && !self.playlist.iter().any(|entry| entry.block == Some(block))
+            {
+                self.interrupted_occurrences.remove(&block);
+            }
             self.clear_unavailable(Some(removed.item))?;
             self.playback_strategy.on_playlist_updated(
                 self.playlist.len(),
@@ -2960,6 +2981,13 @@ impl PlayerInternal {
         shuffle_order_changed: bool,
         relocate: impl Fn(usize) -> Option<usize>,
     ) {
+        self.interrupted_occurrences.retain(|_, position| {
+            let Some(relocated) = relocate(*position) else {
+                return false;
+            };
+            *position = relocated;
+            true
+        });
         if let Some(position) = current_position.and_then(&relocate) {
             self.set_current_position(position, self.current_track_mapped || shuffle_order_changed);
         }
@@ -2984,6 +3012,7 @@ impl PlayerInternal {
         }
         self.clear_unavailable(None)?;
         self.playlist.clear();
+        self.interrupted_occurrences.clear();
         self.playback_strategy
             .on_playlist_updated(0, UpdateReason::ClearPlaylist);
         self.current_track_index = None;
@@ -9486,6 +9515,157 @@ mod playback_state_tests {
     // contract: every index the player sends names an entry, an `add` carries one id, and only
     // the entry after the current one is ever removed. The tests report the host's events,
     // written out or taken from the model.
+
+    #[derive(Clone, Copy)]
+    enum HandbackQueue {
+        Unchanged,
+        MovedDuplicate,
+        RemovedInterrupted,
+        PlayingOutside,
+        UniqueTrack,
+    }
+
+    #[tokio::test]
+    async fn handback_from_inside_restores_the_second_occurrence() -> Result<()> {
+        check_handback_occurrence(HandbackQueue::Unchanged).await
+    }
+
+    #[tokio::test]
+    async fn handback_follows_the_interrupted_occurrence_after_a_queue_move() -> Result<()> {
+        check_handback_occurrence(HandbackQueue::MovedDuplicate).await
+    }
+
+    #[tokio::test]
+    async fn handback_falls_back_when_the_interrupted_occurrence_is_removed() -> Result<()> {
+        check_handback_occurrence(HandbackQueue::RemovedInterrupted).await
+    }
+
+    #[tokio::test]
+    async fn handback_keeps_the_playing_occurrence_outside_the_block() -> Result<()> {
+        check_handback_occurrence(HandbackQueue::PlayingOutside).await
+    }
+
+    #[tokio::test]
+    async fn handback_restores_an_interrupted_unique_track() -> Result<()> {
+        check_handback_occurrence(HandbackQueue::UniqueTrack).await
+    }
+
+    async fn check_handback_occurrence(queue_case: HandbackQueue) -> Result<()> {
+        let library_id = Uuid::new_v4();
+        let ids = [(); 5].map(|_| Uuid::new_v4());
+        let [x, y, z, handoff, unique] = ids;
+        let interrupted = match queue_case {
+            HandbackQueue::UniqueTrack => unique,
+            _ => x,
+        };
+        let interrupted_item = library_item(library_id, interrupted);
+        let handoff_item = library_item(library_id, handoff);
+        let (mut internal, commands, mut events, wav_path) = long_track_engine(&ids);
+        LocalSet::new()
+            .run_until(async move {
+                let runner = task::spawn_local(async move { internal.run().await });
+                commands.send(add_library_tracks(library_id, &[x, y, interrupted, z]))?;
+                commands.send(PlayerCommand::Switch(2))?;
+                let event = next_track_state(&mut events).await?;
+                assert!(
+                    matches!(&event, PlayerEvent::Playing { item, index: 2, .. } if *item == interrupted_item),
+                    "the second occurrence must be playing before handoff: {event:?}"
+                );
+
+                let block = HandoffBlockId(Uuid::new_v4());
+                let (response, handed) = oneshot::channel();
+                commands.send(PlayerCommand::HandoffLoad {
+                    tracks: library_tracks(library_id, &[handoff]),
+                    block,
+                    start_index: Some(0),
+                    position: Duration::ZERO,
+                    play: true,
+                    playback_mode: None,
+                    revision: None,
+                    response,
+                })?;
+                let handed = tokio_time::timeout(TEST_DEADLINE, handed).await??;
+                let event = next_track_state(&mut events).await?;
+                assert!(
+                    matches!(&event, PlayerEvent::Playing { item, index: 3, .. } if *item == handoff_item),
+                    "the transferred track must play immediately after the interrupted item: {event:?}"
+                );
+                assert!(matches!(
+                    &handed.interrupted,
+                    InterruptedItem::Item { item, index_hint: 2, .. } if *item == interrupted_item
+                ));
+
+                let (expected_queue, restore_index, successor, successor_index) = match queue_case {
+                    HandbackQueue::MovedDuplicate => {
+                        commands.send(PlayerCommand::MovePlayListItem {
+                            old_index: 0,
+                            new_index: 2,
+                            revision: None,
+                        })?;
+                        (vec![y, x, x, z], Some(1), x, 2)
+                    }
+                    HandbackQueue::RemovedInterrupted => {
+                        commands.send(PlayerCommand::RemoveFromPlaylist {
+                            index: 2,
+                            revision: None,
+                        })?;
+                        (vec![x, y, z], Some(0), y, 1)
+                    }
+                    HandbackQueue::PlayingOutside => {
+                        commands.send(PlayerCommand::Switch(2))?;
+                        let event = next_track_state(&mut events).await?;
+                        assert!(
+                            matches!(&event, PlayerEvent::Playing { item, index: 2, .. } if *item == interrupted_item),
+                            "the second occurrence must be playing outside the block: {event:?}"
+                        );
+                        (vec![x, y, x, z], None, z, 3)
+                    }
+                    HandbackQueue::Unchanged | HandbackQueue::UniqueTrack => {
+                        (vec![x, y, interrupted, z], Some(2), z, 3)
+                    }
+                };
+                let (response, taken) = oneshot::channel();
+                commands.send(PlayerCommand::TakeBackBlock {
+                    block,
+                    interrupted: handed.interrupted,
+                    revision: None,
+                    resume: false,
+                    response,
+                })?;
+                let taken = tokio_time::timeout(TEST_DEADLINE, taken)
+                    .await??
+                    .context("the transferred block must be taken back")?;
+                assert_eq!(taken.items.len(), 1);
+                assert_eq!(taken.items[0].item, handoff_item);
+                let expected_items = expected_queue
+                    .into_iter()
+                    .map(|id| library_item(library_id, id))
+                    .collect::<Vec<_>>();
+                assert!(
+                    taken.remaining.iter().map(|entry| &entry.item).eq(&expected_items),
+                    "handback changed the target queue: {:?}", taken.remaining
+                );
+                if let Some(expected_index) = restore_index {
+                    let event = next_track_state(&mut events).await?;
+                    let (PlayerEvent::Loaded { item, index, .. } | PlayerEvent::Paused { item, index, .. }) = event else {
+                        bail!("the interrupted track must come back paused: {event:?}");
+                    };
+                    assert_eq!(item, interrupted_item);
+                    assert_eq!(index, expected_index, "handback restored the wrong queue occurrence");
+                }
+                commands.send(PlayerCommand::Next)?;
+                let event = next_track_state(&mut events).await?;
+                let expected = library_item(library_id, successor);
+                assert!(
+                    matches!(&event, PlayerEvent::Playing { item, index, .. } if *item == expected && *index == successor_index),
+                    "Next must play index {successor_index} after handback, got {event:?}"
+                );
+                runner.abort();
+                let _ = fs::remove_file(wav_path);
+                Ok(())
+            })
+            .await
+    }
 
     // A handoff that is rolled back restores what it interrupted: the same occurrence of a
     // repeated track, the playback mode it replaced and the playing state. A target that was
