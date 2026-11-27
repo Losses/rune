@@ -2471,7 +2471,9 @@ mod access_policy_tests {
             "AttachRendererRequest" => RequestAccess::NodeLocal,
             "DetachRendererRequest" => RequestAccess::NodeLocal,
             "ListRenderersRequest" => RequestAccess::NodeLocal,
-            "HandoffRequest" => RequestAccess::NodeLocal,
+            "PrepareHandoffRequest" | "CancelHandoffRequest" | "HandoffRequest" => {
+                RequestAccess::NodeLocal
+            }
             "GetDeviceGrantsRequest" => RequestAccess::NodeLocal,
             "SetDeviceGrantsRequest" => RequestAccess::NodeLocal,
             "ListControllersRequest" => RequestAccess::NodeLocal,

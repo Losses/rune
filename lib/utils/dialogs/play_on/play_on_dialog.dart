@@ -19,7 +19,7 @@ import '../../../widgets/settings/settings_tile_title.dart';
 
 typedef RendererLoader =
     Future<List<RendererCandidate>> Function(List<String> libraryIds);
-typedef RendererHandoff = Future<void> Function(String? target);
+typedef RendererHandoff = HandoffOperation Function(String? target);
 typedef RendererCast = Future<int> Function(RendererCandidate candidate);
 typedef LibraryNamesLoader = Future<Map<String, String>> Function();
 
@@ -125,6 +125,8 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
   String? _successText;
   String? _selectedFingerprint;
   bool _loadFailed = false;
+  bool _closing = false;
+  HandoffOperation? _pendingHandoff;
 
   @override
   void initState() {
@@ -140,11 +142,39 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     _renderers = widget.loader(widget.libraryIds);
   }
 
+  @override
+  void dispose() {
+    _dismissed();
+    super.dispose();
+  }
+
+  void _dismissed() {
+    _closing = true;
+    _pendingHandoff?.cancel();
+    _pendingHandoff = null;
+  }
+
+  void _close() {
+    _dismissed();
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _handOff(String? target) async {
+    final operation = widget.handoff(target);
+    _pendingHandoff = operation;
+    try {
+      await operation.result;
+    } finally {
+      if (identical(_pendingHandoff, operation)) _pendingHandoff = null;
+    }
+  }
+
   Future<void> _select(
     String key,
     Future<int?> Function() action, {
     String? alias,
   }) async {
+    if (_closing || (!widget.castMode && _working != null)) return;
     setState(() {
       _working = key;
       _error = null;
@@ -153,25 +183,26 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     });
     try {
       final leftOutCount = await action();
-      if (mounted && leftOutCount != null && leftOutCount > 0) {
+      if (mounted && !_closing && leftOutCount != null && leftOutCount > 0) {
         setState(() {
-          _successText = S.of(context).castTracksLeftOut(
-            leftOutCount,
-            alias ?? '',
-          );
+          _successText = S
+              .of(context)
+              .castTracksLeftOut(leftOutCount, alias ?? '');
         });
-      } else if (mounted) {
-        Navigator.of(context).pop();
+      } else if (mounted && !_closing) {
+        _close();
       }
     } on RequestFailure catch (error) {
-      if (mounted) {
+      if (mounted && !_closing) {
         setState(() {
           _error = error;
           _errorAlias = alias;
         });
       }
     } finally {
-      if (mounted && _working != null) setState(() => _working = null);
+      if (mounted && !_closing && _working != null) {
+        setState(() => _working = null);
+      }
     }
   }
 
@@ -197,7 +228,7 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
     final currentRenderer = widget.attachment.renderer;
     final thisDeviceSelected = currentRenderer == null;
     final loadFailed = _loadFailed;
-    return NoShortcuts(
+    final dialog = NoShortcuts(
       ContentDialog(
         title: Column(children: [SizedBox(height: 8), Text(strings.playOn)]),
         content: SizedBox(
@@ -245,13 +276,10 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                             playing: thisDeviceSelected,
                             enabled: currentRenderer != null,
                             working: _working == 'this-device',
-                            onAction: () => _select(
-                              'this-device',
-                              () async {
-                                await widget.handoff(null);
-                                return null;
-                              },
-                            ),
+                            onAction: () => _select('this-device', () async {
+                              await _handOff(null);
+                              return null;
+                            }),
                           ),
                         for (final candidate in snapshot.data!)
                           _row(
@@ -272,17 +300,14 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
                                     RendererAvailability.available &&
                                 (widget.castMode || !candidate.attached),
                             working: _working == candidate.fingerprint,
-                            onAction: () => _select(
-                              candidate.fingerprint,
-                              () async {
-                                if (widget.castMode) {
-                                  return widget.cast!(candidate);
-                                }
-                                await widget.handoff(candidate.fingerprint);
-                                return null;
-                              },
-                              alias: candidate.alias,
-                            ),
+                            onAction: () =>
+                                _select(candidate.fingerprint, () async {
+                                  if (widget.castMode) {
+                                    return widget.cast!(candidate);
+                                  }
+                                  await _handOff(candidate.fingerprint);
+                                  return null;
+                                }, alias: candidate.alias),
                           ),
                       ],
                     );
@@ -296,12 +321,15 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
               onPressed: () => setState(_load),
               child: Text(strings.playOnRetry),
             ),
-          Button(
-            child: Text(strings.close),
-            onPressed: () => Navigator.pop(context),
-          ),
+          Button(onPressed: _close, child: Text(strings.close)),
         ],
       ),
+    );
+    return PopScope<void>(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _dismissed();
+      },
+      child: dialog,
     );
   }
 
@@ -345,7 +373,10 @@ class _PlayOnDialogState extends State<_PlayOnDialog> {
       actionsBuilder: (context) => Row(
         children: [
           Button(
-            onPressed: enabled && !working ? onAction : null,
+            onPressed:
+                enabled && !working && (widget.castMode || _working == null)
+                ? onAction
+                : null,
             child: working ? const ProgressRing() : Text(S.of(context).playOn),
           ),
         ],

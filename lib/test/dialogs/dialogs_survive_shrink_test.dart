@@ -16,6 +16,7 @@ import 'package:rune/screens/settings_log/widgets/log_detail_dialog.dart';
 import 'package:rune/screens/settings_server/utils/show_review_connection_dialog.dart';
 import 'package:rune/screens/settings_server/widgets/peer_libraries_dialog.dart';
 import 'package:rune/utils/dialogs/add_library/add_library_guide.dart';
+import 'package:rune/utils/api/renderers.dart';
 import 'package:rune/utils/dialogs/play_on/play_on_dialog.dart';
 import 'package:rune/utils/dialogs/play_queue_dialog.dart';
 import 'package:rune/utils/dialogs/subsonic/subsonic_relogin_dialog.dart';
@@ -270,7 +271,7 @@ void main() {
             availability: RendererAvailability.available,
           ),
         ],
-        handoff: (_) async {},
+        handoff: (_) => HandoffOperation(Future<void>.value(), () {}),
         loadLibraryNames: () async => {},
       ),
       hasField: false,

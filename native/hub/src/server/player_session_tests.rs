@@ -8653,6 +8653,7 @@ async fn hand_off(controller: &Fixture, target: Option<String>) -> Result<()> {
     use crate::messages::HandoffRequest;
 
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target,
     };
@@ -9632,6 +9633,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     .await?;
 
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint.clone()),
     };
@@ -9711,6 +9713,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     assert_eq!(source_paused.item, source_before.item);
 
     let back = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: None,
     };
@@ -9731,6 +9734,7 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     target.global_params.player.lock().await.clear_playlist();
     wait_player(&target, |status| status.playlist.is_empty()).await?;
     let second_handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint),
     };
@@ -9974,6 +9978,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     .await?;
 
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint.clone()),
     };
@@ -10059,6 +10064,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         .await;
     let source_params = source.global_params.clone();
     let handoff_request = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: handoff.target.clone(),
     };
@@ -10226,6 +10232,7 @@ async fn handoff_is_not_confirmed_by_this_devices_own_playing_status() -> Result
     let target_reports = target_ui.ui_library.lock().await;
     let source_params = source.global_params.clone();
     let handoff_request = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint),
     };
@@ -10408,6 +10415,7 @@ async fn handoff_of_a_paused_session_leaves_the_target_paused_at_its_position() 
         wait_player(&source, |status| status.state == PlayerPlaybackState::Paused).await?;
 
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint),
     };
@@ -10511,6 +10519,7 @@ async fn hand_off_right_after_play_and_expect_resume(
 
     source.global_params.player.lock().await.play();
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(target_fingerprint),
     };
@@ -10777,6 +10786,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     let source_index = source_before.index.context("shuffle source index")?;
 
     let handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(b_fingerprint.clone()),
     };
@@ -11019,6 +11029,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     assert_eq!(block_items, expected_block);
     b_signals.clear();
     let back = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: None,
     };
@@ -11072,6 +11083,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
         wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     let c_before = c.global_params.player.lock().await.get_playlist();
     let refused = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(c_fingerprint),
     };
@@ -11127,6 +11139,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     .await?;
     let b_before_independent = b.global_params.player.lock().await.get_status();
     let refused_independent = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(b_fingerprint.clone()),
     };
@@ -11166,6 +11179,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     controller.global_params.player.lock().await.switch(0);
     wait_player(controller, |status| status.state == PlayerPlaybackState::Playing).await?;
     let second_handoff = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: Some(b_fingerprint.clone()),
     };
@@ -11182,6 +11196,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     b.global_params.player.lock().await.switch(target_d_index);
     wait_player(&b, |status| status.item == Some(target_queue[3].clone())).await?;
     let second_back = HandoffRequest {
+        ticket: None,
         call_id: None,
         target: None,
     };
