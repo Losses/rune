@@ -1,0 +1,6 @@
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    # test_reflective_loader finds the tests by their `test_` prefix.
+    non_constant_identifier_names: false

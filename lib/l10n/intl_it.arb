@@ -1680,6 +1680,10 @@
       }
     }
   },
+  "visualizerNoAnswer": "Il visualizzatore non ha risposto",
+  "@visualizerNoAnswer": {
+    "description": "Reason shown under a failed scene import when the visualizer gave no answer."
+  },
   "visualizerDeleteScene": "Elimina scena",
   "@visualizerDeleteScene": {
     "description": "Button and dialog title that delete an imported visualizer scene."

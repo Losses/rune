@@ -1,29 +1,32 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../providers/visualizer_scenes.dart';
+import 'dialogs/information/error.dart';
+import 'dialogs/information/information.dart';
 import 'l10n.dart';
 
 /// Tells the user how importing a scene file went.
-void showVisualizerImport(BuildContext context, VisualizerImport result) {
+Future<void> showVisualizerImport(
+  BuildContext context,
+  VisualizerImport result,
+) async {
   final s = S.of(context);
   final problem = switch (result) {
     VisualizerImported() => null,
     VisualizerImportRejected(:final reason) => reason,
-    VisualizerImportUnanswered() => 'No answer from the visualizer',
+    VisualizerImportUnanswered() => s.visualizerNoAnswer,
   };
-  displayInfoBar(
-    context,
-    builder: (context, close) => InfoBar(
-      title: Text(
-        problem == null
-            ? s.visualizerSceneImported(result.name)
-            : s.visualizerSceneImportFailed(result.name),
-      ),
-      content: problem == null ? null : Text(problem),
-      severity: problem == null
-          ? InfoBarSeverity.success
-          : InfoBarSeverity.error,
-      onClose: close,
-    ),
-  );
+  if (problem == null) {
+    await showInformationDialog(
+      context: context,
+      title: s.visualizerScenes,
+      subtitle: s.visualizerSceneImported(result.name),
+    );
+  } else {
+    await showErrorDialog(
+      context: context,
+      title: s.visualizerSceneImportFailed(result.name),
+      errorMessage: problem,
+    );
+  }
 }
