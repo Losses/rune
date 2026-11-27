@@ -310,7 +310,17 @@ impl FromStr for EndpointUrl {
             .map(|(k, v)| (k.into_owned(), v.into_owned()))
             .collect();
         for (key, _) in &pairs {
-            if secret(key) {
+            let storage_secret = service.is_some()
+                && matches!(
+                    key.to_ascii_lowercase().as_str(),
+                    "access_key_id"
+                        | "secret_access_key"
+                        | "session_token"
+                        | "aws_access_key_id"
+                        | "aws_secret_access_key"
+                        | "aws_session_token"
+                );
+            if secret(key) || storage_secret {
                 return Err(EndpointUrlError::SecretNotAllowed(key.clone()));
             }
         }

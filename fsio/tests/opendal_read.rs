@@ -159,7 +159,7 @@ async fn s3_endpoint_parameters_reach_the_storage_adapter() {
             .unwrap();
         let endpoint = |query: &str| -> EndpointUrl {
             format!(
-                "opendal+s3://bucket/%6Cibrary?v=1&endpoint={}&{query}",
+                "opendal+s3://%62ucket/%6Cibrary?v=1&endpoint={}&{query}",
                 server.endpoint
             )
             .parse()
@@ -173,6 +173,11 @@ async fn s3_endpoint_parameters_reach_the_storage_adapter() {
         .unwrap();
         assert!(matches!(&config, OpenDalConfig::S3 { region, .. } if region == "us-west-2"));
         assert_read_contract(config).await;
+
+        let aws_endpoint = "opendal+s3://bucket?v=1&region=us-west-2".parse().unwrap();
+        let aws =
+            OpenDalConfig::from_endpoint(&aws_endpoint, "access".into(), "secret".into()).unwrap();
+        FsIo::new_opendal(aws, Handle::current()).unwrap();
 
         let error =
             OpenDalConfig::from_endpoint(&endpoint("region="), "access".into(), "secret".into())
@@ -205,6 +210,12 @@ async fn s3_endpoint_parameters_reach_the_storage_adapter() {
         assert_eq!(
             "opendal+s3://bucket?v=1&secret_key=secret".parse::<EndpointUrl>(),
             Err(EndpointUrlError::SecretNotAllowed("secret_key".into()))
+        );
+        assert_eq!(
+            "opendal+s3://bucket?v=1&SeCrEt_AcCeSs_KeY=fixture".parse::<EndpointUrl>(),
+            Err(EndpointUrlError::SecretNotAllowed(
+                "SeCrEt_AcCeSs_KeY".into()
+            ))
         );
     })
     .await

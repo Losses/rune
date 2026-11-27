@@ -364,8 +364,12 @@ impl ops::Deref for FsIo {
 mod std_fs;
 use std_fs::StdFsIo;
 
+#[cfg(feature = "endpoint-url")]
+mod opendal_endpoint;
+#[cfg(feature = "endpoint-url")]
+pub use opendal_endpoint::OpenDalEndpointError;
 mod opendal_fs;
-pub use opendal_fs::{OpenDalConfig, OpenDalEndpointError};
+pub use opendal_fs::OpenDalConfig;
 mod opendal_object_store;
 pub use opendal_object_store::{ObjectStoreCapabilities, OpenDalObjectStore};
 #[cfg(feature = "test-fixtures")]
