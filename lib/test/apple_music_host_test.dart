@@ -74,6 +74,20 @@ void main() {
     );
 
     test(
+      'registers no host on Android when the runner says it cannot play there',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          asked.add(call.method);
+          return call.method == 'available' ? false : null;
+        });
+        await AppleMusicHost.registerOnPlatform();
+        expect(platformHosts.containsKey('appleMusic'), isFalse);
+        expect(asked, ['available']);
+      },
+    );
+
+    test(
       'registers no host on Android when the runner fails to answer',
       () async {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
