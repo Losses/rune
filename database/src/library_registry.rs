@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use crate::connection::{MAIN_DATABASE_FILE, StorageMode, redirected_db_dir};
 use crate::credentials::{CredentialRef, CredentialStore, CredentialStoreError};
-use crate::sync::replica::retained_catalog_id;
 use anyhow::Error;
 
 static REGISTRY_WRITE: Mutex<()> = Mutex::const_new(());
@@ -414,6 +413,8 @@ struct RawRegistryFile {
     libraries: Vec<serde_json::Value>,
     #[serde(default)]
     last_open_record: Option<LibraryRecordId>,
+    #[serde(default)]
+    removed_redirected_catalogs: BTreeMap<Uuid, RemovedRedirectedCatalog>,
 }
 
 /// The registry file as written, with hidden records mixed in untouched.
@@ -424,6 +425,8 @@ struct SavedRegistryFile<'a> {
     libraries: Vec<SavedRecord<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_open_record: Option<LibraryRecordId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removed_redirected_catalogs: Option<&'a BTreeMap<Uuid, RemovedRedirectedCatalog>>,
 }
 
 #[derive(Serialize)]
@@ -691,6 +694,7 @@ fn write_v2_conversion(path: &Path, original: &[u8], file: &v2::ConvertedRegistr
             .map(|record| SavedRecord::Known(SavedLibraryRecord::new(record)))
             .collect(),
         last_open_record: file.last_open_record,
+        removed_redirected_catalogs: None,
     })?;
     let result = (|| -> Result<()> {
         fs::write(&temp, data).context("Failed to write converted registry")?;
@@ -717,6 +721,12 @@ enum LegacyAuthority {
     Owned,
     Hosted { fingerprint: String },
 }
+
+#[derive(Serialize, Deserialize)]
+struct RemovedRedirectedCatalog {
+    library_id: Uuid,
+    authority: LegacyAuthority,
+}
 #[derive(Deserialize)]
 struct Version {
     version: u32,
@@ -735,6 +745,8 @@ pub struct LibraryRegistry {
     pub libraries: Vec<LibraryRecord>,
     pub invalid: Vec<(LibraryRecordId, InvalidRecord)>,
     pub last_open_record: Option<LibraryRecordId>,
+    // Removed local catalogs keep their identity outside the list of active registrations.
+    removed_redirected_catalogs: BTreeMap<Uuid, RemovedRedirectedCatalog>,
     invalid_records: Vec<LibraryRecord>,
     /// Records this build cannot deserialize, kept as raw JSON and written back unchanged.
     /// Each is paired with the number of understood records that preceded it in the file.
@@ -784,7 +796,7 @@ impl LibraryRegistry {
                         if persist_conversion {
                             write_v2_conversion(&path, &data, &file)?;
                         }
-                        (file.libraries, file.last_open_record)
+                        (file.libraries, file.last_open_record, BTreeMap::new())
                     } else {
                         let file: RawRegistryFile =
                             serde_json::from_slice(&data).context("Invalid library registry")?;
@@ -804,7 +816,11 @@ impl LibraryRegistry {
                                 }
                             }
                         }
-                        (records, file.last_open_record)
+                        (
+                            records,
+                            file.last_open_record,
+                            file.removed_redirected_catalogs,
+                        )
                     }
                 }
                 Err(error)
@@ -824,14 +840,14 @@ impl LibraryRegistry {
                         "Old library registry moved to {}; the registry was reset",
                         old_path.display()
                     );
-                    (Vec::new(), None)
+                    (Vec::new(), None, BTreeMap::new())
                 }
                 Err(error) => return Err(error),
             },
-            Err(e) if e.kind() == ErrorKind::NotFound => (Vec::new(), None),
+            Err(e) if e.kind() == ErrorKind::NotFound => (Vec::new(), None, BTreeMap::new()),
             Err(e) => return Err(e).context("Failed to read library registry"),
         };
-        let (records, mut last_open_record) = loaded;
+        let (records, mut last_open_record, removed_redirected_catalogs) = loaded;
         let mut hidden_last_open_id = None;
         if let Some(id) = last_open_record
             && !records.iter().any(|record| record.record_id == id)
@@ -876,6 +892,7 @@ impl LibraryRegistry {
             hidden_records,
             hidden_last_open_id,
             last_open_record,
+            removed_redirected_catalogs,
             path,
         })
     }
@@ -1033,6 +1050,19 @@ impl LibraryRegistry {
                 return Ok((true, credential));
             };
             let record = registry.libraries.remove(index);
+            if let CatalogPlacement::Redirected(storage_key) = record.catalog
+                && record.local_folder_path().is_some()
+                && let Some(library_id) = record.catalog_library_id()
+            {
+                let authority = local_authority(&record);
+                registry.removed_redirected_catalogs.insert(
+                    storage_key,
+                    RemovedRedirectedCatalog {
+                        library_id,
+                        authority,
+                    },
+                );
+            }
             let credential = record_credential(&record);
             if registry.last_open_record == Some(record_id) {
                 registry.last_open_record = None;
@@ -1169,6 +1199,8 @@ impl LibraryRegistry {
             version: 3,
             libraries,
             last_open_record: self.last_open_record.or(self.hidden_last_open_id),
+            removed_redirected_catalogs: (!self.removed_redirected_catalogs.is_empty())
+                .then_some(&self.removed_redirected_catalogs),
         })?;
         let result = (|| -> Result<()> {
             fs::write(&temp, data).context("Failed to write temporary registry")?;
@@ -1182,11 +1214,20 @@ impl LibraryRegistry {
     }
 }
 
+fn local_authority(record: &LibraryRecord) -> LegacyAuthority {
+    match record.owner_fingerprint() {
+        Some(fingerprint) => LegacyAuthority::Hosted {
+            fingerprint: fingerprint.to_owned(),
+        },
+        None => LegacyAuthority::Owned,
+    }
+}
+
 pub(crate) async fn registry_write_guard() -> MutexGuard<'static, ()> {
     REGISTRY_WRITE.lock().await
 }
 
-/// Resolve a local library's identity and update the node registry.
+/// Resolve a local library when redirected catalogs use the registry directory as their root.
 pub async fn resolve_library(
     fsio: &FsIo,
     registry: &mut LibraryRegistry,
@@ -1220,6 +1261,7 @@ pub async fn resolve_library_with_db_root(
     };
     let descriptor_path = rune_dir.join("library.json");
     let mut portable = None;
+    let mut restored_authority = None;
     let (id, placement) = match mode {
         StorageMode::Portable => {
             let file = if fsio.exists(&descriptor_path)? {
@@ -1251,12 +1293,9 @@ pub async fn resolve_library_with_db_root(
                 .and_then(LibraryRecord::catalog_library_id);
             let id = match registered_id {
                 Some(id) => id,
-                None => {
-                    let path = redirected_db_dir(db_root, key).join(MAIN_DATABASE_FILE);
-                    let retained_id = retained_catalog_id(&path).await.with_context(|| {
-                        format!("Could not read catalog identity from {}", path.display())
-                    })?;
-                    if let Some(id) = retained_id {
+                None => match registry.removed_redirected_catalogs.get(&key) {
+                    Some(removed) => {
+                        let id = removed.library_id;
                         ensure!(
                             !registry
                                 .libraries
@@ -1264,9 +1303,19 @@ pub async fn resolve_library_with_db_root(
                                 .any(|entry| entry.catalog_library_id() == Some(id)),
                             "Catalog {id} is already registered at another storage location"
                         );
+                        restored_authority = Some(removed.authority.clone());
+                        id
                     }
-                    retained_id.unwrap_or_else(Uuid::new_v4)
-                }
+                    None => {
+                        let path = redirected_db_dir(db_root, key).join(MAIN_DATABASE_FILE);
+                        ensure!(
+                            !path.try_exists()?,
+                            "Redirected catalog at {} has no recorded authority",
+                            path.display()
+                        );
+                        Uuid::new_v4()
+                    }
+                },
             };
             (id, DbPlacement::Redirected { storage_key: key })
         }
@@ -1274,21 +1323,13 @@ pub async fn resolve_library_with_db_root(
     let authority = portable
         .as_ref()
         .map(|file| file.authority.clone().unwrap_or(LegacyAuthority::Owned))
+        .or(restored_authority)
         .or_else(|| {
             registry
                 .libraries
                 .iter()
                 .find(|entry| entry.catalog_library_id() == Some(id))
-                .map(|entry| match &entry.protocol {
-                    ProtocolAdapter::Native => LegacyAuthority::Owned,
-                    ProtocolAdapter::RuneForward {
-                        owner_fingerprint,
-                        mode: RuneForwardMode::Replica { .. },
-                    } => LegacyAuthority::Hosted {
-                        fingerprint: owner_fingerprint.clone(),
-                    },
-                    _ => LegacyAuthority::Owned,
-                })
+                .map(local_authority)
         })
         .unwrap_or(LegacyAuthority::Owned);
     let stored_alias = registry
@@ -1395,6 +1436,9 @@ pub async fn resolve_library_with_db_root(
         entry.catalog_library_id() != Some(id) && !collision
     });
     registry.libraries.push(record.clone());
+    if let CatalogPlacement::Redirected(key) = record.catalog {
+        registry.removed_redirected_catalogs.remove(&key);
+    }
     registry.validate().map_err(Error::new)?;
     registry.save()?;
     Ok(record)
@@ -1902,12 +1946,91 @@ mod tests {
 
     #[tokio::test]
     async fn removed_redirected_library_reopens_with_its_retained_catalog() -> Result<()> {
+        assert_redirected_readd_preserves_authority(None).await
+    }
+
+    #[tokio::test]
+    async fn removed_legacy_redirected_replica_reopens_with_its_hosted_authority() -> Result<()> {
+        assert_redirected_readd_preserves_authority(Some("legacy-host")).await
+    }
+
+    #[tokio::test]
+    async fn an_old_redirected_catalog_without_authority_is_not_registered() -> Result<()> {
         let mut fixture = Fixture::new();
         let db_root = fixture.dir.path().join("catalogs");
         let root = fixture.root("media");
         crate::connection::create_redirect(&fixture.fsio, &root).await?;
         let mode = crate::connection::check_storage_mode(&fixture.fsio, &root)?;
+        let node = Uuid::new_v4();
+        let db = crate::connection::connect_main_db(
+            &fixture.fsio,
+            &root,
+            db_root.to_str(),
+            &node.to_string(),
+        )
+        .await?;
+        let library_id = Uuid::new_v4();
+        crate::sync::LibrarySyncStore::open(db.clone(), node, Some(library_id)).await?;
+        db.close().await?;
+
+        let error = resolve_library_with_db_root(
+            &fixture.fsio,
+            &mut fixture.registry,
+            &db_root,
+            &root,
+            "",
+            mode,
+        )
+        .await
+        .expect_err("a catalog without recorded authority must not be registered");
+        assert!(
+            error.to_string().contains("recorded authority"),
+            "{error:#}"
+        );
+        assert!(
+            LibraryRegistry::load(fixture.dir.path())?
+                .libraries
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    async fn assert_redirected_readd_preserves_authority(owner: Option<&str>) -> Result<()> {
+        let mut fixture = Fixture::new();
+        let db_root = fixture.dir.path().join("catalogs");
+        let root = fixture.root("media");
+        crate::connection::create_redirect(&fixture.fsio, &root).await?;
+        let mode = crate::connection::check_storage_mode(&fixture.fsio, &root)?;
+        if let Some(owner) = owner {
+            let StorageMode::Redirected(storage_key) = mode else {
+                bail!("fixture is not redirected");
+            };
+            let legacy = serde_json::json!({
+                "version": 2,
+                "libraries": [{
+                    "record_id": Uuid::new_v4(),
+                    "alias": "Legacy replica",
+                    "kind": {
+                        "type": "rune_replica",
+                        "library_id": Uuid::new_v4(),
+                        "owner_fingerprint": owner,
+                        "access_level": "Read",
+                        "connection_access": "View",
+                        "storage": {
+                            "type": "local",
+                            "path": root,
+                            "placement": {"type": "redirected", "storage_key": storage_key},
+                        },
+                    },
+                }],
+            });
+            fs::write(
+                fixture.dir.path().join("libraries.json"),
+                serde_json::to_vec(&legacy)?,
+            )?;
+        }
         let original = fixture.resolve(&root, "Original", mode.clone()).await;
+        assert_eq!(original.owner_fingerprint(), owner);
         let node = Uuid::new_v4();
         let node_string = node.to_string();
         let connect = || {
@@ -1923,13 +2046,18 @@ mod tests {
             LibraryRegistry::remove_record(fixture.dir.path(), original.record_id, &credentials)
                 .await?
         );
+        assert!(
+            LibraryRegistry::load(fixture.dir.path())?
+                .libraries
+                .is_empty()
+        );
         let restored = resolve_library_with_db_root(
             &fixture.fsio,
             &mut fixture.registry,
             &db_root,
             &root,
             "Restored",
-            mode,
+            mode.clone(),
         )
         .await?;
         let db = connect().await?;
@@ -1938,6 +2066,11 @@ mod tests {
         db.close().await?;
         assert_eq!(restored.catalog_library_id(), original.catalog_library_id());
         assert_ne!(restored.record_id, original.record_id);
+        assert_eq!(restored.owner_fingerprint(), owner);
+        assert_eq!(restored.access_level(), None);
+        assert_eq!(restored.connection_access(), None);
+        let retry = fixture.resolve(&root, "", mode).await;
+        assert_eq!(retry, restored);
         Ok(())
     }
 
@@ -2436,6 +2569,7 @@ mod tests {
             hidden_records: Vec::new(),
             hidden_last_open_id: None,
             last_open_record: None,
+            removed_redirected_catalogs: BTreeMap::new(),
             path: PathBuf::new(),
         };
         assert_eq!(registry.catalogs().count(), 0);
@@ -2472,6 +2606,7 @@ mod tests {
                 .map(|record| SavedRecord::Known(SavedLibraryRecord::new(record)))
                 .collect(),
             last_open_record: None,
+            removed_redirected_catalogs: None,
         }
     }
 

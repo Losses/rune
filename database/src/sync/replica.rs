@@ -13,17 +13,14 @@ use crate::sync::{import, legacy};
 use anyhow::{Result, ensure};
 use chrono::Utc;
 use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, SqlxSqliteConnector, Statement,
-    TransactionTrait,
+    ConnectionTrait, DatabaseConnection, DatabaseTransaction, TransactionTrait,
     sea_query::{Alias, Expr, Query},
-    sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
-
 use sync::{
     Candidate, EventRef, ExactContext, MAX_MUTATIONS, MergeDelta, ModelId, PageRead, ReceiveStore,
     Revision, StoreIdentity, SyncModel, SyncPeer, SyncStore, candidate_digest, candidate_rank,
@@ -48,38 +45,6 @@ use sync_orm::{
     registry::{ProjectionBudget, RegistryProjection},
 };
 use uuid::Uuid;
-
-/// Read the catalog identity without initializing or migrating the retained database.
-pub(crate) async fn retained_catalog_id(path: &Path) -> Result<Option<Uuid>> {
-    if !path.try_exists()? {
-        return Ok(None);
-    }
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(SqliteConnectOptions::new().filename(path).read_only(true))
-        .await?;
-    let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
-    let table = db
-        .query_one_raw(Statement::from_string(
-            db.get_database_backend(),
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_meta'",
-        ))
-        .await?;
-    let namespaces = if table.is_some() {
-        causal_store::list_namespace_ids_on(&db, 2).await?
-    } else {
-        Vec::new()
-    };
-    db.close().await?;
-    ensure!(
-        namespaces.len() <= 1,
-        "multiple namespaces require explicit selection"
-    );
-    Ok(namespaces
-        .first()
-        .copied()
-        .filter(|id| *id != legacy::namespace()))
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Schema1PlaybackStatistics;
