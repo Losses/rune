@@ -106,12 +106,19 @@ async fn webdav_endpoint_parameters_reach_the_storage_adapter() {
             .await
             .unwrap();
         let authority = server.endpoint.strip_prefix("http://").unwrap();
-        let endpoint =
-            format!("opendal+webdav://{authority}?v=1&transport=http&root=%2Fdav%2Flibrary%2F")
-                .parse()
-                .unwrap();
-        let config = OpenDalConfig::from_endpoint(&endpoint, "user".into(), "pass".into()).unwrap();
-        assert_read_contract(config).await;
+        for location in ["/dav", "/dav/"] {
+            let endpoint =
+                format!("opendal+webdav://{authority}{location}?v=1&transport=http&root=library")
+                    .parse()
+                    .unwrap();
+            let config =
+                OpenDalConfig::from_endpoint(&endpoint, "user".into(), "pass".into()).unwrap();
+            let OpenDalConfig::WebDav { endpoint, .. } = &config else {
+                panic!("expected a WebDAV configuration");
+            };
+            assert_eq!(endpoint, &format!("http://{authority}/dav"));
+            assert_read_contract(config).await;
+        }
     })
     .await
     .unwrap();
@@ -157,10 +164,11 @@ async fn s3_endpoint_parameters_reach_the_storage_adapter() {
         let server = S3Fixture::start(vec![("nested/audio.mp3".into(), AUDIO.to_vec())])
             .await
             .unwrap();
+        let service_endpoint = server.endpoint.replacen("http://", "HTTP://", 1);
         let endpoint = |query: &str| -> EndpointUrl {
             format!(
                 "opendal+s3://%62ucket/%6Cibrary?v=1&endpoint={}&{query}",
-                server.endpoint
+                service_endpoint
             )
             .parse()
             .unwrap()
@@ -171,7 +179,16 @@ async fn s3_endpoint_parameters_reach_the_storage_adapter() {
             "secret".into(),
         )
         .unwrap();
-        assert!(matches!(&config, OpenDalConfig::S3 { region, .. } if region == "us-west-2"));
+        let OpenDalConfig::S3 {
+            endpoint: base,
+            region,
+            ..
+        } = &config
+        else {
+            panic!("expected an S3 configuration");
+        };
+        assert_eq!(base, &server.endpoint);
+        assert_eq!(region, "us-west-2");
         assert_read_contract(config).await;
 
         let aws_endpoint = "opendal+s3://bucket?v=1&region=us-west-2".parse().unwrap();

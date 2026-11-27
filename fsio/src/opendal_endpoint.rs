@@ -67,12 +67,13 @@ impl OpenDalConfig {
                 .get("region")
                 .filter(|region| !region.is_empty() && region.trim() == region.as_str())
                 .ok_or_else(|| invalid("region"))?;
-            let endpoint = params.get("endpoint");
-            if endpoint.is_some_and(|endpoint| !storage_http_url(endpoint)) {
-                return Err(invalid("endpoint"));
-            }
+            let endpoint = params
+                .get("endpoint")
+                .map(|value| storage_http_url(value).ok_or_else(|| invalid("endpoint")))
+                .transpose()?
+                .unwrap_or_default();
             Ok(Self::S3 {
-                endpoint: endpoint.cloned().unwrap_or_default(),
+                endpoint,
                 bucket,
                 region: region.clone(),
                 root: percent_decode_path(root),
@@ -84,10 +85,8 @@ impl OpenDalConfig {
             if !matches!(transport, "http" | "https") {
                 return Err(invalid("transport"));
             }
-            let endpoint = format!("{transport}://{location}");
-            if !storage_http_url(&endpoint) {
-                return Err(invalid("endpoint"));
-            }
+            let endpoint = storage_http_url(&format!("{transport}://{location}"))
+                .ok_or_else(|| invalid("endpoint"))?;
             Ok(Self::WebDav {
                 endpoint,
                 root: params.get("root").cloned().unwrap_or_default(),
@@ -98,13 +97,17 @@ impl OpenDalConfig {
     }
 }
 
-fn storage_http_url(value: &str) -> bool {
-    Url::parse(value).is_ok_and(|url| {
-        matches!(url.scheme(), "http" | "https")
-            && url.host().is_some()
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.query().is_none()
-            && url.fragment().is_none()
-    })
+fn storage_http_url(value: &str) -> Option<String> {
+    let url = Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    // The WebDAV service appends an absolute storage path to this base.
+    Some(url.as_str().trim_end_matches('/').to_owned())
 }
