@@ -19,7 +19,10 @@ internal object TokenPolicy {
     const val ATTEMPT_INTERVAL_MS = 60L * 60 * 1000
     const val FORCED_INTERVAL_MS = 5L * 60 * 1000
 
-    /** The least time after an attempt that got no answer, as when the device was offline. */
+    /**
+     * The least time after an attempt that got no answer, as when the device was offline. An
+     * answer that is an error, as while the token's file does not exist, is an answer.
+     */
     const val FAILED_INTERVAL_MS = 60L * 1000
 
     /** The longest life Apple allows a developer token, and a day for clocks that differ. */
@@ -82,6 +85,9 @@ internal class DeveloperTokens(context: Context) {
         const val TIMEOUT_MS = 15_000
     }
 
+    /** The token URL answered, with an error. */
+    private class StatusError(code: Int) : IOException("status $code")
+
     private val compiled = BuildConfig.DEVELOPER_TOKEN
     private val url = BuildConfig.DEVELOPER_TOKEN_URL
     private val preferences =
@@ -133,7 +139,7 @@ internal class DeveloperTokens(context: Context) {
             fetch()
         } catch (error: Exception) {
             Log.w(TAG, "The developer token could not be fetched: ${error.javaClass.simpleName}")
-            synchronized(lock) { lastFailed = true }
+            synchronized(lock) { lastFailed = error !is StatusError }
             return false
         }
         synchronized(lock) { lastFailed = false }
@@ -155,7 +161,7 @@ internal class DeveloperTokens(context: Context) {
             connection.readTimeout = TIMEOUT_MS
             connection.instanceFollowRedirects = false
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw IOException("status ${connection.responseCode}")
+                throw StatusError(connection.responseCode)
             }
             val buffer = ByteArray(TokenPolicy.MAX_BYTES)
             var size = 0
