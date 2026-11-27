@@ -23,12 +23,17 @@ use ::fsio::FsIo;
 use ::metadata::cover_art::{CoverArt, extract_cover_art_binary, get_primary_color};
 use uuid::Uuid;
 
+use crate::entities::music_metadata::{details as metadata_details, native_audio};
 use crate::entities::{media_cover_art, media_files};
 use chrono::DateTime;
 use chrono::Utc;
 use http_request::sync as http_request_sync;
 use metadata::cover_art;
 use migration::catalog_identity;
+use sea_orm::{
+    ExprTrait,
+    sea_query::{Expr, Query},
+};
 use std::collections;
 use sync_orm::causal_store;
 use tokio::task;
@@ -255,13 +260,7 @@ where
                     return Ok((file, None));
                 }
                 let path = root.join(&file.directory).join(&file.file_name);
-                let expected = match (&file.content_hash, file.content_size) {
-                    (Some(hash), Some(size)) if size >= 0 => Some(BlobRef {
-                        digest: hash.clone(),
-                        size: size as u64,
-                    }),
-                    _ => None,
-                };
+                let expected = file_reference(&file);
                 let inspected = task::spawn_blocking(move || {
                     if let Some(expected) = &expected
                         && hash_file(&fs, &path).ok().as_ref() != Some(expected)
@@ -305,6 +304,177 @@ where
         }
     }
     Ok(processed)
+}
+
+/// Revalidate checked folder artwork from the audio scan's existing local filesystem walk.
+pub(super) async fn refresh_checked_external_artwork(
+    fsio: &FsIo,
+    db: &DatabaseConnection,
+    store: &SeaOrmSyncStore,
+    root: &Path,
+    scanned_directories: collections::HashSet<String>,
+    possible_covers: collections::HashSet<PathBuf>,
+    cancel: Option<&CancellationToken>,
+) -> Result<()> {
+    if cancel.is_some_and(CancellationToken::is_cancelled) {
+        return Ok(());
+    }
+    let fs = fsio.clone();
+    let scan_root = root.to_owned();
+    let selection_cancel = cancel.cloned();
+    // A parent cover may serve several disc directories. Keep one image in
+    // memory at a time and apply it to all the directories that selected it.
+    let by_cover = task::spawn_blocking(move || {
+        group_external_artwork_directories(
+            &fs,
+            &scan_root,
+            scanned_directories,
+            &possible_covers,
+            selection_cancel.as_ref(),
+        )
+    })
+    .await?;
+
+    'group: for (path, directories) in by_cover {
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            break;
+        }
+        let fs = fsio.clone();
+        let mut body =
+            match task::spawn_blocking(move || path.as_ref().map(|path| fs.read(path)).transpose())
+                .await?
+            {
+                Ok(body) => body,
+                Err(error) => {
+                    log::warn!("Unable to read external artwork: {error:#}");
+                    continue;
+                }
+            };
+        let wanted = body.as_ref().map(|body| {
+            catalog_identity::artwork(blake3::hash(body).to_hex().as_ref()).to_string()
+        });
+        let mut art = None;
+        for directories in directories.chunks(48) {
+            for current in checked_tracks_without_embedded_artwork(db, directories).await? {
+                if cancel.is_some_and(CancellationToken::is_cancelled) {
+                    return Ok(());
+                }
+                if !artwork_inspection_is_current(&current) || current.cover_art_uuid == wanted {
+                    continue;
+                }
+                // An artwork edit may outlive the indexed audio. Verify its
+                // bytes before publishing a new assignment for this identity.
+                let Some(expected) = file_reference(&current) else {
+                    continue;
+                };
+                let fs = fsio.clone();
+                let path = root.join(&current.directory).join(&current.file_name);
+                let still_current = task::spawn_blocking(move || {
+                    hash_file(&fs, &path).ok().as_ref() == Some(&expected)
+                })
+                .await?;
+                if !still_current {
+                    continue;
+                }
+                if let Some(bytes) = body.take() {
+                    match task::spawn_blocking(move || cover_art::cover_from_bytes(bytes)).await? {
+                        Ok(decoded) => art = Some(decoded),
+                        Err(error) => {
+                            log::warn!("Unable to decode external artwork: {error:#}");
+                            continue 'group;
+                        }
+                    }
+                }
+                if let Err(error) = assign_inspected(db, store, &current, art.clone()).await {
+                    if super::metadata::is_fatal_scan_error(&error) {
+                        return Err(error);
+                    }
+                    log::warn!("artwork assignment for {} failed: {error:#}", current.id);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn group_external_artwork_directories(
+    fsio: &FsIo,
+    root: &Path,
+    directories: collections::HashSet<String>,
+    possible_covers: &collections::HashSet<PathBuf>,
+    cancel: Option<&CancellationToken>,
+) -> HashMap<Option<PathBuf>, Vec<String>> {
+    let mut locations = HashMap::new();
+    let mut groups = HashMap::<_, Vec<_>>::new();
+    'directory: for directory in directories {
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            break;
+        }
+        let track_directory = root.join(&directory);
+        let mut selected = None;
+        for ancestor in track_directory
+            .ancestors()
+            .take_while(|dir| dir.starts_with(root))
+        {
+            if !possible_covers.contains(ancestor) {
+                continue;
+            }
+            match locations
+                .entry(ancestor.to_owned())
+                .or_insert_with(|| cover_art::find_external_cover_in_directory(fsio, ancestor))
+            {
+                Ok(Some(path)) => {
+                    selected = Some(path.clone());
+                    break;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    log::warn!("Unable to inspect external artwork in {ancestor:?}: {error:#}");
+                    continue 'directory;
+                }
+            }
+        }
+        groups.entry(selected).or_default().push(directory);
+    }
+    groups
+}
+
+async fn checked_tracks_without_embedded_artwork(
+    db: &DatabaseConnection,
+    directories: &[String],
+) -> Result<Vec<media_files::Model>> {
+    use super::resolved_metadata::CreditScope;
+    let track_id = Expr::col(media_files::Column::Id.as_column_ref());
+    let known_audio = Query::select()
+        .column(native_audio::Column::FileId)
+        .from(native_audio::Entity)
+        .and_where(Expr::col(native_audio::Column::FileId.as_column_ref()).eq(track_id.clone()))
+        .to_owned();
+    // The native audio scope's artwork is embedded. Album and disc details
+    // can instead contain resolved sidecars.
+    let embedded = Query::select()
+        .column(metadata_details::Column::FileId)
+        .from(metadata_details::Entity)
+        .and_where(Expr::col(metadata_details::Column::FileId.as_column_ref()).eq(track_id))
+        .and_where(metadata_details::Column::Scope.eq(CreditScope::Audio as i32))
+        .and_where(metadata_details::Column::Artwork.is_not_null())
+        .to_owned();
+    Ok(media_files::Entity::find()
+        .filter(media_files::Column::Directory.is_in(directories.iter().cloned()))
+        .filter(media_files::Column::LocalAvailable.eq(true))
+        .filter(media_files::Column::CoverArtCheckedAt.is_not_null())
+        .filter(Expr::exists(known_audio))
+        .filter(Expr::not_exists(embedded))
+        .all(db)
+        .await?)
+}
+
+fn file_reference(file: &media_files::Model) -> Option<BlobRef> {
+    let (digest, size) = (file.content_hash.as_ref()?, file.content_size?);
+    Some(BlobRef {
+        digest: digest.clone(),
+        size: size.try_into().ok()?,
+    })
 }
 
 fn artwork_inspection_is_current(file: &media_files::Model) -> bool {

@@ -355,6 +355,137 @@ async fn unchanged_cover_scan_does_not_reinspect() -> Result<()> {
 }
 
 #[tokio::test]
+async fn normal_local_scan_refreshes_external_album_artwork() -> Result<()> {
+    use database::actions::cover_art::bake_cover_art_by_media_files;
+
+    let temp = tempfile::tempdir()?;
+    let root = temp.path();
+    let tracks = [root.join("first.wav"), root.join("second.wav")];
+    for (track, title) in tracks.iter().zip(["First", "Second"]) {
+        write_wav_with_info(track, &[(b"INAM", title), (b"IPRD", "Same album")])?;
+        fs::File::open(track)?
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))?;
+    }
+    let original_audio = tracks
+        .iter()
+        .map(|track| Ok((fs::metadata(track)?.modified()?, fs::read(track)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let cover = root.join("cover.png");
+    let initial = include_bytes!("../../assets/available_app_store.png").as_slice();
+    let replacement = include_bytes!("../../assets/available_ms_store.png").as_slice();
+    fs::write(&cover, initial)?;
+
+    let fs = Arc::new(FsIo::new());
+    let node = Uuid::new_v4();
+    let node_id = node.to_string();
+    let db = connect_main_db(&fs, root.to_str().context("library path")?, None, &node_id).await?;
+    let library = fixtures::open_library(db.clone(), node, None).await?;
+    let store = library.record_store();
+    let scan = |force| {
+        let fs = Arc::clone(&fs);
+        let db = &db;
+        let node_id = &node_id;
+        let store = &store;
+        async move {
+            let scanned = scan_audio_library(
+                &fs,
+                db,
+                node_id,
+                root,
+                ScanOptions {
+                    cleanup: true,
+                    force,
+                    missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                    cancel_token: None,
+                },
+                |_| {},
+                store,
+            )
+            .await?;
+            assert_eq!(
+                scan_cover_arts(fs, db, root, 16, |_, _| {}, None, store).await?,
+                2
+            );
+            Ok::<_, anyhow::Error>(scanned)
+        }
+    };
+    let inspect = |stage, expected: Option<&'static [u8]>| {
+        let fs = &fs;
+        let db = &db;
+        async move {
+            let files = media_files::Entity::find().all(db).await?;
+            assert_eq!(files.len(), 2);
+            assert!(files.iter().all(|file| file.cover_art_checked_at.is_some()));
+            let baked = bake_cover_art_by_media_files(fs, db, files.clone()).await?;
+            let mut matches = true;
+            for file in files {
+                let path = &baked[&file.id];
+                let bytes = (!path.is_empty())
+                    .then(|| std::fs::read(path))
+                    .transpose()?;
+                let digest = bytes
+                    .as_deref()
+                    .map(|bytes| blake3::hash(bytes).to_hex().to_string());
+                println!(
+                    "{stage}: {} {:?} {digest:?}",
+                    file.file_name, file.cover_art_uuid
+                );
+                matches &= file.cover_art_uuid.is_some() == expected.is_some()
+                    && bytes.as_deref() == expected;
+            }
+            Ok::<_, anyhow::Error>(matches)
+        }
+    };
+
+    assert_eq!(scan(false).await?, 2);
+    assert!(inspect("initial", Some(initial)).await?);
+    let mut stale = Vec::new();
+
+    fs::write(&cover, replacement)?;
+    assert_eq!(scan(false).await?, 0);
+    if !inspect("normal replacement", Some(replacement)).await? {
+        stale.push("replacement");
+    }
+    assert_eq!(scan(true).await?, 2);
+    assert!(inspect("forced replacement", Some(replacement)).await?);
+
+    fs::remove_file(&cover)?;
+    assert_eq!(scan(false).await?, 0);
+    if !inspect("normal removal", None).await? {
+        stale.push("removal");
+    }
+    assert_eq!(scan(true).await?, 2);
+    assert!(inspect("forced removal", None).await?);
+
+    fs::write(&cover, initial)?;
+    assert_eq!(scan(false).await?, 0);
+    if !inspect("normal addition after checked absence", Some(initial)).await? {
+        stale.push("addition after checked absence");
+    }
+    assert_eq!(scan(true).await?, 2);
+    assert!(inspect("forced addition after checked absence", Some(initial)).await?);
+
+    for (track, (modified, bytes)) in tracks.iter().zip(original_audio) {
+        assert_eq!(fs::metadata(track)?.modified()?, modified);
+        assert_eq!(fs::read(track)?, bytes);
+    }
+    let before = media_files::Entity::find().all(&db).await?;
+    let head = causal_progress::head_on(&db, store.namespace()).await?;
+    assert_eq!(scan(false).await?, 0);
+    assert_eq!(media_files::Entity::find().all(&db).await?, before);
+    assert_eq!(
+        causal_progress::head_on(&db, store.namespace()).await?,
+        head
+    );
+    assert!(
+        stale.is_empty(),
+        "normal scan left external artwork stale: {stale:?}"
+    );
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn rejected_artwork_assignment_does_not_stop_other_files_and_retries() -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

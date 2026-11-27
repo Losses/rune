@@ -176,6 +176,8 @@ Logical removal enters through an explicit command or a complete causal merge. M
 
 ## Artwork and computed metadata
 
+A normal scan of a local folder refreshes its selected external cover when the image changes, disappears, or is added after a scan found none. Embedded artwork takes priority. A normal scan of OpenDAL storage keeps the audio-based skip, avoiding a download of unchanged covers. Force Scan checks external covers again on either storage type.
+
 Artwork UUIDs are UUIDv5 of the full lowercase BLAKE3 hexadecimal digest under the URL-derived `https://rune.audio/catalog/artwork` namespace. Artwork identity uses the full BLAKE3 digest. Its portable value contains body digest, length and primary color; the body is fetched through an authenticated caller capability with an 8 MiB limit. The nil/empty sentinel remains local. Source conversion preserves existing body bytes, colors and local IDs, and rejects ambiguous identities before mutation.
 
 Artwork attachment verifies the complete hash, length and UUID, then updates the primary artwork row and local availability in one transaction after checking the expected assignment. A missing or corrupt body preserves its metadata and track references with unavailable local bytes. Verified content repairs that row in place; a different already verified body for the same identity is a collision error. Source inspection distinguishes confirmed absence from parser or I/O failure: only confirmed absence or an explicit command clears the track's artwork reference. HTTP transfer runs outside database transactions; unrelated metadata continues after a body failure.

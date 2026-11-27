@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use image::{GenericImageView, ImageBuffer, Pixel};
@@ -10,6 +10,7 @@ use ::fsio::FsIo;
 use crate::crc::media_crc32;
 use crate::taglib::{self, ReadFields};
 
+#[derive(Clone)]
 pub struct CoverArt {
     pub crc: String,
     pub data: Vec<u8>,
@@ -104,7 +105,8 @@ pub async fn extract_cover_art_from_stream(
     cover_from_bytes(picture.data)
 }
 
-fn cover_from_bytes(data: Vec<u8>) -> Result<CoverArt> {
+/// Validate an image and derive the cover metadata from its encoded bytes.
+pub fn cover_from_bytes(data: Vec<u8>) -> Result<CoverArt> {
     anyhow::ensure!(!data.is_empty(), "empty artwork");
     let rgb = decode_image(&data)?;
     let crc = media_crc32(&rgb, 0, 0, rgb.len());
@@ -114,6 +116,62 @@ fn cover_from_bytes(data: Vec<u8>) -> Result<CoverArt> {
         data,
         primary_color: color_to_int(&get_palette_rgb(&rgb)[0]),
     })
+}
+
+const EXTERNAL_COVER_NAMES: &[&str] = &[
+    "cover.png",
+    "cover.jpg",
+    "cover.jpeg",
+    "folder.png",
+    "folder.jpg",
+    "folder.jpeg",
+    "Cover.png",
+    "Cover.jpg",
+    "Cover.jpeg",
+    "Folder.png",
+    "Folder.jpg",
+    "Folder.jpeg",
+    "front.png",
+    "front.jpg",
+    "front.jpeg",
+    "Front.png",
+    "Front.jpg",
+    "Front.jpeg",
+    "albumart.png",
+    "albumart.jpg",
+    "albumart.jpeg",
+    "AlbumArt.png",
+    "AlbumArt.jpg",
+    "AlbumArt.jpeg",
+    "Albumart.png",
+    "Albumart.jpg",
+    "Albumart.jpeg",
+    "coverart.png",
+    "coverart.jpg",
+    "coverart.jpeg",
+    "CoverArt.png",
+    "CoverArt.jpg",
+    "CoverArt.jpeg",
+    "Coverart.png",
+    "Coverart.jpg",
+    "Coverart.jpeg",
+];
+
+pub(crate) fn resembles_external_cover(name: &str) -> bool {
+    EXTERNAL_COVER_NAMES
+        .iter()
+        .any(|expected| name.eq_ignore_ascii_case(expected))
+}
+
+/// Use the backend's case rules and the same order as fallback extraction.
+pub fn find_external_cover_in_directory(fsio: &FsIo, directory: &Path) -> Result<Option<PathBuf>> {
+    for name in EXTERNAL_COVER_NAMES {
+        let path = directory.join(name);
+        if fsio.exists(&path)? {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
 }
 
 fn fallback_to_external_cover(
@@ -126,53 +184,11 @@ fn fallback_to_external_cover(
         "file path is not within library"
     );
 
-    let cover_names = [
-        "cover.png",
-        "cover.jpg",
-        "cover.jpeg",
-        "folder.png",
-        "folder.jpg",
-        "folder.jpeg",
-        "Cover.png",
-        "Cover.jpg",
-        "Cover.jpeg",
-        "Folder.png",
-        "Folder.jpg",
-        "Folder.jpeg",
-        "front.png",
-        "front.jpg",
-        "front.jpeg",
-        "Front.png",
-        "Front.jpg",
-        "Front.jpeg",
-        "albumart.png",
-        "albumart.jpg",
-        "albumart.jpeg",
-        "AlbumArt.png",
-        "AlbumArt.jpg",
-        "AlbumArt.jpeg",
-        "Albumart.png",
-        "Albumart.jpg",
-        "Albumart.jpeg",
-        "coverart.png",
-        "coverart.jpg",
-        "coverart.jpeg",
-        "CoverArt.png",
-        "CoverArt.jpg",
-        "CoverArt.jpeg",
-        "Coverart.png",
-        "Coverart.jpg",
-        "Coverart.jpeg",
-    ];
-
     let mut current_dir = file_path.parent().context("file has no parent directory")?;
 
     while current_dir.starts_with(lib_path) {
-        for cover_name in &cover_names {
-            let cover_path = current_dir.join(cover_name);
-            if fsio.exists(&cover_path)? {
-                return Ok(Some(process_external_cover(fsio, &cover_path)?));
-            }
+        if let Some(path) = find_external_cover_in_directory(fsio, current_dir)? {
+            return Ok(Some(read_external_cover(fsio, &path)?));
         }
         let Some(parent) = current_dir.parent() else {
             break;
@@ -182,7 +198,7 @@ fn fallback_to_external_cover(
     Ok(None)
 }
 
-fn process_external_cover(fsio: &FsIo, cover_path: &Path) -> Result<CoverArt> {
+fn read_external_cover(fsio: &FsIo, cover_path: &Path) -> Result<CoverArt> {
     cover_from_bytes(fsio.read(cover_path)?)
 }
 
