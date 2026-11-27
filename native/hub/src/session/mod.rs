@@ -1983,6 +1983,14 @@ fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> MediaPla
 }
 
 #[cfg(target_os = "linux")]
+fn mpris_duration(seconds: f64) -> Option<Duration> {
+    // Souvlaki encodes mpris:length as signed microseconds.
+    Duration::try_from_secs_f64(seconds)
+        .ok()
+        .filter(|duration| i64::try_from(duration.as_micros()).is_ok())
+}
+
+#[cfg(target_os = "linux")]
 fn mpris_metadata(status: Option<&PlaybackStatus>) -> playback::MediaMetadata<'_> {
     use playback::{MediaMetadata, controller::get_default_cover_art_path};
 
@@ -1997,7 +2005,7 @@ fn mpris_metadata(status: Option<&PlaybackStatus>) -> playback::MediaMetadata<'_
             .cover_art_path
             .as_deref()
             .or_else(|| get_default_cover_art_path().to_str()),
-        duration: Duration::try_from_secs_f64(status.duration).ok(),
+        duration: mpris_duration(status.duration),
     }
 }
 
@@ -2385,10 +2393,25 @@ impl Drop for PlayerSession {
 
 #[cfg(test)]
 mod system_now_playing_tests {
+    #[cfg(target_os = "linux")]
+    use super::mpris_duration;
     use super::{
         NowPlayingHandOff, NowPlayingReport, NowPlayingUpdate, late_metadata_update,
         now_playing_hand_off, now_playing_update,
     };
+    #[cfg(target_os = "linux")]
+    use std::time::Duration;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mpris_duration_requires_signed_microseconds() {
+        let too_long = Duration::from_secs(u64::MAX / 2).as_secs_f64();
+        assert!(Duration::try_from_secs_f64(too_long).is_ok());
+        assert_eq!(mpris_duration(too_long), None);
+        assert_eq!(mpris_duration(3.5), Some(Duration::from_millis(3500)));
+        assert_eq!(mpris_duration(-1.0), None);
+        assert_eq!(mpris_duration(f64::NAN), None);
+    }
 
     const METADATA_AND_PROGRESS: NowPlayingUpdate = NowPlayingUpdate {
         metadata: true,
