@@ -2348,15 +2348,17 @@ async fn open_subsonic_record(
             return Err((kind, anyhow::anyhow!(detail)));
         }
     };
-    let binding = Arc::new(SubsonicBinding::new(
-        client,
-        probe,
-        config_dir.to_path_buf(),
-        library_id,
-        play_on_this_device,
-        Arc::clone(&node.gui_broadcaster),
-        Arc::clone(node.visualizer()),
-    ));
+    let binding = Arc::new_cyclic(|binding: &std::sync::Weak<SubsonicBinding>| {
+        SubsonicBinding::new(
+            client,
+            probe,
+            config_dir.to_path_buf(),
+            library_id,
+            play_on_this_device,
+            node.service_player_broadcaster(binding.clone()),
+            Arc::clone(node.visualizer()),
+        )
+    });
     if kept_probe.is_none() {
         binding.keep_probe();
     }

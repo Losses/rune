@@ -46,6 +46,7 @@ use crate::request_error::{ExpectedRequestError, player_command_error};
 use crate::request_owner::{CurrentPlayer, Implementation, OpenLibrary};
 use crate::rpc::{Slot, TargetRequest};
 use crate::server::sync_worker::{ShareSyncRequests, SyncTokenStore};
+use crate::service::ServicePlayer;
 use crate::service::{
     ServiceBinding,
     covers::ServiceCoverCache,
@@ -256,6 +257,8 @@ pub struct NodeContext {
     pub renderer_link: Arc<StdMutex<Option<Arc<RendererLink>>>>,
     ui_library: Arc<StdMutex<UiLibrary>>,
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    #[cfg(target_os = "linux")]
+    pub(crate) mpris_status: Option<tokio::sync::watch::Sender<Option<PlaybackStatus>>>,
     /// Ends when another player takes over from the local player, which cancels the UI
     /// requests to the local player that are still running. The ended tenure stays here until
     /// the local player's departure has queued its pause.
@@ -341,6 +344,8 @@ impl Debug for NodeContext {
 
 struct NodeBroadcaster {
     current_player: Arc<StdMutex<CurrentPlayer>>,
+    #[cfg(target_os = "linux")]
+    mpris_status: Option<tokio::sync::watch::Sender<Option<PlaybackStatus>>>,
     local_session_hidden: Arc<AtomicUsize>,
     local: Arc<dyn Broadcaster>,
     remote: Arc<WebSocketService>,
@@ -382,12 +387,23 @@ pub(crate) enum HandoffPlaybackReport {
 impl Broadcaster for NodeBroadcaster {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let remote_event = message.remote_event();
-        let suppress_local_status = (self
-            .current_player
-            .lock()
+        let current = self.current_player.lock();
+        let suppress_local_status = (current
+            .as_ref()
             .is_ok_and(|player| player.suppresses_local_session_events())
             || self.local_session_hidden.load(Ordering::Acquire) > 0)
             && remote_event == Some(RemoteEventScope::Session);
+        #[cfg(target_os = "linux")]
+        if !suppress_local_status
+            && let Some(sender) = &self.mpris_status
+            && let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>()
+            && current
+                .as_ref()
+                .is_ok_and(|player| matches!(**player, CurrentPlayer::Local))
+        {
+            sender.send_replace(Some(status.clone()));
+        }
+        drop(current);
         if !suppress_local_status {
             self.local.broadcast(message);
         }
@@ -397,7 +413,61 @@ impl Broadcaster for NodeBroadcaster {
     }
 }
 
+#[cfg(target_os = "linux")]
+struct ServiceMprisBroadcaster {
+    current_player: Weak<StdMutex<CurrentPlayer>>,
+    sender: tokio::sync::watch::Sender<Option<PlaybackStatus>>,
+    gui: Arc<dyn Broadcaster>,
+    service: Weak<dyn ServicePlayer>,
+}
+
+#[cfg(target_os = "linux")]
+impl Broadcaster for ServiceMprisBroadcaster {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        if let Some(status) = message.as_any().downcast_ref::<PlaybackStatus>()
+            && let Some(current) = self.current_player.upgrade()
+            && let Ok(current) = current.lock()
+            && let CurrentPlayer::ServicePlayer(player) = &*current
+            && self.service.ptr_eq(&Arc::downgrade(player))
+        {
+            self.sender.send_replace(Some(status.clone()));
+        }
+        self.gui.broadcast(message);
+    }
+}
+
 impl NodeContext {
+    pub(crate) fn service_player_broadcaster(
+        &self,
+        service: Weak<dyn ServicePlayer>,
+    ) -> Arc<dyn Broadcaster> {
+        #[cfg(target_os = "linux")]
+        if let Some(sender) = &self.mpris_status {
+            return Arc::new(ServiceMprisBroadcaster {
+                current_player: Arc::downgrade(&self.current_player),
+                sender: sender.clone(),
+                gui: Arc::clone(&self.gui_broadcaster),
+                service,
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        drop(service);
+        Arc::clone(&self.gui_broadcaster)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn publish_renderer_mpris_status(&self, id: Uuid, status: &PlaybackStatus) {
+        if let Some(sender) = &self.mpris_status
+            && let Ok(current) = self.current_player.lock()
+            && let CurrentPlayer::RunePeer {
+                link: Some(link), ..
+            } = &*current
+            && link.id() == id
+        {
+            sender.send_replace(Some(status.clone()));
+        }
+    }
+
     pub(crate) fn subscribe_handoff_playback_events(
         &self,
     ) -> broadcast::Receiver<HandoffPlaybackEvent> {
@@ -502,6 +572,8 @@ impl NodeContext {
         let renderer_link = Arc::new(StdMutex::new(None));
         let ui_library = Arc::new(StdMutex::new(UiLibrary::Closed));
         let current_player = Arc::new(StdMutex::new(CurrentPlayer::Local));
+        #[cfg(target_os = "linux")]
+        let mpris_status = os_media_controls.then(|| tokio::sync::watch::Sender::new(None));
         let local_session_hidden = Arc::new(AtomicUsize::new(0));
         let sync_tokens = SyncTokenStore::default();
         let credentials = Arc::new(CredentialStore::open(Path::new(config_path)));
@@ -544,6 +616,8 @@ impl NodeContext {
             sync_settings_update: Mutex::new(()),
             broadcaster: Arc::new(NodeBroadcaster {
                 current_player: current_player.clone(),
+                #[cfg(target_os = "linux")]
+                mpris_status: mpris_status.clone(),
                 local_session_hidden: local_session_hidden.clone(),
                 local: broadcaster.clone(),
                 remote: websocket_service.clone(),
@@ -554,6 +628,8 @@ impl NodeContext {
             renderer_link,
             ui_library,
             current_player,
+            #[cfg(target_os = "linux")]
+            mpris_status,
             local_player_tenure: Arc::default(),
             local_session_hidden,
             local_track_hosted: AtomicBool::new(false),
@@ -1298,6 +1374,22 @@ impl NodeContext {
             .current_player
             .lock()
             .map_err(|_| anyhow::anyhow!("Current player lock poisoned"))?;
+        #[cfg(target_os = "linux")]
+        if let Some(sender) = &self.mpris_status
+            && !match (&*current, &player) {
+                (CurrentPlayer::Local, CurrentPlayer::Local) => true,
+                (CurrentPlayer::ServicePlayer(a), CurrentPlayer::ServicePlayer(b)) => {
+                    Arc::ptr_eq(a, b)
+                }
+                (
+                    CurrentPlayer::RunePeer { link: Some(a), .. },
+                    CurrentPlayer::RunePeer { link: Some(b), .. },
+                ) => a.id() == b.id(),
+                _ => false,
+            }
+        {
+            sender.send_replace(None);
+        }
         *current = player;
         // This device's player owns the visualizer again, so its session's reports are the
         // playback to show. Until then they are ignored: the session keeps reporting the paused
@@ -2290,6 +2382,8 @@ mod tests {
         let mut received = remote.broadcast_tx.subscribe();
         let broadcaster = NodeBroadcaster {
             current_player: Arc::new(StdMutex::new(CurrentPlayer::Local)),
+            #[cfg(target_os = "linux")]
+            mpris_status: None,
             local_session_hidden: Arc::default(),
             local: Arc::new(Quiet(None)),
             remote,

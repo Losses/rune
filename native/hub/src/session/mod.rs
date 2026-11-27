@@ -769,6 +769,9 @@ impl PlayerSession {
         let status = player.status_after_pending().await;
         drop(player);
         drop(state);
+        #[cfg(target_os = "linux")]
+        let controls = None;
+        #[cfg(not(target_os = "linux"))]
         let controls = self.controls.lock().await.clone();
         let mut item_state = ItemEventState {
             re_show: true,
@@ -965,6 +968,20 @@ impl PlayerSession {
         } else {
             None
         };
+        // On Linux the desktop follows the selected player's reports. The local
+        // session still owns the media control event receiver above.
+        #[cfg(target_os = "linux")]
+        if let (Some(manager), Some(sender)) = (&controls, &node.mpris_status) {
+            self.tasks.lock().await.push(tokio::spawn(run_mpris(
+                Arc::clone(manager),
+                sender.subscribe(),
+                self.cancel.clone(),
+            )));
+        }
+        #[cfg(target_os = "linux")]
+        let status_controls = None;
+        #[cfg(not(target_os = "linux"))]
+        let status_controls = controls.clone();
         let weak = self.node.clone();
         let broadcaster = node.broadcaster.clone();
         let player = self.player.clone();
@@ -1039,19 +1056,19 @@ impl PlayerSession {
                                 // answer, so the session shows again without noting the answer over it.
                                 answered = None;
                                 note_local_track(&node, &value);
-                                handle_status_event(&node, value, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                                handle_status_event(&node, value, &mut item_state, &status_controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                             }
                         }
                     }
                     Some(late) = late_cover_rx.recv() => {
                         let Some(node) = weak.upgrade() else { return };
-                        if show_late_cover(&node, late, &mut item_state, &controls).await {
+                        if show_late_cover(&node, late, &mut item_state, &status_controls).await {
                             let status = player.lock().await.get_status();
                             // Statuses still queued come before this snapshot. If the player has
                             // moved to another item, they report that change in order.
                             if status.item == item_state.last_item {
                                 last_status = Some(status.clone());
-                                handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                                handle_status_event(&node, status, &mut item_state, &status_controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                             }
                         }
                     }
@@ -1099,11 +1116,11 @@ impl PlayerSession {
                     _ = ready(()), if late_name => {
                         late_name = false;
                         let Some(node) = weak.upgrade() else { return };
-                        if name_late_track(&mut item_state, &controls, true).await
+                        if name_late_track(&mut item_state, &status_controls, true).await
                             && let Some(status) = last_status.clone()
                         {
                             note_local_track(&node, &status);
-                            handle_status_event(&node, status, &mut item_state, &controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
+                            handle_status_event(&node, status, &mut item_state, &status_controls, Some(&now_playing_tx), &broadcaster, &session_id).await;
                         }
                     }
                     // The queue goes out again the same way, as handled last, once no report waits.
@@ -1961,6 +1978,67 @@ fn now_playing_playback(status: &PlayerStatus, metadata_found: bool) -> MediaPla
         PlaybackState::Paused => MediaPlayback::Paused { progress },
         PlaybackState::Stopped => MediaPlayback::Stopped,
     }
+}
+
+#[cfg(target_os = "linux")]
+fn mpris_metadata(status: Option<&PlaybackStatus>) -> playback::MediaMetadata<'_> {
+    use playback::{MediaMetadata, controller::get_default_cover_art_path};
+
+    let Some(status) = status.filter(|status| status.item.is_some()) else {
+        return MediaMetadata::default();
+    };
+    MediaMetadata {
+        title: status.title.as_deref(),
+        artist: status.artist.as_deref(),
+        album: status.album.as_deref(),
+        cover_url: status
+            .cover_art_path
+            .as_deref()
+            .or_else(|| get_default_cover_art_path().to_str()),
+        duration: Duration::try_from_secs_f64(status.duration).ok(),
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn run_mpris(
+    manager: Arc<Mutex<MediaControlManager>>,
+    mut reports: tokio::sync::watch::Receiver<Option<PlaybackStatus>>,
+    cancel: CancellationToken,
+) {
+    use crate::messages::PlaybackState as ReportedState;
+
+    let mut displayed = None;
+    reports.mark_changed();
+    let _ = cancel
+        .run_until_cancelled(async {
+            while reports.changed().await.is_ok() {
+                let mut manager = manager.lock().await;
+                let status = reports.borrow_and_update().clone();
+                let metadata = mpris_metadata(status.as_ref());
+                if metadata != mpris_metadata(displayed.as_ref())
+                    && let Err(error) = manager.controls.set_metadata(metadata)
+                {
+                    log::warn!("Failed to publish MPRIS metadata: {error:?}");
+                    break;
+                }
+                let playback = status.as_ref().map_or(MediaPlayback::Stopped, |report| {
+                    let progress = Duration::try_from_secs_f32(report.progress_seconds)
+                        .ok()
+                        .map(MediaPosition);
+                    match report.state {
+                        ReportedState::Playing => MediaPlayback::Playing { progress },
+                        ReportedState::Paused => MediaPlayback::Paused { progress },
+                        ReportedState::Stopped => MediaPlayback::Stopped,
+                    }
+                });
+                if let Err(error) = manager.controls.set_playback(playback) {
+                    log::warn!("Failed to publish MPRIS playback: {error:?}");
+                    break;
+                }
+                displayed = status;
+            }
+        })
+        .await;
 }
 
 fn playing_item_ref(item: &PlayingItem) -> Option<PlayingItemRef> {
