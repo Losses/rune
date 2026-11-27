@@ -59,6 +59,10 @@ impl<R> Listener<R> {
 
     pub(super) async fn stop(self) {
         self.cancel.cancel();
+        self.join().await;
+    }
+
+    pub(super) async fn join(self) {
         tokio_time::timeout(TEST_DEADLINE, self.task)
             .await
             .unwrap()

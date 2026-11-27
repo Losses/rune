@@ -1959,6 +1959,7 @@ impl NodeContext {
             config_path: self.config_path.clone(),
             sync_settings: self.sync_settings.clone(),
             node_id: self.node_id.clone(),
+            handoff_token: Arc::new(token.child_token()),
             main_token: token.clone(),
             library_tasks: self.library_tasks.clone(),
             player: session.player.clone(),
@@ -1974,24 +1975,50 @@ impl NodeContext {
     }
 
     pub async fn attach_ui(&self, params: &Arc<GlobalParams>) {
-        let mut current = self.current_ui.lock().await;
-        if let Some(old) = current.as_ref().and_then(Weak::upgrade) {
-            if Arc::ptr_eq(&old, params) {
-                if let Err(error) = self.publish_capabilities() {
-                    log::warn!("Could not publish request capabilities on UI attach: {error:#}");
+        loop {
+            let mut current = self.current_ui.lock().await;
+            if let Some(old) = current.as_ref().and_then(Weak::upgrade) {
+                if Arc::ptr_eq(&old, params) {
+                    if let Err(error) = self.publish_capabilities() {
+                        log::warn!(
+                            "Could not publish request capabilities on UI attach: {error:#}"
+                        );
+                    }
+                    return;
                 }
-                return;
+                // The handoff can finish playback work that consults the current UI.
+                drop(current);
+                Self::settle_ui_handoff(&old).await;
+                current = self.current_ui.lock().await;
+                if !current
+                    .as_ref()
+                    .and_then(Weak::upgrade)
+                    .is_some_and(|current| Arc::ptr_eq(&old, &current))
+                {
+                    continue;
+                }
+                Self::release_ui(&old).await;
             }
-            Self::release_ui(&old).await;
+            *current = Some(Arc::downgrade(params));
+            break;
         }
-        *current = Some(Arc::downgrade(params));
-        drop(current);
         self.leave_remote_ui().await;
         if let Err(error) = self.publish_capabilities() {
             log::warn!("Could not publish request capabilities on UI attach: {error:#}");
         }
         // A file played by its path is read through the UI's local library, if it has one.
         self.item_capabilities_changed();
+    }
+
+    async fn settle_ui_handoff(params: &GlobalParams) {
+        if let Err(error) = params
+            .node
+            .handoff_tickets
+            .close_ui(&params.handoff_token)
+            .await
+        {
+            log::warn!("Handoff did not settle before closing the library: {error:#}");
+        }
     }
 
     async fn release_ui(params: &GlobalParams) {
@@ -2069,6 +2096,18 @@ impl NodeContext {
     }
 
     pub async fn close_ui(&self, token: &Arc<CancellationToken>) {
+        let params = self
+            .current_ui
+            .lock()
+            .await
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .filter(|params| Arc::ptr_eq(&params.main_token, token));
+        let Some(params) = params else {
+            return;
+        };
+        Self::settle_ui_handoff(&params).await;
+
         let params = {
             let mut current = self.current_ui.lock().await;
             let params = current

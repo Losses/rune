@@ -15,15 +15,25 @@ pub(crate) struct HandoffTickets {
 
 #[derive(Default)]
 struct Tickets {
-    next: Option<Uuid>,
+    next: Option<(Uuid, Arc<CancellationToken>)>,
     running: Option<RunningHandoff>,
 }
 
 struct RunningHandoff {
+    ui: Arc<CancellationToken>,
     ticket: Uuid,
     cancel: CancellationToken,
     completion: Arc<HandoffCompletion>,
     committed: bool,
+}
+
+impl RunningHandoff {
+    fn cancel(&self) -> Arc<HandoffCompletion> {
+        if !self.committed {
+            self.cancel.cancel();
+        }
+        self.completion.clone()
+    }
 }
 
 #[derive(Default)]
@@ -58,18 +68,34 @@ pub(crate) struct HandoffRun<'a> {
 }
 
 impl HandoffTickets {
-    pub(crate) fn prepare(&self) -> Uuid {
+    pub(crate) fn prepare(
+        &self,
+        ui: &Arc<CancellationToken>,
+    ) -> Result<Uuid, ExpectedRequestError> {
         let ticket = Uuid::new_v4();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.next = Some(ticket);
-        ticket
+        if ui.is_cancelled() {
+            return Err(ExpectedRequestError::HandoffSuperseded);
+        }
+        state.next = Some((ticket, ui.clone()));
+        Ok(ticket)
     }
 
-    pub(crate) async fn start(&self, ticket: Uuid) -> Result<HandoffRun<'_>, ExpectedRequestError> {
+    pub(crate) async fn start(
+        &self,
+        ticket: Option<Uuid>,
+        ui: &Arc<CancellationToken>,
+    ) -> Result<HandoffRun<'_>, ExpectedRequestError> {
+        let run_ticket = ticket.unwrap_or_else(Uuid::new_v4);
         loop {
             let previous = {
                 let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-                if state.next != Some(ticket) {
+                if ui.is_cancelled()
+                    || ticket.is_some()
+                        && !state.next.as_ref().is_some_and(|(next, owner)| {
+                            *next == run_ticket && Arc::ptr_eq(owner, ui)
+                        })
+                {
                     return Err(ExpectedRequestError::HandoffSuperseded);
                 }
                 if let Some(running) = &state.running {
@@ -77,26 +103,32 @@ impl HandoffTickets {
                 } else {
                     let cancel = CancellationToken::new();
                     let completion = Arc::new(HandoffCompletion::default());
-                    state.next = None;
+                    if ticket.is_some() {
+                        state.next = None;
+                    }
                     state.running = Some(RunningHandoff {
-                        ticket,
+                        ui: ui.clone(),
+                        ticket: run_ticket,
                         cancel: cancel.clone(),
                         completion: completion.clone(),
                         committed: false,
                     });
                     return Ok(HandoffRun {
                         owner: self,
-                        ticket,
+                        ticket: run_ticket,
                         cancel,
                         completion,
                     });
                 }
             };
-            // Close is immediate. A replacement must wait for the old operation to finish
-            // restoring playback, then check that its own ticket is still reserved.
+            // A replacement must let the previous operation finish restoring playback.
             if let Err(error) = previous.wait().await {
                 let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-                if state.next == Some(ticket) {
+                if state
+                    .next
+                    .as_ref()
+                    .is_some_and(|(next, _)| *next == run_ticket)
+                {
                     state.next = None;
                 }
                 return Err(error);
@@ -104,21 +136,45 @@ impl HandoffTickets {
         }
     }
 
+    pub(crate) async fn close_ui(
+        &self,
+        ui: &Arc<CancellationToken>,
+    ) -> Result<(), ExpectedRequestError> {
+        let completion = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            // Revoke admission under the same lock that installs a running handoff.
+            ui.cancel();
+            if state
+                .next
+                .as_ref()
+                .is_some_and(|(_, owner)| Arc::ptr_eq(owner, ui))
+            {
+                state.next = None;
+            }
+            state
+                .running
+                .as_ref()
+                .filter(|run| Arc::ptr_eq(&run.ui, ui))
+                .map(RunningHandoff::cancel)
+        };
+        if let Some(completion) = completion {
+            completion.wait().await?;
+        }
+        Ok(())
+    }
+
     /// A cancellation of a running handoff settles only after its cleanup has finished.
     pub(crate) async fn cancel(&self, ticket: Uuid) -> Result<(), ExpectedRequestError> {
         let completion = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if state.next == Some(ticket) {
+            if state.next.as_ref().is_some_and(|(next, _)| *next == ticket) {
                 state.next = None;
                 return Ok(());
             }
             let Some(running) = state.running.as_ref().filter(|run| run.ticket == ticket) else {
                 return Ok(());
             };
-            if !running.committed {
-                running.cancel.cancel();
-            }
-            running.completion.clone()
+            running.cancel()
         };
         completion.wait().await
     }
@@ -141,15 +197,22 @@ impl HandoffRun<'_> {
         Ok(())
     }
 
+    pub(crate) async fn until_cancelled<T>(
+        &self,
+        operation: impl Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => Err(ExpectedRequestError::HandoffSuperseded.into()),
+            outcome = operation => outcome,
+        }
+    }
+
     pub(crate) async fn confirm(
         &self,
         confirmation: impl Future<Output = anyhow::Result<()>>,
     ) -> anyhow::Result<()> {
-        tokio::select! {
-            biased;
-            _ = self.cancel.cancelled() => return Err(ExpectedRequestError::HandoffSuperseded.into()),
-            outcome = confirmation => outcome?,
-        }
+        self.until_cancelled(confirmation).await?;
         self.commit()?;
         Ok(())
     }
@@ -195,15 +258,70 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn closing_the_old_ui_waits_for_its_handoff_and_keeps_the_new_ticket() {
+        let owner = HandoffTickets::default();
+        let old_ui = Arc::new(CancellationToken::new());
+        let new_ui = Arc::new(CancellationToken::new());
+        let run = owner.start(None, &old_ui).await.unwrap();
+        let next = owner.prepare(&new_ui).unwrap();
+
+        let close = owner.close_ui(&old_ui);
+        tokio::pin!(close);
+        assert!(futures::poll!(&mut close).is_pending());
+        assert!(run.check_cancelled().is_err());
+        assert!(owner.prepare(&old_ui).is_err());
+        assert!(owner.start(None, &old_ui).await.is_err());
+
+        run.finish();
+        drop(run);
+        close.await.unwrap();
+        assert!(
+            owner
+                .start(Some(next), &new_ui)
+                .await
+                .unwrap()
+                .commit()
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn closing_library_cancels_renderer_setup_before_load() {
+        let owner = HandoffTickets::default();
+        let ui = Arc::new(CancellationToken::new());
+        let run = owner.start(None, &ui).await.unwrap();
+        let close = owner.close_ui(&ui);
+        tokio::pin!(close);
+        let outcome = {
+            let setup = run.until_cancelled(std::future::pending::<anyhow::Result<()>>());
+            tokio::pin!(setup);
+            assert!(futures::poll!(&mut setup).is_pending());
+            assert!(futures::poll!(&mut close).is_pending());
+            match futures::poll!(&mut setup) {
+                std::task::Poll::Ready(outcome) => outcome,
+                std::task::Poll::Pending => panic!("closing the library must stop pending setup"),
+            }
+        };
+        assert!(matches!(
+            outcome.unwrap_err().downcast_ref(),
+            Some(ExpectedRequestError::HandoffSuperseded)
+        ));
+        run.finish();
+        drop(run);
+        close.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn cancelling_a_prepared_ticket_does_not_cancel_a_later_handoff() {
         let owner = HandoffTickets::default();
-        let first = owner.prepare();
+        let ui = Arc::new(CancellationToken::new());
+        let first = owner.prepare(&ui).unwrap();
         owner.cancel(first).await.unwrap();
         owner.cancel(first).await.unwrap();
-        assert!(owner.start(first).await.is_err());
+        assert!(owner.start(Some(first), &ui).await.is_err());
 
-        let next = owner.prepare();
-        let run = owner.start(next).await.unwrap();
+        let next = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(next), &ui).await.unwrap();
         owner.cancel(first).await.unwrap();
         assert!(run.commit().is_ok());
     }
@@ -211,14 +329,15 @@ mod tests {
     #[tokio::test]
     async fn retry_waits_for_the_cancelled_handoff_to_finish() {
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
-        let run = owner.start(ticket).await.unwrap();
+        let ui = Arc::new(CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(ticket), &ui).await.unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
 
-        let next = owner.prepare();
-        let retry = owner.start(next);
+        let next = owner.prepare(&ui).unwrap();
+        let retry = owner.start(Some(next), &ui);
         tokio::pin!(retry);
         assert!(futures::poll!(&mut retry).is_pending());
         run.finish();
@@ -230,14 +349,15 @@ mod tests {
     #[tokio::test]
     async fn an_unsettled_rollback_fails_cancellation_and_a_waiting_retry() {
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
-        let run = owner.start(ticket).await.unwrap();
+        let ui = Arc::new(CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(ticket), &ui).await.unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
 
-        let next = owner.prepare();
-        let retry = owner.start(next);
+        let next = owner.prepare(&ui).unwrap();
+        let retry = owner.start(Some(next), &ui);
         tokio::pin!(retry);
         assert!(futures::poll!(&mut retry).is_pending());
         run.mark_rollback_unsettled();
@@ -252,14 +372,15 @@ mod tests {
             retry.await,
             Err(ExpectedRequestError::Unavailable { .. })
         ));
-        assert!(owner.start(next).await.is_err());
+        assert!(owner.start(Some(next), &ui).await.is_err());
     }
 
     #[tokio::test]
     async fn an_interrupted_handoff_does_not_report_settled() {
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
-        let run = owner.start(ticket).await.unwrap();
+        let ui = Arc::new(CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(ticket), &ui).await.unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
@@ -274,8 +395,9 @@ mod tests {
     #[tokio::test]
     async fn closing_during_playback_confirmation_prevents_commit() {
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
-        let run = owner.start(ticket).await.unwrap();
+        let ui = Arc::new(CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(ticket), &ui).await.unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);
         assert!(futures::poll!(&mut cancel).is_pending());
@@ -292,8 +414,9 @@ mod tests {
     #[tokio::test]
     async fn late_cancellation_waits_for_a_committed_handoff_without_undoing_it() {
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
-        let run = owner.start(ticket).await.unwrap();
+        let ui = Arc::new(CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
+        let run = owner.start(Some(ticket), &ui).await.unwrap();
         run.commit().unwrap();
         let cancel = owner.cancel(ticket);
         tokio::pin!(cancel);

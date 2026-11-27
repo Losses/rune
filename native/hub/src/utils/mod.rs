@@ -196,6 +196,8 @@ pub struct GlobalParams {
     pub config_path: Arc<String>,
     pub sync_settings: Arc<RwLock<sync_settings::SyncSettings>>,
     pub node_id: Arc<String>,
+    /// Stops admission before the UI listener token is retired.
+    pub handoff_token: Arc<CancellationToken>,
     pub main_token: Arc<CancellationToken>,
     pub library_tasks: Arc<std_sync::Mutex<LibraryTaskOwner>>,
     pub player: Arc<Mutex<dyn Playable>>,

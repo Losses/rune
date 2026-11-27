@@ -1907,25 +1907,25 @@ pub(crate) fn session_snapshot_from_status(
 }
 
 impl ParamsExtractor for PrepareHandoffRequest {
-    type Params = Arc<NodeContext>;
+    type Params = (Arc<NodeContext>, Arc<tokio_util::sync::CancellationToken>);
 
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
-        params.node.clone()
+        (params.node.clone(), params.handoff_token.clone())
     }
 }
 
 impl Signal for PrepareHandoffRequest {
-    type Params = Arc<NodeContext>;
+    type Params = (Arc<NodeContext>, Arc<tokio_util::sync::CancellationToken>);
     type Response = PrepareHandoffResponse;
 
     async fn handle(
         &self,
-        node: Self::Params,
+        (node, ui): Self::Params,
         _session: Option<Session>,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
         Ok(Some(PrepareHandoffResponse {
-            ticket: node.handoff_tickets.prepare().to_string(),
+            ticket: node.handoff_tickets.prepare(&ui)?.to_string(),
             call_id: None,
         }))
     }
@@ -1957,35 +1957,41 @@ impl Signal for CancelHandoffRequest {
 }
 
 impl ParamsExtractor for HandoffRequest {
-    type Params = (Arc<NodeContext>,);
+    type Params = (Arc<NodeContext>, Arc<tokio_util::sync::CancellationToken>);
 
     fn extract_params(&self, params: &GlobalParams) -> Self::Params {
-        (params.node.clone(),)
+        (params.node.clone(), params.handoff_token.clone())
     }
 }
 
 impl Signal for HandoffRequest {
-    type Params = (Arc<NodeContext>,);
+    type Params = (Arc<NodeContext>, Arc<tokio_util::sync::CancellationToken>);
     type Response = HandoffResponse;
 
     async fn handle(
         &self,
-        (node,): Self::Params,
+        (node, ui): Self::Params,
         _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let run = match request.ticket.as_deref() {
-            Some(ticket) => {
-                let ticket =
-                    Uuid::parse_str(ticket).map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
-                Some(node.handoff_tickets.start(ticket).await?)
-            }
-            None => None,
+        let ticket = request
+            .ticket
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()
+            .map_err(|_| ExpectedRequestError::HandoffSuperseded)?;
+        let ui = if ticket.is_none() && ui.is_cancelled() {
+            // Older callers address the node directly rather than reserving a UI ticket.
+            node.current_ui().await.map_or_else(
+                |_| node.token.clone(),
+                |params| params.handoff_token.clone(),
+            )
+        } else {
+            ui
         };
-        let result = request.handoff(&node, run.as_ref()).await;
-        if let Some(run) = run {
-            run.finish();
-        }
+        let run = node.handoff_tickets.start(ticket, &ui).await?;
+        let result = request.handoff(&node, &run).await;
+        run.finish();
         result
     }
 }
@@ -1994,10 +2000,10 @@ impl HandoffRequest {
     async fn handoff(
         &self,
         node: &Arc<NodeContext>,
-        run: Option<&HandoffRun<'_>>,
+        run: &HandoffRun<'_>,
     ) -> Result<Option<HandoffResponse>> {
         let generation = node.begin_handoff().await;
-        run.map_or(Ok(()), HandoffRun::check_cancelled)?;
+        run.check_cancelled()?;
         let attached = node.renderer_link()?;
         let target = self.target.as_deref();
         let already_there = match (target, &attached) {
@@ -2006,13 +2012,11 @@ impl HandoffRequest {
             _ => false,
         };
         if already_there {
-            run.map_or(Ok(()), HandoffRun::commit)?;
+            run.commit()?;
             return Ok(Some(HandoffResponse { call_id: None }));
         }
         let paused = pause_handoff_source(node, attached.clone(), generation).await?;
-        if target.is_none()
-            && let Some(run) = run
-        {
+        if target.is_none() {
             // Returning to this device starts by taking back the previous block. Once that
             // begins, finish the existing return path to settle the queues on both sides.
             if let Err(error) = run.commit() {
@@ -2328,12 +2332,12 @@ async fn hand_off_to_renderer(
     block: PlayerHandoffBlockId,
     load: LoadResolvedItemsRequest,
     expected_position: f64,
-    run: Option<&HandoffRun<'_>>,
+    run: &HandoffRun<'_>,
 ) -> Result<()> {
-    let check_cancelled = || run.map_or(Ok(()), HandoffRun::check_cancelled);
-    check_cancelled()?;
-    let (connected_link, alias) = node
-        .connect_renderer(target, RendererLinkUse::Control)
+    let (connected_link, alias) = run
+        .until_cancelled(Box::pin(
+            node.connect_renderer(target, RendererLinkUse::Control),
+        ))
         .await?;
     // A rollback whose outcome is still unknown may have left its block on the target: loading
     // the new one on top of it would stack both. The connection just reconciled what it could,
@@ -2346,7 +2350,7 @@ async fn hand_off_to_renderer(
         }
         .into());
     }
-    if let Err(error) = check_cancelled() {
+    if let Err(error) = run.check_cancelled() {
         connected_link.close();
         return Err(error.into());
     }
@@ -2397,11 +2401,7 @@ async fn hand_off_to_renderer(
         )
         .await
     };
-    let confirmed = match run {
-        Some(run) => run.confirm(confirm).await,
-        None => confirm.await,
-    };
-    if let Err(error) = confirmed {
+    if let Err(error) = run.confirm(confirm).await {
         return Err(roll_back_handoff_block(node, &link, block, error, run).await);
     }
     Ok(())
@@ -2409,12 +2409,12 @@ async fn hand_off_to_renderer(
 
 /// An already sent Load may still apply. Wait for the reply before removing its block.
 async fn settle_handoff_load<T>(
-    run: Option<&HandoffRun<'_>>,
+    run: &HandoffRun<'_>,
     load: impl Future<Output = Result<T>>,
     roll_back: impl AsyncFnOnce(Error) -> Error,
 ) -> Result<T> {
     let response = load.await;
-    match run.map_or(Ok(()), HandoffRun::check_cancelled) {
+    match run.check_cancelled() {
         Ok(()) => response,
         Err(error) => Err(roll_back(error.into()).await),
     }
@@ -2425,7 +2425,7 @@ async fn roll_back_handoff_block(
     link: &RendererLink,
     block: PlayerHandoffBlockId,
     error: Error,
-    run: Option<&HandoffRun<'_>>,
+    run: &HandoffRun<'_>,
 ) -> Error {
     match link
         .call(&TakeBackHandoffBlockRequest {
@@ -2443,9 +2443,7 @@ async fn roll_back_handoff_block(
             if NodeContext::handoff_block_confirmed_absent(&rollback_error) {
                 node.forget_handoff_block(link.fingerprint(), block).await;
             } else {
-                if let Some(run) = run {
-                    run.mark_rollback_unsettled();
-                }
+                run.mark_rollback_unsettled();
                 node.note_pending_handoff_rollback(link.fingerprint(), block)
                     .await;
             }
@@ -2570,14 +2568,15 @@ mod handoff_confirmation_tests {
         use tokio::sync::{Notify, oneshot};
 
         let owner = HandoffTickets::default();
-        let ticket = owner.prepare();
+        let ui = Arc::new(tokio_util::sync::CancellationToken::new());
+        let ticket = owner.prepare(&ui).unwrap();
         let entered = Notify::new();
         let (release, reply) = oneshot::channel();
         let target_applied = AtomicBool::new(false);
         let handoff = async {
-            let run = owner.start(ticket).await.unwrap();
+            let run = owner.start(Some(ticket), &ui).await.unwrap();
             let result = settle_handoff_load(
-                Some(&run),
+                &run,
                 async {
                     entered.notify_one();
                     reply.await?;
@@ -2607,7 +2606,14 @@ mod handoff_confirmation_tests {
             assert!(!target_applied.load(Ordering::Relaxed));
         };
         tokio::join!(handoff, close);
-        assert!(owner.start(owner.prepare()).await.unwrap().commit().is_ok());
+        assert!(
+            owner
+                .start(Some(owner.prepare(&ui).unwrap()), &ui)
+                .await
+                .unwrap()
+                .commit()
+                .is_ok()
+        );
     }
 
     #[tokio::test]

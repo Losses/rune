@@ -10176,6 +10176,144 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn closing_library_rolls_back_an_unconfirmed_handoff() -> Result<()> {
+    use crate::messages::{
+        HandoffRequest, HandoffResponse, PrepareHandoffRequest, PrepareHandoffResponse,
+    };
+
+    let source_dir = tempfile::tempdir()?;
+    let target_dir = tempfile::tempdir()?;
+    let source = fixture(source_dir.path()).await?;
+    let target = fixture(target_dir.path()).await?;
+    let source_id = session_audio(&source, "handoff-close-source.ogg").await?;
+    let target_id = session_audio(&target, "handoff-close-target.ogg").await?;
+    let source_item = library_track_for_id(&source, source_id).await?;
+    let (_, target_replica) = replicate_host_library(&source, &target).await?;
+    let target_track_id = file_ids_by_uuid(
+        &target_replica.global_params.test_library().main_db,
+        &[source_item.file_uuid],
+    )
+    .await?
+    .get(&source_item.file_uuid)
+    .copied()
+    .context("target replica track id")?;
+    materialize_replica_file(
+        &target_replica,
+        target_track_id,
+        &Path::new(&source.global_params.test_library().media_root)
+            .join("handoff-close-source.ogg"),
+        "handoff-close-source.ogg",
+    )
+    .await?;
+    let target_address = paired_full(&target, &source).await?;
+    let target_fingerprint = info(&target).await?.fingerprint;
+    source
+        .global_params
+        .cert_validator
+        .read()
+        .await
+        .replace_hosts_for_fingerprint(
+            &target_fingerprint,
+            vec![format!("127.0.0.1:{}", target_address.port())],
+        )
+        .await?;
+
+    queue_session(&source, &[source_id]).await?;
+    queue_session(&target, &[target_id]).await?;
+    source
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_playback_mode(PlaybackMode::RepeatOne);
+    source.global_params.player.lock().await.switch(0);
+    let source_before = wait_player(&source, |status| {
+        status.state == PlayerPlaybackState::Playing
+    })
+    .await?;
+    let target_before = wait_player(&target, |status| status.playlist.len() == 1).await?;
+    let (resolver, gate) = GatedResolver::new(&target.global_params.node);
+    gate.send_replace(false);
+    target
+        .global_params
+        .player
+        .lock()
+        .await
+        .set_source_resolver(resolver);
+
+    let make_request = |ticket: String| HandoffRequest {
+        ticket: Some(ticket),
+        target: Some(target_fingerprint.clone()),
+        call_id: Some(1),
+    };
+    let params = &source.global_params;
+    let mut prepare = start::<PrepareHandoffRequest>(params);
+    prepare.send(PrepareHandoffRequest { call_id: Some(1) });
+    let ticket: PrepareHandoffResponse = prepare.receive("PrepareHandoffResponse").await;
+    prepare.stop().await;
+    let handoff = start::<HandoffRequest>(params);
+    handoff.send(make_request(ticket.ticket));
+    wait_player(&target, |status| {
+        status.playlist.iter().any(|entry| entry.block.is_some())
+    })
+    .await?;
+    wait_until(
+        "the source to attach while the target is still loading",
+        || async { Ok(params.node.renderer_link()?.is_some().then_some(())) },
+    )
+    .await?;
+    assert!(!target.global_params.player.lock().await.get_status().ready);
+
+    let mut close = start::<CloseLibraryRequest>(params);
+    close.send(CloseLibraryRequest { call_id: Some(1) });
+    let _: CloseLibraryResponse = close.receive("CloseLibraryResponse").await;
+    close.stop().await;
+    assert!(params.main_token.is_cancelled());
+    handoff.join().await;
+    let (target_after, _) = target.global_params.node.session()?.playback_snapshot().await;
+    assert_eq!(
+        target_after.playlist,
+        target_before.playlist,
+        "closing the source library must remove the unconfirmed handoff block",
+    );
+    assert!(params.node.renderer_link()?.is_none());
+    let source_after = wait_player(&source, |status| {
+        status.state == PlayerPlaybackState::Playing
+    })
+    .await?;
+    assert_eq!(source_after.item, source_before.item);
+    assert_eq!(source_after.playlist, source_before.playlist);
+    assert_eq!(target_after.state, target_before.state);
+
+    gate.send_replace(true);
+    let reopened = Arc::new(
+        params
+            .node
+            .params_for_library(params.test_library().clone())?,
+    );
+    params.node.attach_ui(&reopened).await;
+    let ticket = dispatch_gui_request(&reopened, &PrepareHandoffRequest { call_id: None })
+        .await?
+        .context("retry ticket")?;
+    let _: HandoffResponse = dispatch_gui_request(&reopened, &make_request(ticket.ticket))
+        .await?
+        .context("handoff retry response")?;
+    wait_player(&target, |status| {
+        status.state == PlayerPlaybackState::Playing
+            && status
+                .playlist
+                .iter()
+                .filter(|entry| entry.block.is_some())
+                .count()
+                == 1
+    })
+    .await?;
+    params.node.shutdown().await?;
+    target.global_params.node.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn handoff_is_not_confirmed_by_this_devices_own_playing_status() -> Result<()> {
     use crate::backends::remote::decode_message;
     use crate::messages::HandoffRequest;
