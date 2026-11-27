@@ -70,7 +70,7 @@ android {
 // The module only serves the app in this build. `flutter build` assembles every project, but an
 // AAR of this one could not hold the SDK's AARs, and none is made.
 tasks.configureEach { task ->
-    if (task.name ==~ /bundle\w*Aar/) {
+    if (task.name ==~ /bundle(Debug|Profile|Release)Aar/) {
         task.enabled = false
     }
 }
