@@ -9,6 +9,7 @@ Future<Playlist?> showCreateEditPlaylistDialog(
   BuildContext context,
   String? defaultTitle, {
   int? playlistId,
+  String? m3u8Path,
 }) async {
   return await $showModal<Playlist?>(
     staysUsableWhenShrunk: false,
@@ -16,6 +17,7 @@ Future<Playlist?> showCreateEditPlaylistDialog(
     (context, $close) => CreateEditPlaylistDialog(
       playlistId: playlistId,
       defaultTitle: defaultTitle,
+      m3u8Path: m3u8Path,
       $close: $close,
     ),
     dismissWithEsc: true,

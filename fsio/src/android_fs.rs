@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::Read,
     os::unix::prelude::AsRawFd,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
@@ -11,6 +12,15 @@ use rusqlite::{params, Connection};
 
 use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 use std::time as std_time;
+
+/// Reads a UTF-8 document for which Android has granted access to this app.
+pub fn read_android_document(uri: &str) -> Result<String, FileIoError> {
+    let mut file =
+        open_content_url(uri, "r").map_err(|error| FileIoError::Saf(error.to_string()))?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    Ok(content)
+}
 
 pub(crate) struct AndroidFsIo {
     db: Arc<Mutex<Connection>>,
@@ -381,7 +391,6 @@ impl FileIo for AndroidFsIo {
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
-        use std::io::Read;
         let mut file = self.open(path, OpenMode::Read)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;

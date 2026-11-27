@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fast_file_picker/fast_file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -11,10 +12,12 @@ import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/library_registry.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/utils/api/create_playlist.dart';
+import 'package:rune/utils/api/get_all_playlists.dart';
 import 'package:rune/utils/api/get_playlist_by_id.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/utils/api/update_playlist.dart';
 import 'package:rune/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
+import 'package:rune/utils/dialogs/playlist/import_m3u8_playlist.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +27,7 @@ void main() {
   late String empty;
   late String editLibrary;
   late String otherLibrary;
+  late String importLibrary;
   setUpAll(() async {
     root = await Directory.systemTemp.createTemp('rune-playlist-read-');
     addTearDown(() => root.delete(recursive: true));
@@ -57,6 +61,7 @@ void main() {
     empty = await register('Empty');
     editLibrary = await register('Edit source');
     otherLibrary = await register('Other');
+    importLibrary = await register('Import');
   });
 
   Future<void> withUnavailableTable(
@@ -91,6 +96,7 @@ void main() {
     WidgetTester tester,
     int? id, {
     LibraryRegistryProvider? formRegistry,
+    FastFilePickerPath? pickedPlaylist,
   }) async {
     final screen = ScreenSizeProvider.withWriter(null, (_) async {});
     final responsive = ResponsiveProvider(screen, () async => null);
@@ -111,19 +117,100 @@ void main() {
         child: FluentApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: CreateEditPlaylistDialog(
-            playlistId: id,
-            defaultTitle: '',
-            $close: closed.complete,
-          ),
+          home: pickedPlaylist == null
+              ? CreateEditPlaylistDialog(
+                  playlistId: id,
+                  defaultTitle: '',
+                  $close: closed.complete,
+                )
+              : Builder(
+                  builder: (context) => Button(
+                    onPressed: () async {
+                      closed.complete(
+                        await showCreateImportM3u8PlaylistDialog(
+                          context,
+                          pickedPlaylist,
+                        ),
+                      );
+                    },
+                    child: const Text('Open picked playlist'),
+                  ),
+                ),
         ),
       ),
     );
+    if (pickedPlaylist != null) {
+      await tester.tap(find.text('Open picked playlist'));
+      await tester.pumpAndSettle();
+    }
     final labels = AppLocalizations.of(
       tester.element(find.byType(CreateEditPlaylistDialog)),
     )!;
     return (labels, closed);
   }
+
+  testWidgets('an unreadable document cannot create a blank playlist', (
+    tester,
+  ) async {
+    await registry.open(importLibrary);
+    final before = await getAllPlaylists();
+    final (labels, closed) = await openEditor(
+      tester,
+      null,
+      pickedPlaylist: FastFilePickerPath.fromUri(
+        'Unreadable.m3u8',
+        'content://rune.test.invalid/Unreadable.m3u8',
+      ),
+    );
+    final failure = RequestFailedResponse.rustSignalStream.firstWhere(
+      (signal) => signal.message.request == 'CreateM3u8PlaylistRequest',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, labels.create));
+    final reply = (await failure.timeout(const Duration(seconds: 10))).message;
+    await tester.pumpAndSettle();
+    final message = requestFailureMessage(
+      labels,
+      RequestFailure(reply.request, reply.kind, reply.detail, reply.cause),
+    );
+    expect(find.text(message).hitTestable(), findsOneWidget);
+    expect(find.text(labels.importM3u8Failed).hitTestable(), findsOneWidget);
+    expect(await getAllPlaylists(), before);
+    expect(closed.isCompleted, isFalse);
+    await tester.tap(find.widgetWithText(Button, labels.cancel));
+    await tester.pumpAndSettle();
+    expect(await closed.future, isNull);
+    expect(await getAllPlaylists(), before);
+  });
+
+  testWidgets('cancelling a picked file does not create a playlist', (
+    tester,
+  ) async {
+    await registry.open(importLibrary);
+    final before = await getAllPlaylists();
+    final path = File('${root.path}/selected.m3u8');
+    await path.writeAsString('#EXTM3U\nnot-in-the-library.ogg\n');
+    Future<(AppLocalizations, Completer<Playlist?>)> openImport() => openEditor(
+      tester,
+      null,
+      pickedPlaylist: FastFilePickerPath.fromPath('Selected.m3u8', path.path),
+    );
+    final (labels, cancelled) = await openImport();
+    await tester.tap(find.widgetWithText(Button, labels.cancel));
+    await tester.pumpAndSettle();
+    expect(await cancelled.future, isNull);
+    expect(await getAllPlaylists(), before);
+
+    await tester.pumpWidget(const SizedBox());
+    final (_, imported) = await openImport();
+    final import = CreateM3u8PlaylistResponse.rustSignalStream.first;
+    await tester.tap(find.widgetWithText(FilledButton, labels.create));
+    final reply = (await import.timeout(const Duration(seconds: 10))).message;
+    expect(reply.notFoundPaths, ['not-in-the-library.ogg']);
+    expect(
+      (await imported.future.timeout(const Duration(seconds: 10)))?.name,
+      'Selected.m3u8',
+    );
+  });
 
   testWidgets(
     'a loaded edit cannot write to another library with the same ID',

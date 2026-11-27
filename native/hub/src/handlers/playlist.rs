@@ -8,11 +8,15 @@ use database::actions::playlists::{
     reorder_playlist_item_position, update_playlist,
 };
 use database::error::ExpectedError;
+#[cfg(target_os = "android")]
+use fsio::read_android_document;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[cfg(target_os = "android")]
+use anyhow::Error;
 use anyhow::{Context, Result};
 
 use crate::library_pool::LibraryHandle;
@@ -21,6 +25,8 @@ use crate::{Session, Signal, messages::*};
 use ::database::actions::playlists::{get_all_playlists, get_playlist_by_id};
 use std::collections;
 use tokio::fs;
+#[cfg(target_os = "android")]
+use tokio::task::spawn_blocking;
 
 type PlaylistArgs = Option<LibraryHandle>;
 
@@ -330,6 +336,23 @@ impl ParamsExtractor for CreateM3u8PlaylistRequest {
     }
 }
 
+async fn read_local_playlist(path: &str) -> Result<String> {
+    #[cfg(target_os = "android")]
+    if path.starts_with("content://") {
+        let uri = path.to_owned();
+        return spawn_blocking(move || read_android_document(&uri))
+            .await?
+            .map_err(|error| {
+                Error::new(ExpectedRequestError::Unavailable {
+                    what: "the selected playlist file",
+                })
+                .context(error)
+            });
+    }
+
+    Ok(fs::read_to_string(path).await?)
+}
+
 impl Signal for CreateM3u8PlaylistRequest {
     type Params = (PlaylistArgs, Arc<dyn crate::utils::Broadcaster>);
     type Response = CreateM3u8PlaylistResponse;
@@ -356,7 +379,7 @@ impl Signal for CreateM3u8PlaylistRequest {
             )?;
             library.fsio.read_to_string(&import_path)?
         } else {
-            fs::read_to_string(path).await?
+            read_local_playlist(path).await?
         };
         let lines = parse_m3u8_lines(&content);
 

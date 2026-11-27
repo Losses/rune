@@ -1,23 +1,24 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:fast_file_picker/fast_file_picker.dart';
 
-import '../../../utils/router/navigation.dart';
-import '../../../utils/dialogs/playlist/create_edit_playlist_dialog.dart';
-
 import '../../../bindings/bindings.dart';
+import '../../l10n.dart';
+import '../information/error.dart';
+import 'create_edit_playlist.dart';
 
 Future<Playlist?> showCreateImportM3u8PlaylistDialog(
   BuildContext context,
   FastFilePickerPath file,
 ) async {
-  return await $showModal<Playlist?>(
-    context,
-    (context, $close) => CreateEditPlaylistDialog(
-      m3u8Path: file.path,
-      defaultTitle: file.name,
-      $close: $close,
-    ),
-    dismissWithEsc: true,
-    barrierDismissible: true,
-  );
+  final path = file.path ?? file.uri;
+  if (path == null || path.isEmpty) {
+    final s = S.of(context);
+    await showErrorDialog(
+      context: context,
+      title: s.importM3u8,
+      errorMessage: s.requestUnavailable,
+    );
+    return null;
+  }
+  return showCreateEditPlaylistDialog(context, file.name, m3u8Path: path);
 }
