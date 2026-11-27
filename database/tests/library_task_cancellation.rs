@@ -159,7 +159,7 @@ async fn duplicate_mark_cancellation_preserves_the_previous_result_and_audio() -
         )
         .await?;
     }
-    for pair in files.chunks_exact(2) {
+    for pair in files.as_chunks::<2>().0 {
         assign_computed_similarity(
             &db,
             &store,
