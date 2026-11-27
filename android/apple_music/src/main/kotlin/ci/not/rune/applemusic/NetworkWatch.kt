@@ -37,10 +37,12 @@ internal class NetworkWatch(context: Context, private val changed: () -> Unit) {
         if (started) return
         started = true
         try {
+            // Registered first, so that no change after the state was read goes unseen. Without a
+            // network the callback says nothing at first.
+            connectivity.registerDefaultNetworkCallback(callback)
             online = connectivity.activeNetwork
                 ?.let(connectivity::getNetworkCapabilities)
                 ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-            connectivity.registerDefaultNetworkCallback(callback)
         } catch (error: SecurityException) {
             online = true
             Log.w("AppleMusicHost", "The network cannot be watched: ${error.javaClass.simpleName}")
