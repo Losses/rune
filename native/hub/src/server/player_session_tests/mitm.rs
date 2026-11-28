@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::{Context, Result, anyhow};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::ring::default_provider as ring_default_provider;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, ServerConfig};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -178,10 +179,6 @@ async fn relay_connection(
         server_tcp,
     );
     let (downstream, upstream) = tokio::join!(downstream, upstream);
-    if downstream.is_err() {
-    }
-    if upstream.is_err() {
-    }
     let downstream = downstream.context("mitm downstream tls")?;
     let upstream = upstream.context("mitm upstream tls")?;
 
@@ -547,7 +544,7 @@ impl ServerCertVerifier for AcceptAnyCertificate {
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &ring_default_provider().signature_verification_algorithms,
         )
     }
 
@@ -561,12 +558,12 @@ impl ServerCertVerifier for AcceptAnyCertificate {
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &ring_default_provider().signature_verification_algorithms,
         )
     }
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        rustls::crypto::ring::default_provider()
+        ring_default_provider()
             .signature_verification_algorithms
             .supported_schemes()
     }

@@ -4572,6 +4572,8 @@ mod lifecycle_tests {
     async fn shutdown_releases_stalled_controller(end: StalledControllerEnd) -> Result<()> {
         use std::time::Instant;
 
+        use database::entities::{media_file_likes, media_files};
+
         // Frames the connection queues for its socket writer.
         const OUTGOING_QUEUE_CAPACITY: usize = 32;
         // Larger than the loopback send and receive buffers together, so the
@@ -4602,8 +4604,8 @@ mod lifecycle_tests {
         )?;
         let stall_uuid = {
             let library = renderer.global_params.test_library();
-            database::entities::media_files::Entity::find()
-                .filter(database::entities::media_files::Column::FileName.eq(stall_name))
+            media_files::Entity::find()
+                .filter(media_files::Column::FileName.eq(stall_name))
                 .one(&*library.main_db)
                 .await?
                 .context("scanned stall track")?
@@ -4619,8 +4621,8 @@ mod lifecycle_tests {
             player_session_tests::session_audio(&renderer, &name).await?;
             let item = player_session_tests::library_track_for_id(
                 &renderer,
-                database::entities::media_files::Entity::find()
-                    .filter(database::entities::media_files::Column::FileName.eq(name.clone()))
+                media_files::Entity::find()
+                    .filter(media_files::Column::FileName.eq(name.clone()))
                     .one(&*renderer.global_params.test_library().main_db)
                     .await?
                     .context("scanned fill track")?
@@ -4709,7 +4711,7 @@ mod lifecycle_tests {
             let liked_count = move || {
                 let db = library_db.clone();
                 async move {
-                    database::entities::media_file_likes::Entity::find()
+                    media_file_likes::Entity::find()
                         .all(&*db)
                         .await
                         .map(|rows| rows.len() as u64)
