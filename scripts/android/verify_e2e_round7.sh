@@ -1,134 +1,137 @@
 #!/usr/bin/env bash
-# Single-command end-to-end automated verification for rune (Android).
-#
-# Verification scope:
-#   1. Clean onboarding flow: clear data -> launch -> SAF grant on SD card Documents.
-#   2. Media library scan & ingest: verify startup_0.ogg metadata parses and ingests (count >= 1).
-#   3. Track playback & fd decoding: trigger playback, assert logcat for fsio fd decoding.
-#   4. Clean storage check: confirm no data/ garbage directory created on the SD card tree.
-#   5. Layered self-test: run L1-L7 filesystem self-tests (L1-L5/L7 pass, L6 red as expected).
-
+# On a disposable Android device, add an SD-card library through the system
+# folder picker, verify the scan and the fixture's playback, and check storage.
+# Use Rune's Android debug build environment with rinf, Flutter and adb on PATH.
+# The default AVD is "selftest" (see emulator_selftest.sh). Set ANDROID_SERIAL
+# for another Android 11+ test phone with a mounted FAT SD card and DocumentsUI.
+# This clears Rune's app data on the selected device.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
-ASHELL="$HERE/ashell.sh"
-VMEVAL="$HERE/vm_eval.py"
-PKG="ci.not.rune"
-APK="build/app/outputs/flutter-apk/app-debug.apk"
-LOG_DIR="$HERE/../../android/tmp/selftest-logs"
-mkdir -p "$LOG_DIR"
+run_playback_test() {
+    local tree_id=$1 log_dir=$2 pid
+    local log="$log_dir/playback.txt" native_log="$log_dir/native-playback.txt"
+    flutter test integration_test/android_saf_playback_test.dart \
+        -d "$ANDROID_SERIAL" --dart-define="RUNE_SAF_TREE_ID=$tree_id" \
+        --reporter expanded 2>&1 | tee "$log" || return 1
 
-echo "========================================================"
-echo " [Step 1] Checking emulator state"
-echo "========================================================"
-if ! $ASHELL 'adb devices | awk "NR>1 && \$2==\"device\"" | grep -q .'; then
-    echo "==> Starting headless emulator (AVD selftest) ..."
-    nohup $ASHELL 'exec emulator -avd selftest -no-window -no-audio \
-        -no-snapshot-save -gpu swiftshader_indirect -no-metrics -port 5554' \
-        > /tmp/rune-emulator.log 2>&1 &
-    $ASHELL 'adb wait-for-device'
-    until [ "$($ASHELL 'adb shell getprop sys.boot_completed' | tr -d '\r')" = "1" ]; do
-        sleep 3
-    done
-    sleep 5
+    # Only the device test can emit this after observing the fixture advance.
+    if ! grep -Fq 'Verified Android SAF playback: startup_0.ogg ' "$log"; then
+        echo "Missing playback evidence for startup_0.ogg" >&2
+        return 1
+    fi
+    # Rust load failures go to the Android playback log, even when Flutter
+    # reports a passing test. Read only this run's Rune process there.
+    read -r pid < "$log_dir/app.pid" || return 1
+    adb logcat -d --pid="$pid" -s playback:W > "$native_log" || return 1
+    if grep -E 'Failed to open file|Failed to load track|Request (LoadResolvedItemsRequest|PlayRequest) failed|RequestFailure:' "$log" "$native_log"; then
+        echo "Playback failed during verification" >&2
+        return 1
+    fi
+}
+
+verify_android() (
+    local here
+    here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    cd "$here/../.."
+    if ! command -v adb >/dev/null || ! command -v flutter >/dev/null; then
+        exec "$here/ashell.sh" 'command -v adb && command -v flutter && exec scripts/android/verify_e2e_round7.sh'
+    fi
+    rinf gen
+    flutter gen-l10n
+
+    local log_dir
+    mkdir -p android/tmp/selftest-logs
+    log_dir=$(mktemp -d "$PWD/android/tmp/selftest-logs/round7.XXXXXX")
+    echo "Android verification logs: $log_dir"
+
+    if [[ -z ${ANDROID_SERIAL:-} ]]; then
+        export ANDROID_SERIAL=emulator-5554
+        if ! adb get-state >/dev/null 2>&1; then
+            nohup emulator -avd selftest -port 5554 -no-window -no-audio \
+                -no-snapshot-save -gpu swiftshader_indirect -no-metrics \
+                >"$log_dir/emulator.log" 2>&1 &
+        fi
+        local deadline=$((SECONDS + 180))
+        until [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]; do
+            if (( SECONDS >= deadline )); then
+                echo "Timed out booting the selftest emulator" >&2
+                return 1
+            fi
+            sleep 1
+        done
+        if [[ $(adb emu avd name | tr -d '\r' | head -1) != selftest ]]; then
+            echo "The default emulator port is in use by another AVD" >&2
+            return 1
+        fi
+    fi
+
+    local volume documents folder tree_id
+    local pkg=ci.not.rune picker=''
+    volume=$(adb shell sm list-volumes public | tr -d '\r' | awk '$2 == "mounted" { print $3 }')
+    if [[ ! $volume =~ ^[[:xdigit:]]{4}-[[:xdigit:]]{4}$ ]]; then
+        echo "Expected one mounted FAT SD card, found volume UUID(s): $volume" >&2
+        return 1
+    fi
+    documents=/storage/$volume/Documents
+    adb shell mkdir -p "$documents"
+    folder=$(adb shell mktemp -d "$documents/rune-e2e.XXXXXX" | tr -d '\r')
+    [[ $folder == "$documents"/rune-e2e.?????? ]]
+    package_installed() {
+        adb shell pm list packages "$pkg" | tr -d '\r' | grep -Fxq "package:$pkg"
+    }
+    cleanup() {
+        local status=$? mode
+        if [[ -n $picker ]]; then
+            kill "$picker" 2>/dev/null || true
+            wait "$picker" 2>/dev/null || true
+        fi
+        # Save evidence before clearing the test's library and SAF grants.
+        adb logcat -d >"$log_dir/logcat.txt" || true
+        adb exec-out screencap -p >"$log_dir/screen.png" || true
+        # Flutter may already have uninstalled its test APK during teardown.
+        if [[ -s "$log_dir/app.pid" ]] && package_installed; then
+            adb shell pm clear "$pkg" || status=1
+            if [[ -s "$log_dir/storage-mode" ]]; then
+                read -r mode < "$log_dir/storage-mode"
+                adb shell appops set --uid "$pkg" MANAGE_EXTERNAL_STORAGE "$mode" || status=1
+            fi
+        fi
+        adb shell rm -rf "$folder" || status=1
+        if (( status == 0 )); then echo "Android scan, playback and storage checks passed."; fi
+        exit "$status"
+    }
+    trap cleanup EXIT
+    tree_id="$volume:Documents/${folder##*/}"
+    adb push assets/startup_0.ogg "$folder/startup_0.ogg"
+
+    if package_installed; then
+        adb shell pm clear "$pkg"
+    fi
+    adb logcat -c
+
+    # Grant access to the newly launched test APK. An install can replace an
+    # older package and reset any app-op that was granted during the build.
+    (
+        until pid=$(adb shell pidof -s "$pkg" 2>/dev/null | tr -d '\r'); do sleep 1; done
+        [[ $pid =~ ^[0-9]+$ ]]
+        printf '%s\n' "$pid" > "$log_dir/app.pid"
+        mode=$(adb shell appops get --uid "$pkg" MANAGE_EXTERNAL_STORAGE |
+            sed -nE 's/.*MANAGE_EXTERNAL_STORAGE: ([a-z]+).*/\1/p')
+        printf '%s\n' "${mode:-default}" > "$log_dir/storage-mode"
+        adb shell appops set --uid "$pkg" MANAGE_EXTERNAL_STORAGE allow
+        exec python3 "$here/confirm_saf_tree.py" "${folder##*/}"
+    ) &
+    picker=$!
+
+    run_playback_test "$tree_id" "$log_dir"
+
+    adb shell ls -la "$folder"
+    adb shell "test -f '$folder/startup_0.ogg' && test ! -e '$folder/data'" || {
+        echo "Fixture folder is missing its track or contains an unexpected data/ entry" >&2
+        return 1
+    }
+)
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    verify_android
 fi
-echo "✓ Emulator is ready: $($ASHELL 'adb shell getprop ro.product.cpu.abi' | tr -d '\r')"
-
-echo "========================================================"
-echo " [Step 2] Installing debug APK and granting permissions"
-echo "========================================================"
-$ASHELL "adb shell pm clear $PKG >/dev/null 2>&1 || true"
-$ASHELL "adb install -r $APK"
-$ASHELL "adb shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow"
-echo "✓ APK installed and storage permission granted"
-
-echo "========================================================"
-echo " [Step 3] Fresh launch and SAF tree authorization"
-echo "========================================================"
-$ASHELL "adb logcat -c"
-$ASHELL "adb shell am force-stop $PKG; adb shell monkey -p $PKG 1 >/dev/null 2>&1"
-echo "==> Waiting for cold start (15s) ..."
-sleep 15
-
-echo "==> Driving SAF folder picker via taps ..."
-$ASHELL "adb shell input tap 540 1310"    # Tap 'Select folder'
-sleep 3
-$ASHELL "adb shell input tap 72 126"      # Drawer hamburger
-sleep 2
-$ASHELL "adb shell input tap 240 440"     # SD card volume
-sleep 2
-$ASHELL "adb shell input tap 810 1002"    # Documents directory
-sleep 2
-$ASHELL "adb shell input tap 540 2210"    # USE THIS FOLDER
-sleep 2
-$ASHELL "adb shell input tap 878 1325"    # ALLOW
-echo "==> Waiting for library initialization and audio scan (25s) ..."
-sleep 25
-
-$ASHELL "adb logcat -d" > /tmp/r8-init.txt
-$ASHELL "adb shell screencap -p /sdcard/shot.png >/dev/null 2>&1; adb pull /sdcard/shot.png /tmp/r8-home.png >/dev/null 2>&1"
-
-echo "========================================================"
-echo " [Step 4] Verifying ingested tracks in database"
-echo "========================================================"
-DB_DIR=$($ASHELL "adb shell run-as $PKG ls /data/data/$PKG/app_flutter/" | tr -d '\r' | grep -E '^[0-9a-f-]{36}$' | head -1)
-echo "App database directory: $DB_DIR"
-$ASHELL "adb root >/dev/null 2>&1; sleep 1; adb pull /data/data/$PKG/app_flutter/$DB_DIR/.0.db /tmp/r8-main.db >/dev/null 2>&1"
-
-TRACK_COUNT=$(python3 -c "import sqlite3; con = sqlite3.connect('/tmp/r8-main.db'); print(con.execute('SELECT count(*) FROM media_files;').fetchone()[0])")
-echo ">> Ingested track count: $TRACK_COUNT"
-if [ "$TRACK_COUNT" -lt 1 ]; then
-    echo "❌ ASSERT FAILED: Audio library scan did not ingest any tracks!"
-    grep -E "Unable to parse metadata|File not found|Error|Processing failed" /tmp/r8-init.txt | tail -20 || true
-    exit 1
-fi
-echo "✓ SUCCESS: Library successfully ingested $TRACK_COUNT track(s)!"
-python3 -c "import sqlite3; con = sqlite3.connect('/tmp/r8-main.db'); print(con.execute('SELECT id, file_name, directory, duration FROM media_files;').fetchall())"
-
-echo "========================================================"
-echo " [Step 5] Navigating to Tracks page and triggering playback"
-echo "========================================================"
-$ASHELL "adb shell input tap 670 1433"    # Switch to Tracks page
-sleep 3
-$ASHELL "adb shell screencap -p /sdcard/shot.png >/dev/null 2>&1; adb pull /sdcard/shot.png /tmp/r8-tracks.png >/dev/null 2>&1"
-
-$ASHELL "adb logcat -c"
-echo "==> Tapping first track to start playback ..."
-$ASHELL "adb shell input tap 540 1286"    # Tap first track
-sleep 10
-$ASHELL "adb logcat -d" > /tmp/r8-playback.txt
-
-echo "==> Inspecting playback and decoder logs ..."
-if grep -q "Failed to open file" /tmp/r8-playback.txt; then
-    echo "❌ ASSERT FAILED: Found 'Failed to open file' in playback log!"
-    grep -C 3 "Failed to open file" /tmp/r8-playback.txt
-    exit 1
-fi
-
-DECODER_LOG=$(grep -iE "decoder|LoadComplete|playing|symphonia" /tmp/r8-playback.txt | grep -v "GlobalRef" | head -20 || true)
-echo "$DECODER_LOG"
-echo "✓ SUCCESS: No 'Failed to open file'; decoder stream opened via fd successfully!"
-
-echo "========================================================"
-echo " [Step 6] Checking SD card tree for garbage directories"
-echo "========================================================"
-SD_FILES=$($ASHELL "adb shell ls -la /storage/0000-0000/Documents/" | tr -d '\r')
-echo "$SD_FILES"
-if echo "$SD_FILES" | grep -q " data$"; then
-    echo "❌ ASSERT FAILED: SD card contains garbage 'data/' directory!"
-    exit 1
-fi
-echo "✓ SUCCESS: SD card tree is clean, no garbage directories detected."
-
-echo "========================================================"
-echo " [Step 7] Archiving logs and screenshots"
-echo "========================================================"
-cp /tmp/r8-init.txt "$LOG_DIR/r8-init.txt"
-cp /tmp/r8-playback.txt "$LOG_DIR/r8-playback.txt"
-cp /tmp/r8-home.png "$LOG_DIR/shot-r8-home.png"
-cp /tmp/r8-tracks.png "$LOG_DIR/shot-r8-tracks.png"
-echo "✓ Logs and screenshots saved to $LOG_DIR"
-
-echo "========================================================"
-echo " Verification Complete: All assertions passed (100% GREEN)"
-echo "========================================================"
