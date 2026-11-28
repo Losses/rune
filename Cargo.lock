@@ -3502,6 +3502,7 @@ dependencies = [
  "term_size",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",

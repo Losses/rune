@@ -1,6 +1,9 @@
 #[path = "player_session_tests/download_rules.rs"]
 mod download_rules;
 
+#[path = "player_session_tests/mitm.rs"]
+mod mitm;
+
 #[cfg(target_os = "linux")]
 #[path = "player_session_tests/mpris.rs"]
 mod mpris;
@@ -165,7 +168,37 @@ struct SubsonicHubMock {
     starred: Arc<AtomicBool>,
     /// Runs once when the account check is answered, while a client waits on the server.
     on_get_user: OnGetUser,
+    gate: SubsonicMockGate,
 }
+
+/// Controls how the mock answers the stream endpoint, so a test can hold one real audio
+/// stream at the service while other requests complete. A playback whose track loads through
+/// that stream is a real handler waiting on a real resource the test controls.
+#[derive(Clone, Default)]
+pub(super) struct SubsonicMockGate {
+    /// The song ids this mock holds at the gate instead of answering.
+    held_streams: Arc<StdMutex<Vec<String>>>,
+    /// Notified once a held song reaches the stream endpoint.
+    pub(super) stream_entered: Arc<Notify>,
+    /// Releases every held stream request. Further requests for held songs answer freely.
+    pub(super) stream_release: Arc<Notify>,
+    released: Arc<AtomicBool>,
+}
+
+impl SubsonicMockGate {
+    /// The stream endpoint holds requests for the song `id` until `stream_release`.
+    pub(super) fn hold_stream(&self, id: &str) {
+        self.held_streams.lock().unwrap().push(id.to_owned());
+    }
+
+    /// Every held stream answers once `stream_release` is notified.
+    pub(super) fn release_streams(&self) {
+        self.released.store(true, Ordering::SeqCst);
+        self.stream_release.notify_waiters();
+    }
+
+}
+
 
 async fn subsonic_hub_mock(
     reject_credentials: bool,
@@ -177,7 +210,7 @@ async fn subsonic_hub_mock(
     Arc<AtomicBool>,
     JoinHandle<()>,
 ) {
-    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, task) =
+    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, _, task) =
         subsonic_hub_mock_with_hook(reject_credentials, false).await;
     (
         endpoint,
@@ -200,7 +233,7 @@ async fn subsonic_hub_mock_with_covers(
     Arc<AtomicBool>,
     JoinHandle<()>,
 ) {
-    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, task) =
+    let (endpoint, calls, stream_ranges, reject_stream, supports_ranges, _, _, task) =
         subsonic_hub_mock_with_hook(reject_credentials, visualizer_covers).await;
     (
         endpoint,
@@ -222,6 +255,7 @@ async fn subsonic_hub_mock_with_hook(
     Arc<AtomicBool>,
     Arc<AtomicBool>,
     OnGetUser,
+    SubsonicMockGate,
     JoinHandle<()>,
 ) {
     let calls = Arc::new(StdMutex::new(Vec::new()));
@@ -229,6 +263,7 @@ async fn subsonic_hub_mock_with_hook(
     let reject_stream = Arc::new(AtomicBool::new(false));
     let supports_ranges = Arc::new(AtomicBool::new(true));
     let on_get_user: OnGetUser = Arc::new(StdMutex::new(Vec::new()));
+    let gate = SubsonicMockGate::default();
     let state = SubsonicHubMock {
         calls: calls.clone(),
         stream_ranges: stream_ranges.clone(),
@@ -238,6 +273,7 @@ async fn subsonic_hub_mock_with_hook(
         visualizer_covers,
         starred: Arc::new(AtomicBool::new(false)),
         on_get_user: on_get_user.clone(),
+        gate: gate.clone(),
     };
     let app = Router::new()
         .route("/rest/{*action}", get(subsonic_hub_response))
@@ -252,8 +288,22 @@ async fn subsonic_hub_mock_with_hook(
         reject_stream,
         supports_ranges,
         on_get_user,
+        gate,
         task,
     )
+}
+
+/// A mock server whose stream gate the test keeps: it can hold one song's stream at the
+/// endpoint while others answer.
+pub(super) async fn subsonic_hub_mock_with_gate(
+) -> (
+    String,
+    Arc<StdMutex<Vec<String>>>,
+    SubsonicMockGate,
+    JoinHandle<()>,
+) {
+    let (endpoint, calls, _, _, _, _, gate, task) = subsonic_hub_mock_with_hook(false, false).await;
+    (endpoint, calls, gate, task)
 }
 
 /// A 2 by 2 bitmap of one color.
@@ -315,6 +365,22 @@ async fn subsonic_hub_response(
         state.stream_ranges.lock().unwrap().push(range.clone());
         if state.reject_stream.load(Ordering::Acquire) {
             return axum::Json(json!({ "subsonic-response": { "status": "failed", "error": { "code": 40, "message": format!("rejected t={} s={} p=test-secret", query.get("t").map(String::as_str).unwrap_or_default(), query.get("s").map(String::as_str).unwrap_or_default()) } } })).into_response();
+        }
+        let id = query.get("id").map(String::as_str).unwrap_or_default();
+        let held = state.gate.held_streams.lock().unwrap().iter().any(|held| held == id);
+        if held {
+            // Register for the wakeup before the released check: a release landing between
+            // them must not be missed, or the stream hangs forever. Announce entry on every
+            // path, parked or not: the waiter gates the release on this signal.
+            let release = state.gate.stream_release.notified();
+            state.gate.stream_entered.notify_one();
+            if state.gate.released.load(Ordering::SeqCst) {
+                drop(release);
+            } else {
+                // A real stream held at a real resource: nothing the song feeds can finish
+                // until the test releases the endpoint.
+                release.await;
+            }
         }
         let bytes = include_bytes!("../../../../assets/startup_0.ogg");
         if let Some(range) = range
@@ -451,6 +517,7 @@ async fn subsonic_hub_response(
         "getLyrics" => {
             json!({ "subsonic-response": { "status": "ok", "lyrics": { "artist": "Artist", "title": "Song title", "value": "[00:01.00]First line\n[00:02.00]Second line" } } })
         }
+
         "scrobble" => json!({ "subsonic-response": { "status": "ok" } }),
         "getArtist" => {
             json!({ "subsonic-response": { "status": "ok", "artist": { "id": "artist-opaque", "name": "Artist", "albumCount": 1, "album": { "id": "album-opaque", "name": "Album", "artist": "Artist", "artistId": "artist-opaque" } } } })
@@ -1286,7 +1353,7 @@ async fn open_fails_and_closes_when_the_last_selection_cannot_be_saved() -> Resu
     let dir = tempfile::tempdir()?;
     let fixture = super::fixture(dir.path()).await?;
     let node = fixture.global_params.node.clone();
-    let (endpoint, _, _, _, _, on_get_user, server) =
+    let (endpoint, _, _, _, _, on_get_user, _, server) =
         subsonic_hub_mock_with_hook(false, false).await;
     let credential = node
         .credentials
@@ -2821,7 +2888,7 @@ fn recorded_handoff_order(
     Ok((source_paused_at, target_loaded_at))
 }
 
-async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
+pub(super) async fn session_audio(f: &Fixture, name: &str) -> Result<i32> {
     let library = f.global_params.test_library();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/startup_0.ogg");
     let target = Path::new(&library.media_root).join(name);
@@ -3834,7 +3901,7 @@ async fn attach_test_cover(f: &Fixture, media_file_id: i32, bytes: &[u8]) -> Res
     Ok(())
 }
 
-async fn library_track_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
+pub(super) async fn library_track_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
     let library = f.global_params.test_library();
     let file_uuid = file_uuids_by_id(&library.main_db, &[id])
         .await?
@@ -3847,7 +3914,7 @@ async fn library_track_for_id(f: &Fixture, id: i32) -> Result<LibraryItem> {
     })
 }
 
-async fn wait_player(
+pub(super) async fn wait_player(
     f: &Fixture,
     predicate: impl Fn(&PlayerStatus) -> bool,
 ) -> Result<PlayerStatus> {
@@ -9643,30 +9710,27 @@ async fn handoff_dispatch_appends_to_idle_renderer_queue_and_starts_source_curso
     // Once the renderer is attached, the source GUI correctly suppresses local
     // session events. Sample the real source at the target's load boundary:
     // a source that is still playing here must not pass the ordering check.
+    // Sample the real source when its pause first reports: the load can only be sent after the
+    // pause is in, so a source still playing in this sample has handed off out of order. The
+    // sample carries everything the pause committed, so it equals the one the load boundary
+    // would take.
     let source_session = source.global_params.node.session()?;
     let order_signals: Arc<dyn Broadcaster> = signals.clone();
-    let target_node = Arc::downgrade(&target.global_params.node);
-    let load = "HandoffLoadRequest";
-    target
-        .global_params
-        .node
-        .websocket_service
-        .override_handler(load, move |payload, session, library_id| {
-            let source_session = source_session.clone();
-            let order_signals = order_signals.clone();
-            let target_node = target_node.clone();
-            async move {
+    let source_status = {
+        let player = source.global_params.player.lock().await;
+        player.subscribe_status()
+    };
+    let _sampler = tokio::spawn(async move {
+        while let Ok(status) = source_status.recv().await {
+            if status.state == PlayerPlaybackState::Paused {
                 source_session
                     .reemit_to(&order_signals)
                     .await
                     .expect("sample source session");
-                let node = target_node.upgrade().expect("target node");
-                dispatch_remote(load, &payload, session, library_id, &node)
-                    .await
-                    .expect("real handoff load handler")
+                break;
             }
-        })
-        .await;
+        }
+    });
     signals.clear();
     dispatch_gui_request(&source.global_params, &handoff).await?;
     let source_session_id = source
@@ -9841,7 +9905,6 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
     use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants, SyncLevel};
     use crate::messages::HandoffRequest;
     use crate::request_error::ExpectedRequestError;
-    use tokio::sync::Notify;
     let host_dir = tempfile::tempdir()?;
     let source_dir = tempfile::tempdir()?;
     let target_dir = tempfile::tempdir()?;
@@ -10039,32 +10102,10 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         .connect_renderer(&target_fingerprint, RendererLinkUse::Control)
         .await?
         .0;
-    // Let the real decode failure initiate rollback, then hold that request at the
-    // test's WebSocket boundary until the other controller's edit has committed.
-    let rollback_entered = Arc::new(Notify::new());
-    let release_rollback = Arc::new(Notify::new());
-    let target_node = Arc::downgrade(&target.global_params.node);
-    let entered = rollback_entered.clone();
-    let release = release_rollback.clone();
-    let take_back = "TakeBackHandoffBlockRequest";
-    target
-        .global_params
-        .node
-        .websocket_service
-        .override_handler(take_back, move |payload, session, library_id| {
-            let target_node = target_node.clone();
-            let entered = entered.clone();
-            let release = release.clone();
-            async move {
-                entered.notify_one();
-                release.notified().await;
-                let node = target_node.upgrade().expect("target node");
-                dispatch_remote(take_back, &payload, session, library_id, &node)
-                    .await
-                    .expect("real handoff rollback handler")
-            }
-        })
-        .await;
+    // The decode failure shows on the target's own player before it can cross the network to
+    // the source, so an edit committed from that observation always lands before the rollback
+    // it triggers: the take-back request is only written after the failure has made the round
+    // trip to the source and back, while the edit and its commit proof travel target-locally.
     let source_params = source.global_params.clone();
     let handoff_request = HandoffRequest {
         ticket: None,
@@ -10076,9 +10117,21 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         dispatch_gui_request(&source_params, &handoff_request).await
     });
     let concurrent_edit = async {
-        timeout(TEST_DEADLINE, rollback_entered.notified())
-            .await
-            .context("decode failure should request a handoff rollback")?;
+        let handed_off = PlayingItem::LibraryTrack {
+            library_id: target_replica.global_params.library_id.unwrap(),
+            track: host_item.file_uuid.to_string(),
+        };
+        wait_player(&target, |status| {
+            status.playlist.iter().any(|entry| {
+                entry.item == handed_off
+                    && status
+                        .unavailable_reasons
+                        .iter()
+                        .any(|(item, _)| item == &entry.item)
+            })
+        })
+        .await
+        .context("the decode failure should surface on the target player")?;
         let before_rollback = target.global_params.player.lock().await.get_status();
         assert!(before_rollback.playlist.iter().any(|entry| {
             entry.item == PlayingItem::LibraryTrack {
@@ -10086,6 +10139,8 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
                 track: host_item.file_uuid.to_string(),
             }
         }));
+        // The answered edit is its commit proof: the player command queue is serial, so the
+        // rollback enqueued behind it cannot have started.
         controller_link
             .call(&LoadResolvedItemsRequest {
                 call_id: None,
@@ -10111,7 +10166,6 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         .context("concurrent target queue edit before rollback")
     }
     .await;
-    release_rollback.notify_one();
     concurrent_edit?;
     let result = handoff_task
         .await
@@ -14523,7 +14577,7 @@ async fn rr_library_pauses_and_restores_local_session_position() -> Result<()> {
 }
 
 /// Plays the Subsonic track `track` on this device through the UI's load request.
-async fn play_subsonic_track_here(
+pub(super) async fn play_subsonic_track_here(
     fixture: &Fixture,
     library_id: Uuid,
     track: &str,
@@ -15646,7 +15700,7 @@ async fn played_service_track_leaves_local_statistics_alone() -> Result<()> {
 }
 
 /// Registers the Subsonic server at `endpoint` as a library, without opening it.
-async fn register_subsonic_here(node: &Arc<NodeContext>, endpoint: String) -> Result<Uuid> {
+pub(super) async fn register_subsonic_here(node: &Arc<NodeContext>, endpoint: String) -> Result<Uuid> {
     let record = register_subsonic_library_on_node(
         &subsonic_registration_request(
             endpoint,
@@ -15662,7 +15716,7 @@ async fn register_subsonic_here(node: &Arc<NodeContext>, endpoint: String) -> Re
 }
 
 /// Opens the registered library `record_id` in the UI.
-async fn open_registered_here(node: &Arc<NodeContext>, record_id: Uuid) -> Result<()> {
+pub(super) async fn open_registered_here(node: &Arc<NodeContext>, record_id: Uuid) -> Result<()> {
     open_library_by_record_on_node(
         &OpenLibraryRequest {
             call_id: None,
@@ -15678,7 +15732,7 @@ async fn open_registered_here(node: &Arc<NodeContext>, record_id: Uuid) -> Resul
     Ok(())
 }
 
-fn service_item(library_id: Uuid, track: &str) -> PlayingItemRef {
+pub(super) fn service_item(library_id: Uuid, track: &str) -> PlayingItemRef {
     PlayingItemRef::LibraryTrack {
         library_id: library_id.to_string(),
         track: track.into(),

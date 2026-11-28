@@ -3295,35 +3295,143 @@ mod lifecycle_tests {
         assert_websocket_request_is_ignored("UnknownRequest", vec![255]).await
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn one_connection_keeps_frame_order() -> Result<()> {
-        use crate::backends::remote::encode_message;
-        use crate::server::register_gated_handler;
-        use futures::SinkExt;
-        use std::time::Duration;
-        use tokio::sync::Notify;
-        use tokio::time::timeout;
-        use tokio_tungstenite::tungstenite::Message;
-
+    /// A lyric service real enough for the ordering and independence tests: registered, opened,
+    /// and granted to the paired controller, with its lyric gate in the test's hands.
+    /// A renderer that plays a two-track queue of a streaming service it registered and
+    /// opened, and a controller paired to it with the node-wide Control grant. The mock
+    /// service keeps its stream gate: the test holds one real stream at it, and every
+    /// playback that loads through that stream then waits on a real resource the test
+    /// controls.
+    async fn paired_subsonic_transport() -> Result<(
+        Fixture,
+        Fixture,
+        tempfile::TempDir,
+        tempfile::TempDir,
+        SocketAddr,
+        Uuid,
+        player_session_tests::SubsonicMockGate,
+    )> {
         let renderer_dir = tempfile::tempdir()?;
         let controller_dir = tempfile::tempdir()?;
         let renderer = fixture(renderer_dir.path()).await?;
         let controller = fixture(controller_dir.path()).await?;
-        let service = &renderer.global_params.node.websocket_service;
-        let (first_entered, release_first) = register_gated_handler(service, "OrderFirst").await;
-        let second_entered = Arc::new(Notify::new());
-        let second_entered_handler = second_entered.clone();
-        service
-            .override_handler("OrderSecond", move |_, _, _| {
-                let entered = second_entered_handler.clone();
-                async move {
-                    entered.notify_one();
-                    ("OrderSecondResponse".into(), Ok(Vec::new()))
-                }
-            })
-            .await;
+        let (endpoint, _calls, gate, _server) =
+            player_session_tests::subsonic_hub_mock_with_gate().await;
+        let record_id =
+            player_session_tests::register_subsonic_here(&renderer.global_params.node, endpoint)
+                .await?;
+        player_session_tests::open_registered_here(&renderer.global_params.node, record_id).await?;
 
+        // Two tracks replace the queue, the first playing. Their resolution happens here, so
+        // no stream request runs before the test arms its hold.
+        use crate::messages::{
+            LoadPlay, LoadResolvedItemsRequest, PlaybackMode, PlaylistOperateMode,
+        };
+        crate::rpc::dispatch_gui_request(
+            &renderer.global_params,
+            &LoadResolvedItemsRequest {
+                call_id: None,
+                items: vec![
+                    player_session_tests::service_item(record_id, "song-first"),
+                    player_session_tests::service_item(record_id, "song-second"),
+                ],
+                start_index: Some(0),
+                mode: PlaylistOperateMode::Replace,
+                expected_revision: None,
+                playback_mode: Some(PlaybackMode::Sequential),
+                position_seconds: Some(0.0),
+                play: LoadPlay::Play,
+            },
+        )
+        .await?;
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        player_session_tests::wait_player(&renderer, |status| {
+            status.state == PlayerPlaybackState::Playing
+        })
+        .await
+        .context("the first track should play before the test arms its hold")?;
+
+        // The first track is seconds long: left playing it would end inside the test, and the
+        // queue would advance on its own. Pausing it keeps the queue where the test put it.
+        crate::rpc::dispatch_gui_request(
+            &renderer.global_params,
+            &crate::messages::PauseRequest { call_id: None },
+        )
+        .await?;
+        player_session_tests::wait_player(&renderer, |status| {
+            status.state == PlayerPlaybackState::Paused
+        })
+        .await
+        .context("the first track should pause before the test arms its hold")?;
+
+        pair(&renderer, &controller).await?;
+        let controller_fingerprint = info(&controller).await?.fingerprint;
+        let mut grants = crate::access_policy::DeviceGrants::guest();
+        grants.control = true;
+        renderer
+            .global_params
+            .node
+            .access_policy
+            .set(&controller_fingerprint, grants)?;
         let addr = paired_full(&renderer, &controller).await?;
+        Ok((
+            renderer,
+            controller,
+            renderer_dir,
+            controller_dir,
+            addr,
+            record_id,
+            gate,
+        ))
+    }
+
+    /// Reads the frame that answers the request `request_id`, skipping server-initiated
+    /// broadcasts and the answers of other requests.
+    async fn response_frame_for(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        request_id: Uuid,
+    ) -> Result<(String, Uuid)> {
+        use crate::backends::remote::decode_message;
+        use futures::StreamExt;
+
+        loop {
+            let frame = socket.next().await.context("socket closed")??;
+            let Message::Binary(bytes) = frame else {
+                continue;
+            };
+            let (name, _payload, id) = decode_message(&bytes).context("response frame")?;
+            if name == "RequestCapabilities" || id != request_id {
+                continue;
+            }
+            return Ok((name, id));
+        }
+    }
+
+    /// Sends one session-scoped request and returns the id its answer will carry.
+    async fn send_session_request(
+        socket: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        name: &str,
+        payload: &[u8],
+    ) -> Result<Uuid> {
+        use crate::backends::remote::encode_message;
+        use futures::SinkExt;
+
+        let id = Uuid::new_v4();
+        socket
+            .send(Message::Binary(
+                encode_message(name, payload, Some(id)).into(),
+            ))
+            .await?;
+        Ok(id)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn one_connection_keeps_frame_order() -> Result<()> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        let (renderer, controller, _renderer_dir, _controller_dir, addr, record_id, gate) =
+            paired_subsonic_transport().await?;
         let mut socket = connect_remote(
             "127.0.0.1",
             addr.port(),
@@ -3332,33 +3440,151 @@ mod lifecycle_tests {
             &controller.global_params.node.sync_tokens,
         )
         .await?;
-        socket
-            .send(Message::Binary(
-                encode_message("OrderFirst", &[], Some(Uuid::new_v4())).into(),
-            ))
-            .await?;
-        socket
-            .send(Message::Binary(
-                encode_message("OrderSecond", &[], Some(Uuid::new_v4())).into(),
-            ))
-            .await?;
 
-        tokio_time::timeout(TEST_DEADLINE, first_entered.notified())
+        // One answered request flushes the frames sent when the connection opened. A snapshot
+        // of this queue would fail: the session refuses service tracks in its snapshot answer,
+        // so the revision request is the read-only probe here.
+        let revision_request =
+            rinf::serialize(&crate::messages::PlaylistRevisionRequest { call_id: None })?;
+        socket_request(&mut socket, "PlaylistRevisionRequest", &revision_request).await?;
+
+        // The first request is a real playback command held at a real resource: the track it
+        // loads streams from a service endpoint that does not answer until the test releases
+        // it, and the command answers only once that track plays. The held request answers
+        // nothing on the wire (Next has no response), so the quick frame behind it is the
+        // proof of order: it cannot answer before the held request finishes, because frames
+        // of one connection are handled one at a time.
+        gate.hold_stream("song-second");
+        send_session_request(
+            &mut socket,
+            "NextRequest",
+            &rinf::serialize(&crate::messages::NextRequest { call_id: None })?,
+        )
+        .await?;
+        // The quick frame behind it is a read-only revision probe: a request with a visible
+        // answer that leaves playback as it is. A pause report would pause the very track
+        // whose playing completes the held request, hiding the state the order proof needs,
+        // and a snapshot refuses the service tracks this queue holds.
+        let quick =
+            send_session_request(&mut socket, "PlaylistRevisionRequest", &revision_request).await?;
+
+        // The held request is running: the stream endpoint saw the track it loads. The quick
+        // frame behind it must not answer while it is held.
+        tokio_time::timeout(TEST_DEADLINE, gate.stream_entered.notified())
             .await
-            .context("first handler did not enter")?;
+            .context("the held playback did not reach the service's stream endpoint")?;
         assert!(
-            timeout(Duration::from_millis(200), second_entered.notified())
-                .await
-                .is_err(),
-            "second frame ran before the first handler finished"
+            timeout(
+                Duration::from_millis(300),
+                response_frame_for(&mut socket, quick)
+            )
+            .await
+            .is_err(),
+            "the frame behind the held request answered before it finished"
         );
 
-        release_first.notify_one();
-        tokio_time::timeout(TEST_DEADLINE, second_entered.notified())
-            .await
-            .context("second handler did not enter after the first completed")?;
+        gate.release_streams();
+        // The held request finished: its track plays. Only then does the frame behind it
+        // answer, and its answer carries the quick request's own id.
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        let second = playback::player::PlayingItem::LibraryTrack {
+            library_id: record_id,
+            track: "song-second".into(),
+        };
+        tokio_time::timeout(TEST_DEADLINE, async {
+            player_session_tests::wait_player(&renderer, |status| {
+                status.item == Some(second.clone()) && status.state == PlayerPlaybackState::Playing
+            })
+            .await?;
+            let (name, id) = response_frame_for(&mut socket, quick).await?;
+            assert_eq!(name, "PlaylistRevisionResponse");
+            assert_eq!(
+                id, quick,
+                "the frame behind the held request must carry its own id"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("the frame behind the held request did not answer after it finished")??;
 
         drop(socket);
+        renderer.global_params.node.shutdown().await?;
+        controller.global_params.node.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn held_request_does_not_block_another_connection() -> Result<()> {
+        let (renderer, controller, _renderer_dir, _controller_dir, addr, _record_id, gate) =
+            paired_subsonic_transport().await?;
+        let validator = controller.global_params.cert_validator.read().await.clone();
+        let mut held_socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            validator.clone(),
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+        let mut free_socket = connect_remote(
+            "127.0.0.1",
+            addr.port(),
+            &controller.global_params.config_path,
+            validator,
+            &controller.global_params.node.sync_tokens,
+        )
+        .await?;
+
+        // One connection's playback command is held inside its handler at the service.
+        gate.hold_stream("song-second");
+        send_session_request(
+            &mut held_socket,
+            "NextRequest",
+            &rinf::serialize(&crate::messages::NextRequest { call_id: None })?,
+        )
+        .await?;
+        tokio_time::timeout(TEST_DEADLINE, gate.stream_entered.notified())
+            .await
+            .context("the held playback did not reach the service's stream endpoint")?;
+
+        // Another connection's request answers while the first is still held. The read-only
+        // probe is the revision request: the snapshot of this queue would refuse the service
+        // tracks the queue holds.
+        let revision_request =
+            rinf::serialize(&crate::messages::PlaylistRevisionRequest { call_id: None })?;
+        let (name, _) = socket_request(
+            &mut free_socket,
+            "PlaylistRevisionRequest",
+            &revision_request,
+        )
+        .await?;
+        assert_eq!(name, "PlaylistRevisionResponse");
+
+        // Releasing the service lets the held playback finish: its track plays, and the held
+        // connection reads frames again, which its next quick request proves.
+        gate.release_streams();
+        use playback::player::PlaybackState as PlayerPlaybackState;
+        player_session_tests::wait_player(&renderer, |status| {
+            status.state == PlayerPlaybackState::Playing
+                && matches!(
+                    &status.item,
+                    Some(playback::player::PlayingItem::LibraryTrack { track, .. }) if track == "song-second"
+                )
+        })
+        .await
+        .context("the held playback did not finish after the service was released")?;
+        let (name, _) = tokio_time::timeout(
+            TEST_DEADLINE,
+            socket_request(
+                &mut held_socket,
+                "PlaylistRevisionRequest",
+                &revision_request,
+            ),
+        )
+        .await
+        .context("the held connection did not answer after the service was released")??;
+        assert_eq!(name, "PlaylistRevisionResponse");
+
         renderer.global_params.node.shutdown().await?;
         controller.global_params.node.shutdown().await?;
         Ok(())
@@ -4344,45 +4570,92 @@ mod lifecycle_tests {
     /// Shutting the server down must still close that connection within the
     /// shutdown deadline, without the controller reading anything.
     async fn shutdown_releases_stalled_controller(end: StalledControllerEnd) -> Result<()> {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::time::Instant;
+
+        use database::entities::{media_file_likes, media_files};
 
         // Frames the connection queues for its socket writer.
         const OUTGOING_QUEUE_CAPACITY: usize = 32;
         // Larger than the loopback send and receive buffers together, so the
         // socket writer cannot finish this frame while the controller does not read.
-        const STALLING_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+        const STALLING_LYRIC_BYTES: usize = 64 * 1024 * 1024;
         const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(8);
 
         let renderer_dir = tempfile::tempdir()?;
         let controller_dir = tempfile::tempdir()?;
         let renderer = fixture(renderer_dir.path()).await?;
         let controller = fixture(controller_dir.path()).await?;
-        let service = &renderer.global_params.node.websocket_service;
-        service
-            .override_handler("StallSettle", |_, _, _| async {
-                ("StallSettleResponse".into(), Ok(Vec::new()))
-            })
-            .await;
-        service
-            .override_handler("StallWriter", |_, _, _| async {
-                (
-                    "StallWriterResponse".into(),
-                    Ok(vec![0; STALLING_RESPONSE_BYTES]),
-                )
-            })
-            .await;
-        let filled = Arc::new(AtomicUsize::new(0));
-        let filled_handler = filled.clone();
-        service
-            .override_handler("StallFill", move |_, _, _| {
-                filled_handler.fetch_add(1, Ordering::SeqCst);
-                async { ("StallFillResponse".into(), Ok(Vec::new())) }
-            })
-            .await;
+        let library_id = renderer
+            .global_params
+            .library_id
+            .context("renderer library id")?;
+
+        // The stall track's sidecar lyric is one real lyric line larger than the loopback
+        // buffers together: its parsed lines pass into the response uncapped, so this is what
+        // a lyric-stuffed track answers in production.
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        let media_root = renderer.global_params.test_library().media_root.clone();
+        let stall_name = "shutdown-stall.ogg";
+        player_session_tests::session_audio(&renderer, stall_name).await?;
+        let stall_lrc = format!("[00:01.00]{}\n", "x".repeat(STALLING_LYRIC_BYTES));
+        fs::write(
+            std::path::Path::new(&media_root).join("shutdown-stall.lrc"),
+            stall_lrc,
+        )?;
+        let stall_uuid = {
+            let library = renderer.global_params.test_library();
+            media_files::Entity::find()
+                .filter(media_files::Column::FileName.eq(stall_name))
+                .one(&*library.main_db)
+                .await?
+                .context("scanned stall track")?
+                .source_uuid
+        };
+
+        // The fills are real liked-state edits on real tracks of the same library. Each one's
+        // database row proves its handler ran, so the database itself records how many fills
+        // entered their handlers.
+        let mut fill_tracks = Vec::new();
+        for index in 0..OUTGOING_QUEUE_CAPACITY + 4 {
+            let name = format!("shutdown-fill-{index}.ogg");
+            player_session_tests::session_audio(&renderer, &name).await?;
+            let item = player_session_tests::library_track_for_id(
+                &renderer,
+                media_files::Entity::find()
+                    .filter(media_files::Column::FileName.eq(name.clone()))
+                    .one(&*renderer.global_params.test_library().main_db)
+                    .await?
+                    .context("scanned fill track")?
+                    .id,
+            )
+            .await?;
+            fill_tracks.push(crate::messages::PlayingItemRef::from(item));
+        }
+
+        pair(&renderer, &controller).await?;
+        let fingerprint = info(&controller).await?.fingerprint;
+        {
+            use crate::access_policy::{ConnectionLevel, DeviceGrants, LibraryGrants};
+            renderer.global_params.node.access_policy.set(
+                &fingerprint,
+                DeviceGrants {
+                    control: false,
+                    connection: LibraryGrants {
+                        all_libraries: None,
+                        libraries: [(library_id, ConnectionLevel::ViewEdit)]
+                            .into_iter()
+                            .collect(),
+                    },
+                    sync: LibraryGrants {
+                        all_libraries: None,
+                        libraries: Default::default(),
+                    },
+                    administer: false,
+                },
+            )?;
+        }
 
         let addr = paired_full(&renderer, &controller).await?;
-        let fingerprint = info(&controller).await?.fingerprint;
         let mut socket = connect_remote(
             "127.0.0.1",
             addr.port(),
@@ -4392,28 +4665,68 @@ mod lifecycle_tests {
         )
         .await?;
         // One answered request flushes the frames sent when the connection opened.
-        socket_request(&mut socket, "StallSettle", &[]).await?;
-
-        socket
-            .send(Message::Binary(
-                encode_message("StallWriter", &[], Some(Uuid::new_v4())).into(),
-            ))
-            .await?;
-        for _ in 0..OUTGOING_QUEUE_CAPACITY + 4 {
-            socket
-                .send(Message::Binary(
-                    encode_message("StallFill", &[], Some(Uuid::new_v4())).into(),
-                ))
-                .await?;
-        }
-        // Requests are handled one at a time, and each response is queued before
-        // the next request is read. Entering one more fill handler than the queue
-        // holds proves the queue is full behind the frame the writer cannot finish.
-        wait_until("the outgoing queue to fill", || {
-            let entered = filled.load(Ordering::SeqCst);
-            async move { Ok((entered > OUTGOING_QUEUE_CAPACITY).then_some(())) }
-        })
+        let count_request = rinf::serialize(&GetMediaFilesCountRequest { call_id: None })?;
+        socket_request_for_library(
+            &mut socket,
+            "GetMediaFilesCountRequest",
+            &count_request,
+            library_id,
+        )
         .await?;
+
+        // The first answer is a real response larger than the loopback send and receive
+        // buffers together, so its socket writer cannot finish it while this controller does
+        // not read. The fills behind it are small real responses, queued one per request.
+        send_request_for_library(
+            &mut socket,
+            "GetLyricByTrackIdRequest",
+            &rinf::serialize(&crate::messages::GetLyricByTrackIdRequest {
+                call_id: None,
+                item: Some(crate::messages::PlayingItemRef::LibraryTrack {
+                    library_id: library_id.to_string(),
+                    track: stall_uuid.clone(),
+                }),
+            })?,
+            library_id,
+        )
+        .await?;
+        for track in &fill_tracks {
+            send_request_for_library(
+                &mut socket,
+                "SetLikedRequest",
+                &rinf::serialize(&crate::messages::SetLikedRequest {
+                    call_id: None,
+                    item: Some(track.clone()),
+                    liked: true,
+                })?,
+                library_id,
+            )
+            .await?;
+        }
+        // Requests are handled one at a time, and each response is queued before the next
+        // request is read. Entering one more fill handler than the queue holds proves the
+        // queue is full behind the frame the writer cannot finish.
+        {
+            let library_db = renderer.global_params.test_library().main_db.clone();
+            let liked_count = move || {
+                let db = library_db.clone();
+                async move {
+                    media_file_likes::Entity::find()
+                        .all(&*db)
+                        .await
+                        .map(|rows| rows.len() as u64)
+                        .map_err(anyhow::Error::from)
+                }
+            };
+            wait_until("the outgoing queue to fill", move || {
+                let liked_count = liked_count.clone();
+                async move {
+                    let entered = liked_count().await?;
+                    Ok((entered > OUTGOING_QUEUE_CAPACITY as u64).then_some(()))
+                }
+            })
+            .await?;
+        }
 
         match end {
             StalledControllerEnd::PeerClose => socket.send(Message::Close(None)).await?,
@@ -4466,9 +4779,7 @@ mod lifecycle_tests {
         .await
         .with_context(|| {
             format!(
-                "server kept the stalled connection open {SHUTDOWN_DEADLINE:?} after shutdown \
-                 began ({} fill requests handled)",
-                filled.load(Ordering::SeqCst)
+                "server kept the stalled connection open {SHUTDOWN_DEADLINE:?} after shutdown began"
             )
         })??;
 
