@@ -48,7 +48,10 @@ fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option
     );
     #[cfg(not(target_os = "android"))]
     let managed = relative.starts_with(super::content::MANAGED_AUDIO_DIRECTORY);
-    let path = root.join(relative);
+    let path = fsio
+        .library_path_prefix(root)
+        .unwrap_or(Path::new(""))
+        .join(relative);
     #[cfg(not(target_os = "android"))]
     {
         let canonical = if managed {

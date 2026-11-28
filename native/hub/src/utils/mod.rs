@@ -2968,9 +2968,16 @@ pub async fn files_to_playback_request<P: AsRef<Path>>(
         files_for_paths
             .iter()
             .map(|file| match file.file_id {
-                Some(_) => fsio_for_paths
-                    .canonicalize_path(&root.join(&file.directory).join(&file.file_name))
-                    .ok(),
+                Some(_) => {
+                    let relative = Path::new(&file.directory).join(&file.file_name);
+                    match fsio_for_paths.library_path_prefix(&root) {
+                        Some(prefix) => fsio_for_paths
+                            .canonicalize_path(&prefix.join(relative))
+                            .ok(),
+                        // The decoder opens the file through the granted document tree.
+                        None => Some(relative),
+                    }
+                }
                 None if let PlayingItem::IndependentFile(path) = &file.item => {
                     fsio_for_paths.canonicalize_path_str(path).ok()
                 }
