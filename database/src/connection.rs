@@ -385,11 +385,7 @@ async fn connect_main_db_from_storage_info(
     let db_file = storage_info.get_main_db_path();
 
     let db_path = if let Some(fsio) = catalog_fs {
-        if !storage_info.db_dir.exists() {
-            fsio.ensure_directory(&storage_info.db_dir).await?;
-        }
-        let db_node = fsio.ensure_file(&db_file).await?;
-        fsio.canonicalize_path(&db_node.path)?
+        fsio.ensure_sqlite_path(&db_file).await?
     } else {
         fs::create_dir_all(&storage_info.db_dir).await?;
         if !fs::try_exists(&db_file).await? {
