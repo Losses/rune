@@ -62,11 +62,11 @@
         <p>Features</p>
         <ul>
           <li>Support Apple Music libraries on macOS, iOS, and Android by @XMLHexagram in https://github.com/Losses/rune/pull/913.</li>
-          <li>Support Subsonic and OpenSubsonic servers as libraries by @XMLHexagram, @ChestnutLUO, @hang333 in https://github.com/Losses/rune/pull/876.</li>
-          <li>Support WebDAV and S3 music libraries via OpenDAL by @ChestnutLUO, @Palpitace, @hang333 in https://github.com/Losses/rune/pull/826.</li>
-          <li>Support casting and playback handoff between Rune devices by @XMLHexagram, @shaonianche, @Palpitace, @hang333 in https://github.com/Losses/rune/pull/351.</li>
+          <li>Support Subsonic and OpenSubsonic servers as libraries by @XMLHexagram (#876), @ChestnutLUO (#708), @hang333 (#648).</li>
+          <li>Support WebDAV and S3 music libraries via OpenDAL by @ChestnutLUO (#826), @Palpitace (#980), @hang333 (#680).</li>
+          <li>Support casting and playback handoff between Rune devices by @XMLHexagram (#351), @shaonianche (#910), @Palpitace (#1010), @hang333 (#849).</li>
           <li>Unify the Media Server and per-library device permissions on the Devices page by @ChestnutLUO in https://github.com/Losses/rune/pull/923.</li>
-          <li>Support peer-to-peer and cloud-share library synchronization with offline audio downloads by @Palpitace, @hang333, @ChestnutLUO, @shaonianche in https://github.com/Losses/rune/pull/1012.</li>
+          <li>Support peer-to-peer and cloud-share library synchronization with offline audio downloads by @Palpitace (#1012), @hang333 (#682), @ChestnutLUO (#924), @shaonianche (#837).</li>
           <li>Add a built-in cross-platform file dialog with File Explorer views and thumbnails.</li>
           <li>Redesign the Artist page with release tiles, year groups, and top tracks by @XMLHexagram in https://github.com/Losses/rune/pull/884.</li>
           <li>Adopt WinJS-style tile groups and expand track, collection, and mix menus by @XMLHexagram in https://github.com/Losses/rune/pull/866.</li>
@@ -81,25 +81,25 @@
         </ul>
         <p>Bugs</p>
         <ul>
-          <li>Improve playback, streaming download, and queue stability by @shaonianche, @Palpitace, @Ovler-Young, @delete-cloud, @hang333, @ChestnutLUO in https://github.com/Losses/rune/pull/831.</li>
-          <li>Improve library scanning, database migrations, and catalog recovery by @Palpitace, @mvanhorn, @shaonianche, @Wenbobobo, @delete-cloud, @ChestnutLUO, @XMLHexagram in https://github.com/Losses/rune/pull/1014.</li>
-          <li>Improve library sync reconciliation and offline download handling by @hang333, @Palpitace, @shaonianche, @Wenbobobo, @ChestnutLUO in https://github.com/Losses/rune/pull/905.</li>
-          <li>Fix Apple Music, Subsonic, and OpenDAL cloud library issues by @XMLHexagram, @ChestnutLUO, @Palpitace, @hang333, @Wenbobobo in https://github.com/Losses/rune/pull/946.</li>
-          <li>Fix GPU FFT analysis, chart analysis, and visualizer scene rendering by @Ovler-Young, @delete-cloud, @shaonianche, @ChestnutLUO in https://github.com/Losses/rune/pull/666.</li>
-          <li>Show application notices in dialogs instead of toasts by @ChestnutLUO, @hang333 in https://github.com/Losses/rune/pull/978.</li>
-          <li>Fix startup theme loading, list reload scrolling, queue flyout, and playback bar clicks by @XMLHexagram, @baka-gourd, @mofeisi2333, @Palpitace, @ChestnutLUO in https://github.com/Losses/rune/pull/729.</li>
-          <li>Fix lyrics loading, scrobbling, M3U8 playlists, and CLI behavior by @Palpitace, @ChestnutLUO, @shaonianche, @Wenbobobo, @Ovler-Young in https://github.com/Losses/rune/pull/743.</li>
-          <li>Fix macOS Now Playing and Core Graphics safety by @ChestnutLUO, @JohnSpirit, @XMLHexagram in https://github.com/Losses/rune/pull/970.</li>
+          <li>Improve playback, streaming download, and queue stability by @shaonianche (#831), @Palpitace (#747), @Ovler-Young (#808), @delete-cloud (#614), @hang333 (#938), @ChestnutLUO (#716).</li>
+          <li>Improve library scanning, database migrations, and catalog recovery by @Palpitace (#1014), @mvanhorn (#770), @shaonianche (#788), @Wenbobobo (#694), @delete-cloud (#676), @ChestnutLUO (#608), @XMLHexagram (#343).</li>
+          <li>Improve library sync reconciliation and offline download handling by @hang333 (#905), @Palpitace (#997), @shaonianche (#842), @Wenbobobo (#701), @ChestnutLUO (#671).</li>
+          <li>Fix Apple Music, Subsonic, and OpenDAL cloud library issues by @XMLHexagram (#946), @ChestnutLUO (#712), @Palpitace (#982), @hang333 (#757), @Wenbobobo (#700).</li>
+          <li>Fix GPU FFT analysis, chart analysis, and visualizer scene rendering by @Ovler-Young (#666), @delete-cloud (#615), @shaonianche (#900), @ChestnutLUO (#605).</li>
+          <li>Show application notices in dialogs instead of toasts by @ChestnutLUO (#978), @hang333 (#693).</li>
+          <li>Fix startup theme loading, list reload scrolling, queue flyout, and playback bar clicks by @XMLHexagram (#729), @baka-gourd (#335), @mofeisi2333 (#623), @Palpitace (#744), @ChestnutLUO (#717).</li>
+          <li>Fix lyrics loading, scrobbling, M3U8 playlists, and CLI behavior by @Palpitace (#743), @ChestnutLUO (#839), @shaonianche (#781), @Wenbobobo (#705), @Ovler-Young (#625).</li>
+          <li>Fix macOS Now Playing and Core Graphics safety by @ChestnutLUO (#970), @JohnSpirit (#859), @XMLHexagram (#348).</li>
           <li>Fix iOS App Store build compliance and folder picker issues by @XMLHexagram in https://github.com/Losses/rune/pull/994.</li>
-          <li>Fix Android playlist import, SAF paths, and release APK network access by @Palpitace, @hang333, @ChestnutLUO in https://github.com/Losses/rune/pull/1009.</li>
-          <li>Fix Linux Flatpak ID, D-Bus fallback, MPRIS controls, and texture lifecycle by @Fei1Yang, @ChestnutLUO, @Palpitace, @shaonianche in https://github.com/Losses/rune/pull/333.</li>
-          <li>Fix Windows Store license polling, long paths, and media control threading by @Palpitace, @hang333, @Wenbobobo in https://github.com/Losses/rune/pull/981.</li>
-          <li>Fix release tool, startup --profile handling, documentation, and test infrastructure by @ShouNichi, @JohnSpirit, @CircleCrop, @Losses, @shaonianche, @hang333 in https://github.com/Losses/rune/pull/618.</li>
+          <li>Fix Android playlist import, SAF paths, and release APK network access by @Palpitace (#1009), @hang333 (#732), @ChestnutLUO (#624).</li>
+          <li>Fix Linux Flatpak ID, D-Bus fallback, MPRIS controls, and texture lifecycle by @Fei1Yang (#333), @ChestnutLUO (#964), @Palpitace (#985), @shaonianche (#809).</li>
+          <li>Fix Windows Store license polling, long paths, and media control threading by @Palpitace (#981), @hang333 (#802), @Wenbobobo (#704).</li>
+          <li>Fix release tool, startup --profile handling, documentation, and test infrastructure by @ShouNichi (#618), @JohnSpirit (#611), @CircleCrop (#949), @Losses (#984), @shaonianche (#799), @hang333 (#806).</li>
         </ul>
         <p>Security</p>
         <ul>
           <li>Encrypt local library and scrobbling credentials and redact Subsonic error credentials by @Wenbobobo in https://github.com/Losses/rune/pull/620.</li>
-          <li>Enforce per-library device grants, certificate checks, and server path validation by @Wenbobobo, @Ovler-Young, @shaonianche, @hang333 in https://github.com/Losses/rune/pull/702.</li>
+          <li>Enforce per-library device grants, certificate checks, and server path validation by @Wenbobobo (#702), @Ovler-Young (#764), @shaonianche (#914), @hang333 (#947).</li>
           <li>Bump quinn-proto from 0.11.13 to 0.11.19 by @dependabot[bot] in https://github.com/Losses/rune/pull/334.</li>
           <li>Update rpassword to 7.5.5, rand to 0.10.3, and the web panel to SvelteKit 3 by @ChestnutLUO in https://github.com/Losses/rune/pull/973.</li>
         </ul>
