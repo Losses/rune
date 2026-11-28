@@ -201,9 +201,11 @@ enum WalFallbackReason {
 }
 
 fn open_sqlite_options(path: &Path) -> SqliteConnectOptions {
+    // The storage backend already opened or created the catalog. If it was
+    // removed since then, SQLite must not replace it with an empty database.
     SqliteConnectOptions::new()
         .filename(path)
-        .create_if_missing(true)
+        .create_if_missing(false)
         .synchronous(SqliteSynchronous::Extra)
 }
 
@@ -412,11 +414,7 @@ async fn connect_main_db_from_storage_info(
     } else {
         SqliteJournalMode::Delete
     };
-    let connection_options = SqliteConnectOptions::new()
-        .filename(&db_path)
-        .create_if_missing(true)
-        .synchronous(SqliteSynchronous::Extra)
-        .journal_mode(journal_mode);
+    let connection_options = open_sqlite_options(&db_path).journal_mode(journal_mode);
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
@@ -630,6 +628,22 @@ mod journal_mode_tests {
             connect_main_db(&fsio, root.to_str().context("library path")?, None, "node").await?;
         assert_eq!(mode(&db).await?.to_ascii_lowercase(), "delete");
         db.close().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sqlite_connections_do_not_recreate_a_removed_catalog() -> Result<()> {
+        let dir = TempDir::new()?;
+        let root = dir.path().to_str().context("library path")?;
+        let db = connect_main_db(&FsIo::new(), root, None, "node").await?;
+        let pool_options = db.get_sqlite_connection_pool().connect_options();
+        db.close().await?;
+        let file = dir.path().join(".rune/.0.db");
+        fs::remove_file(&file)?;
+
+        assert!(configure_journal_mode(&file, false, false).await.is_err());
+        assert!(pool_options.connect().await.is_err());
+        assert!(!file.try_exists()?);
         Ok(())
     }
 

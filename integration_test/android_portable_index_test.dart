@@ -57,12 +57,22 @@ void main() {
     final index = indexDocument('.0.db');
     expect(await saf.stat(index, false), isNull);
 
+    final removedIndex = const bool.fromEnvironment('RUNE_SAF_STALE_INDEX')
+        ? await _indexFile(treeId).create(recursive: true)
+        : null;
+
     final response = await registry.registerLocalFolder(
       tree.uri,
       tree.name,
       LibraryInitializeMode.portable,
     );
     final record = response.record!;
+    if (removedIndex != null) {
+      // Registration cached the document. Remove it outside Rune before the
+      // first open so the provider rejects the cached URI.
+      await removedIndex.delete();
+      expect(await saf.stat(index, false), isNull);
+    }
     await registry.open(record.recordId);
     await manager.scanLibrary(record.recordId);
     expect(
@@ -92,4 +102,12 @@ void main() {
     expect(reopened.track, track.track);
     await closeLibrary(tester.element(appRoot));
   }, timeout: const Timeout(Duration(minutes: 4)));
+}
+
+File _indexFile(String treeId) {
+  final separator = treeId.indexOf(':');
+  final volume = treeId.substring(0, separator);
+  final mount = volume == 'primary' ? '/sdcard' : '/storage/$volume';
+  final folder = treeId.substring(separator + 1);
+  return File('$mount/$folder/.rune/.0.db');
 }

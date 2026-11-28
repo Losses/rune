@@ -234,14 +234,14 @@ impl AndroidFsIo {
         Ok(file.url)
     }
 
-    fn evict_cache(&self, path: &Path) {
+    fn evict_cache(&self, path: &Path) -> Result<(), FileIoError> {
         let conn = self.db.lock().unwrap();
-        if let Err(e) = conn.execute(
+        conn.execute(
             "DELETE FROM fs_cache WHERE path = ?1",
             params![path.to_str().unwrap()],
-        ) {
-            log::warn!("Failed to evict stale cache entry for {path:?}: {e}");
-        }
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+        Ok(())
     }
 
     /// Read cached metadata for `path`; the read-through `get_uri` guarantees
@@ -269,20 +269,28 @@ impl AndroidFsIo {
     fn open_sync(&self, path: &Path, open_mode: OpenMode) -> Result<fs::File, FileIoError> {
         // Skip DocumentFile construction entirely: opening only needs the
         // content URI, so this is a single provider IPC.
-        let creates = open_mode.creates();
-        let uri = match self.get_uri(path) {
-            Ok(uri) => uri,
-            Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
-            Err(e) => return Err(e),
+        let resolve_uri = || match self.get_uri(path) {
+            Err(FileIoError::PathNotFound(_)) if open_mode.creates() => {
+                self.create_file_for_write(path)
+            }
+            result => result,
         };
-        match open_content_url(&uri, open_mode.as_str()) {
+        let open_uri = |uri: &str| -> anyhow::Result<fs::File> {
+            // Hold the thread attachment until a provider exception is cleared.
+            // ART can abort on detach or on the next JNI call if it stays pending.
+            let mut env = ndk_saf::get_env()?;
+            open_content_url(uri, open_mode.as_str())
+                .inspect_err(|_| ndk_saf::clear_pending_exception(&mut env))
+        };
+        let uri = resolve_uri()?;
+        match open_uri(&uri) {
             Ok(file) => Ok(file),
             Err(first_error) => {
                 // The cached URI may be stale (the file was replaced outside the
                 // app); evict it and re-resolve live once before giving up.
-                self.evict_cache(path);
-                let uri = self.get_uri(path)?;
-                open_content_url(&uri, open_mode.as_str()).map_err(|second_error| {
+                self.evict_cache(path)?;
+                let uri = resolve_uri()?;
+                open_uri(&uri).map_err(|second_error| {
                     FileIoError::Saf(format!(
                         "{second_error} (initial attempt with cached URI: {first_error})"
                     ))

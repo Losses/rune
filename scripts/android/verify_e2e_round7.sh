@@ -5,6 +5,7 @@
 # The default AVD is "selftest" (see emulator_selftest.sh). Set ANDROID_SERIAL
 # for another Android 11+ test phone with a mounted FAT SD card and DocumentsUI.
 # Set RUNE_SAF_TEST=portable-index to scan and reopen an index in that folder.
+# Also set RUNE_SAF_STALE_INDEX=true to test recovery of a deleted index.
 # This clears Rune's app data on the selected device.
 set -euo pipefail
 
@@ -131,6 +132,7 @@ verify_android() (
     if [[ $scenario == portable-index ]]; then
         flutter test integration_test/android_portable_index_test.dart \
             -d "$ANDROID_SERIAL" --dart-define="RUNE_SAF_TREE_ID=$tree_id" \
+            --dart-define="RUNE_SAF_STALE_INDEX=${RUNE_SAF_STALE_INDEX:-false}" \
             --reporter expanded 2>&1 | tee "$log_dir/portable-index.txt"
     else
         run_playback_test "$tree_id" "$log_dir"
