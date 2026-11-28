@@ -301,6 +301,14 @@ impl PlayingFileMetadataProvider for OnlineFileProcessor {
         _main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
+        // Looking up a library track must not fail because online covers need a config directory.
+        if !items
+            .iter()
+            .any(|item| matches!(item, PlayingItem::Online(..)))
+        {
+            return Ok(HashMap::new());
+        }
+
         let config_path = get_config_dir()?;
         let cert_validator = Arc::new(
             CertValidator::new(config_path)
