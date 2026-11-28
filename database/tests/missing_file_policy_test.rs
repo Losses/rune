@@ -132,6 +132,69 @@ async fn missing_managed_file_is_only_unavailable() -> Result<()> {
 async fn missing_host_file_keep_as_remote_marks_unavailable() -> Result<()> {
     unavailable_case(false, MissingHostFilePolicy::KeepAsRemote).await
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cleanup_waits_for_a_conclusive_file_lookup() -> Result<()> {
+    let node = Uuid::new_v4();
+    let library = support::SqlLibrary::new(Uuid::new_v4(), node).await?;
+    let store = library.sync_store.record_store();
+    let fs = FsIo::new();
+    let root = library.root.path();
+    let track = root.join("track.ogg");
+    fs::copy(fixtures::audio_fixture(), &track)?;
+    let actor = node.to_string();
+    let id = scan_audio_file(&fs, &library.db, &actor, root, &track, &store).await?;
+    let row = media_files::Entity::find_by_id(id)
+        .one(&library.db)
+        .await?
+        .unwrap();
+    let key = ObjectKey {
+        collection: Collection::Tracks,
+        id: row.source_uuid.parse()?,
+    };
+    let before = store.get_on(&library.db, &key).await?.unwrap();
+    assert!(row.local_available && before.value.is_some());
+    let scan = || {
+        fixtures::cleanup_scan(
+            &fs,
+            &library.db,
+            &actor,
+            root,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+    };
+
+    // The directory remains listable while the link loop makes this lookup fail.
+    fs::create_dir(root.join("still-mounted"))?;
+    fs::remove_file(&track)?;
+    std::os::unix::fs::symlink("track.ogg", &track)?;
+    assert!(fs.exists(&track).is_err());
+    scan().await?;
+    assert_eq!(
+        media_files::Entity::find_by_id(id).one(&library.db).await?,
+        Some(row)
+    );
+    assert_eq!(store.get_on(&library.db, &key).await?, Some(before));
+
+    fs::remove_file(track)?;
+    scan().await?;
+    assert!(
+        media_files::Entity::find_by_id(id)
+            .one(&library.db)
+            .await?
+            .is_none()
+    );
+    assert!(
+        store
+            .get_on(&library.db, &key)
+            .await?
+            .is_none_or(|record| record.value.is_none())
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn mass_missing_host_files_are_not_removed() -> Result<()> {
     let node = Uuid::new_v4();

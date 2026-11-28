@@ -616,15 +616,16 @@ impl FileIo for AndroidFsIo {
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        Ok(self.get_uri(path).is_ok())
-    }
-
-    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        // Library cleanup may remove tracks when this returns false.
         match self.get_uri(path) {
             Ok(_) => Ok(true),
             Err(FileIoError::PathNotFound(_)) => Ok(false),
             Err(error) => Err(error),
         }
+    }
+
+    fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        self.exists(path)
     }
 
     async fn is_file(&self, path: &Path) -> Result<bool, FileIoError> {
