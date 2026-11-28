@@ -32,7 +32,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use ::fsio::{FsIo, FsNode, OpenMode, StorageLocation};
+use ::fsio::{FileIoError, FsIo, FsNode, OpenMode, StorageLocation, is_document_provider_error};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
@@ -234,6 +234,9 @@ async fn sync_file_descriptions_inner(
                 if let Err(error) =
                     super::file::index_cached_download(main_db, store, fsio, description).await
                 {
+                    if is_document_provider_error(&error) {
+                        return Err(error);
+                    }
                     warn!(
                         "Cannot index cached download {}: {error:#}",
                         description.file_name
@@ -319,6 +322,7 @@ async fn sync_file_descriptions_inner(
             .context("Metadata worker failed")?;
             let (prepared, mut metadata, digest, size) = match prepared {
                 Ok(value) => value,
+                Err(e) if is_document_provider_error(&e) => return Err(e),
                 Err(e) => {
                     error!("Failed to prepare {}: {e:#}", description.file_name);
                     outcome.failed += 1;
@@ -388,12 +392,12 @@ async fn sync_file_descriptions_inner(
                 // A detached remote row has no former location to check.
                 let detached =
                     !old.local_available && old.directory.is_empty() && old.file_name.is_empty();
-                let still_absent = description.lib_path.as_deref().is_some_and(|root| {
-                    matches!(
-                        fsio.exists(&root.join(&old.directory).join(&old.file_name)),
-                        Ok(false)
-                    )
-                });
+                let still_absent = match description.lib_path.as_deref() {
+                    Some(root) => {
+                        known_missing(fsio, &root.join(&old.directory).join(&old.file_name))?
+                    }
+                    None => false,
+                };
                 if detached || still_absent {
                     current = media_files::Entity::find_by_id(old.id)
                         .one(&batch_txn)
@@ -495,7 +499,7 @@ async fn sync_file_descriptions_inner(
                         return Ok(outcome);
                     }
                     error!("Failed to save {}: {e:#}", description.file_name);
-                    if is_fatal_scan_error(&e) {
+                    if is_fatal_scan_error(&e) || is_document_provider_error(&e) {
                         batch_txn.rollback().await.with_context(|| {
                             format!("Failed to roll back metadata batch after {e:#}")
                         })?;
@@ -586,12 +590,14 @@ async fn find_moved_file(
         .filter(|path| Path::new(path).starts_with(root));
     let fsio = fsio.clone();
     let (absent, absent_album) = task::spawn_blocking(move || {
-        let absent = matches!(fsio.exists(&old_path), Ok(false));
-        let absent_album =
-            album_dir.filter(|path| absent && matches!(fsio.exists(Path::new(path)), Ok(false)));
-        (absent, absent_album)
+        let absent = known_missing(&fsio, &old_path)?;
+        let absent_album = match album_dir {
+            Some(path) if absent && known_missing(&fsio, Path::new(&path))? => Some(path),
+            _ => None,
+        };
+        Ok::<_, FileIoError>((absent, absent_album))
     })
-    .await?;
+    .await??;
     Ok(absent.then(|| (old.clone(), absent_album)))
 }
 
@@ -1025,6 +1031,15 @@ pub async fn confirm_empty_library_cleanup(
     Ok(true)
 }
 
+// Missing-file cleanup and move detection both require an affirmative answer.
+// A SAF error means access was lost, so the scan must stop before removing rows.
+fn known_missing(fsio: &FsIo, path: &Path) -> Result<bool, FileIoError> {
+    match fsio.exists(path) {
+        Err(error @ FileIoError::Saf(_)) => Err(error),
+        result => Ok(matches!(result, Ok(false))),
+    }
+}
+
 async fn clean_up_database(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
@@ -1044,24 +1059,25 @@ async fn clean_up_database(
     let fsio_for_missing = fsio.clone();
     let root_for_missing = root_path.to_path_buf();
     let cancel_missing = cancel_token.cloned();
-    let missing: Vec<_> = task::spawn_blocking(move || {
-        files
-            .into_iter()
-            .take_while(|_| {
-                !cancel_missing
-                    .as_ref()
-                    .is_some_and(CancellationToken::is_cancelled)
-            })
-            .filter(|file| {
-                matches!(
-                    fsio_for_missing
-                        .exists(&root_for_missing.join(&file.directory).join(&file.file_name)),
-                    Ok(false)
-                )
-            })
-            .collect()
+    let missing = task::spawn_blocking(move || {
+        let mut missing = Vec::new();
+        for file in files {
+            if cancel_missing
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                break;
+            }
+            if known_missing(
+                &fsio_for_missing,
+                &root_for_missing.join(&file.directory).join(&file.file_name),
+            )? {
+                missing.push(file);
+            }
+        }
+        Ok::<_, FileIoError>(missing)
     })
-    .await?;
+    .await??;
     if cancel_token.is_some_and(CancellationToken::is_cancelled) {
         return Ok(());
     }
@@ -1074,6 +1090,9 @@ async fn clean_up_database(
         log::warn!("Skipping missing host file removals because the library looks unmounted");
     }
     let root_listing = fsio.read_dir(root_path).await;
+    if let Err(error @ FileIoError::Saf(_)) = root_listing {
+        return Err(error.into());
+    }
     let root_listable = root_listing.is_ok();
     let empty_root = root_listing.is_ok_and(|entries| root_has_only_index_entries(&entries));
     let defer_host_cleanup = empty_root
@@ -1322,6 +1341,7 @@ where
                     scanned_directories.insert(value.directory.clone());
                     descriptions.push(Some(value));
                 }
+                Err(error) if is_document_provider_error(&error) => return Err(error),
                 Err(error) => {
                     error!("Failed to describe audio file: {error:#}");
                     descriptions.push(None);
@@ -1420,7 +1440,9 @@ where
         .with_context(|| "Unable to cleanup database")
         {
             Ok(_) => info!("Cleanup completed successfully."),
-            Err(e) if e.is::<EmptyLibraryCleanupDeferred>() => return Err(e),
+            Err(e) if e.is::<EmptyLibraryCleanupDeferred>() || is_document_provider_error(&e) => {
+                return Err(e);
+            }
             Err(e) => error!("{e:#?}"),
         }
     }

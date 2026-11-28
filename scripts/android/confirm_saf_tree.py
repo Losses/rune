@@ -1,17 +1,39 @@
 """Confirm the disposable fixture folder in Android's DocumentsUI picker."""
 
+import argparse
 import re
 import subprocess
-import sys
 import time
 import xml.etree.ElementTree as ET
 
 
-def confirm_folder(folder):
+def focused_package():
+    # Query the window manager without attaching UI automation to the app.
+    # A dialog's window title may omit its component; its focused activity
+    # still identifies the package.
+    result = subprocess.run(
+        ["adb", "shell", "dumpsys window displays | grep -E 'mCurrentFocus=|mFocusedApp='"],
+        capture_output=True, text=True,
+    )
+    for line in result.stdout.splitlines():
+        component = re.search(r"\bu\d+\s+([\w.]+)/", line)
+        if component:
+            return component.group(1)
+    return None
+
+
+def confirm_folder(folder, app_package):
     selected = False
+    confirmed = False
     while True:
         # The host stops this helper when flutter test exits, including on a
-        # build failure or if DocumentsUI returns without a second prompt.
+        # build failure. A device may return to Rune without a second prompt.
+        package = focused_package()
+        if selected and package == app_package:
+            return
+        if not package or not package.endswith(".documentsui"):
+            time.sleep(0.5)
+            continue
         result = subprocess.run(
             ["adb", "shell", "uiautomator dump /data/local/tmp/rune-picker.xml"
              " >/dev/null && cat /data/local/tmp/rune-picker.xml"],
@@ -24,7 +46,7 @@ def confirm_folder(folder):
         nodes = [n for n in nodes if n.get("package", "").endswith(".documentsui")]
         if selected:
             # Both screens can use android:id/button1. Wait for the dialog.
-            ready = any(n.get("resource-id") == "android:id/button2" for n in nodes)
+            ready = not confirmed and any(n.get("resource-id") == "android:id/button2" for n in nodes)
         else:
             ready = any(n.get("text") == folder for n in nodes)
         if ready:
@@ -38,12 +60,17 @@ def confirm_folder(folder):
                     ["adb", "shell", "input", "tap", str((x1 + x2) // 2),
                      str((y1 + y2) // 2)], check=True,
                 )
-                if selected:
-                    return
+                confirmed = selected
                 selected = True
                 break
         time.sleep(0.5)
 
 
 if __name__ == "__main__":
-    confirm_folder(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("folder")
+    parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--package", default="ci.not.rune")
+    args = parser.parse_args()
+    for _ in range(args.count):
+        confirm_folder(args.folder, args.package)

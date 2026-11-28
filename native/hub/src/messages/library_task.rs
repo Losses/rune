@@ -30,6 +30,7 @@ impl fmt::Display for LibraryTaskKind {
 pub enum ScanFailure {
     ScanFailed,
     WorkerFailed,
+    DocumentFolderUnavailable,
 }
 
 /// Why an analysis ended without finishing.
@@ -140,6 +141,29 @@ pub enum LibraryTaskState {
 }
 
 impl LibraryTaskState {
+    /// A controller cannot renew this device's Android folder grant. Keep the existing
+    /// scan failure on the wire, which older controllers can also read.
+    pub(crate) fn remote_scan_failure(&self) -> Option<Self> {
+        match self {
+            Self::ScanEnded {
+                record_id,
+                run_id,
+                progress,
+                total,
+                phase,
+                outcome: ScanOutcome::Failed(ScanFailure::DocumentFolderUnavailable),
+            } => Some(Self::ScanEnded {
+                record_id: record_id.clone(),
+                run_id: run_id.clone(),
+                progress: *progress,
+                total: *total,
+                phase: *phase,
+                outcome: ScanOutcome::Failed(ScanFailure::ScanFailed),
+            }),
+            _ => None,
+        }
+    }
+
     /// The library record the task belongs to.
     pub fn record_id(&self) -> &str {
         match self {

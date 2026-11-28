@@ -1,7 +1,7 @@
 //! Read-only local access state for catalog files.
 use crate::entities::{media_files, sync_download_jobs};
 use anyhow::{Result, ensure};
-use fsio::FsIo;
+use fsio::{FsIo, is_document_provider_error};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use std::path::Component;
 use std::{
@@ -107,7 +107,14 @@ pub async fn audio_availability<C: ConnectionTrait>(
     task::spawn_blocking(move || {
         rows.into_iter()
             .map(|row| {
-                let state = if row_path(&fsio, &root, &row)?.is_some() {
+                // A provider can lose its grant while the catalog is open.
+                // Keep the row visible with its remaining sources of audio.
+                let has_local_audio = match row_path(&fsio, &root, &row) {
+                    Ok(path) => path.is_some(),
+                    Err(error) if is_document_provider_error(&error) => false,
+                    Err(error) => return Err(error),
+                };
+                let state = if has_local_audio {
                     AudioAvailability::Local
                 } else if pending.contains(&row.source_uuid) {
                     AudioAvailability::ImportPending

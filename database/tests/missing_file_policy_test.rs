@@ -407,6 +407,70 @@ async fn missing_library_root_fails_the_scan_and_keeps_its_tracks() -> Result<()
     Ok(())
 }
 
+/// A successful walk can be followed by a provider failure while reading a track
+/// or checking which rows to remove. Neither failure makes missing rows deletable.
+#[tokio::test]
+async fn a_document_provider_error_after_the_walk_keeps_previously_indexed_tracks() -> Result<()> {
+    use database::actions::metadata::{ScanOptions, scan_audio_library};
+    use fsio::failing_read::{DocumentOperation, unavailable_document};
+
+    let node = Uuid::new_v4();
+    let actor = node.to_string();
+    let db = Database::connect("sqlite::memory:").await?;
+    migration::up_with_actor(&db, Some(&actor), None).await?;
+    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+    let root = tempfile::tempdir()?;
+    let removed = root.path().join("removed.ogg");
+    let inaccessible = root.path().join("unavailable.ogg");
+    fs::copy(fixtures::audio_fixture(), &removed)?;
+    fs::copy(fixtures::audio_fixture(), &inaccessible)?;
+    let scan = async |fs: FsIo, force| {
+        scan_audio_library(
+            &fs,
+            &db,
+            &actor,
+            root.path(),
+            ScanOptions {
+                cleanup: true,
+                force,
+                missing_host_file: MissingHostFilePolicy::RemoveEverywhere,
+                cancel_token: None,
+            },
+            |_| {},
+            &store,
+        )
+        .await
+    };
+    assert_eq!(scan(FsIo::new(), false).await?, 2);
+    let indexed = media_files::Entity::find().all(&db).await?;
+    fs::remove_file(&removed)?;
+
+    for operation in [
+        DocumentOperation::ModifiedTime,
+        DocumentOperation::Open,
+        DocumentOperation::Exists,
+    ] {
+        let fs = unavailable_document(&inaccessible, operation);
+        let error = scan(fs, operation == DocumentOperation::Open)
+            .await
+            .expect_err("scan should report unavailable folder");
+        assert!(
+            fsio::is_document_provider_error(&error),
+            "{operation:?}: {error:#}"
+        );
+        assert_eq!(
+            media_files::Entity::find().all(&db).await?,
+            indexed,
+            "{operation:?} changed existing rows"
+        );
+    }
+    scan(FsIo::new(), false).await?;
+    let remaining = media_files::Entity::find().all(&db).await?;
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].file_name, "unavailable.ogg");
+    Ok(())
+}
+
 #[tokio::test]
 async fn empty_library_root_scans_successfully() -> Result<()> {
     let node = Uuid::new_v4();

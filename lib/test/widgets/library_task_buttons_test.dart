@@ -9,6 +9,7 @@ import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/library_manager.dart';
 import 'package:rune/providers/library_open_state.dart';
 import 'package:rune/providers/library_registry.dart';
+import 'package:rune/providers/local_folder_picker.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/widgets/library_task_button.dart';
 
@@ -152,6 +153,7 @@ Future<_LibraryManager> _pumpTaskButtons(
   bool analysisRunning = false,
   (int, int) analysisCounts = (25, 100),
   (int, int)? deduplicationCounts,
+  Future<String?> Function(BuildContext)? pickDirectory,
 }) async {
   final (openState, registry) = await _openState(record);
   final manager = _LibraryManager()
@@ -169,6 +171,10 @@ Future<_LibraryManager> _pumpTaskButtons(
           value: openState,
         ),
         ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
+        Provider(
+          create: (_) =>
+              LocalFolderPickerProvider(pickDirectory: pickDirectory),
+        ),
       ],
       child: FluentApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -188,6 +194,56 @@ Future<_LibraryManager> _pumpTaskButtons(
 }
 
 void main() {
+  const folder = 'content://documents/tree/music';
+  const safRecord = LibraryRecordSummary(
+    shareSync: false,
+    recordId: 'android-library',
+    alias: 'Music',
+    kind: LibraryRecordKindSummaryLocal(libraryId: 'library', path: folder),
+  );
+  for (final (selected, retry) in [
+    (null, false),
+    ('content://documents/tree/other', false),
+    ('content://elsewhere/tree/music', false),
+    ('$folder/document/child', false),
+    ('$folder/document/music', true),
+    (folder, true),
+  ]) {
+    testWidgets(
+      'a failed document scan retries only the original folder ($selected)',
+      (tester) async {
+        var picks = 0;
+        final manager = await _pumpTaskButtons(
+          tester,
+          record: safRecord,
+          pickDirectory: (_) async {
+            picks++;
+            return selected;
+          },
+        );
+        manager.scanProgress = ScanTaskProgress(recordId: safRecord.recordId)
+          ..scanFailure = ScanFailure.documentFolderUnavailable;
+        final firstScan = Completer<TaskStatus>();
+        manager.scanCompletion = firstScan;
+        await tester.tap(find.text('Scan'));
+        firstScan.complete(TaskStatus.failed);
+        await tester.pumpAndSettle();
+        manager.scanCompletion = null;
+        await tester.tap(find.text('Pick Directory'));
+        await tester.pumpAndSettle();
+        expect(picks, 1);
+        expect(manager.scanForces, retry ? [false, false] : [false]);
+        expect(manager.cleanupConfirmations, isEmpty);
+        if (selected != null && !retry) {
+          expect(
+            find.textContaining('You selected a different folder'),
+            findsOneWidget,
+          );
+        }
+      },
+    );
+  }
+
   for (final confirmationTimedOut in [false, true]) {
     testWidgets(
       confirmationTimedOut

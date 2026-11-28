@@ -37,6 +37,14 @@ pub enum FileIoError {
     Remote(String),
 }
 
+/// Whether Android's document provider failed to access a granted document or tree.
+pub fn is_document_provider_error(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<FileIoError>(),
+        Some(FileIoError::Saf(_))
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct FsNode {
     pub filename: String,
@@ -380,6 +388,8 @@ use opendal_fs::OpenDalFsIo;
 
 #[cfg(target_os = "android")]
 mod android_fs;
+#[cfg(target_os = "android")]
+mod android_jni;
 #[cfg(target_os = "android")]
 pub use android_fs::read_android_document;
 #[cfg(target_os = "android")]

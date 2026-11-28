@@ -571,6 +571,7 @@ pub enum OpenLibraryFailureKind {
     /// The library's database was written by a newer version of Rune.
     NewerVersion,
     Storage,
+    DocumentFolderUnavailable,
 }
 
 #[derive(Deserialize, Serialize, RustSignal)]

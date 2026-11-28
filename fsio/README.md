@@ -48,3 +48,10 @@ See `src/lib.rs` for the full `FileIo` trait. Notes:
 ## Testing
 
 `cargo test -p fsio` runs the conformance suite (`tests/conformance.rs`) against `StdFsIo` and `NoOpFsIo`, plus a host-side self-test smoke run.
+
+With a desktop JDK 11 or newer, run the document provider regression from the repository root to check that a native worker can continue using JNI after a Java exception.
+
+```sh
+cargo build --locked -p fsio --features jni-guard-tests --example document_provider_jni
+java -Xcheck:jni fsio/tests/jni/DocumentProviderJni.java "${CARGO_TARGET_DIR:-target}/debug/examples"
+```

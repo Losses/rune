@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/router/navigation.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
 import '../bindings/bindings.dart';
+import '../l10n/app_localizations.dart';
 import '../constants/configurations.dart';
 import '../constants/settings_manager.dart';
 import '../utils/api/request_failure.dart';
@@ -55,6 +56,7 @@ class ScanTaskProgress {
   bool initialize;
   String? error;
   RequestFailure? failure;
+  ScanFailure? scanFailure;
 
   ScanTaskProgress({
     required this.recordId,
@@ -64,6 +66,11 @@ class ScanTaskProgress {
     this.status = TaskStatus.working,
     this.initialize = false,
   });
+
+  String? errorMessage(AppLocalizations labels) =>
+      scanFailure == ScanFailure.documentFolderUnavailable
+      ? labels.documentFolderUnavailable
+      : error;
 
   @override
   String toString() {
@@ -264,7 +271,9 @@ class LibraryManagerProvider with ChangeNotifier {
           getScanTaskProgress(recordId)?.initialize ?? false,
         );
         if (outcome is ScanOutcomeFailed) {
-          getScanTaskProgress(recordId)?.error = 'Scan failed';
+          getScanTaskProgress(recordId)
+            ?..scanFailure = outcome.value
+            ..error = 'Scan failed';
         }
         if (status == TaskStatus.finished &&
             getScanTaskProgress(recordId)?.initialize == true) {
@@ -374,6 +383,7 @@ class LibraryManagerProvider with ChangeNotifier {
       if (status == TaskStatus.working) {
         _scanTasks[recordId]!
           ..error = null
+          ..scanFailure = null
           ..failure = null;
       }
     } else {

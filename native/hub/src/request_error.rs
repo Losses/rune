@@ -170,6 +170,7 @@ fn open_failure_kind(kind: OpenLibraryFailureKind) -> RequestErrorKind {
         Kind::RemoteUntrusted | Kind::RemoteNotAuthorized => RequestErrorKind::PermissionDenied,
         Kind::ProtocolIncompatible => RequestErrorKind::PeerNeedsUpdate,
         Kind::RemoteUnreachable
+        | Kind::DocumentFolderUnavailable
         | Kind::RemoteProtocol
         | Kind::NotSupportedYet
         | Kind::NewerVersion

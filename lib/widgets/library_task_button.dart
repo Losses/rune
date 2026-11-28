@@ -10,6 +10,7 @@ import '../screens/settings_library/widgets/progress_button.dart';
 import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_open_state.dart';
+import '../providers/local_folder_picker.dart';
 import '../utils/dialogs/information/confirm.dart';
 import '../utils/dialogs/information/error.dart';
 import '../utils/api/request_failure.dart';
@@ -198,15 +199,24 @@ class ScanLibraryButton extends StatelessWidget {
         onFinished?.call();
       } else if (status == TaskStatus.failed) {
         final labels = S.of(context);
-        final error =
-            libraryManager.getScanTaskProgress(recordId)?.error ??
-            labels.unknownError;
+        final progress = libraryManager.getScanTaskProgress(recordId);
+        final error = progress?.errorMessage(labels) ?? labels.unknownError;
         final open = context.read<LibraryOpenStateProvider>().openRecord;
         final kind = open?.kind;
         if (open?.recordId == recordId &&
-            kind is LibraryRecordKindSummaryLocal &&
-            !kind.path.startsWith('content://')) {
-          if (await _reviewEmptyLibraryCleanup(context, recordId)) return;
+            kind is LibraryRecordKindSummaryLocal) {
+          if (kind.path.startsWith('content://')) {
+            if (progress?.scanFailure ==
+                ScanFailure.documentFolderUnavailable) {
+              if (await _restoreDocumentFolder(context, recordId, kind.path) &&
+                  context.mounted) {
+                await scan(libraryManager, recordId, callId, force: force);
+              }
+              return;
+            }
+          } else if (await _reviewEmptyLibraryCleanup(context, recordId)) {
+            return;
+          }
         }
         if (!context.mounted) return;
         await showErrorDialog(
@@ -235,6 +245,66 @@ class ScanLibraryButton extends StatelessWidget {
           scanWorking,
     );
   }
+}
+
+Future<bool> _restoreDocumentFolder(
+  BuildContext context,
+  String recordId,
+  String path,
+) async {
+  final labels = S.of(context);
+  final pick = await showConfirmDialog(
+    context: context,
+    title: labels.scanLibrary,
+    subtitle: labels.restoreDocumentFolderAccess,
+    yesLabel: labels.pickDirectory,
+    noLabel: labels.close,
+  );
+  bool stillOpen() =>
+      context.mounted &&
+      context.read<LibraryOpenStateProvider>().openRecord?.recordId == recordId;
+  if (pick != true || !context.mounted || !stillOpen()) return false;
+  try {
+    final selected = await context
+        .read<LocalFolderPickerProvider>()
+        .pickDirectory(context);
+    if (selected == null || !context.mounted || !stillOpen()) return false;
+    final folder = _documentTreeRoot(path);
+    if (selected == path ||
+        (folder != null && folder == _documentTreeRoot(selected))) {
+      return true;
+    }
+    await showErrorDialog(
+      context: context,
+      title: labels.pickDirectory,
+      errorMessage: labels.selectOriginalLibraryFolder,
+    );
+  } on Exception {
+    if (!context.mounted || !stillOpen()) return false;
+    await showErrorDialog(
+      context: context,
+      title: labels.pickDirectory,
+      errorMessage: labels.documentFolderUnavailable,
+    );
+  }
+  return false;
+}
+
+// Android grants the tree URI; its picker can return the root document within
+// that tree. A child document and a folder from another provider stay distinct.
+(String, String)? _documentTreeRoot(String path) {
+  final uri = Uri.tryParse(path);
+  if (uri == null || uri.scheme != 'content' || uri.authority.isEmpty) {
+    return null;
+  }
+  return switch (uri.pathSegments) {
+    ['tree', final id] => (uri.authority, id),
+    ['tree', final id, 'document', final document] when document == id => (
+      uri.authority,
+      id,
+    ),
+    _ => null,
+  };
 }
 
 Future<bool> _reviewEmptyLibraryCleanup(

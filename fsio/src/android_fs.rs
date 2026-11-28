@@ -7,16 +7,30 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
+use jni::JNIEnv;
+use ndk_saf::{AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 
+use super::android_jni::{saf_error, with_document_env};
 use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 use std::time as std_time;
 
+fn with_saf<T>(call: impl FnOnce(&mut JNIEnv) -> anyhow::Result<T>) -> Result<T, FileIoError> {
+    let env = ndk_saf::get_env().map_err(saf_error)?;
+    with_document_env(env, call)
+}
+
+fn tree_document(uri: &str) -> Result<AndroidFile, FileIoError> {
+    with_saf(|_| ndk_saf::from_tree_url(uri))
+}
+
+fn open_document(uri: &str, mode: &str) -> Result<fs::File, FileIoError> {
+    with_saf(|_| ndk_saf::open_content_url(uri, mode))
+}
+
 /// Reads a UTF-8 document for which Android has granted access to this app.
 pub fn read_android_document(uri: &str) -> Result<String, FileIoError> {
-    let mut file =
-        open_content_url(uri, "r").map_err(|error| FileIoError::Saf(error.to_string()))?;
+    let mut file = open_document(uri, "r")?;
     let mut content = String::new();
     file.read_to_string(&mut content)?;
     Ok(content)
@@ -29,13 +43,11 @@ pub(crate) struct AndroidFsIo {
 
 impl AndroidFsIo {
     pub(crate) fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
-        let root_file = from_tree_url(root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file = tree_document(root_uri)?;
 
         let db_file = Self::find_file_by_path(root_file, db_path, true)?;
 
-        let std_file = db_file
-            .open("rw")
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let std_file = with_saf(|_| db_file.open("rw"))?;
         let fd = std_file.as_raw_fd();
         let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
 
@@ -48,11 +60,10 @@ impl AndroidFsIo {
             let mut stmt = db
                 .prepare("PRAGMA table_info(fs_cache)")
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let columns = stmt
+            let mut columns = stmt
                 .query_map([], |row| row.get::<_, String>(1))
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let has_is_dir = columns.filter_map(|c| c.ok()).any(|name| name == "is_dir");
-            has_is_dir
+            columns.any(|column| column.is_ok_and(|name| name == "is_dir"))
         };
         if !has_v2_schema {
             db.execute("DROP TABLE IF EXISTS fs_cache", [])
@@ -103,9 +114,7 @@ impl AndroidFsIo {
                 _ => continue,
             };
 
-            let files = current_file
-                .list_files()
-                .map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let files = with_saf(|_| current_file.list_files())?;
             let found_file = files.into_iter().find(|f| f.filename == component_name);
 
             current_file = match found_file {
@@ -113,13 +122,11 @@ impl AndroidFsIo {
                 None => {
                     if create_if_not_exist {
                         if let Some(_ext) = Path::new(component_name).extension() {
-                            current_file
-                                .create_file("application/octet-stream", component_name)
-                                .map_err(|e| FileIoError::Saf(e.to_string()))?
+                            with_saf(|_| {
+                                current_file.create_file("application/octet-stream", component_name)
+                            })?
                         } else {
-                            current_file
-                                .create_directory(component_name)
-                                .map_err(|e| FileIoError::Saf(e.to_string()))?
+                            with_saf(|_| current_file.create_directory(component_name))?
                         }
                     } else {
                         return Err(FileIoError::PathNotFound(path.display().to_string()));
@@ -131,8 +138,7 @@ impl AndroidFsIo {
     }
 
     pub fn refresh_cache(&self) -> Result<(), FileIoError> {
-        let root_file =
-            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file = tree_document(&self.root_uri)?;
         let db = self.db.clone();
 
         let mut conn = db.lock().unwrap();
@@ -147,9 +153,7 @@ impl AndroidFsIo {
             current_path: &Path,
             tx: &rusqlite::Transaction,
         ) -> Result<(), FileIoError> {
-            let files = file
-                .list_files()
-                .map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let files = with_saf(|_| file.list_files())?;
             for f in files {
                 let new_path = current_path.join(&f.filename);
                 tx.execute(
@@ -212,8 +216,7 @@ impl AndroidFsIo {
 
         // Cache miss: resolve live by walking the SAF tree (the same way other
         // platforms hit the real filesystem), then cache just this entry.
-        let root_file =
-            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file = tree_document(&self.root_uri)?;
         let file = Self::find_file_by_path(root_file, path, false)?;
 
         let parent = path.parent().unwrap_or_else(|| Path::new(""));
@@ -279,17 +282,17 @@ impl AndroidFsIo {
             Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
             Err(e) => return Err(e),
         };
-        match open_content_url(&uri, open_mode.as_str()) {
+        match open_document(&uri, open_mode.as_str()) {
             Ok(file) => Ok(Box::new(file)),
             Err(first_error) => {
                 // The cached URI may be stale (the file was replaced outside the
                 // app); evict it and re-resolve live once before giving up.
                 self.evict_cache(path);
                 let uri = self.get_uri(path)?;
-                let file = open_content_url(&uri, open_mode.as_str()).map_err(|second_error| {
-                    FileIoError::Saf(format!(
-                        "{second_error} (initial attempt with cached URI: {first_error})"
-                    ))
+                let file = with_saf(|_| {
+                    ndk_saf::open_content_url(&uri, open_mode.as_str()).map_err(|e| {
+                        anyhow::anyhow!("{e} (initial attempt with cached URI: {first_error})")
+                    })
                 })?;
                 Ok(Box::new(file))
             }
@@ -309,9 +312,7 @@ impl AndroidFsIo {
             .ok_or(FileIoError::InvalidPath)?;
 
         let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file
-            .create_file("application/octet-stream", name)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_file = with_saf(|_| parent_file.create_file("application/octet-stream", name))?;
 
         let conn = self.db.lock().unwrap();
         conn.execute(
@@ -332,9 +333,7 @@ impl AndroidFsIo {
 
     fn create_dir_sync(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
         let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file
-            .create_directory(name)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_file = with_saf(|_| parent_file.create_directory(name))?;
         let new_path = parent.join(name);
 
         let conn = self.db.lock().unwrap();
@@ -356,7 +355,7 @@ impl AndroidFsIo {
 
     fn get_android_file(&self, path: &Path) -> Result<AndroidFile, FileIoError> {
         let uri = self.get_uri(path)?;
-        from_tree_url(&uri).map_err(|e| FileIoError::Saf(e.to_string()))
+        tree_document(&uri)
     }
 }
 
@@ -462,8 +461,7 @@ impl FileIo for AndroidFsIo {
 
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file()
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        with_saf(|_| file.remove_file())?;
 
         let conn = self.db.lock().unwrap();
         conn.execute(
@@ -486,9 +484,8 @@ impl FileIo for AndroidFsIo {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or(FileIoError::InvalidPath)?;
-        let rename = || -> anyhow::Result<String> {
+        let uri = with_saf(|env| {
             use jni::objects::{JString, JValue};
-            let mut env = ndk_saf::get_env()?;
             let application = env
                 .call_static_method(
                     "android/app/ActivityThread",
@@ -527,12 +524,6 @@ impl FileIo for AndroidFsIo {
             );
             let result: String = env.get_string(&result)?.into();
             Ok(result)
-        };
-        let uri = rename().map_err(|e| {
-            if let Ok(mut env) = ndk_saf::get_env() {
-                ndk_saf::clear_pending_exception(&mut env);
-            }
-            FileIoError::Saf(e.to_string())
         })?;
         let mut conn = self.db.lock().unwrap();
         let tx = conn
@@ -554,8 +545,7 @@ impl FileIo for AndroidFsIo {
 
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file()
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        with_saf(|_| file.remove_file())?;
 
         let conn = self.db.lock().unwrap();
         let path_str = path.to_str().unwrap();
@@ -616,7 +606,7 @@ impl FileIo for AndroidFsIo {
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        Ok(self.get_uri(path).is_ok())
+        self.entry_exists(path)
     }
 
     fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
@@ -639,7 +629,7 @@ impl FileIo for AndroidFsIo {
 
     fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
         let uri = self.get_uri(path)?;
-        let std_file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let std_file = open_document(&uri, "r")?;
         let fd = std_file.as_raw_fd();
         let proc_path = format!("/proc/self/fd/{}", fd);
         let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
@@ -648,8 +638,7 @@ impl FileIo for AndroidFsIo {
 
     fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
         if path.contains(':') {
-            let std_file =
-                open_content_url(path, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let std_file = open_document(path, "r")?;
             let fd = std_file.as_raw_fd();
             let proc_path = format!("/proc/self/fd/{}", fd);
             let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
@@ -675,7 +664,7 @@ impl FileIo for AndroidFsIo {
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
         // fstat on the SAF fd goes through FUSE getattr and carries real mtime
         let uri = self.get_uri(path)?;
-        let file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let file = open_document(&uri, "r")?;
         let modified = file
             .metadata()?
             .modified()?
@@ -686,7 +675,7 @@ impl FileIo for AndroidFsIo {
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
         if path.contains(':') {
-            let file = from_tree_url(path).map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let file = tree_document(path)?;
             let canon_path = self.canonicalize_path_str(path)?;
             Ok(FsNode {
                 filename: file.filename,
