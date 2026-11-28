@@ -1826,25 +1826,54 @@ impl NodeContext {
 
     /// Verify that a remote session is an approved device, as this node knows it.
     async fn verified_peer(&self, session: &Session) -> Result<PeerIdentity> {
-        Self::approved_peer(&*self.permission_manager.read().await, session).await
+        Self::approved_peer(
+            &*self.permission_manager.read().await,
+            &session.fingerprint,
+            &session.public_key,
+        )
+        .await
     }
 
-    /// The device a remote session authenticates, if `permissions` approves it with that key.
+    /// The device a fingerprint and key authenticate, if `permissions` approves it with
+    /// that key.
     async fn approved_peer(
         permissions: &PermissionManager,
-        session: &Session,
+        fingerprint: &str,
+        public_key: &str,
     ) -> Result<PeerIdentity> {
         let user = permissions
-            .verify_by_fingerprint(&session.fingerprint)
+            .verify_by_fingerprint(fingerprint)
             .await
-            .filter(|user| {
-                user.status == UserStatus::Approved && user.public_key == session.public_key
-            })
+            .filter(|user| user.status == UserStatus::Approved && user.public_key == public_key)
             .ok_or(Denial::Untrusted)?;
         Ok(PeerIdentity {
             fingerprint: user.fingerprint,
             public_key: user.public_key,
         })
+    }
+
+    /// Authorize the controller a relayed request names. A device trusted to control this one
+    /// can forward a controller's cast or playlist request, but the controller itself must
+    /// also be an approved device holding Control here: control does not pass through the
+    /// relay.
+    pub(crate) async fn authorize_relayed_controller(
+        &self,
+        controlling_device: &crate::messages::ControllingDevice,
+    ) -> Result<()> {
+        // A device controls itself: a controller casting back to its own player through a
+        // relay never depends on the relay's grants.
+        if controlling_device.fingerprint == self.device_info().await?.fingerprint {
+            return Ok(());
+        }
+        let permissions = self.permission_manager.read().await;
+        let peer = Self::approved_peer(
+            &permissions,
+            &controlling_device.fingerprint,
+            &controlling_device.public_key,
+        )
+        .await?;
+        self.access_policy.check(&peer, &Action::Control)?;
+        Ok(())
     }
 
     /// Authorize a remote session to read the given libraries through this node. A player
@@ -1886,7 +1915,8 @@ impl NodeContext {
         params: Option<&GlobalParams>,
         addressed_library_id: Option<Uuid>,
     ) -> Result<()> {
-        let peer = Self::approved_peer(permissions, session).await?;
+        let peer =
+            Self::approved_peer(permissions, &session.fingerprint, &session.public_key).await?;
         let access = request_access(name).ok_or(Denial::NodeLocal)?;
         if access == RequestAccess::NodeLocal {
             return Err(Denial::NodeLocal.into());

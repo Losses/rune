@@ -157,6 +157,7 @@ pub async fn operate_playback_with_mix_query_request(
         .await?;
     let _: LoadResolvedItemsResponse = connection
         .request(&LoadResolvedItemsRequest {
+            controlling_device: None,
             position_seconds: None,
             play: LoadPlay::Auto,
 

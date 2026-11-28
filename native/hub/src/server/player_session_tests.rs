@@ -687,6 +687,7 @@ impl MixPlaybackTestRequest {
             .await?
             .context("mix query resolution")?;
         let load = LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             position_seconds: None,
             play: LoadPlay::Auto,
@@ -1074,6 +1075,7 @@ async fn subsonic_open_search_fetch_and_unsupported_requests() -> Result<()> {
         track: "song-opaque".into(),
     };
     let load = LoadResolvedItemsRequest {
+        controlling_device: None,
         items: vec![
             PlayingItemRef::LibraryTrack {
                 library_id: record.record_id.0.to_string(),
@@ -1650,13 +1652,15 @@ async fn play_clicked_track(
     )
     .await?
     .context("resolved track list")?;
-    let revision = dispatch_gui_request(params, &PlaylistRevisionRequest { call_id: None })
+    let revision = dispatch_gui_request(params, &PlaylistRevisionRequest {
+        controlling_device: None, call_id: None })
         .await?
         .context("current player queue revision")?
         .revision;
     dispatch_gui_request(
         params,
         &LoadResolvedItemsRequest {
+        controlling_device: None,
             items: resolved.playing_items.clone(),
             start_index: resolved.start_index,
             mode: PlaylistOperateMode::Replace,
@@ -1721,7 +1725,8 @@ async fn local_load_starts_the_selected_track_after_the_catalog_drops_an_earlier
         .await?;
     let revision = dispatch_gui_request(
         &fixture.global_params,
-        &PlaylistRevisionRequest { call_id: None },
+        &PlaylistRevisionRequest {
+        controlling_device: None, call_id: None },
     )
     .await?
     .context("player queue revision")?
@@ -1729,6 +1734,7 @@ async fn local_load_starts_the_selected_track_after_the_catalog_drops_an_earlier
     dispatch_gui_request(
         &fixture.global_params,
         &LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: resolved.playing_items,
             start_index: resolved.start_index,
@@ -1777,6 +1783,7 @@ async fn local_load_maps_duplicate_occurrences_and_rejects_a_removed_selection()
         .exec(&*fixture.global_params.test_library().main_db)
         .await?;
     let load = |items: Vec<PlayingItemRef>, start_index: u32| LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items,
         start_index: Some(start_index),
@@ -5679,6 +5686,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![host_items[0].into(), host_items[1].into()],
             start_index: Some(1),
@@ -5698,6 +5706,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![host_items[0].into(), host_items[1].into()],
             start_index: Some(1),
@@ -5748,6 +5757,7 @@ async fn chosen_renderer_cast_preserves_local_playback_and_can_switch_targets() 
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![host_items[1].into()],
             start_index: None,
@@ -7230,6 +7240,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         call_id: None,
         fingerprint: renderer_info.fingerprint.clone(),
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: cast_items.clone(),
             start_index: Some(1),
@@ -7275,6 +7286,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![host_items[1].into()],
             start_index: Some(0),
@@ -7316,6 +7328,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
             uuid: Uuid::new_v4().to_string(),
         },
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![host_items[0].into(), host_items[1].into()],
             start_index: Some(0),
@@ -7361,6 +7374,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     let local_cast_id = session_audio(&renderer, "cast-local.ogg").await?;
     let local_cast_item = library_track_for_id(&renderer, local_cast_id).await?;
     let stale_load = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![local_cast_item.into()],
         expected_revision: Some(revision.saturating_sub(1)),
@@ -7425,6 +7439,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![not_held.clone()],
             start_index: Some(0),
@@ -7482,6 +7497,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: cast_items.clone(),
             start_index: None,
@@ -7527,6 +7543,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: cast_items,
             start_index: Some(0),
@@ -7576,6 +7593,7 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
         &mut socket,
         "LoadResolvedItemsRequest",
         rinf::serialize(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: host_library_id.to_string(),
@@ -7601,6 +7619,152 @@ async fn cast_preflight_and_load_check_renderer_library_grants_over_websocket() 
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relayed_cast_and_revision_check_the_controller_not_only_the_intermediary() -> Result<()> {
+    use crate::backends::remote::connect_remote;
+    use crate::messages::{
+        CastResolvedItemsResponse, RemotePlaylistRevisionRequest,
+        RemoteRequestFailed,
+    };
+
+    let controller_dir = tempfile::tempdir()?;
+    let intermediary_dir = tempfile::tempdir()?;
+    let target_dir = tempfile::tempdir()?;
+    let controller = fixture(controller_dir.path()).await?;
+    let intermediary = fixture(intermediary_dir.path()).await?;
+    let target = fixture(target_dir.path()).await?;
+    let track_id = session_audio(&target, "relay-check.ogg").await?;
+    let track = library_track_for_id(&target, track_id).await?;
+
+    // The controller controls the intermediary, the intermediary controls the target, and the
+    // controller is approved on the target without Control.
+    let intermediary_addr = paired_full(&intermediary, &controller).await?;
+    paired_full(&target, &intermediary).await?;
+    pair(&target, &controller).await?;
+    let controller_info = info(&controller).await?;
+    let mut grants = DeviceGrants::guest();
+    grants.control = false;
+    target
+        .global_params
+        .node
+        .access_policy
+        .set(&controller_info.fingerprint, grants)?;
+    let target_info = info(&target).await?;
+
+    let mut socket = connect_remote(
+        "127.0.0.1",
+        intermediary_addr.port(),
+        &controller.global_params.config_path,
+        controller.global_params.cert_validator.read().await.clone(),
+        &controller.global_params.node.sync_tokens,
+    )
+    .await?;
+
+    let load = LoadResolvedItemsRequest {
+        controlling_device: None,
+        call_id: None,
+        items: vec![track.into()],
+        start_index: Some(0),
+        mode: PlaylistOperateMode::Replace,
+        expected_revision: None,
+        playback_mode: None,
+        position_seconds: None,
+        play: LoadPlay::Auto,
+    };
+    let cast = CastResolvedItemsRequest {
+        call_id: None,
+        fingerprint: target_info.fingerprint.clone(),
+        load: load.clone(),
+    };
+    let revision_before = target.global_params.node.session()?.queue_revision().await;
+    let queue_before = target.global_params.player.lock().await.get_playlist();
+
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastResolvedItemsRequest",
+        rinf::serialize(&cast)?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::PermissionDenied
+    );
+    assert_eq!(
+        target.global_params.node.session()?.queue_revision().await,
+        revision_before
+    );
+    assert_eq!(
+        target.global_params.player.lock().await.get_playlist(),
+        queue_before
+    );
+
+    let revision_request = RemotePlaylistRevisionRequest {
+        call_id: None,
+        fingerprint: target_info.fingerprint.clone(),
+    };
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "RemotePlaylistRevisionRequest",
+        rinf::serialize(&revision_request)?,
+    )
+    .await?;
+    assert_eq!(name, "RemoteRequestFailed");
+    assert_eq!(
+        rinf::deserialize::<RemoteRequestFailed>(&payload)?.kind,
+        RequestErrorKind::PermissionDenied
+    );
+    assert_eq!(
+        target.global_params.node.session()?.queue_revision().await,
+        revision_before
+    );
+
+    // Granting the controller Control on the target keeps the direct-control path working.
+    let grants = DeviceGrants::guest();
+    target
+        .global_params
+        .node
+        .access_policy
+        .set(&controller_info.fingerprint, grants)?;
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "CastResolvedItemsRequest",
+        rinf::serialize(&cast)?,
+    )
+    .await?;
+    assert_eq!(name, "CastResolvedItemsResponse");
+    let response: CastResolvedItemsResponse = rinf::deserialize(&payload)?;
+    assert!(response.result.left_out_items.is_empty());
+    let expected: playback::player::PlayingItem = track.into();
+    wait_player(&target, |status| {
+        status.playlist.len() == 1 && status.playlist[0] == expected
+    })
+    .await?;
+
+    let (name, payload, _) = controller_request(
+        &mut socket,
+        "RemotePlaylistRevisionRequest",
+        rinf::serialize(&revision_request)?,
+    )
+    .await?;
+    assert_eq!(name, "RemotePlaylistRevisionResponse");
+    let revision: crate::messages::RemotePlaylistRevisionResponse =
+        rinf::deserialize(&payload)?;
+    assert_eq!(
+        revision.revision,
+        target.global_params.node.session()?.queue_revision().await
+    );
+    assert!(
+        revision.revision > revision_before,
+        "the granted cast advanced the target queue revision"
+    );
+
+    controller.global_params.node.shutdown().await?;
+    intermediary.global_params.node.shutdown().await?;
+    target.global_params.node.shutdown().await?;
+    Ok(())
+}
+
 #[test]
 fn cast_resolved_items_request_serializes_one_complete_load() -> Result<()> {
     use crate::messages::{CastResolvedItemsRequest, LoadResolvedItemsRequest, PlayingItemRef};
@@ -7608,6 +7772,7 @@ fn cast_resolved_items_request_serializes_one_complete_load() -> Result<()> {
     let request = CastResolvedItemsRequest {
         fingerprint: "device-fingerprint".to_string(),
         load: LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: "library".to_string(),
@@ -7854,6 +8019,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .queue_revision()
         .await;
     let append_without_switch = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![items[1].into()],
         start_index: None,
@@ -7892,6 +8058,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         ),
     ] {
         let request = LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![item.into()],
             start_index: Some(0),
@@ -7930,6 +8097,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         .queue_revision()
         .await;
     let invalid = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![PlayingItemRef::LibraryTrack {
             library_id: library_id.to_string(),
@@ -7960,6 +8128,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     assert_eq!(classify(&error), RequestErrorKind::InvalidInput);
 
     let not_held = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![PlayingItemRef::LibraryTrack {
             library_id: Uuid::new_v4().to_string(),
@@ -8036,6 +8205,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
         [PlayingItem::from(items[2]), PlayingItem::from(items[3])],
     );
     let handoff = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![items[2].into(), items[3].into()],
         start_index: Some(1),
@@ -8081,6 +8251,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     .await?
     .playlist;
     let idle_handoff = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![items[2].into(), items[3].into()],
         start_index: Some(1),
@@ -8108,6 +8279,7 @@ async fn renderer_link_request_round_trip_errors_and_cast_start_modes() -> Resul
     renderer.global_params.player.lock().await.clear_playlist();
     wait_player(&renderer, |status| status.playlist.is_empty()).await?;
     let empty_handoff = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![
             items[0].into(),
@@ -10143,6 +10315,7 @@ async fn handoff_unplayable_and_decode_failures_roll_back_and_resume_source() ->
         // rollback enqueued behind it cannot have started.
         controller_link
             .call(&LoadResolvedItemsRequest {
+        controlling_device: None,
                 call_id: None,
                 items: vec![PlayingItemRef::LibraryTrack {
                     library_id: target_during_handoff_item.library_id.to_string(),
@@ -11106,6 +11279,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     expected_block.insert(source_index + 1, inserted_item.clone());
     b_link
         .call(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![h_items[5].into()],
             start_index: Some(0),
@@ -11171,6 +11345,7 @@ async fn handoff_moves_queue_and_position_and_preserves_source_sessions() -> Res
     };
     b_link
         .call(&LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![outside_item_ref],
             start_index: None,
@@ -12064,6 +12239,7 @@ async fn typed_renderer_call_rejects_wrong_reply_name() -> Result<()> {
     )
     .await;
     let request = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: Vec::new(),
         start_index: None,
@@ -12859,6 +13035,7 @@ async fn rr_library_routes_gui_edits_events_and_lifecycle_between_real_nodes() -
     dispatch_gui_request(
         &remote,
         &LoadResolvedItemsRequest {
+        controlling_device: None,
             position_seconds: None,
             play: LoadPlay::Auto,
 
@@ -13683,6 +13860,7 @@ async fn assert_opendal_library_scan(service_kind: OpenDalServiceKind) -> Result
             "replica track did not keep its LibraryStream source beside OpenDAL audio"
         );
         let load = LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: library_id.to_string(),
@@ -14330,6 +14508,7 @@ async fn a_local_load_still_pending_when_a_renderer_becomes_current_never_plays(
         dispatch_gui_request(
             &params,
             &LoadResolvedItemsRequest {
+        controlling_device: None,
                 items: vec![PlayingItemRef::LibraryTrack {
                     library_id: track.library_id.to_string(),
                     track: track.file_uuid.to_string(),
@@ -14587,6 +14766,7 @@ pub(super) async fn play_subsonic_track_here(
         track: track.into(),
     };
     let load = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![item.clone()],
         start_index: Some(0),
@@ -15272,6 +15452,7 @@ async fn subsonic_visualizer_covers_use_the_bounded_server_cover_cache() -> Resu
         track: "song-opaque".into(),
     };
     let load = LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: vec![PlayingItemRef::LibraryTrack {
             library_id: library_id.to_string(),
@@ -18816,6 +18997,7 @@ async fn a_load_keeps_the_playback_mode_unless_it_names_one_and_follows_play() -
     })
     .await?;
     let load = |playback_mode, position_seconds, play| LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: items.clone(),
         start_index: Some(0),
@@ -19552,7 +19734,8 @@ async fn stale_queue_snapshot_does_not_remove_wrong_track() -> Result<()> {
     // moves the revision, and edits outside it never produce one.
     let revision = dispatch_gui_request(
         &fixture.global_params,
-        &PlaylistRevisionRequest { call_id: None },
+        &PlaylistRevisionRequest {
+        controlling_device: None, call_id: None },
     )
     .await?
     .context("initial queue revision")?
@@ -19561,6 +19744,7 @@ async fn stale_queue_snapshot_does_not_remove_wrong_track() -> Result<()> {
     dispatch_gui_request(
         &fixture.global_params,
         &LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: items.iter().map(|item| PlayingItemRef::from(*item)).collect(),
             start_index: None,
@@ -19711,6 +19895,7 @@ async fn restart_restores_the_queue_under_its_persisted_revision() -> Result<()>
     dispatch_gui_request(
         &fixture.global_params,
         &LoadResolvedItemsRequest {
+        controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::from(item)],
             start_index: None,

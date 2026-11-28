@@ -4655,6 +4655,7 @@ fn load_items(
     position: f64,
 ) -> crate::messages::LoadResolvedItemsRequest {
     crate::messages::LoadResolvedItemsRequest {
+        controlling_device: None,
         items,
         start_index: Some(0),
         mode: crate::messages::PlaylistOperateMode::Replace,

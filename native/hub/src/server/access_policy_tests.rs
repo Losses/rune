@@ -912,6 +912,7 @@ mod access_policy_tests {
         mode: PlaylistOperateMode,
     ) -> LoadResolvedItemsRequest {
         LoadResolvedItemsRequest {
+        controlling_device: None,
             items,
             start_index: Some(0),
             mode,
@@ -3542,7 +3543,8 @@ mod access_policy_tests {
         let (name, _) = socket_request(
             &mut socket,
             "PlaylistRevisionRequest",
-            &rinf::serialize(&PlaylistRevisionRequest { call_id: None })?,
+            &rinf::serialize(&PlaylistRevisionRequest {
+        controlling_device: None, call_id: None })?,
         )
         .await?;
         assert_eq!(name, "PlaylistRevisionResponse", "the device lost Control");
