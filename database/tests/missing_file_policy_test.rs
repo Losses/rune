@@ -15,8 +15,9 @@ use database::{
 };
 use fsio::FsIo;
 use sea_orm::{ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait, QueryFilter};
-use std::fs;
+use std::{fs, path::PathBuf, sync::Arc};
 use support::fixtures;
+use sync_orm::causal_store::CommitPermit;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -84,6 +85,70 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     );
     assert!(media_file_likes::Entity::find().one(&db).await?.is_some());
     assert!(media_file_stats::Entity::find().one(&db).await?.is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn cleanup_keeps_a_track_restored_after_the_missing_lookup() -> Result<()> {
+    struct RestoreTrack {
+        parked: PathBuf,
+        track: PathBuf,
+    }
+
+    #[async_trait::async_trait]
+    impl CommitPermit for RestoreTrack {
+        async fn confirm(&self) -> Result<()> {
+            if self.parked.try_exists()? {
+                fs::rename(&self.parked, &self.track)?;
+            }
+            Ok(())
+        }
+    }
+
+    let node = Uuid::new_v4();
+    let library = support::SqlLibrary::new(Uuid::new_v4(), node).await?;
+    let store = library.sync_store.record_store();
+    let fs = FsIo::new();
+    let root = library.root.path();
+    let track = root.join("track.ogg");
+    let parked = root.join("still-mounted/track.held");
+    fs::create_dir(root.join("still-mounted"))?;
+    fs::copy(fixtures::audio_fixture(), &track)?;
+    let actor = node.to_string();
+    let id = scan_audio_file(&fs, &library.db, &actor, root, &track, &store).await?;
+    let row = media_files::Entity::find_by_id(id)
+        .one(&library.db)
+        .await?
+        .unwrap();
+    let key = ObjectKey {
+        collection: Collection::Tracks,
+        id: row.source_uuid.parse()?,
+    };
+    let before = store.get_on(&library.db, &key).await?.unwrap();
+    assert!(row.local_available && before.value.is_some());
+    fs::rename(&track, &parked)?;
+    let restoring_store = store.with_commit_permit(Arc::new(RestoreTrack {
+        parked,
+        track: track.clone(),
+    }));
+
+    // Cleanup takes the permit after collecting missing paths, so the restore needs no timing.
+    fixtures::cleanup_scan(
+        &fs,
+        &library.db,
+        &actor,
+        root,
+        &restoring_store,
+        MissingHostFilePolicy::RemoveEverywhere,
+    )
+    .await?;
+
+    assert!(track.is_file());
+    assert_eq!(
+        media_files::Entity::find_by_id(id).one(&library.db).await?,
+        Some(row)
+    );
+    assert_eq!(store.get_on(&library.db, &key).await?, Some(before));
     Ok(())
 }
 
