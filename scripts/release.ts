@@ -91,7 +91,7 @@ Options:
   -f, --file <path>          Path to release notes file (default: RELEASE_NOTES.txt)
   -d, --dry-run              Preview changes without committing, pushing, or deleting files
   --no-push                  Commit and tag locally, but do not push or create GitHub release
-  --skip-git                 Only update version files and changelogs, skip all git operations
+  --skip-git                 Only update version files and metadata, skip all git operations
   -h, --help                 Show this help message
 
 Release Notes File Format (Mandatory):
@@ -476,6 +476,10 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+function formatBulletItem(item: string): string {
+  return /[.!?]$/.test(item) ? item : `${item}.`;
+}
+
 function updateMetainfoXml(info: VersionInfo, categories: ReleaseCategory[], dryRun: boolean): string {
   const metainfoPath = path.join(ROOT_DIR, "assets/source/linux/rune.metainfo.xml");
   if (!fs.existsSync(metainfoPath)) {
@@ -493,7 +497,7 @@ function updateMetainfoXml(info: VersionInfo, categories: ReleaseCategory[], dry
     lines.push(`        <p>${escapeXml(cat.title)}</p>`);
     lines.push(`        <ul>`);
     for (const item of cat.items) {
-      const formatted = item.endsWith(".") ? item : `${item}.`;
+      const formatted = formatBulletItem(item);
       lines.push(`          <li>${escapeXml(formatted)}</li>`);
     }
     lines.push(`        </ul>`);
@@ -625,59 +629,29 @@ function updateAndroidLocalProperties(info: VersionInfo, dryRun: boolean): strin
   return localPropsPath;
 }
 
-function updateChangelogMd(info: VersionInfo, categories: ReleaseCategory[], dryRun: boolean): string {
-  const changelogPath = path.join(ROOT_DIR, "CHANGELOG.md");
-  let existingContent = "";
-  if (fs.existsSync(changelogPath)) {
-    existingContent = fs.readFileSync(changelogPath, "utf-8");
-  }
-
-  const lines: string[] = [];
-  lines.push(`## [${info.rawVersion}] - ${info.dateStr}\n`);
-  for (const cat of categories) {
-    lines.push(`### ${cat.title}`);
-    for (const item of cat.items) {
-      lines.push(`- ${item}`);
-    }
-    lines.push("");
-  }
-
-  const newSection = lines.join("\n");
-  let finalContent = "";
-  if (existingContent.startsWith("# Changelog")) {
-    finalContent = existingContent.replace(/^# Changelog\s*\n+/, `# Changelog\n\n${newSection}\n`);
-  } else {
-    finalContent = `# Changelog\n\n${newSection}\n${existingContent}`.trim() + "\n";
-  }
-
-  if (!dryRun) {
-    fs.writeFileSync(changelogPath, finalContent, "utf-8");
-  }
-  console.log(`[changelog] Updated ${changelogPath}`);
-  return changelogPath;
-}
-
 function buildGitHubReleaseNotes(info: VersionInfo, categories: ReleaseCategory[], prevTag: string): string {
   const parts: string[] = [];
 
   if (info.isPrerelease) {
     parts.push(`> [!CAUTION]`);
-    parts.push(`> Purchased users should not mix test versions and stable versions on their devices. All test versions may automatically upgrade databases and configuration files, potentially causing incompatibility with older versions. This could result in you being unable to use the stable version again.\n`);
+    parts.push(`> Purchased users should not mix test versions and stable versions on their devices. All test versions may automatically upgrade databases and configuration files, potentially causing incompatibility with older versions. This could result in you being unable to use the stable version again.`);
+    parts.push("");
   }
 
   for (const cat of categories) {
     parts.push(`## ${cat.title}`);
+    parts.push("");
     for (const item of cat.items) {
-      parts.push(`• ${item}`);
+      parts.push(`• ${formatBulletItem(item)}`);
     }
     parts.push("");
   }
 
   if (prevTag) {
-    parts.push(`Full Changelog: https://github.com/Losses/rune/compare/${prevTag}...${info.tagVersion}\n`);
+    parts.push(`Full Changelog: https://github.com/Losses/rune/compare/${prevTag}...${info.tagVersion}`);
   }
 
-  return parts.join("\n");
+  return parts.join("\n").trimEnd() + "\n";
 }
 
 async function main() {
@@ -740,7 +714,6 @@ async function main() {
   changedFiles.push(...updateAppleProjectConfigs(info, options.dryRun));
   // Update android local.properties if it exists (for local gradle builds, ignored by git)
   updateAndroidLocalProperties(info, options.dryRun);
-  changedFiles.push(updateChangelogMd(info, parsed.categories, options.dryRun));
 
   // 6. Build GitHub release body
   const releaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag);

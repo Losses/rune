@@ -47,12 +47,13 @@ function fixture() {
     PATH: `${tools}${path.delimiter}${process.env.PATH}`,
   };
   fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "assets/source/linux"), { recursive: true });
   const git = (...args: string[]) => execFileSync(realGit, args, { cwd: repo, env, encoding: "utf8" }).trim();
   const read = (name: string) => fs.readFileSync(path.join(repo, name), "utf8");
   const write = (name: string, value: string) => fs.writeFileSync(path.join(repo, name), value);
   fs.copyFileSync(path.join(import.meta.dir, "release.ts"), path.join(repo, "scripts/release.ts"));
   write("pubspec.yaml", "name: rune\nversion: 1.0.0\nmsix_config:\n  msix_version: 1.0.0.0\n");
-  write("CHANGELOG.md", "# Changelog\n\nExisting release\n");
+  write("assets/source/linux/rune.metainfo.xml", "<component><releases></releases></component>\n");
   write(".gitignore", "RELEASE_NOTES.txt\nrelease_notes.txt\n*.release.txt\nupgrade.txt\n");
   git("init", "-q");
   git("add", ".");
@@ -82,16 +83,17 @@ for (const flags of [["--skip-git"], ["--skip-git", "--no-push"], ["--dry-run"],
       expect(result.status, result.stdout + result.stderr).toBe(0);
       const writes = f.commands().filter(line => /^git (add|commit|tag|push)( |$)|^gh /.test(line));
       expect(f.read("RELEASE_NOTES.txt")).toBe(f.notes);
+      expect(fs.existsSync(path.join(f.repo, "CHANGELOG.md"))).toBe(false);
       expect(f.commands().some(line => /^git push |^gh /.test(line))).toBe(false);
       if (flags.includes("--dry-run")) {
         expect(f.read("pubspec.yaml")).toContain("version: 1.0.0\n");
-        expect(f.read("CHANGELOG.md")).toBe("# Changelog\n\nExisting release\n");
+        expect(f.read("assets/source/linux/rune.metainfo.xml")).toBe("<component><releases></releases></component>\n");
+        expect(result.stdout).toContain("## Bugs\n\n• Preserve maintainer control over publication.\n\nFull Changelog: https://github.com/Losses/rune/compare/v1.0.0...v2.0.0");
       } else {
         expect(f.read("pubspec.yaml")).toContain("version: 2.0.0\n");
         expect(f.read("pubspec.yaml")).toContain("msix_version: 2.0.0.0\n");
-        expect(f.read("CHANGELOG.md")).toContain("## [2.0.0]");
-        expect(f.read("CHANGELOG.md")).toContain("Preserve maintainer control over publication");
-        expect(f.read("CHANGELOG.md")).toContain("Existing release");
+        expect(f.read("assets/source/linux/rune.metainfo.xml")).toContain('<release version="2.0.0"');
+        expect(f.read("assets/source/linux/rune.metainfo.xml")).toContain("<li>Preserve maintainer control over publication.</li>");
       }
       if (flags.includes("--skip-git") || flags.includes("--dry-run")) {
         expect(writes, "No Git writes or publication commands should be attempted").toEqual([]);
@@ -130,5 +132,18 @@ test("skip-git template creation preserves gitignore", () => {
     expect(f.run("2.0.0", "--skip-git").status).toBe(0);
     expect(f.read(".gitignore")).toBe("build/\n");
     expect(f.read("pubspec.yaml")).toContain("version: 1.0.0\n");
+  } finally { f.clean(); }
+});
+
+test("full release removes temporary notes and never creates CHANGELOG.md", () => {
+  const f = fixture();
+  try {
+    const result = f.run("2.0.0-alpha.17");
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(fs.existsSync(path.join(f.repo, "RELEASE_NOTES.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(f.repo, "CHANGELOG.md"))).toBe(false);
+    expect(f.read("assets/source/linux/rune.metainfo.xml")).toContain('<release version="2.0.0-alpha.17"');
+    expect(f.commands().some(line => line.startsWith("gh release create v2.0.0-alpha.17 "))).toBe(true);
+    expect(f.git("status", "--porcelain")).toBe("");
   } finally { f.clean(); }
 });

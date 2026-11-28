@@ -40,7 +40,7 @@ function release(notes: string) {
     return {
       status: result.status,
       output: result.stdout + result.stderr,
-      changelog: fs.existsSync(changelog) ? fs.readFileSync(changelog, "utf8") : null,
+      changelogExists: fs.existsSync(changelog),
       version: fs.readFileSync(path.join(root, "pubspec.yaml"), "utf8"),
       metainfo: fs.readFileSync(path.join(root, "assets/source/linux/rune.metainfo.xml"), "utf8"),
     };
@@ -52,31 +52,35 @@ function release(notes: string) {
 test("Markdown category can be the first release category", () => {
   const result = release("## Features\n- Add a scene\n");
   expect(result.status, result.output).toBe(0);
-  expect(result.changelog).toContain("### Features\n- Add a scene");
+  expect(result.changelogExists).toBe(false);
+  expect(result.metainfo).toContain("<p>Features</p>\n        <ul>\n          <li>Add a scene.</li>");
 });
 
 test("Markdown heading changes category after a bracketed heading", () => {
   const result = release("[Features]\n- Add a scene\n## Bugs\n- Fix a crash\n");
   expect(result.status, result.output).toBe(0);
-  expect(result.changelog).toContain("### Features\n- Add a scene\n\n### Bugs\n- Fix a crash");
+  expect(result.changelogExists).toBe(false);
+  expect(result.metainfo).toContain("<p>Features</p>\n        <ul>\n          <li>Add a scene.</li>\n        </ul>\n        <p>Bugs</p>\n        <ul>\n          <li>Fix a crash.</li>");
 });
 
 test("aliases, repeated categories, colon headings and comments retain their behavior", () => {
   const result = release("# Release notes\n\n## New Features\n- First feature\n  continued description\n# An ordinary comment\n[Features]\n- Second feature\n### Bug Fixes\n- Fix a crash\nDocs:\n- Explain setup\n");
   expect(result.status, result.output).toBe(0);
-  expect(result.changelog).toContain("### Features\n- First feature continued description\n- Second feature");
-  expect(result.changelog).toContain("### Bugs\n- Fix a crash");
-  expect(result.changelog).toContain("### Documentation\n- Explain setup");
-  expect(result.changelog).not.toContain("ordinary comment");
-  expect(result.changelog?.match(/### Features/g)).toHaveLength(1);
+  expect(result.changelogExists).toBe(false);
+  expect(result.metainfo).toContain("<p>Features</p>\n        <ul>\n          <li>First feature continued description.</li>\n          <li>Second feature.</li>");
+  expect(result.metainfo).toContain("<p>Bugs</p>\n        <ul>\n          <li>Fix a crash.</li>");
+  expect(result.metainfo).toContain("<p>Documentation</p>\n        <ul>\n          <li>Explain setup.</li>");
+  expect(result.metainfo).not.toContain("ordinary comment");
+  expect(result.metainfo.match(/<p>Features<\/p>/g)).toHaveLength(1);
 });
 
 test("Markdown headings accept optional closing hashes and whitespace", () => {
   const result = release("## Features ##\n- Add a scene\n### Bug Fixes ###   \n- Fix a crash\n## Docs\t##\n- Explain setup\n");
   expect(result.status, result.output).toBe(0);
-  expect(result.changelog).toContain("### Features\n- Add a scene");
-  expect(result.changelog).toContain("### Bugs\n- Fix a crash");
-  expect(result.changelog).toContain("### Documentation\n- Explain setup");
+  expect(result.changelogExists).toBe(false);
+  expect(result.metainfo).toContain("<p>Features</p>\n        <ul>\n          <li>Add a scene.</li>");
+  expect(result.metainfo).toContain("<p>Bugs</p>\n        <ul>\n          <li>Fix a crash.</li>");
+  expect(result.metainfo).toContain("<p>Documentation</p>\n        <ul>\n          <li>Explain setup.</li>");
 });
 
 for (const heading of ["## Unknown", "[Unknown]", "Unknown:", "## constructor", "[constructor]", "constructor:", "## __proto__", "## Features##", "[Features ##]"]) {
@@ -84,7 +88,7 @@ for (const heading of ["## Unknown", "[Unknown]", "Unknown:", "## constructor", 
     const result = release(`[Features]\n- Valid feature\n${heading}\n- Invalid category item\n`);
     expect(result.status).toBe(1);
     expect(result.output).toContain("Unrecognized category");
-    expect(result.changelog).toBeNull();
+    expect(result.changelogExists).toBe(false);
     expect(result.version).toBe(initialVersion);
     expect(result.metainfo).toBe(initialMetainfo);
   });
