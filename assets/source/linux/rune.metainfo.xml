@@ -57,6 +57,43 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.17" date="2026-11-27">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Apple Music Integration: Sign in to Apple Music on macOS, iOS, and Android (via MusicKit for Android), browse catalog and library artist pages, search the catalog, view lyrics, manage Rune playlists, mixes, and likes, and keep Rune&apos;s volume control for Apple Music on macOS.</li>
+          <li>Subsonic &amp; OpenSubsonic Libraries: Register Subsonic servers as libraries to browse artists, albums, playlists, and tracks, run server-side search, stream audio with cached covers, sync likes, lyrics, and play reports, control server jukeboxes, and follow runeVisualizerFeed visualizers.</li>
+          <li>WebDAV &amp; S3 Cloud Libraries: Add, scan, browse, and stream music libraries hosted on WebDAV and S3 via OpenDAL with HTTP range reads, unified Add Library onboarding, and optional cloud-hosted library index storage.</li>
+          <li>Multi-Device Interconnect, Casting &amp; Handoff: Unified Devices page and single media server with per-library Connection and Sync permissions (My Device / Guest presets), Play On casting for tracks, collections, and mixes, remote controller management, and playback handoff with queue merging, takeback, and automatic local fallback.</li>
+          <li>Library Synchronization &amp; Offline Downloads: Peer-to-peer and writable WebDAV/S3 share-based library synchronization using causal reconciliation, paired-library metadata sync retry reporting, rule-based offline audio downloads with automatic cleanup, and media availability indicators.</li>
+          <li>Mobile, Embedded &amp; Steam Platforms: iPhone-adapted UI with call, headphone, and lock-screen integration plus App Store/TestFlight packaging; Android media session, foreground service, and audio focus for all playback; Embedded Linux (arm64/armhf DRM/KMS) kiosk bundles; and Steam Runtime 4 builds for Linux x86_64 and ARM64.</li>
+          <li>Built-In File Dialog &amp; UI Redesign: Rune&apos;s own cross-platform file dialog with File Explorer views, columns, renaming, and platform thumbnails; redesigned Artist pages with release tiles, year groups, and top tracks; WinJS-style cell-spanning tile groups; expanded context menus (Like, Add to Playlist, Add to Mix); and dialog-based notices replacing toasts.</li>
+          <li>Visualizer, Metadata &amp; Audio Engine: Visualizer Lab overlay, song-time tracking, remote/jukebox visualizer feeds, calmer Neon Street and Torii Sea scenes, TagLib metadata adoption with catalog migration, SQLite WAL mode for app-stored libraries, and updated audio backends (rodio 0.23 and cpal 0.18).</li>
+        </ul>
+        <p>Performance</p>
+        <ul>
+          <li>Visualizer &amp; UI Rendering: Render the spectrum glow with a two-pass GPU shader instead of a blur filter, isolate spectrum and cover wall gradient repaints, compute the cover wall color field on its own grid, and stop the cover art disk once at rest.</li>
+          <li>Embedded Kiosk Efficiency: Support partial redraws on flutter-pi, display blanking with double-tap wake, chip-specific power profiles, and CPU/controller power limits for embedded kiosk boards.</li>
+          <li>Sync, Playback &amp; Lists: Persist player sessions on change instead of polling, batch queue metadata fetches per library, skip re-downloading unchanged share objects, lock sync namespaces once per transaction, and lazily page lists ahead while scrolling.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Encrypted Credentials &amp; Pairing Verification: Store library and scrobbling credentials in an encrypted local file, verify device certificates and key ownership during pairing, and redact credentials from malformed Subsonic response errors.</li>
+          <li>Access Control &amp; Path Isolation: Enforce per-library device grants and proof-of-key checks on media, cover, and WebSocket requests, immediately disconnect revoked or removed controllers, validate encoded server paths, and restrict the Guest preset to explicitly shared libraries.</li>
+          <li>Dependency Security Updates: Update quinn-proto, rand, rpassword, and the web panel (SvelteKit 3) to patched releases.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Playback, Queue &amp; Handoff: Fix decoder resets on seek, chained Ogg playback, queue occurrence preservation across edits and handback, stale load/seek cancellation, pending handoff settlement and rollback reconciliation, output device fallback, and sound-effect player recovery.</li>
+          <li>Library Scanning, Database &amp; Migrations: Preserve catalog tracks when local folders appear empty, stop mutations at cancellation boundaries, reanalyze modified audio, refresh external covers, handle non-Unicode paths and equivalent roots, run schema migrations transactionally, and recover pre-release library databases.</li>
+          <li>Sync, Offline Downloads &amp; Networking: Fix multi-bucket share base reconciliation, compaction cursor recovery, rule-edit honoring before offline downloads, capped download resumption, IPv6 TLS normalization, multi-address device failover, and WebSocket shutdown handling.</li>
+          <li>Streaming Services &amp; Cloud Storage: Fix Apple Music search/artist error handling and state persistence, Subsonic playlist/album/cover/jukebox edge cases, OpenDAL endpoint validation and Windows/runtime stability, and WebDAV/S3 probe and scan timeouts.</li>
+          <li>Visualizer &amp; Audio Analysis: Fix GPU FFT window sizing, readback, and stream flushing, chart-analyzer invalid sample guards, Neon Street/Torii Sea/Growth/Emoji Tunnel/Paperclip rendering stability, scene ordering, and cover wall missing-cover handling.</li>
+          <li>UI, Navigation, Lyrics &amp; Scrobbling: Preserve list scroll positions during reloads, scroll the queue flyout to the playing track, fix parent-title back navigation, tall dialog scrolling, untimed lyric scrolling and backend sidecar reads, scrobble start timestamps and thresholds, and M3U8 import/export paths.</li>
+          <li>Platform &amp; Build Fixes: Fix macOS Now Playing object leaks, Core Graphics safety, and window sizing; iOS App Store compliance and folder picker; Android content-URI playlist import, release APK network permission, and SAF paths; Linux MPRIS/D-Bus fallback and texture retirement; and Windows Store license polling and verbatim path handling.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.16" date="2026-10-31">
       <description>
         <p>Features</p>
