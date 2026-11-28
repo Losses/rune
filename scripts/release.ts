@@ -638,37 +638,10 @@ function getGitHubRepoSlug(): string {
   return "Losses/rune";
 }
 
-function fetchNewContributors(tagVersion: string, prevTag: string): string[] {
-  if (!prevTag) return [];
-  const repoSlug = getGitHubRepoSlug();
-  const args = [
-    "api",
-    `repos/${repoSlug}/releases/generate-notes`,
-    "-f",
-    `tag_name=${tagVersion}`,
-    "-f",
-    `previous_tag_name=${prevTag}`,
-    "-q",
-    ".body",
-  ];
-  try {
-    const body = runFile("gh", args, { silent: true });
-    const match = body.match(/## New Contributors\s*\n([\s\S]*?)(?:\n\*\*Full Changelog\*\*|\nFull Changelog:|$)/);
-    if (!match) return [];
-    return match[1]
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(line => /^[-*•]\s+@/.test(line));
-  } catch {
-    return [];
-  }
-}
-
 function buildGitHubReleaseNotes(
   info: VersionInfo,
   categories: ReleaseCategory[],
   prevTag: string,
-  newContributors: string[] = [],
 ): string {
   const parts: string[] = [];
 
@@ -682,14 +655,6 @@ function buildGitHubReleaseNotes(
     parts.push(`## ${cat.title}`);
     for (const item of cat.items) {
       parts.push(`* ${formatBulletItem(item)}`);
-    }
-    parts.push("");
-  }
-
-  if (newContributors.length > 0) {
-    parts.push(`## New Contributors`);
-    for (const contributor of newContributors) {
-      parts.push(contributor.replace(/^[-*•]\s+/, "* "));
     }
     parts.push("");
   }
@@ -764,10 +729,7 @@ async function main() {
   updateAndroidLocalProperties(info, options.dryRun);
 
   // 6. Build GitHub release body
-  const newContributors = options.dryRun || options.skipGit || options.noPush
-    ? []
-    : fetchNewContributors(info.tagVersion, prevTag);
-  const releaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag, newContributors);
+  const releaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag);
 
   if (options.dryRun || options.skipGit) {
     console.log("\n=== Generated GitHub Release Notes Preview ===");
@@ -820,10 +782,8 @@ async function main() {
   runFile("git", ["push", "origin", info.tagVersion]);
 
   console.log("[gh] Creating GitHub release...");
-  const finalNewContributors = fetchNewContributors(info.tagVersion, prevTag);
-  const finalReleaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag, finalNewContributors);
   const tempNotesPath = path.join(ROOT_DIR, `.release_notes_tmp_${Date.now()}.md`);
-  fs.writeFileSync(tempNotesPath, finalReleaseBody, "utf-8");
+  fs.writeFileSync(tempNotesPath, releaseBody, "utf-8");
 
   try {
     const prereleaseFlag = info.isPrerelease ? "--prerelease" : "--latest";

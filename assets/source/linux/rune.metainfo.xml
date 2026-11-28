@@ -61,36 +61,36 @@
       <description>
         <p>Features</p>
         <ul>
-          <li>Apple Music: Sign in on macOS, iOS, and Android, browse artist pages and catalog search, view lyrics, and manage playlists, mixes, and likes (#886, #913, #937, #990, #998).</li>
-          <li>Subsonic &amp; OpenSubsonic: Browse, search, and stream Subsonic libraries with cached covers, likes, lyrics, scrobbling, jukebox control, and runeVisualizerFeed (#876, #881, #896).</li>
-          <li>WebDAV &amp; S3 Cloud Libraries: Add, scan, and stream music libraries hosted on WebDAV and S3 via OpenDAL with optional cloud-hosted indexes (#826, #829).</li>
-          <li>Multi-Device Interconnect, Cast &amp; Handoff: Unified Devices page and single Media Server with per-library permissions, Play On casting, and playback handoff (#351, #923).</li>
-          <li>Library Sync &amp; Offline Downloads: Peer-to-peer and WebDAV/S3 share-based library sync with retry reporting and rule-based offline audio downloads (#924, #997, #1012).</li>
-          <li>Mobile, Embedded &amp; Steam: iPhone UI and media integration (#340, #342), Android MediaSession and audio focus (#998), Embedded Linux DRM/KMS kiosk bundles (#349, #350), and Steam Runtime 4 builds for x86_64 and ARM64 (#890, #907).</li>
-          <li>File Dialog &amp; UI Redesign: Built-in cross-platform file dialog, redesigned Artist pages (#884), WinJS tile groups (#866), expanded context menus (#882), and dialog-only notices (#978).</li>
-          <li>Visualizer, Metadata &amp; Audio Engine: Visualizer Lab (#339), song-time tracking (#330), calmer Neon Street and Torii Sea (#332), TagLib metadata migration (#862), and updated rodio and cpal backends (#996).</li>
-        </ul>
-        <p>Performance</p>
-        <ul>
-          <li>Visualizer &amp; UI Rendering: Two-pass GPU shader for spectrum glow, isolated spectrum and cover-wall repaints, and idle animation shutdown.</li>
-          <li>Embedded Kiosk Efficiency: Partial redraws on flutter-pi, display blanking with double-tap wake, and chip-specific power limits.</li>
-          <li>Sync &amp; List Loading: Change-driven session persistence, batched queue metadata, skipped unchanged share uploads (#707), and scroll-ahead list paging (#872).</li>
-        </ul>
-        <p>Security</p>
-        <ul>
-          <li>Credentials &amp; Pairing: Encrypted local credential storage, certificate and key-ownership verification during pairing, and credential redaction in Subsonic errors (#620).</li>
-          <li>Access Control: Per-library grants (#702, #797, #1011), immediate revocation of remote controllers (#914, #947), and validated encoded server paths (#764).</li>
-          <li>Dependency Updates: Update quinn-proto (#334), rpassword (#971), SvelteKit 3 (#972), and rand (#973, #974).</li>
+          <li>Support Apple Music libraries on macOS, iOS, and Android with catalog search, artist pages, lyrics, and Rune playlists, mixes, and likes by @XMLHexagram in https://github.com/Losses/rune/pull/913, https://github.com/Losses/rune/pull/937, https://github.com/Losses/rune/pull/990, https://github.com/Losses/rune/pull/998.</li>
+          <li>Support Subsonic and OpenSubsonic servers as libraries with browsing, search, cached covers, likes, lyrics, scrobbling, jukebox control, and visualizer feeds by @XMLHexagram in https://github.com/Losses/rune/pull/876, https://github.com/Losses/rune/pull/881, https://github.com/Losses/rune/pull/896.</li>
+          <li>Support adding, scanning, and streaming WebDAV and S3 libraries via OpenDAL, including cloud-hosted library indexes by @ChestnutLUO in https://github.com/Losses/rune/pull/826, https://github.com/Losses/rune/pull/829.</li>
+          <li>Unify Media Server, Devices, and per-library permissions, and support casting and playback handoff between devices by @ChestnutLUO in https://github.com/Losses/rune/pull/923 and @XMLHexagram in https://github.com/Losses/rune/pull/351.</li>
+          <li>Support peer-to-peer and cloud-share library synchronization with retry reporting and rule-based offline audio downloads by @Palpitace in https://github.com/Losses/rune/pull/997, https://github.com/Losses/rune/pull/1012 and @ChestnutLUO in https://github.com/Losses/rune/pull/924.</li>
+          <li>Adapt the interface and system media controls for iPhone and Android by @XMLHexagram in https://github.com/Losses/rune/pull/340, https://github.com/Losses/rune/pull/342, https://github.com/Losses/rune/pull/998.</li>
+          <li>Add Embedded Linux (arm64 and armhf) DRM/KMS kiosk bundles and Steam Runtime 4 builds for x86_64 and ARM64 by @Losses in https://github.com/Losses/rune/pull/349, https://github.com/Losses/rune/pull/350 and @abc1763613206 in https://github.com/Losses/rune/pull/890, https://github.com/Losses/rune/pull/907.</li>
+          <li>Add a built-in cross-platform file dialog, redesign the Artist page with release tiles and year groups, and adopt WinJS-style tile groups by @XMLHexagram in https://github.com/Losses/rune/pull/866, https://github.com/Losses/rune/pull/882, https://github.com/Losses/rune/pull/884.</li>
+          <li>Adopt TagLib for metadata reading and migrate the music catalog by @baka-gourd in https://github.com/Losses/rune/pull/862.</li>
+          <li>Add Visualizer Lab, song-time tracking, and calmer Neon Street and Torii Sea scenes by @XMLHexagram in https://github.com/Losses/rune/pull/330, https://github.com/Losses/rune/pull/332, https://github.com/Losses/rune/pull/339.</li>
+          <li>Render spectrum glow with a two-pass GPU shader, isolate UI repaints, and add kiosk display blanking and power profiles for embedded boards.</li>
+          <li>Upgrade rodio to 0.23.0 and cpal to 0.18.2 by @hang333 in https://github.com/Losses/rune/pull/996.</li>
         </ul>
         <p>Bugs</p>
         <ul>
-          <li>Playback &amp; Handoff: Fix seek decoder resets (#831), chained Ogg streams (#777), queue preservation across edits and handback (#747, #992), and pending handoff recovery (#929, #995, #1010).</li>
-          <li>Scanning, Database &amp; Migrations: Preserve catalog tracks on empty folders (#1014), reanalyze modified audio (#788), refresh external covers (#991), and run migrations transactionally (#343, #694).</li>
-          <li>Sync, Offline &amp; Networking: Fix share base reconciliation (#682, #685, #905), offline download retries and rules (#671, #673, #989, #997), and IPv6 TLS normalization (#925).</li>
-          <li>Streaming &amp; Cloud Storage: Fix Apple Music search/artist handling (#936, #946, #986), Subsonic browsing/playback (#708, #712, #769, #825), and OpenDAL endpoint validation (#980, #982).</li>
-          <li>Visualizer &amp; Analysis: Fix GPU FFT windowing and flushing (#659, #663, #666, #667), chart-analyzer guards (#615, #616, #656), and scene stability (#651, #655, #661, #662).</li>
-          <li>UI, Lyrics &amp; Scrobbling: Preserve scroll position on reloads (#729), scroll queue flyout to playing track (#865), fix back navigation (#725), untimed lyrics (#743), and scrobble timing (#781, #839).</li>
-          <li>Platform Fixes: Fix macOS Now Playing and Core Graphics safety (#859, #960, #968, #970), iOS App Store compliance (#987, #994), Android content-URI playlists and network permission (#732, #1009), Linux Flatpak ID and D-Bus/MPRIS (#333, #964, #985), and Windows Store polling (#981).</li>
+          <li>Fix playback seeking, chained Ogg streams, queue occurrence preservation, and pending handoff recovery by @shaonianche in https://github.com/Losses/rune/pull/777, https://github.com/Losses/rune/pull/831, https://github.com/Losses/rune/pull/929 and @Palpitace in https://github.com/Losses/rune/pull/747, https://github.com/Losses/rune/pull/992, https://github.com/Losses/rune/pull/1010.</li>
+          <li>Preserve catalog tracks when local library folders appear empty, retry failed track indexing, reanalyze modified audio, and run migrations transactionally by @Palpitace in https://github.com/Losses/rune/pull/991, https://github.com/Losses/rune/pull/1014, @mvanhorn in https://github.com/Losses/rune/pull/770, @shaonianche in https://github.com/Losses/rune/pull/788, and @Wenbobobo in https://github.com/Losses/rune/pull/694.</li>
+          <li>Fix share-based sync reconciliation, skip unchanged share uploads, and honor rule edits for offline downloads by @hang333 in https://github.com/Losses/rune/pull/682, https://github.com/Losses/rune/pull/707, https://github.com/Losses/rune/pull/905 and @Palpitace in https://github.com/Losses/rune/pull/989.</li>
+          <li>Fix Apple Music search and artist handling, Subsonic playlist and album browsing, and OpenDAL endpoint validation by @XMLHexagram in https://github.com/Losses/rune/pull/946, https://github.com/Losses/rune/pull/986, @ChestnutLUO in https://github.com/Losses/rune/pull/708, https://github.com/Losses/rune/pull/712, https://github.com/Losses/rune/pull/825, and @Palpitace in https://github.com/Losses/rune/pull/980, https://github.com/Losses/rune/pull/982.</li>
+          <li>Fix GPU FFT windowing and flushing, chart-analyzer boundary checks, and visualizer scene stability by @Ovler-Young in https://github.com/Losses/rune/pull/651, https://github.com/Losses/rune/pull/659, https://github.com/Losses/rune/pull/663, https://github.com/Losses/rune/pull/666 and @delete-cloud in https://github.com/Losses/rune/pull/615, https://github.com/Losses/rune/pull/616.</li>
+          <li>Preserve scroll positions during list reloads, scroll the queue flyout to the playing track, show notices in dialogs instead of toasts, and fix startup theme loading, playback bar clicks, untimed lyrics, and scrobble timing by @XMLHexagram in https://github.com/Losses/rune/pull/725, https://github.com/Losses/rune/pull/729, https://github.com/Losses/rune/pull/865, @ChestnutLUO in https://github.com/Losses/rune/pull/839, https://github.com/Losses/rune/pull/978, @baka-gourd in https://github.com/Losses/rune/pull/335, @mofeisi2333 in https://github.com/Losses/rune/pull/623, @Palpitace in https://github.com/Losses/rune/pull/743, and @shaonianche in https://github.com/Losses/rune/pull/781.</li>
+          <li>Fix macOS Now Playing leaks and Core Graphics safety, iOS App Store compliance, Android content-URI playlist import and release APK network access, Linux Flatpak ID and D-Bus/MPRIS controls, and Windows Store license polling by @ChestnutLUO in https://github.com/Losses/rune/pull/960, https://github.com/Losses/rune/pull/964, https://github.com/Losses/rune/pull/970, @JohnSpirit in https://github.com/Losses/rune/pull/859, https://github.com/Losses/rune/pull/877, @XMLHexagram in https://github.com/Losses/rune/pull/987, https://github.com/Losses/rune/pull/994, @Palpitace in https://github.com/Losses/rune/pull/981, https://github.com/Losses/rune/pull/985, https://github.com/Losses/rune/pull/1009, @hang333 in https://github.com/Losses/rune/pull/732, and @Fei1Yang in https://github.com/Losses/rune/pull/333.</li>
+          <li>Fix release tool --skip-git and Markdown category parsing and --profile startup fallback by @ShouNichi in https://github.com/Losses/rune/pull/610, https://github.com/Losses/rune/pull/618 and @JohnSpirit in https://github.com/Losses/rune/pull/611.</li>
+        </ul>
+        <p>Security</p>
+        <ul>
+          <li>Encrypt local library and scrobbling credentials, verify device certificates during pairing, and redact credentials from malformed Subsonic errors by @Wenbobobo in https://github.com/Losses/rune/pull/620.</li>
+          <li>Enforce per-library device grants, restrict the Guest preset to shared libraries, revoke remote controllers immediately, and validate encoded server paths by @Wenbobobo in https://github.com/Losses/rune/pull/702, @Ovler-Young in https://github.com/Losses/rune/pull/764, @shaonianche in https://github.com/Losses/rune/pull/797, https://github.com/Losses/rune/pull/914, https://github.com/Losses/rune/pull/1011, and @hang333 in https://github.com/Losses/rune/pull/947.</li>
+          <li>Bump quinn-proto from 0.11.13 to 0.11.19 by @dependabot[bot] in https://github.com/Losses/rune/pull/334.</li>
+          <li>Update rpassword to 7.5.5, rand to 0.10.3, and the web panel to SvelteKit 3 by @ChestnutLUO in https://github.com/Losses/rune/pull/971, https://github.com/Losses/rune/pull/972, https://github.com/Losses/rune/pull/973, https://github.com/Losses/rune/pull/974.</li>
         </ul>
       </description>
     </release>
