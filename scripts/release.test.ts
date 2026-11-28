@@ -88,7 +88,7 @@ for (const flags of [["--skip-git"], ["--skip-git", "--no-push"], ["--dry-run"],
       if (flags.includes("--dry-run")) {
         expect(f.read("pubspec.yaml")).toContain("version: 1.0.0\n");
         expect(f.read("assets/source/linux/rune.metainfo.xml")).toBe("<component><releases></releases></component>\n");
-        expect(result.stdout).toContain("## Bugs\n\n• Preserve maintainer control over publication.\n\nFull Changelog: https://github.com/Losses/rune/compare/v1.0.0...v2.0.0");
+        expect(result.stdout).toContain("## Bugs\n* Preserve maintainer control over publication.\n\n**Full Changelog**: https://github.com/Losses/rune/compare/v1.0.0...v2.0.0");
       } else {
         expect(f.read("pubspec.yaml")).toContain("version: 2.0.0\n");
         expect(f.read("pubspec.yaml")).toContain("msix_version: 2.0.0.0\n");

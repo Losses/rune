@@ -680,25 +680,23 @@ function buildGitHubReleaseNotes(
 
   for (const cat of categories) {
     parts.push(`## ${cat.title}`);
-    parts.push("");
     for (const item of cat.items) {
-      parts.push(`• ${formatBulletItem(item)}`);
+      parts.push(`* ${formatBulletItem(item)}`);
     }
     parts.push("");
   }
 
   if (newContributors.length > 0) {
     parts.push(`## New Contributors`);
-    parts.push("");
     for (const contributor of newContributors) {
-      parts.push(contributor);
+      parts.push(contributor.replace(/^[-*•]\s+/, "* "));
     }
     parts.push("");
   }
 
   if (prevTag) {
     const repoSlug = getGitHubRepoSlug();
-    parts.push(`Full Changelog: https://github.com/${repoSlug}/compare/${prevTag}...${info.tagVersion}`);
+    parts.push(`**Full Changelog**: https://github.com/${repoSlug}/compare/${prevTag}...${info.tagVersion}`);
   }
 
   return parts.join("\n").trimEnd() + "\n";
