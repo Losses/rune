@@ -84,6 +84,7 @@ async fn check_mpris_selection(local_paused: bool) -> Result<()> {
         dispatch_gui_request(
             &fixture.global_params,
             &LoadResolvedItemsRequest {
+        controlling_device: None,
                 call_id: None,
                 items: vec![PlayingItemRef::from(
                     library_track_for_id(&fixture, file).await?,

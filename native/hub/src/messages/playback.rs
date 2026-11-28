@@ -367,8 +367,28 @@ pub struct SessionSnapshotResponse {
     pub call_id: Option<u64>,
 }
 
+/// The device a control request was made by when another device relays it. A relay names the
+/// controller it authenticated; the target checks that this device itself holds Control, so a
+/// controller cannot reach a target through an intermediary it does not control.
+#[derive(Debug, Clone, Serialize, Deserialize, SignalPiece)]
+pub struct ControllingDevice {
+    pub fingerprint: String,
+    pub public_key: String,
+}
+
+/// The controlling device carries identities, not library references.
+impl crate::rpc::NamedLibraries for ControllingDevice {
+    const NAMES_LIBRARY: bool = false;
+
+    fn visit_libraries<'a>(&'a self, _visit: &mut dyn FnMut(&'a str)) {}
+}
+
 #[derive(Serialize, Deserialize, DartSignal, NamedLibraries)]
 pub struct PlaylistRevisionRequest {
+    /// Set by the device that relays this request for a controller it authenticated; absent
+    /// when the requester controls the target directly.
+    #[serde(default)]
+    pub controlling_device: Option<ControllingDevice>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }
@@ -485,6 +505,10 @@ pub struct LoadResolvedItemsRequest {
     pub position_seconds: Option<f64>,
     #[serde(default)]
     pub play: LoadPlay,
+    /// Set by the device that relays this request for a controller it authenticated; absent
+    /// when the requester controls the target directly.
+    #[serde(default)]
+    pub controlling_device: Option<ControllingDevice>,
     #[serde(default)]
     pub call_id: Option<u64>,
 }

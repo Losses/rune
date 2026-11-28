@@ -1293,14 +1293,16 @@ impl Signal for CastResolvedItemsRequest {
     async fn handle(
         &self,
         node: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         refuse_libraries_kept_here(&node, true, |visit| request.load.visit_libraries(visit))?;
         let (link, _) = node
             .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
             .await?;
-        let result = link.call(&request.load).await;
+        let mut load = request.load.clone();
+        load.controlling_device = relayed_controlling_device(session.as_ref());
+        let result = link.call(&load).await;
         link.close();
         let response = result?;
         Ok(Some(CastResolvedItemsResponse {
@@ -1344,6 +1346,29 @@ impl Signal for CastPreflightRequest {
     }
 }
 
+/// The controller a relay names when it forwards a control request: the device it
+/// authenticated for this call, or no one when this device itself made it. The target checks
+/// the named device for Control, so control cannot pass through the relay.
+fn relayed_controlling_device(session: Option<&Session>) -> Option<ControllingDevice> {
+    session.map(|session| ControllingDevice {
+        fingerprint: session.fingerprint.clone(),
+        public_key: session.public_key.clone(),
+    })
+}
+
+/// A relayed request fails before any player state changes or answers when the controller it
+/// names is not itself allowed to control this device.
+async fn check_relayed_controller(
+    node: &NodeContext,
+    controlling_device: Option<&ControllingDevice>,
+) -> Result<()> {
+    if let Some(controlling_device) = controlling_device {
+        node.authorize_relayed_controller(controlling_device)
+            .await?;
+    }
+    Ok(())
+}
+
 async fn apply_cast_load(
     node: &NodeContext,
     request: &LoadResolvedItemsRequest,
@@ -1380,6 +1405,7 @@ async fn apply_resolved_items_load(
     block: Option<PlayerHandoffBlockId>,
     session: Option<&Session>,
 ) -> Result<(ResolvedItemsLoadResult, Option<PlayingItemRef>)> {
+    check_relayed_controller(node, request.controlling_device.as_ref()).await?;
     let position = request
         .position_seconds
         .map(Duration::try_from_secs_f64)
@@ -1809,6 +1835,7 @@ impl Signal for PlaylistRevisionRequest {
         _session: Option<Session>,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
+        check_relayed_controller(&node, self.controlling_device.as_ref()).await?;
         let revision = node.session()?.queue_revision().await;
         Ok(Some(PlaylistRevisionResponse {
             call_id: None,
@@ -1832,13 +1859,16 @@ impl Signal for RemotePlaylistRevisionRequest {
     async fn handle(
         &self,
         node: Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         let (link, _) = node
             .connect_renderer(&request.fingerprint, RendererLinkUse::Cast)
             .await?;
-        let forwarded = PlaylistRevisionRequest { call_id: None };
+        let forwarded = PlaylistRevisionRequest {
+            controlling_device: relayed_controlling_device(session.as_ref()),
+            call_id: None,
+        };
         let result = link.call(&forwarded).await;
         link.close();
         Ok(Some(RemotePlaylistRevisionResponse {
@@ -2310,6 +2340,7 @@ fn handoff_load(
     mode: PlaylistOperateMode,
 ) -> LoadResolvedItemsRequest {
     LoadResolvedItemsRequest {
+        controlling_device: None,
         call_id: None,
         items: snapshot.items.into_iter().collect(),
         start_index: snapshot.index,

@@ -5107,12 +5107,15 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let revision = PlaylistRevisionRequest { call_id: Some(32) }
-            .translate(&binding)
-            .await
-            .unwrap()
-            .unwrap()
-            .revision;
+        let revision = PlaylistRevisionRequest {
+            controlling_device: None,
+            call_id: Some(32),
+        }
+        .translate(&binding)
+        .await
+        .unwrap()
+        .unwrap()
+        .revision;
         let snapshot = SessionSnapshotRequest { call_id: None }
             .translate(&binding)
             .await
@@ -5121,6 +5124,7 @@ mod tests {
         assert_eq!(revision, snapshot.revision);
         assert_eq!(snapshot.items, library_tracks(library, &["track-a"]));
         LoadResolvedItemsRequest {
+            controlling_device: None,
             items: resolved.playing_items,
             start_index: resolved.start_index,
             mode: PlaylistOperateMode::Replace,
@@ -6285,6 +6289,7 @@ mod tests {
         mode: PlaylistOperateMode,
     ) -> LoadResolvedItemsRequest {
         LoadResolvedItemsRequest {
+            controlling_device: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: library_id.to_string(),
                 track: track_id.to_owned(),
@@ -6305,6 +6310,7 @@ mod tests {
         mode: PlaylistOperateMode,
     ) -> LoadResolvedItemsRequest {
         LoadResolvedItemsRequest {
+            controlling_device: None,
             items: tracks
                 .iter()
                 .map(|track| PlayingItemRef::LibraryTrack {

@@ -3330,6 +3330,7 @@ mod lifecycle_tests {
         crate::rpc::dispatch_gui_request(
             &renderer.global_params,
             &LoadResolvedItemsRequest {
+                controlling_device: None,
                 call_id: None,
                 items: vec![
                     player_session_tests::service_item(record_id, "song-first"),
@@ -3444,8 +3445,10 @@ mod lifecycle_tests {
         // One answered request flushes the frames sent when the connection opened. A snapshot
         // of this queue would fail: the session refuses service tracks in its snapshot answer,
         // so the revision request is the read-only probe here.
-        let revision_request =
-            rinf::serialize(&crate::messages::PlaylistRevisionRequest { call_id: None })?;
+        let revision_request = rinf::serialize(&crate::messages::PlaylistRevisionRequest {
+            controlling_device: None,
+            call_id: None,
+        })?;
         socket_request(&mut socket, "PlaylistRevisionRequest", &revision_request).await?;
 
         // The first request is a real playback command held at a real resource: the track it
@@ -3550,8 +3553,10 @@ mod lifecycle_tests {
         // Another connection's request answers while the first is still held. The read-only
         // probe is the revision request: the snapshot of this queue would refuse the service
         // tracks the queue holds.
-        let revision_request =
-            rinf::serialize(&crate::messages::PlaylistRevisionRequest { call_id: None })?;
+        let revision_request = rinf::serialize(&crate::messages::PlaylistRevisionRequest {
+            controlling_device: None,
+            call_id: None,
+        })?;
         let (name, _) = socket_request(
             &mut free_socket,
             "PlaylistRevisionRequest",
@@ -3783,6 +3788,7 @@ mod lifecycle_tests {
         )
         .await?;
         let load = LoadResolvedItemsRequest {
+            controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: library_id.to_string(),
@@ -3917,6 +3923,7 @@ mod lifecycle_tests {
             .copied()
             .context("takeover track uuid")?;
         let load = LoadResolvedItemsRequest {
+            controlling_device: None,
             call_id: None,
             items: vec![PlayingItemRef::LibraryTrack {
                 library_id: library_id.to_string(),
