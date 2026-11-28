@@ -7,16 +7,237 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ndk_saf::{from_tree_url, open_content_url, AndroidFile, AndroidFileOps};
+use jni::objects::{JObject, JString, JValue};
+use jni::JNIEnv;
+use ndk_saf::{AndroidFile, AndroidFileOps};
 use rusqlite::{params, Connection};
 
+use super::android_jni::{checked_result, with_document_cursor, with_document_env, Operation};
 use super::{DirWalk, FileIo, FileIoError, FileStream, FsNode, OpenMode, StorageLocation};
 use std::time as std_time;
 
+fn with_saf<T>(
+    operation: Operation,
+    call: impl FnOnce(&mut JNIEnv) -> anyhow::Result<T>,
+) -> Result<T, FileIoError> {
+    let env = ndk_saf::get_env()
+        .map_err(|_| FileIoError::DocumentRuntime("cannot attach the native thread".into()))?;
+    with_document_env(env, operation, call)
+}
+
+fn tree_document(uri: &str) -> Result<AndroidFile, FileIoError> {
+    with_saf(Operation::Item("read document metadata"), |_| {
+        ndk_saf::from_tree_url(uri)
+    })
+}
+
+fn open_document(uri: &str, mode: &str) -> Result<fs::File, FileIoError> {
+    with_saf(Operation::Item("open document"), |_| {
+        ndk_saf::open_content_url(uri, mode)
+    })
+}
+
+const DOCUMENTS_CONTRACT: &str = "android/provider/DocumentsContract";
+const DOCUMENT_URI: &str = "(Landroid/net/Uri;Ljava/lang/String;)Landroid/net/Uri;";
+const DOCUMENT_COLUMNS: [&str; 4] = ["document_id", "_display_name", "_size", "mime_type"];
+
+#[derive(Clone, Copy)]
+enum DocumentQuery {
+    Root,
+    Children,
+}
+
+fn resolver_and_uri<'local>(
+    env: &mut JNIEnv<'local>,
+    url: &str,
+) -> anyhow::Result<(JObject<'local>, JObject<'local>)> {
+    let application = env
+        .call_static_method(
+            "android/app/ActivityThread",
+            "currentApplication",
+            "()Landroid/app/Application;",
+            &[],
+        )?
+        .l()?;
+    let resolver = env
+        .call_method(
+            &application,
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        )?
+        .l()?;
+    let url = env.new_string(url)?;
+    let uri = env
+        .call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[(&url).into()],
+        )?
+        .l()?;
+    Ok((resolver, uri))
+}
+
+fn cursor_string<'local>(
+    env: &mut JNIEnv<'local>,
+    cursor: &JObject,
+    column: i32,
+) -> jni::errors::Result<JString<'local>> {
+    Ok(env
+        .call_method(
+            cursor,
+            "getString",
+            "(I)Ljava/lang/String;",
+            &[JValue::Int(column)],
+        )?
+        .l()?
+        .into())
+}
+
+fn uri_string(env: &mut JNIEnv, uri: &JObject, method: &str) -> anyhow::Result<String> {
+    let value = JString::from(
+        env.call_method(uri, method, "()Ljava/lang/String;", &[])?
+            .l()?,
+    );
+    let value: String = env.get_string(&value)?.into();
+    Ok(value)
+}
+
+fn read_cursor(
+    env: &mut JNIEnv,
+    cursor: &JObject,
+    tree: &JObject,
+) -> anyhow::Result<Vec<AndroidFile>> {
+    let mut columns = [0; 4];
+    for (index, name) in DOCUMENT_COLUMNS.iter().enumerate() {
+        let column = env.new_string(name)?;
+        columns[index] = env
+            .call_method(
+                cursor,
+                "getColumnIndexOrThrow",
+                "(Ljava/lang/String;)I",
+                &[(&column).into()],
+            )?
+            .i()?;
+    }
+    let mut files = Vec::new();
+    while env.call_method(cursor, "moveToNext", "()Z", &[])?.z()? {
+        let file = env.with_local_frame(16, |env| -> anyhow::Result<AndroidFile> {
+            let document_id = cursor_string(env, cursor, columns[0])?;
+            let name = cursor_string(env, cursor, columns[1])?;
+            let filename: String = env.get_string(&name)?.into();
+            let size = env
+                .call_method(cursor, "getLong", "(I)J", &[JValue::Int(columns[2])])?
+                .j()?
+                .max(0) as usize;
+            let mime = cursor_string(env, cursor, columns[3])?;
+            let is_dir = env.get_string(&mime)?.to_bytes() == b"vnd.android.document/directory";
+            let uri = env
+                .call_static_method(
+                    DOCUMENTS_CONTRACT,
+                    "buildDocumentUriUsingTree",
+                    DOCUMENT_URI,
+                    &[tree.into(), (&document_id).into()],
+                )?
+                .l()?;
+            Ok(AndroidFile {
+                filename,
+                size,
+                path: uri_string(env, &uri, "getPath")?,
+                url: uri_string(env, &uri, "toString")?,
+                is_dir,
+            })
+        })?;
+        files.push(file);
+    }
+    files.sort_by(|left, right| left.filename.cmp(&right.filename));
+    Ok(files)
+}
+
+/// Use the provider's cursor directly. ndk-saf's list_files maps a null
+/// cursor to an empty folder and does not expose partial results.
+fn query_documents(url: &str, target: DocumentQuery) -> Result<Vec<AndroidFile>, FileIoError> {
+    with_saf(Operation::List, |env| {
+        let (resolver, tree) = resolver_and_uri(env, url)?;
+        let (get_id, build_uri, operation) = match target {
+            DocumentQuery::Root => (
+                "getTreeDocumentId",
+                "buildDocumentUriUsingTree",
+                Operation::RootQuery,
+            ),
+            DocumentQuery::Children => (
+                "getDocumentId",
+                "buildChildDocumentsUriUsingTree",
+                Operation::List,
+            ),
+        };
+        let id = env
+            .call_static_method(
+                DOCUMENTS_CONTRACT,
+                get_id,
+                "(Landroid/net/Uri;)Ljava/lang/String;",
+                &[(&tree).into()],
+            )?
+            .l()?;
+        let uri = env
+            .call_static_method(
+                DOCUMENTS_CONTRACT,
+                build_uri,
+                DOCUMENT_URI,
+                &[(&tree).into(), (&id).into()],
+            )?
+            .l()?;
+        let projection = env.new_object_array(4, "java/lang/String", JObject::null())?;
+        for (index, name) in DOCUMENT_COLUMNS.iter().enumerate() {
+            let column = env.new_string(name)?;
+            env.set_object_array_element(&projection, index as i32, column)?;
+        }
+        let null = JObject::null();
+        let query = env.call_method(&resolver, "query",
+            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+            &[(&uri).into(), (&projection).into(), (&null).into(), (&null).into(), (&null).into()]).and_then(|v| v.l());
+        let cursor = checked_result(env, operation, query.map_err(Into::into))?;
+        Ok(with_document_cursor(
+            env,
+            &cursor,
+            |env, cursor| {
+                Ok(env
+                    .call_method(cursor, "getExtras", "()Landroid/os/Bundle;", &[])?
+                    .l()?)
+            },
+            |env, cursor| read_cursor(env, cursor, &tree),
+        )?)
+    })
+}
+
+fn root_document(url: &str) -> Result<AndroidFile, FileIoError> {
+    let mut rows = query_documents(url, DocumentQuery::Root)?;
+    match rows.len() {
+        0 => Err(FileIoError::DocumentRootUnavailable(
+            "root document is missing".into(),
+        )),
+        1 if rows[0].is_dir => Ok(rows.remove(0)),
+        _ => Err(FileIoError::DocumentListingIncomplete(
+            "expected one root directory".into(),
+        )),
+    }
+}
+
+/// A failed child query may be the first access after revocation. Only a
+/// separate root query can turn that failure into a request to reselect it.
+fn check_root_after_listing_error(root: &str, error: FileIoError) -> FileIoError {
+    if matches!(error, FileIoError::DocumentListingIncomplete(_)) {
+        if let Err(root_error) = root_document(root) {
+            return root_error;
+        }
+    }
+    error
+}
+
 /// Reads a UTF-8 document for which Android has granted access to this app.
 pub fn read_android_document(uri: &str) -> Result<String, FileIoError> {
-    let mut file =
-        open_content_url(uri, "r").map_err(|error| FileIoError::Saf(error.to_string()))?;
+    let mut file = open_document(uri, "r")?;
     let mut content = String::new();
     file.read_to_string(&mut content)?;
     Ok(content)
@@ -29,13 +250,13 @@ pub(crate) struct AndroidFsIo {
 
 impl AndroidFsIo {
     pub(crate) fn new(db_path: &Path, root_uri: &str) -> Result<Self, FileIoError> {
-        let root_file = from_tree_url(root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file = root_document(root_uri)?;
 
-        let db_file = Self::find_file_by_path(root_file, db_path, true)?;
+        let db_file = Self::find_file_by_path(root_uri, root_file, db_path, true)?;
 
-        let std_file = db_file
-            .open("rw")
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let std_file = with_saf(Operation::Item("open cache database"), |_| {
+            db_file.open("rw")
+        })?;
         let fd = std_file.as_raw_fd();
         let path = PathBuf::from(format!("/proc/self/fd/{}", fd));
 
@@ -48,11 +269,10 @@ impl AndroidFsIo {
             let mut stmt = db
                 .prepare("PRAGMA table_info(fs_cache)")
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let columns = stmt
+            let mut columns = stmt
                 .query_map([], |row| row.get::<_, String>(1))
                 .map_err(|e| FileIoError::Database(e.to_string()))?;
-            let has_is_dir = columns.filter_map(|c| c.ok()).any(|name| name == "is_dir");
-            has_is_dir
+            columns.any(|column| column.is_ok_and(|name| name == "is_dir"))
         };
         if !has_v2_schema {
             db.execute("DROP TABLE IF EXISTS fs_cache", [])
@@ -92,6 +312,7 @@ impl AndroidFsIo {
     }
 
     fn find_file_by_path(
+        root: &str,
         start_file: AndroidFile,
         path: &Path,
         create_if_not_exist: bool,
@@ -103,9 +324,8 @@ impl AndroidFsIo {
                 _ => continue,
             };
 
-            let files = current_file
-                .list_files()
-                .map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let files = query_documents(&current_file.url, DocumentQuery::Children)
+                .map_err(|error| check_root_after_listing_error(root, error))?;
             let found_file = files.into_iter().find(|f| f.filename == component_name);
 
             current_file = match found_file {
@@ -113,13 +333,13 @@ impl AndroidFsIo {
                 None => {
                     if create_if_not_exist {
                         if let Some(_ext) = Path::new(component_name).extension() {
-                            current_file
-                                .create_file("application/octet-stream", component_name)
-                                .map_err(|e| FileIoError::Saf(e.to_string()))?
+                            with_saf(Operation::Item("create document"), |_| {
+                                current_file.create_file("application/octet-stream", component_name)
+                            })?
                         } else {
-                            current_file
-                                .create_directory(component_name)
-                                .map_err(|e| FileIoError::Saf(e.to_string()))?
+                            with_saf(Operation::Item("create directory"), |_| {
+                                current_file.create_directory(component_name)
+                            })?
                         }
                     } else {
                         return Err(FileIoError::PathNotFound(path.display().to_string()));
@@ -131,8 +351,7 @@ impl AndroidFsIo {
     }
 
     pub fn refresh_cache(&self) -> Result<(), FileIoError> {
-        let root_file =
-            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let root_file = root_document(&self.root_uri)?;
         let db = self.db.clone();
 
         let mut conn = db.lock().unwrap();
@@ -147,9 +366,7 @@ impl AndroidFsIo {
             current_path: &Path,
             tx: &rusqlite::Transaction,
         ) -> Result<(), FileIoError> {
-            let files = file
-                .list_files()
-                .map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let files = query_documents(&file.url, DocumentQuery::Children)?;
             for f in files {
                 let new_path = current_path.join(&f.filename);
                 tx.execute(
@@ -179,7 +396,7 @@ impl AndroidFsIo {
             Err(e) => {
                 tx.rollback()
                     .map_err(|e| FileIoError::Database(e.to_string()))?;
-                Err(e)
+                Err(check_root_after_listing_error(&self.root_uri, e))
             }
         }
     }
@@ -210,11 +427,12 @@ impl AndroidFsIo {
             return Ok(url);
         }
 
-        // Cache miss: resolve live by walking the SAF tree (the same way other
-        // platforms hit the real filesystem), then cache just this entry.
-        let root_file =
-            from_tree_url(&self.root_uri).map_err(|e| FileIoError::Saf(e.to_string()))?;
-        let file = Self::find_file_by_path(root_file, path, false)?;
+        self.resolve_uri(path)
+    }
+
+    fn resolve_uri(&self, path: &Path) -> Result<String, FileIoError> {
+        let root_file = root_document(&self.root_uri)?;
+        let file = Self::find_file_by_path(&self.root_uri, root_file, path, false)?;
 
         let parent = path.parent().unwrap_or_else(|| Path::new(""));
         let conn = self.db.lock().unwrap();
@@ -234,14 +452,14 @@ impl AndroidFsIo {
         Ok(file.url)
     }
 
-    fn evict_cache(&self, path: &Path) {
+    fn evict_cache(&self, path: &Path, stale_uri: &str) -> Result<(), FileIoError> {
         let conn = self.db.lock().unwrap();
-        if let Err(e) = conn.execute(
-            "DELETE FROM fs_cache WHERE path = ?1",
-            params![path.to_str().unwrap()],
-        ) {
-            log::warn!("Failed to evict stale cache entry for {path:?}: {e}");
-        }
+        conn.execute(
+            "DELETE FROM fs_cache WHERE path = ?1 AND content_url = ?2",
+            params![path.to_str().ok_or(FileIoError::InvalidPath)?, stale_uri],
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+        Ok(())
     }
 
     /// Read cached metadata for `path`; the read-through `get_uri` guarantees
@@ -266,33 +484,23 @@ impl AndroidFsIo {
     /// Synchronous open shared by `open` and `open_async`. Building a fresh
     /// tokio runtime and block_on-ing here would panic when the caller is
     /// already on a runtime thread; everything below is synchronous JNI.
-    fn open_sync(
-        &self,
-        path: &Path,
-        open_mode: OpenMode,
-    ) -> Result<Box<dyn FileStream>, FileIoError> {
-        // Skip DocumentFile construction entirely: opening only needs the
-        // content URI, so this is a single provider IPC.
-        let creates = open_mode.creates();
+    fn open_sync(&self, path: &Path, open_mode: OpenMode) -> Result<fs::File, FileIoError> {
         let uri = match self.get_uri(path) {
             Ok(uri) => uri,
-            Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
+            Err(FileIoError::PathNotFound(_)) if open_mode.creates() => {
+                self.create_file_for_write(path)?
+            }
             Err(e) => return Err(e),
         };
-        match open_content_url(&uri, open_mode.as_str()) {
-            Ok(file) => Ok(Box::new(file)),
-            Err(first_error) => {
-                // The cached URI may be stale (the file was replaced outside the
-                // app); evict it and re-resolve live once before giving up.
-                self.evict_cache(path);
-                let uri = self.get_uri(path)?;
-                let file = open_content_url(&uri, open_mode.as_str()).map_err(|second_error| {
-                    FileIoError::Saf(format!(
-                        "{second_error} (initial attempt with cached URI: {first_error})"
-                    ))
-                })?;
-                Ok(Box::new(file))
+        match open_document(&uri, open_mode.as_str()) {
+            Err(FileIoError::Saf(_)) => {
+                self.evict_cache(path, &uri)?;
+                // Bypass the cache for this one retry. Only a complete live
+                // enumeration of the parent can establish that the file is gone.
+                let uri = self.resolve_uri(path)?;
+                open_document(&uri, open_mode.as_str())
             }
+            result => result,
         }
     }
 
@@ -309,9 +517,9 @@ impl AndroidFsIo {
             .ok_or(FileIoError::InvalidPath)?;
 
         let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file
-            .create_file("application/octet-stream", name)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_file = with_saf(Operation::Item("create document"), |_| {
+            parent_file.create_file("application/octet-stream", name)
+        })?;
 
         let conn = self.db.lock().unwrap();
         conn.execute(
@@ -332,9 +540,9 @@ impl AndroidFsIo {
 
     fn create_dir_sync(&self, parent: &Path, name: &str) -> Result<PathBuf, FileIoError> {
         let parent_file = self.get_android_file(parent)?;
-        let new_file = parent_file
-            .create_directory(name)
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let new_file = with_saf(Operation::Item("create directory"), |_| {
+            parent_file.create_directory(name)
+        })?;
         let new_path = parent.join(name);
 
         let conn = self.db.lock().unwrap();
@@ -356,7 +564,7 @@ impl AndroidFsIo {
 
     fn get_android_file(&self, path: &Path) -> Result<AndroidFile, FileIoError> {
         let uri = self.get_uri(path)?;
-        from_tree_url(&uri).map_err(|e| FileIoError::Saf(e.to_string()))
+        tree_document(&uri)
     }
 }
 
@@ -375,7 +583,7 @@ impl FileIo for AndroidFsIo {
     }
 
     fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
-        self.open_sync(path, open_mode)
+        Ok(Box::new(self.open_sync(path, open_mode)?))
     }
 
     fn content_uri(&self, path: &Path) -> Result<Option<String>, FileIoError> {
@@ -387,7 +595,7 @@ impl FileIo for AndroidFsIo {
         path: &Path,
         open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
-        self.open_sync(path, open_mode)
+        Ok(Box::new(self.open_sync(path, open_mode)?))
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
@@ -462,8 +670,7 @@ impl FileIo for AndroidFsIo {
 
     async fn remove_file(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file()
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        with_saf(Operation::Item("remove document"), |_| file.remove_file())?;
 
         let conn = self.db.lock().unwrap();
         conn.execute(
@@ -486,34 +693,8 @@ impl FileIo for AndroidFsIo {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or(FileIoError::InvalidPath)?;
-        let rename = || -> anyhow::Result<String> {
-            use jni::objects::{JString, JValue};
-            let mut env = ndk_saf::get_env()?;
-            let application = env
-                .call_static_method(
-                    "android/app/ActivityThread",
-                    "currentApplication",
-                    "()Landroid/app/Application;",
-                    &[],
-                )?
-                .l()?;
-            let resolver = env
-                .call_method(
-                    application,
-                    "getContentResolver",
-                    "()Landroid/content/ContentResolver;",
-                    &[],
-                )?
-                .l()?;
-            let url = env.new_string(&file.url)?;
-            let uri = env
-                .call_static_method(
-                    "android/net/Uri",
-                    "parse",
-                    "(Ljava/lang/String;)Landroid/net/Uri;",
-                    &[JValue::Object(&url)],
-                )?
-                .l()?;
+        let uri = with_saf(Operation::Item("rename document"), |env| {
+            let (resolver, uri) = resolver_and_uri(env, &file.url)?;
             let name = env.new_string(name)?;
             let renamed = env.call_static_method(
                 "android/provider/DocumentsContract", "renameDocument",
@@ -521,18 +702,7 @@ impl FileIo for AndroidFsIo {
                 &[JValue::Object(&resolver), JValue::Object(&uri), JValue::Object(&name)],
             )?.l()?;
             anyhow::ensure!(!renamed.is_null(), "document provider refused rename");
-            let result = JString::from(
-                env.call_method(renamed, "toString", "()Ljava/lang/String;", &[])?
-                    .l()?,
-            );
-            let result: String = env.get_string(&result)?.into();
-            Ok(result)
-        };
-        let uri = rename().map_err(|e| {
-            if let Ok(mut env) = ndk_saf::get_env() {
-                ndk_saf::clear_pending_exception(&mut env);
-            }
-            FileIoError::Saf(e.to_string())
+            uri_string(env, &renamed, "toString")
         })?;
         let mut conn = self.db.lock().unwrap();
         let tx = conn
@@ -554,8 +724,7 @@ impl FileIo for AndroidFsIo {
 
     async fn remove_dir_all(&self, path: &Path) -> Result<(), FileIoError> {
         let file = self.get_android_file(path)?;
-        file.remove_file()
-            .map_err(|e| FileIoError::Saf(e.to_string()))?;
+        with_saf(Operation::Item("remove document"), |_| file.remove_file())?;
 
         let conn = self.db.lock().unwrap();
         let path_str = path.to_str().unwrap();
@@ -616,7 +785,7 @@ impl FileIo for AndroidFsIo {
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
-        Ok(self.get_uri(path).is_ok())
+        self.entry_exists(path)
     }
 
     fn entry_exists(&self, path: &Path) -> Result<bool, FileIoError> {
@@ -638,8 +807,7 @@ impl FileIo for AndroidFsIo {
     }
 
     fn canonicalize_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
-        let uri = self.get_uri(path)?;
-        let std_file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let std_file = self.open_sync(path, OpenMode::Read)?;
         let fd = std_file.as_raw_fd();
         let proc_path = format!("/proc/self/fd/{}", fd);
         let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
@@ -648,8 +816,7 @@ impl FileIo for AndroidFsIo {
 
     fn canonicalize_path_str(&self, path: &str) -> Result<PathBuf, FileIoError> {
         if path.contains(':') {
-            let std_file =
-                open_content_url(path, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let std_file = open_document(path, "r")?;
             let fd = std_file.as_raw_fd();
             let proc_path = format!("/proc/self/fd/{}", fd);
             let real_path = fs::read_link(proc_path).map_err(FileIoError::Io)?;
@@ -660,8 +827,8 @@ impl FileIo for AndroidFsIo {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
-        let (filename, is_dir, size) = self.get_cached_meta(path)?;
         let real_path = self.canonicalize_path(path)?;
+        let (filename, is_dir, size) = self.get_cached_meta(path)?;
         Ok(FsNode {
             filename,
             raw_path: real_path.to_str().unwrap_or_default().to_string(),
@@ -674,8 +841,7 @@ impl FileIo for AndroidFsIo {
 
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
         // fstat on the SAF fd goes through FUSE getattr and carries real mtime
-        let uri = self.get_uri(path)?;
-        let file = open_content_url(&uri, "r").map_err(|e| FileIoError::Saf(e.to_string()))?;
+        let file = self.open_sync(path, OpenMode::Read)?;
         let modified = file
             .metadata()?
             .modified()?
@@ -686,7 +852,7 @@ impl FileIo for AndroidFsIo {
 
     fn canonicalize_str(&self, path: &str) -> Result<FsNode, FileIoError> {
         if path.contains(':') {
-            let file = from_tree_url(path).map_err(|e| FileIoError::Saf(e.to_string()))?;
+            let file = tree_document(path)?;
             let canon_path = self.canonicalize_path_str(path)?;
             Ok(FsNode {
                 filename: file.filename,

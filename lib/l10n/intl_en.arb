@@ -1721,6 +1721,9 @@
   "libraryUntrusted": "This device is not trusted.",
   "libraryInvalidSource": "This folder cannot be used as a library.",
   "libraryStorageFailure": "The library could not be saved.",
+  "documentFolderUnavailable": "Rune could not access the library folder. Make sure the folder is available, then choose it again under Add Library → Local Folder to restore access.",
+  "selectOriginalLibraryFolder": "You selected a different folder. Select the original library folder to restore access to its tracks.",
+  "restoreDocumentFolderAccess": "Rune could not access the library folder. Make sure it is available, then select the same folder to restore access and scan again.",
   "libraryNewerVersion": "This library was made by a newer version of Rune. Update Rune on this device to open it.",
   "libraryShareStoreUnavailable": "Shared storage is unavailable. Sync will retry automatically.",
   "@libraryShareStoreUnavailable": {

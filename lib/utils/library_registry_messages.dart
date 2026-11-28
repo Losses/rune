@@ -9,6 +9,8 @@ String libraryRegistryFailureMessage(
   RemoveLibraryRecordFailureKind.recordNotFound => s.libraryRecordNotFound,
   RemoveLibraryRecordFailureKind.recordIsOpen => s.libraryRecordIsOpen,
   OpenLibraryFailureKind.mediaFolderMissing => s.libraryMediaFolderMissing,
+  OpenLibraryFailureKind.documentFolderUnavailable =>
+    s.documentFolderUnavailable,
   RegisterLibraryFailureKind.untrusted ||
   RegisterLibraryFailureKind.remoteUntrusted ||
   OpenLibraryFailureKind.remoteUntrusted => s.libraryUntrusted,

@@ -9,6 +9,7 @@ import 'package:rune/l10n/app_localizations.dart';
 import 'package:rune/providers/library_manager.dart';
 import 'package:rune/providers/library_open_state.dart';
 import 'package:rune/providers/library_registry.dart';
+import 'package:rune/providers/local_folder_picker.dart';
 import 'package:rune/utils/api/request_failure.dart';
 import 'package:rune/widgets/library_task_button.dart';
 
@@ -169,6 +170,7 @@ Future<_LibraryManager> _pumpTaskButtons(
           value: openState,
         ),
         ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
+        Provider(create: (_) => LocalFolderPickerProvider()),
       ],
       child: FluentApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -188,6 +190,97 @@ Future<_LibraryManager> _pumpTaskButtons(
 }
 
 void main() {
+  const folder = 'content://documents/tree/music';
+  const safRecord = LibraryRecordSummary(
+    shareSync: false,
+    recordId: 'android-library',
+    alias: 'Music',
+    kind: LibraryRecordKindSummaryLocal(libraryId: 'library', path: folder),
+  );
+  for (final (selected, retry) in [
+    (null, false),
+    ('content://documents/tree/other', false),
+    ('content://elsewhere/tree/music', false),
+    ('$folder/document/child', false),
+    ('$folder/document/music', true),
+    (folder, true),
+  ]) {
+    testWidgets(
+      'a failed document scan retries only the original folder ($selected)',
+      (tester) async {
+        var picks = 0;
+        var persisted = 0;
+        final manager = await _pumpTaskButtons(tester, record: safRecord);
+        final context = tester.element(find.byType(ScanLibraryButton));
+        context
+            .read<LocalFolderPickerProvider>()
+            .pickRecoveryFolder = (_, uri) async {
+          expect(uri, folder);
+          picks++;
+          return selected == null
+              ? null
+              : RecoveryFolder(
+                  selected,
+                  persistAccess: () async {
+                    persisted++;
+                  },
+                );
+        };
+        manager.scanProgress = ScanTaskProgress(recordId: safRecord.recordId)
+          ..scanFailure = ScanFailure.documentFolderUnavailable;
+        final firstScan = Completer<TaskStatus>();
+        manager.scanCompletion = firstScan;
+        await tester.tap(find.text('Scan'));
+        firstScan.complete(TaskStatus.failed);
+        await tester.pumpAndSettle();
+        manager.scanCompletion = null;
+        await tester.tap(find.text('Pick Directory'));
+        await tester.pumpAndSettle();
+        expect(picks, 1);
+        expect(persisted, retry ? 1 : 0);
+        expect(manager.scanForces, retry ? [false, false] : [false]);
+        expect(manager.cleanupConfirmations, isEmpty);
+        if (selected != null && !retry) {
+          expect(
+            find.textContaining('You selected a different folder'),
+            findsOneWidget,
+          );
+        }
+      },
+    );
+  }
+
+  testWidgets('closing the library during the picker leaves access temporary', (
+    tester,
+  ) async {
+    var persisted = false;
+    final selection = Completer<RecoveryFolder?>();
+    final manager = await _pumpTaskButtons(tester, record: safRecord);
+    final context = tester.element(find.byType(ScanLibraryButton));
+    context.read<LocalFolderPickerProvider>().pickRecoveryFolder = (_, _) =>
+        selection.future;
+    manager.scanProgress = ScanTaskProgress(recordId: safRecord.recordId)
+      ..scanFailure = ScanFailure.documentFolderUnavailable;
+    manager.scanCompletion = Completer<TaskStatus>();
+    await tester.tap(find.text('Scan'));
+    manager.scanCompletion!.complete(TaskStatus.failed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick Directory'));
+    await tester.pumpAndSettle();
+    context.read<LibraryOpenStateProvider>().registry.onClosed();
+    selection.complete(
+      RecoveryFolder(
+        folder,
+        persistAccess: () async {
+          persisted = true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(persisted, isFalse);
+    expect(manager.scanForces, [false]);
+  });
+
   for (final confirmationTimedOut in [false, true]) {
     testWidgets(
       confirmationTimedOut

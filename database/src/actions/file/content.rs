@@ -300,6 +300,7 @@ pub async fn attach_download(
         match metadata {
             Ok(metadata) if metadata.audio.sample_rate.is_some() => Ok(Some(metadata)),
             Ok(_) => Ok(None),
+            Err(error) if fsio::is_document_provider_error(&error) => Err(error),
             Err(error) => {
                 log::warn!("Cannot read metadata for downloaded track {track_id}: {error:#}");
                 Ok(None)

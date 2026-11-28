@@ -1,12 +1,9 @@
-//! The standard file system with one read that fails once, for tests of code
-//! that must not take a partly read file for a whole one. The read that would
-//! cross the failing byte is cut short, so a buffered reader's next refill is
-//! the read that fails.
+//! Standard filesystem fixtures for failed reads and unavailable Android documents.
 use std::{
     io::{Error, ErrorKind, Read, Result as IoResult, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -41,12 +38,7 @@ impl OneFailingRead {
     }
 
     pub fn fs(&self) -> FsIo {
-        FsIo {
-            inner: Arc::new(OneFailingReadIo {
-                inner: StdFsIo::new(),
-                fault: self.clone(),
-            }),
-        }
+        ReadFault::Stream(self.clone()).fs()
     }
 
     /// Whether the failing read has happened.
@@ -116,15 +108,98 @@ impl FileStream for FailingStream {
     }
 }
 
-struct OneFailingReadIo {
+/// The step at which an otherwise ordinary file loses provider access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentOperation {
+    ModifiedTime,
+    Open,
+    Exists,
+    Walk,
+    Canonicalize,
+}
+
+/// Lists the real directory, then returns a SAF error for one operation on this file.
+pub fn unavailable_document(path: &Path, operation: DocumentOperation) -> FsIo {
+    document_failure_after(path, operation, 0, || {
+        FileIoError::Saf("document unavailable".into())
+    })
+}
+
+/// Succeeds for the first requested probes, then reports the chosen provider error.
+pub fn document_failure_after(
+    path: &Path,
+    operation: DocumentOperation,
+    successes: usize,
+    error: fn() -> FileIoError,
+) -> FsIo {
+    ReadFault::Document {
+        path: path.to_owned(),
+        operation,
+        successes,
+        attempts: AtomicUsize::new(0),
+        error,
+    }
+    .fs()
+}
+
+enum ReadFault {
+    Stream(OneFailingRead),
+    Document {
+        path: PathBuf,
+        operation: DocumentOperation,
+        successes: usize,
+        attempts: AtomicUsize,
+        error: fn() -> FileIoError,
+    },
+}
+
+impl ReadFault {
+    fn fs(self) -> FsIo {
+        FsIo {
+            inner: Arc::new(FailingReadIo {
+                inner: StdFsIo::new(),
+                fault: self,
+            }),
+        }
+    }
+
+    fn check(&self, path: &Path, operation: DocumentOperation) -> Result<(), FileIoError> {
+        let Self::Document {
+            path: target,
+            operation: step,
+            successes,
+            attempts,
+            error,
+        } = self
+        else {
+            return Ok(());
+        };
+        if target == path
+            && *step == operation
+            && attempts.fetch_add(1, Ordering::Relaxed) >= *successes
+        {
+            return Err(error());
+        }
+        Ok(())
+    }
+
+    fn wrap(&self, stream: Box<dyn FileStream>, mode: OpenMode) -> Box<dyn FileStream> {
+        match self {
+            Self::Stream(failure) => failure.wrap(stream, mode),
+            Self::Document { .. } => stream,
+        }
+    }
+}
+
+struct FailingReadIo {
     inner: StdFsIo,
-    fault: OneFailingRead,
+    fault: ReadFault,
 }
 
 #[async_trait]
-impl FileIo for OneFailingReadIo {
+impl FileIo for FailingReadIo {
     fn name(&self) -> &'static str {
-        "Std with one failing read"
+        "Std with a read failure"
     }
 
     fn storage(&self) -> StorageLocation {
@@ -132,6 +207,7 @@ impl FileIo for OneFailingReadIo {
     }
 
     fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
+        self.fault.check(path, DocumentOperation::Open)?;
         let stream = self.inner.open(path, open_mode)?;
         Ok(self.fault.wrap(stream, open_mode))
     }
@@ -141,6 +217,7 @@ impl FileIo for OneFailingReadIo {
         path: &Path,
         open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
+        self.fault.check(path, DocumentOperation::Open)?;
         let stream = self.inner.open_async(path, open_mode).await?;
         Ok(self.fault.wrap(stream, open_mode))
     }
@@ -186,10 +263,12 @@ impl FileIo for OneFailingReadIo {
     }
 
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError> {
+        self.fault.check(path, DocumentOperation::Walk)?;
         self.inner.walk_dir(path, follow_links)
     }
 
     fn exists(&self, path: &Path) -> Result<bool, FileIoError> {
+        self.fault.check(path, DocumentOperation::Exists)?;
         self.inner.exists(path)
     }
 
@@ -214,6 +293,7 @@ impl FileIo for OneFailingReadIo {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        self.fault.check(path, DocumentOperation::Canonicalize)?;
         self.inner.canonicalize(path)
     }
 
@@ -222,6 +302,7 @@ impl FileIo for OneFailingReadIo {
     }
 
     fn modified_time(&self, path: &Path) -> Result<u64, FileIoError> {
+        self.fault.check(path, DocumentOperation::ModifiedTime)?;
         self.inner.modified_time(path)
     }
 

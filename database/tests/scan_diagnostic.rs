@@ -823,6 +823,23 @@ async fn folder_renamed_to_a_non_unicode_name_keeps_its_tracks() -> Result<()> {
         "a scan that skipped a folder must leave its tracks alone"
     );
 
+    // A readable copy is a new track, even with identical bytes and the old
+    // path now missing. The skipped subtree makes a move impossible to prove.
+    let copy = root.join("copy.wav");
+    fs::copy(renamed.join("track.wav"), &copy)?;
+    scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
+    assert_eq!(
+        media_files::Entity::find_by_id(track.id).one(&db).await?,
+        Some(track.clone())
+    );
+    let copied = media_files::Entity::find()
+        .filter(media_files::Column::FileName.eq("copy.wav"))
+        .one(&db)
+        .await?
+        .context("readable copy was not indexed")?;
+    assert_ne!(copied.source_uuid, track.source_uuid);
+    fs::remove_file(copy)?;
+
     fs::rename(&renamed, &album)?;
     scan_audio_library(&fs, &db, &node.to_string(), root, options(), |_| {}, &store).await?;
     assert_eq!(rows(&db).await?, [(track.id, true)]);

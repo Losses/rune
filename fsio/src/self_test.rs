@@ -61,7 +61,7 @@ enum LayerStatus {
     Skipped(String),
 }
 
-type LayerOutput = Result<LayerStatus, FileIoError>;
+type LayerOutput = anyhow::Result<LayerStatus>;
 
 fn self_test_dir(root: &Path) -> PathBuf {
     root.join(".rune").join(".selftest")
@@ -102,26 +102,22 @@ async fn layer_basic_roundtrip(fsio: &FsIo, root: &Path) -> LayerOutput {
         fsio.write(&file_path, &expected).await?;
 
         let actual = read_all(fsio, &file_path).await?;
-        if actual != expected {
-            return Err(FileIoError::Saf(format!(
-                "content mismatch: wrote {} bytes, read back {} bytes",
-                expected.len(),
-                actual.len()
-            )));
-        }
-
-        if !fsio.exists(&file_path)? {
-            return Err(FileIoError::Saf(
-                "exists() returned false for a freshly written file".to_string(),
-            ));
-        }
+        anyhow::ensure!(
+            actual == expected,
+            "content mismatch: wrote {} bytes, read back {} bytes",
+            expected.len(),
+            actual.len()
+        );
+        anyhow::ensure!(
+            fsio.exists(&file_path)?,
+            "exists() returned false for a freshly written file"
+        );
 
         let listed = fsio.read_dir(&dir).await?;
-        if !listed.iter().any(|n| n.path == file_path) {
-            return Err(FileIoError::Saf(
-                "read_dir does not list the freshly written file".to_string(),
-            ));
-        }
+        anyhow::ensure!(
+            listed.iter().any(|n| n.path == file_path),
+            "read_dir does not list the freshly written file"
+        );
 
         Ok(LayerStatus::Done(format!(
             "write/read/exists/read_dir roundtrip OK ({} bytes)",
@@ -162,22 +158,19 @@ async fn layer_streaming_io(fsio: &FsIo, root: &Path) -> LayerOutput {
         let read_ms = read_start.elapsed().as_millis() as u64;
 
         let expected_len = CHUNK_SIZE * CHUNK_COUNT;
-        if actual.len() != expected_len {
-            return Err(FileIoError::Saf(format!(
-                "length mismatch: wrote {} bytes, read back {} bytes",
-                expected_len,
-                actual.len()
-            )));
-        }
+        anyhow::ensure!(
+            actual.len() == expected_len,
+            "length mismatch: wrote {} bytes, read back {} bytes",
+            expected_len,
+            actual.len()
+        );
         if let Some(offset) = actual
             .iter()
             .enumerate()
             .find(|(i, &b)| b != pattern_byte(*i))
             .map(|(i, _)| i)
         {
-            return Err(FileIoError::Saf(format!(
-                "content mismatch at byte offset {offset}"
-            )));
+            anyhow::bail!("content mismatch at byte offset {offset}");
         }
 
         Ok(LayerStatus::Done(format!(
@@ -235,14 +228,14 @@ async fn layer_direct_read(fsio: &FsIo, root: &Path) -> LayerOutput {
                 Ok(n) => Ok(LayerStatus::Done(format!(
                     "{prefix}; std::fs read {n} of 4096 probe bytes"
                 ))),
-                Err(e) => Err(FileIoError::Saf(format!(
+                Err(e) => Err(anyhow::anyhow!(
                     "{prefix}; std::fs read failed: {e}; canonicalized path is not directly readable; playback layer (std::fs) cannot read this file directly, fd-based playback is required"
-                ))),
+                )),
             }
         }
-        Err(e) => Err(FileIoError::Saf(format!(
+        Err(e) => Err(anyhow::anyhow!(
             "{prefix}; std::fs open failed: {e}; canonicalized path is not directly readable; playback layer (std::fs) cannot read this file directly, fd-based playback is required"
-        ))),
+        )),
     }
 }
 
@@ -259,11 +252,10 @@ async fn layer_db_write_path(fsio: &FsIo, root: &Path) -> LayerOutput {
     let result = async {
         fsio.write_string(&file_path, payload).await?;
         let actual = fsio.read_to_string(&file_path)?;
-        if actual != payload {
-            return Err(FileIoError::Saf(
-                "write_string/read_to_string roundtrip mismatch".to_string(),
-            ));
-        }
+        anyhow::ensure!(
+            actual == payload,
+            "write_string/read_to_string roundtrip mismatch"
+        );
         Ok(LayerStatus::Done(
             "ensure_directory(.rune) + write_string/read_to_string roundtrip OK".to_string(),
         ))

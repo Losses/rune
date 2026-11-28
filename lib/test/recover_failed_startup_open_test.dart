@@ -72,6 +72,7 @@ void main() {
 
   for (final kind in [
     OpenLibraryFailureKind.mediaFolderMissing,
+    OpenLibraryFailureKind.documentFolderUnavailable,
     OpenLibraryFailureKind.recordNotFound,
     OpenLibraryFailureKind.remoteUnreachable,
   ]) {

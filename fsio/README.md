@@ -42,9 +42,17 @@ See `src/lib.rs` for the full `FileIo` trait. Notes:
 
 - `open`/`open_async` are both synchronous under the hood; write-style modes (`w`/`a`/`t`) create missing files (via SAF `create_file` on Android).
 - `walk_dir`/`read_dir` on Android are served from the cache with zero provider IPC; they reflect the tree as of the last `refresh_cache` plus any changes made through this `FsIo` instance or healed on access.
+- Android refresh commits the cache only after a complete traversal. A null cursor or provider-reported partial listing keeps the previous cache intact. File opens, modification-time reads, and relative-path canonicalization re-resolve a stale URI once.
 - `modified_time` returns seconds since the UNIX epoch (via `fstat` on the SAF fd on Android).
 - `canonicalize_path` on Android returns the real `/mnt/user/...` path via `/proc/self/fd` readlink — useful for display, but that path is **not** directly readable under scoped storage; open files through `FsIo` instead.
 
 ## Testing
 
 `cargo test -p fsio` runs the conformance suite (`tests/conformance.rs`) against `StdFsIo` and `NoOpFsIo`, plus a host-side self-test smoke run.
+
+With a desktop JDK 11 or newer, run the document provider regression from the repository root. It checks that a native worker can continue using JNI after a Java exception, that the error distinguishes root queries from file access, and that provider messages stay out of the returned diagnostic.
+
+```sh
+cargo build --locked -p fsio --features jni-guard-tests --example document_provider_jni
+java -Xcheck:jni fsio/tests/jni/DocumentProviderJni.java "${CARGO_TARGET_DIR:-target}/debug/examples"
+```

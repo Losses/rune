@@ -7,9 +7,16 @@ edition = "2021"
 name = "fsio"
 path = "src/lib.rs"
 
+[[example]]
+name = "document_provider_jni"
+path = "tests/jni/worker.rs"
+crate-type = ["cdylib"]
+required-features = ["jni-guard-tests"]
+
 [features]
 endpoint-url = ["dep:discovery"]
 test-fixtures = []
+jni-guard-tests = ["dep:jni"]
 
 [dependencies]
 anyhow = "1.0.98"
@@ -35,6 +42,9 @@ blake3 = "=1.7.0"
 jni = "0.21.1"
 rusqlite = { version = "0.32.0", features = ["bundled"] }
 ndk-saf = { git = "https://github.com/Losses/Rust-SAF", version = "0.1.11" }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", windows))'.dependencies]
+jni = { version = "0.21.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3.20.0"

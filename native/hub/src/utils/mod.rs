@@ -39,7 +39,7 @@ use std::{
 use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, NodeSlot};
 use anyhow::{Context, Result};
-use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalObjectStore};
+use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalObjectStore, is_document_root_unavailable};
 use log::info;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
@@ -2678,12 +2678,12 @@ async fn open_catalog_record(
         let fsio = FsIo::new();
         #[cfg(target_os = "android")]
         let fsio = FsIo::new(Path::new(".rune/.android-fs.db"), path)
-            .map_err(|error| (OpenLibraryFailureKind::Storage, error.into()))?;
+            .map_err(Error::new)
+            .map_err(|error| (local_open_failure(&error), error))?;
         if let Some(missing) = MediaFolderMissing::of(record) {
             return Err((OpenLibraryFailureKind::MediaFolderMissing, missing.into()));
         }
-        check_library_state(&fsio, path)
-            .map_err(|error| (OpenLibraryFailureKind::Storage, error))?;
+        check_library_state(&fsio, path).map_err(|error| (local_open_failure(&error), error))?;
     }
     let opened = node
         .library_pool
@@ -2700,6 +2700,8 @@ async fn open_catalog_record(
 pub(crate) fn local_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
     if error.downcast_ref::<MediaFolderMissing>().is_some() {
         OpenLibraryFailureKind::MediaFolderMissing
+    } else if is_document_root_unavailable(error) {
+        OpenLibraryFailureKind::DocumentFolderUnavailable
     } else if error.downcast_ref::<NewerLibraryDatabase>().is_some() {
         OpenLibraryFailureKind::NewerVersion
     } else {
@@ -3218,6 +3220,25 @@ mod local_open_failure_tests {
             local_open_failure(&anyhow::anyhow!("database is locked")),
             OpenLibraryFailureKind::Storage
         );
+    }
+
+    #[test]
+    fn only_an_unavailable_document_root_prompts_to_reselect_the_folder() {
+        use fsio::FileIoError;
+        let error = Error::new(FileIoError::DocumentRootUnavailable("grant revoked".into()))
+            .context("Could not open library");
+        assert_eq!(
+            local_open_failure(&error),
+            OpenLibraryFailureKind::DocumentFolderUnavailable
+        );
+        for error in [
+            FileIoError::Saf("file unavailable".into()),
+            FileIoError::DocumentListingIncomplete("listing unavailable".into()),
+            FileIoError::DocumentRuntime("JNI unavailable".into()),
+        ] {
+            let error = Error::new(error).context("Could not open library");
+            assert_eq!(local_open_failure(&error), OpenLibraryFailureKind::Storage);
+        }
     }
 }
 

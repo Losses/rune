@@ -3,6 +3,7 @@ use database::actions::metadata::{
     EmptyLibraryCleanupDeferred, MissingHostFilePolicy, ScanOptions, confirm_empty_library_cleanup,
     preview_empty_library_cleanup,
 };
+use fsio::is_document_root_unavailable;
 use std::time::Instant;
 use std::{
     path::Path,
@@ -10,7 +11,7 @@ use std::{
 };
 use tokio::runtime::{Handle, Runtime};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{info, warn};
 use tokio::{
     sync::{RwLock, oneshot},
@@ -153,14 +154,14 @@ impl Signal for ScanAudioLibraryRequest {
                 scan_runtime.block_on(async move {
                     let result: Result<usize> = async {
                         let refresh_start = Instant::now();
-                        if let Err(e) = _library.fsio.refresh_cache() {
-                            warn!("Failed to refresh filesystem cache before scan: {e:#?}");
-                        } else {
-                            info!(
-                                "Filesystem cache refreshed in {:?}",
-                                refresh_start.elapsed()
-                            );
-                        }
+                        _library
+                            .fsio
+                            .refresh_cache()
+                            .context("Could not refresh the library folder before scanning")?;
+                        info!(
+                            "Filesystem cache refreshed in {:?}",
+                            refresh_start.elapsed()
+                        );
 
                         // The recommendation store is an in-memory copy of the
                         // analysis rows. Drop it before the scan can delete
@@ -269,7 +270,12 @@ impl Signal for ScanAudioLibraryRequest {
                 Ok(Ok(count)) => (ScanOutcome::Finished, count as i32, count as i32),
                 Ok(Err(error)) => {
                     warn!("Scan failed for library record {worker_record_id}: {error:#}");
-                    (ScanOutcome::Failed(ScanFailure::ScanFailed), 0, 0)
+                    let failure = if is_document_root_unavailable(&error) {
+                        ScanFailure::DocumentFolderUnavailable
+                    } else {
+                        ScanFailure::ScanFailed
+                    };
+                    (ScanOutcome::Failed(failure), 0, 0)
                 }
                 Err(error) => {
                     warn!("Scan worker failed for library record {worker_record_id}: {error}");
@@ -776,7 +782,7 @@ impl Signal for CancelTaskRequest {
     async fn handle(
         &self,
         (owner, broadcaster): Self::Params,
-        _session: Option<Session>,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -834,7 +840,11 @@ impl Signal for CancelTaskRequest {
             call_id: None,
             record_id: request.record_id.clone(),
             r#type: request.r#type,
-            state: result,
+            state: if session.is_some() {
+                result.remote_scan_failure().unwrap_or(result)
+            } else {
+                result
+            },
         }))
     }
 }
@@ -1529,6 +1539,59 @@ mod scan_task_tests {
                 | LibraryTaskState::DeduplicationRunning { .. }
                 | LibraryTaskState::DeduplicationEnded { .. }
         )));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_controller_receives_a_scan_failure_after_an_android_folder_becomes_unavailable()
+    -> Result<()> {
+        use crate::{backends::remote::decode_message, server::WebSocketService};
+
+        let mut owner = LibraryTaskOwner::default();
+        let (running, _) = owner.start("library", LibraryTaskKind::Scan)?;
+        let run = running.run_id().unwrap();
+        owner.attach_worker("library", LibraryTaskKind::Scan, run, task::spawn(async {}));
+        owner
+            .end(
+                "library",
+                run,
+                LibraryTaskEnd::Scan(ScanOutcome::Failed(ScanFailure::DocumentFolderUnavailable)),
+                0,
+                0,
+            )
+            .unwrap();
+        let service = Arc::new(WebSocketService::new());
+        let mut broadcasts = service.broadcast_tx.subscribe();
+        let request = CancelTaskRequest {
+            record_id: "library".into(),
+            r#type: CancelTaskType::ScanAudioLibrary,
+            call_id: None,
+        };
+        let peer = Session {
+            fingerprint: "peer".into(),
+            public_key: "key".into(),
+            base_url: "https://localhost".parse()?,
+        };
+        let response = timeout(
+            TEST_DEADLINE,
+            request.handle(
+                (Arc::new(StdMutex::new(owner)), service),
+                Some(peer),
+                &request,
+            ),
+        )
+        .await??
+        .expect("cancel response");
+        let (_, bytes, _) = decode_message(&broadcasts.try_recv()?).expect("broadcast");
+        let event = rinf::deserialize::<LibraryTaskStateChanged>(&bytes)?;
+        assert_eq!(event.state, response.state);
+        assert!(matches!(
+            response.state,
+            LibraryTaskState::ScanEnded {
+                outcome: ScanOutcome::Failed(ScanFailure::ScanFailed),
+                ..
+            }
+        ));
         Ok(())
     }
 

@@ -40,6 +40,7 @@ class _ScanningPageState extends State<ScanningPage>
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
+    final labels = S.of(context);
 
     final libraryPath = Provider.of<LibraryOpenStateProvider>(context);
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
@@ -76,7 +77,7 @@ class _ScanningPageState extends State<ScanningPage>
                             S.of(context),
                             progress!.failure!,
                           )
-                        : S.of(context).error(progress?.error ?? ''),
+                        : labels.error(progress?.errorMessage(labels) ?? ''),
                   ),
                   const SizedBox(height: 12),
                   Row(

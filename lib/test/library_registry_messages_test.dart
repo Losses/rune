@@ -20,8 +20,22 @@ void main() {
   test('a replica without sync access says the library is not shared', () {
     final s = AppLocalizationsEn();
     expect(
-      libraryRegistryFailureMessage(s, RegisterLibraryFailureKind.syncNotShared),
+      libraryRegistryFailureMessage(
+        s,
+        RegisterLibraryFailureKind.syncNotShared,
+      ),
       s.libraryNotShared,
+    );
+  });
+
+  test('document folder access can be restored from the library chooser', () {
+    final s = AppLocalizationsEn();
+    expect(
+      libraryRegistryFailureMessage(
+        s,
+        OpenLibraryFailureKind.documentFolderUnavailable,
+      ),
+      s.documentFolderUnavailable,
     );
   });
 }

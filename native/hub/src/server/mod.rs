@@ -31,6 +31,7 @@ use crate::{
     Session,
     backends::remote::encode_message,
     macros::dispatch_remote,
+    messages::LibraryTaskStateChanged,
     node::NodeContext,
     utils::{Broadcaster, RinfRustSignal},
 };
@@ -95,7 +96,14 @@ impl WebSocketService {
 impl Broadcaster for WebSocketService {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let type_name = message.name();
-        let payload = match message.encode_to_vec() {
+        let remote_scan = message
+            .as_any()
+            .downcast_ref::<LibraryTaskStateChanged>()
+            .and_then(|event| event.state.remote_scan_failure());
+        let payload = match remote_scan.map_or_else(
+            || message.encode_to_vec(),
+            |state| LibraryTaskStateChanged { state }.encode_to_vec(),
+        ) {
             Ok(payload) => payload,
             Err(e) => {
                 error!("Failed to encode message: {e}");
