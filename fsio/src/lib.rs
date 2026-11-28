@@ -275,6 +275,11 @@ pub trait FileIo: Send + Sync {
         Ok(modification_time_token(modified, now))
     }
     async fn ensure_file(&self, path: &Path) -> Result<FsNode, FileIoError>;
+    /// Create the file if needed and return its native path for SQLite, which
+    /// opens its own descriptors and creates a rollback journal beside the file.
+    async fn ensure_sqlite_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        Ok(self.ensure_file(path).await?.path)
+    }
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError>;
 
     /// The content URI the platform's document provider knows the item by,

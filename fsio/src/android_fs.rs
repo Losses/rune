@@ -1,7 +1,7 @@
 use std::{
     fs,
     io::Read,
-    os::unix::prelude::AsRawFd,
+    os::unix::{fs::MetadataExt, io::AsRawFd},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -234,14 +234,14 @@ impl AndroidFsIo {
         Ok(file.url)
     }
 
-    fn evict_cache(&self, path: &Path) {
+    fn evict_cache(&self, path: &Path) -> Result<(), FileIoError> {
         let conn = self.db.lock().unwrap();
-        if let Err(e) = conn.execute(
+        conn.execute(
             "DELETE FROM fs_cache WHERE path = ?1",
             params![path.to_str().unwrap()],
-        ) {
-            log::warn!("Failed to evict stale cache entry for {path:?}: {e}");
-        }
+        )
+        .map_err(|e| FileIoError::Database(e.to_string()))?;
+        Ok(())
     }
 
     /// Read cached metadata for `path`; the read-through `get_uri` guarantees
@@ -266,32 +266,35 @@ impl AndroidFsIo {
     /// Synchronous open shared by `open` and `open_async`. Building a fresh
     /// tokio runtime and block_on-ing here would panic when the caller is
     /// already on a runtime thread; everything below is synchronous JNI.
-    fn open_sync(
-        &self,
-        path: &Path,
-        open_mode: OpenMode,
-    ) -> Result<Box<dyn FileStream>, FileIoError> {
+    fn open_sync(&self, path: &Path, open_mode: OpenMode) -> Result<fs::File, FileIoError> {
         // Skip DocumentFile construction entirely: opening only needs the
         // content URI, so this is a single provider IPC.
-        let creates = open_mode.creates();
-        let uri = match self.get_uri(path) {
-            Ok(uri) => uri,
-            Err(FileIoError::PathNotFound(_)) if creates => self.create_file_for_write(path)?,
-            Err(e) => return Err(e),
+        let resolve_uri = || match self.get_uri(path) {
+            Err(FileIoError::PathNotFound(_)) if open_mode.creates() => {
+                self.create_file_for_write(path)
+            }
+            result => result,
         };
-        match open_content_url(&uri, open_mode.as_str()) {
-            Ok(file) => Ok(Box::new(file)),
+        let open_uri = |uri: &str| -> anyhow::Result<fs::File> {
+            // Hold the thread attachment until a provider exception is cleared.
+            // ART can abort on detach or on the next JNI call if it stays pending.
+            let mut env = ndk_saf::get_env()?;
+            open_content_url(uri, open_mode.as_str())
+                .inspect_err(|_| ndk_saf::clear_pending_exception(&mut env))
+        };
+        let uri = resolve_uri()?;
+        match open_uri(&uri) {
+            Ok(file) => Ok(file),
             Err(first_error) => {
                 // The cached URI may be stale (the file was replaced outside the
                 // app); evict it and re-resolve live once before giving up.
-                self.evict_cache(path);
-                let uri = self.get_uri(path)?;
-                let file = open_content_url(&uri, open_mode.as_str()).map_err(|second_error| {
+                self.evict_cache(path)?;
+                let uri = resolve_uri()?;
+                open_uri(&uri).map_err(|second_error| {
                     FileIoError::Saf(format!(
                         "{second_error} (initial attempt with cached URI: {first_error})"
                     ))
-                })?;
-                Ok(Box::new(file))
+                })
             }
         }
     }
@@ -375,7 +378,7 @@ impl FileIo for AndroidFsIo {
     }
 
     fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
-        self.open_sync(path, open_mode)
+        Ok(Box::new(self.open_sync(path, open_mode)?))
     }
 
     fn content_uri(&self, path: &Path) -> Result<Option<String>, FileIoError> {
@@ -387,7 +390,7 @@ impl FileIo for AndroidFsIo {
         path: &Path,
         open_mode: OpenMode,
     ) -> Result<Box<dyn FileStream>, FileIoError> {
-        self.open_sync(path, open_mode)
+        self.open(path, open_mode)
     }
 
     fn read(&self, path: &Path) -> Result<Vec<u8>, FileIoError> {
@@ -709,6 +712,42 @@ impl FileIo for AndroidFsIo {
             self.write(path, &[]).await?;
         }
         self.canonicalize(path)
+    }
+
+    async fn ensure_sqlite_path(&self, path: &Path) -> Result<PathBuf, FileIoError> {
+        // ExternalStorageProvider exposes local files. Other providers may
+        // hand out a temporary copy and publish it only when the handle closes.
+        if !self
+            .root_uri
+            .starts_with("content://com.android.externalstorage.documents/")
+        {
+            return Err(FileIoError::NotSupported(
+                "this document provider does not support a portable SQLite index; store the index in the configuration directory".into()
+            ));
+        }
+        // Android can serve a read-only descriptor from a mount hidden from
+        // the app. Request the provider's writable view without truncating it.
+        let document = self.open_sync(path, OpenMode::ReadWrite)?;
+        let native_path = fs::read_link(format!("/proc/self/fd/{}", document.as_raw_fd()))?;
+        let granted = document.metadata()?;
+        let native = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&native_path)
+            .and_then(|file| file.metadata())
+            .map_err(|error| {
+                FileIoError::Saf(format!(
+                    "cannot open {} as a writable SQLite file: {error}",
+                    path.display()
+                ))
+            })?;
+        if !native.is_file() || (native.dev(), native.ino()) != (granted.dev(), granted.ino()) {
+            return Err(FileIoError::Saf(format!(
+                "the provider did not expose {} as the same local file for SQLite",
+                path.display()
+            )));
+        }
+        Ok(native_path)
     }
 
     async fn ensure_directory(&self, path: &Path) -> Result<FsNode, FileIoError> {
