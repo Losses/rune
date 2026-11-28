@@ -1,5 +1,8 @@
 use crate::utils::sync_settings::SyncSettings;
-use database::actions::metadata::ScanOptions;
+use database::actions::metadata::{
+    EmptyLibraryCleanupDeferred, MissingHostFilePolicy, ScanOptions, confirm_empty_library_cleanup,
+    preview_empty_library_cleanup,
+};
 use std::time::Instant;
 use std::{
     path::Path,
@@ -9,7 +12,10 @@ use tokio::runtime::{Handle, Runtime};
 
 use anyhow::Result;
 use log::{info, warn};
-use tokio::{sync::RwLock, task};
+use tokio::{
+    sync::{RwLock, oneshot},
+    task,
+};
 use tokio_util::sync::CancellationToken;
 
 use ::analysis::utils::computing_device::ComputingDevice;
@@ -253,6 +259,12 @@ impl Signal for ScanAudioLibraryRequest {
                 })
             })
             .await;
+            if matches!(&result, Ok(Err(error)) if error.is::<EmptyLibraryCleanupDeferred>()) {
+                worker_owner
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .record_empty_cleanup_deferral(&worker_record_id, &worker_run_id);
+            }
             let (outcome, progress, total) = match result {
                 Ok(Ok(count)) => (ScanOutcome::Finished, count as i32, count as i32),
                 Ok(Err(error)) => {
@@ -293,6 +305,179 @@ impl From<ComputingDeviceRequest> for ComputingDevice {
             ComputingDeviceRequest::Cpu => ComputingDevice::Cpu,
             ComputingDeviceRequest::Gpu => ComputingDevice::Gpu,
         }
+    }
+}
+
+pub struct EmptyLibraryCleanupParams {
+    library: Option<LibraryHandle>,
+    node: Arc<NodeContext>,
+    sync_settings: Arc<RwLock<SyncSettings>>,
+    owner: Arc<StdMutex<LibraryTaskOwner>>,
+    broadcaster: Arc<dyn Broadcaster>,
+}
+
+impl ParamsExtractor for EmptyLibraryCleanupRequest {
+    type Params = EmptyLibraryCleanupParams;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        EmptyLibraryCleanupParams {
+            library: all_params.library.clone(),
+            node: all_params.node.clone(),
+            sync_settings: all_params.sync_settings.clone(),
+            owner: all_params.library_tasks.clone(),
+            broadcaster: all_params.broadcaster.clone(),
+        }
+    }
+}
+
+impl Signal for EmptyLibraryCleanupRequest {
+    type Params = EmptyLibraryCleanupParams;
+    type Response = EmptyLibraryCleanupResponse;
+
+    async fn handle(
+        &self,
+        params: Self::Params,
+        session: Option<Session>,
+        request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        anyhow::ensure!(
+            session.is_none(),
+            "Empty-folder cleanup requires the local app"
+        );
+        let library = require_library(params.library)?;
+        let record_id = library.descriptor.record_id.0.to_string();
+        let identity = params.node.capability_library_identity()?;
+        let mut response = EmptyLibraryCleanupResponse {
+            proposal: None,
+            removed: false,
+            call_id: None,
+        };
+        if request.record_id != record_id
+            || identity.0.as_deref() != Some(record_id.as_str())
+            || library.descriptor.local_folder_path().is_none()
+            || library.media_root.starts_with("content://")
+        {
+            return Ok(Some(response));
+        }
+        let settings = params.sync_settings.read_owned().await;
+        if settings.missing_host_file != MissingHostFilePolicy::RemoveEverywhere {
+            return Ok(Some(response));
+        }
+        let path = Path::new(&library.media_root);
+        let Some(confirmation) = &request.confirmation else {
+            let scan_run_id = params
+                .owner
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .empty_cleanup_run(&record_id)
+                .map(str::to_owned);
+            let Some(scan_run_id) = scan_run_id else {
+                return Ok(Some(response));
+            };
+            if let Some(preview) =
+                preview_empty_library_cleanup(&library.fsio, &library.main_db, path).await?
+                && params.node.capability_library_identity()? == identity
+            {
+                response.proposal = Some(EmptyLibraryCleanupProposal {
+                    generation: identity.1,
+                    scan_run_id,
+                    count: preview.count.try_into()?,
+                    fingerprint: preview.fingerprint,
+                });
+            }
+            return Ok(Some(response));
+        };
+        if confirmation.generation != identity.1 {
+            return Ok(Some(response));
+        }
+
+        let (state, token) = {
+            let mut owner = params.owner.lock().unwrap_or_else(PoisonError::into_inner);
+            if owner.empty_cleanup_run(&record_id) != Some(confirmation.scan_run_id.as_str()) {
+                return Ok(Some(response));
+            }
+            owner.start(&record_id, LibraryTaskKind::Scan)?
+        };
+        let LibraryTaskState::ScanRunning { run_id, .. } = &state else {
+            unreachable!("the task owner started a scan");
+        };
+        let run_id = run_id.clone();
+        params
+            .broadcaster
+            .broadcast(&LibraryTaskStateChanged { state });
+        let fingerprint = confirmation.fingerprint.clone();
+        let worker_owner = params.owner.clone();
+        let worker_record_id = record_id.clone();
+        let worker_run_id = run_id.clone();
+        let (result_tx, result_rx) = oneshot::channel();
+        let worker = task::spawn(async move {
+            let result = confirm_empty_library_cleanup(
+                &library.fsio,
+                &library.main_db,
+                Path::new(&library.media_root),
+                &library.library_sync.record_store(),
+                &fingerprint,
+                || {
+                    !token.is_cancelled()
+                        && params
+                            .node
+                            .capability_library_identity()
+                            .is_ok_and(|current| current == identity)
+                },
+                || {
+                    worker_owner
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .begin_empty_cleanup_commit(&worker_record_id, &worker_run_id)
+                },
+            )
+            .await;
+            drop(settings);
+            if matches!(result, Ok(true)) {
+                library.recommend_db.replace(Vec::new());
+                if let Err(error) =
+                    sync_recommendation(&library.main_db, &library.recommend_db).await
+                {
+                    warn!(
+                        "Could not refresh recommendations after empty-folder cleanup: {error:#}"
+                    );
+                }
+                params.broadcaster.broadcast(&LibraryContentChanged {
+                    path: library.media_root.clone(),
+                });
+            }
+            let outcome = match &result {
+                Ok(true) => ScanOutcome::Finished,
+                Ok(false) => ScanOutcome::Cancelled,
+                Err(error) => {
+                    warn!("Empty-folder cleanup failed: {error:#}");
+                    ScanOutcome::Failed(ScanFailure::ScanFailed)
+                }
+            };
+            let terminal = worker_owner
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .end(
+                    &worker_record_id,
+                    &worker_run_id,
+                    LibraryTaskEnd::Scan(outcome),
+                    0,
+                    0,
+                );
+            if let Some(state) = terminal {
+                params
+                    .broadcaster
+                    .broadcast(&LibraryTaskStateChanged { state });
+            }
+            let _ = result_tx.send(result);
+        });
+        params
+            .owner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .attach_worker(&record_id, LibraryTaskKind::Scan, &run_id, worker);
+        response.removed = result_rx.await??;
+        Ok(Some(response))
     }
 }
 

@@ -2,7 +2,10 @@ use anyhow::Result;
 use database::{
     actions::{
         logging::list_log,
-        metadata::{MissingHostFilePolicy, scan_audio_file},
+        metadata::{
+            EmptyLibraryCleanupDeferred, MissingHostFilePolicy, confirm_empty_library_cleanup,
+            preview_empty_library_cleanup, scan_audio_file,
+        },
     },
     entities::{media_files, source_tags as media_metadata},
     sync::{
@@ -56,6 +59,8 @@ async fn missing_host_file_remove_everywhere_authors_removal() -> Result<()> {
     .exec(&db)
     .await?;
     fs::remove_file(path)?;
+    // A nonempty root still uses the ordinary Remove Everywhere scan.
+    fs::create_dir(root.path().join("still-mounted"))?;
     fixtures::cleanup_scan(
         &fs,
         &db,
@@ -167,6 +172,65 @@ async fn mass_missing_host_files_are_not_removed() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn an_empty_listing_preserves_host_tracks_and_sync_values() -> Result<()> {
+    let mut observations = Vec::new();
+    let mut outcomes = Vec::new();
+    for count in [1, 5, 6] {
+        let node = Uuid::new_v4();
+        let db = Database::connect("sqlite::memory:").await?;
+        migration::up_with_actor(&db, Some(&node.to_string()), None).await?;
+        let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+        let temp = tempfile::tempdir()?;
+        let library = temp.path().join("library");
+        fs::create_dir(&library)?;
+        let fs = FsIo::new();
+        let mut tracks = Vec::new();
+        for i in 0..count {
+            let path = library.join(format!("track{i}.ogg"));
+            fs::copy(fixtures::audio_fixture(), &path)?;
+            let id = scan_audio_file(&fs, &db, &node.to_string(), &library, &path, &store).await?;
+            let row = media_files::Entity::find_by_id(id).one(&db).await?.unwrap();
+            let key = ObjectKey {
+                collection: Collection::Tracks,
+                id: row.source_uuid.parse()?,
+            };
+            let value = store.get_on(&db, &key).await?.unwrap();
+            assert!(value.value.is_some());
+            tracks.push((key, value));
+        }
+
+        // NoOpFsIo returns a successful empty listing without touching the files.
+        let outcome = fixtures::cleanup_scan(
+            &FsIo::new_noop(),
+            &db,
+            &node.to_string(),
+            &library,
+            &store,
+            MissingHostFilePolicy::RemoveEverywhere,
+        )
+        .await;
+        assert_eq!(fs::read_dir(&library)?.count(), count);
+        let mut unchanged = 0;
+        for (key, value) in tracks {
+            if store.get_on(&db, &key).await? == Some(value) {
+                unchanged += 1;
+            }
+        }
+        let available = media_files::Entity::find()
+            .filter(media_files::Column::LocalAvailable.eq(true))
+            .count(&db)
+            .await?;
+        observations.push((count, available, unchanged));
+        outcomes.push(outcome);
+    }
+    assert_eq!(observations, [(1, 1, 1), (5, 5, 5), (6, 6, 6)]);
+    for outcome in outcomes {
+        assert!(outcome.is_err_and(|error| error.is::<EmptyLibraryCleanupDeferred>()));
+    }
+    Ok(())
+}
+
 use database::test_fixtures::causal_library as support;
 #[tokio::test]
 async fn missing_host_removal_reaches_another_replica() -> Result<()> {
@@ -193,8 +257,27 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
             .await?
             .is_some()
     );
-    fs::remove_file(path)?;
-    fixtures::cleanup_scan(
+    fs::remove_file(&path)?;
+    let index = a.root.path().join(".rune");
+    fs::create_dir(&index)?;
+    fs::write(index.join(".redirect"), namespace.to_string())?;
+    let hidden_item = a.root.path().join(".keep");
+    fs::write(&hidden_item, "fixture")?;
+    assert!(
+        preview_empty_library_cleanup(&fs, &a.db, a.root.path())
+            .await?
+            .is_none()
+    );
+    fs::remove_file(hidden_item)?;
+    let visible_dir = a.root.path().join("visible");
+    fs::create_dir(&visible_dir)?;
+    assert!(
+        preview_empty_library_cleanup(&fs, &a.db, a.root.path())
+            .await?
+            .is_none()
+    );
+    fs::remove_dir(visible_dir)?;
+    let outcome = fixtures::cleanup_scan(
         &fs,
         &a.db,
         &node.to_string(),
@@ -202,7 +285,79 @@ async fn missing_host_removal_reaches_another_replica() -> Result<()> {
         &store,
         MissingHostFilePolicy::RemoveEverywhere,
     )
-    .await?;
+    .await;
+    assert!(outcome.is_err_and(|error| error.is::<EmptyLibraryCleanupDeferred>()));
+    let preview = preview_empty_library_cleanup(&fs, &a.db, a.root.path())
+        .await?
+        .unwrap();
+    assert_eq!(preview.count, 1);
+    assert!(
+        !confirm_empty_library_cleanup(
+            &fs,
+            &a.db,
+            a.root.path(),
+            &store,
+            &preview.fingerprint,
+            || false,
+            || true
+        )
+        .await?
+    );
+    fs::copy(fixtures::audio_fixture(), &path)?;
+    assert!(
+        !confirm_empty_library_cleanup(
+            &fs,
+            &a.db,
+            a.root.path(),
+            &store,
+            &preview.fingerprint,
+            || true,
+            || true
+        )
+        .await?
+    );
+    assert!(
+        media_files::Entity::find_by_id(id)
+            .one(&a.db)
+            .await?
+            .is_some()
+    );
+    fs::remove_file(path)?;
+    assert!(
+        !confirm_empty_library_cleanup(
+            &fs,
+            &a.db,
+            a.root.path(),
+            &store,
+            &preview.fingerprint,
+            || true,
+            || false,
+        )
+        .await?
+    );
+    assert!(
+        media_files::Entity::find_by_id(id)
+            .one(&a.db)
+            .await?
+            .is_some()
+    );
+    let key = ObjectKey {
+        collection: Collection::Tracks,
+        id: uuid.parse()?,
+    };
+    assert!(store.get_on(&a.db, &key).await?.unwrap().value.is_some());
+    assert!(
+        confirm_empty_library_cleanup(
+            &fs,
+            &a.db,
+            a.root.path(),
+            &store,
+            &preview.fingerprint,
+            || true,
+            || true
+        )
+        .await?
+    );
     support::exchange(&a.peer, &b.peer).await?;
     assert!(
         media_files::Entity::find()
@@ -304,6 +459,7 @@ async fn rejected_missing_file_removal_is_logged_and_rolled_back() -> Result<()>
     .await?;
     fs::remove_file(&blocked_path)?;
     fs::remove_file(&removed_path)?;
+    fs::create_dir(root.join("still-mounted"))?;
 
     let scanned = fixtures::cleanup_scan(
         &fs,

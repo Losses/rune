@@ -194,6 +194,7 @@ RequestCapabilities snapshot({
     setOnlineLyricsRequest: capability,
     prepareHandoffRequest: capability,
     cancelHandoffRequest: capability,
+    emptyLibraryCleanupRequest: capability,
   ).copyWith(
     playRequest: play,
     pauseRequest: pause,

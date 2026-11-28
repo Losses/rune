@@ -17,6 +17,9 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
       StreamController<RequestFailure>.broadcast();
   final scanForces = <bool>[];
   Completer<TaskStatus>? scanCompletion;
+  ScanTaskProgress? scanProgress;
+  final cleanupConfirmations = <EmptyLibraryCleanupProposal?>[];
+  final cleanupResponses = <Completer<EmptyLibraryCleanupResponse>>[];
   final taskStarts = <String>[];
   bool analysisRunning = false;
   // The progress and total each running task reports.
@@ -27,7 +30,18 @@ class _LibraryManager extends ChangeNotifier implements LibraryManagerProvider {
   Stream<RequestFailure> get failureFeedback => _failures.stream;
 
   @override
-  ScanTaskProgress? getScanTaskProgress(String? recordId) => null;
+  ScanTaskProgress? getScanTaskProgress(String? recordId) => scanProgress;
+
+  @override
+  Future<EmptyLibraryCleanupResponse> requestEmptyLibraryCleanup(
+    String recordId, {
+    EmptyLibraryCleanupProposal? confirmation,
+  }) {
+    cleanupConfirmations.add(confirmation);
+    final response = Completer<EmptyLibraryCleanupResponse>();
+    cleanupResponses.add(response);
+    return response.future;
+  }
 
   @override
   AnalyzeTaskProgress? getAnalyzeTaskProgress(String recordId) =>
@@ -124,6 +138,13 @@ const _replica = LibraryRecordSummary(
   syncAccess: LibraryAccessSummary.read,
 );
 
+const _local = LibraryRecordSummary(
+  shareSync: false,
+  recordId: 'local-record',
+  alias: 'Local',
+  kind: LibraryRecordKindSummaryLocal(libraryId: 'library', path: '/library'),
+);
+
 Future<_LibraryManager> _pumpTaskButtons(
   WidgetTester tester, {
   LibraryRecordSummary record = _replica,
@@ -167,6 +188,62 @@ Future<_LibraryManager> _pumpTaskButtons(
 }
 
 void main() {
+  for (final confirmationTimedOut in [false, true]) {
+    testWidgets(
+      confirmationTimedOut
+          ? 'cleanup confirmation timeout reports an unknown result without retrying'
+          : 'cleanup preview timeout displays the original scan failure',
+      (tester) async {
+        final manager = await _pumpTaskButtons(tester, record: _local);
+        const scanError = 'The scan could not finish.';
+        manager.scanProgress = ScanTaskProgress(
+          recordId: _local.recordId,
+          status: TaskStatus.failed,
+        )..error = scanError;
+        manager.scanCompletion = Completer<TaskStatus>();
+        await tester.tap(find.text('Scan'));
+        manager.scanCompletion!.complete(TaskStatus.failed);
+        await tester.pumpAndSettle();
+        expect(manager.cleanupConfirmations, [null]);
+
+        if (confirmationTimedOut) {
+          final proposal = EmptyLibraryCleanupProposal(
+            generation: Uint64.fromBigInt(BigInt.one),
+            scanRunId: 'scan',
+            count: 1,
+            fingerprint: 'fingerprint',
+          );
+          manager.cleanupResponses.single.complete(
+            EmptyLibraryCleanupResponse(proposal: proposal, removed: false),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Remove Missing Tracks'));
+          await tester.pumpAndSettle();
+          expect(manager.cleanupConfirmations, [null, proposal]);
+        }
+
+        manager.cleanupResponses.last.completeError(
+          TimeoutException('timeout'),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            confirmationTimedOut
+                ? 'Rune did not receive the cleanup result in time. Check your library before trying again.'
+                : scanError,
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+        expect(
+          manager.cleanupConfirmations,
+          hasLength(confirmationTimedOut ? 2 : 1),
+        );
+      },
+    );
+  }
+
   for (final force in [false, true]) {
     testWidgets(
       '${force ? 'force' : 'normal'} scan refreshes only its mounted caller',

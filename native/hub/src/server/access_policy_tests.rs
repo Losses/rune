@@ -2712,6 +2712,7 @@ mod access_policy_tests {
             "TestLibraryInitializedRequest" => RequestAccess::NodeLocal,
             "CloseLibraryRequest" => RequestAccess::NodeLocal,
             "CancelTaskRequest" => RequestAccess::Administer,
+            "EmptyLibraryCleanupRequest" => RequestAccess::NodeLocal,
             "ScanAudioLibraryRequest" => RequestAccess::Administer,
             "AnalyzeAudioLibraryRequest" => RequestAccess::Administer,
             "DeduplicateAudioLibraryRequest" => RequestAccess::Administer,

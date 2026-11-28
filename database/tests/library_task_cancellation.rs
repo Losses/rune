@@ -88,6 +88,8 @@ async fn cleanup_cancellation_finishes_only_the_started_removal() -> Result<()> 
     for name in names {
         fs::remove_file(root.path().join(name))?;
     }
+    // Keep the root nonempty so the ordinary missing-file cleanup starts.
+    fs::create_dir(root.path().join("other-media"))?;
 
     let token = CancellationToken::new();
     let deletions =

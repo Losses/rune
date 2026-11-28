@@ -10,6 +10,7 @@ import '../screens/settings_library/widgets/progress_button.dart';
 import '../bindings/bindings.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_open_state.dart';
+import '../utils/dialogs/information/confirm.dart';
 import '../utils/dialogs/information/error.dart';
 import '../utils/api/request_failure.dart';
 import '../utils/api/call_id.dart';
@@ -196,12 +197,22 @@ class ScanLibraryButton extends StatelessWidget {
       if (status == TaskStatus.finished) {
         onFinished?.call();
       } else if (status == TaskStatus.failed) {
+        final labels = S.of(context);
+        final error =
+            libraryManager.getScanTaskProgress(recordId)?.error ??
+            labels.unknownError;
+        final open = context.read<LibraryOpenStateProvider>().openRecord;
+        final kind = open?.kind;
+        if (open?.recordId == recordId &&
+            kind is LibraryRecordKindSummaryLocal &&
+            !kind.path.startsWith('content://')) {
+          if (await _reviewEmptyLibraryCleanup(context, recordId)) return;
+        }
+        if (!context.mounted) return;
         await showErrorDialog(
           context: context,
-          title: S.of(context).scanLibrary,
-          errorMessage:
-              libraryManager.getScanTaskProgress(recordId)?.error ??
-              S.of(context).unknownError,
+          title: labels.scanLibrary,
+          errorMessage: error,
         );
       }
     }
@@ -224,6 +235,65 @@ class ScanLibraryButton extends StatelessWidget {
           scanWorking,
     );
   }
+}
+
+Future<bool> _reviewEmptyLibraryCleanup(
+  BuildContext context,
+  String recordId,
+) async {
+  bool stillOpen() =>
+      context.mounted &&
+      context.read<LibraryOpenStateProvider>().openRecord?.recordId == recordId;
+
+  if (!stillOpen()) return true;
+  final manager = context.read<LibraryManagerProvider>();
+  final EmptyLibraryCleanupProposal? preview;
+  try {
+    preview = (await manager.requestEmptyLibraryCleanup(recordId)).proposal;
+  } on TimeoutException {
+    return false;
+  } on RequestFailure {
+    return false;
+  }
+  if (!context.mounted || !stillOpen()) return true;
+  if (preview == null) return false;
+  final labels = S.of(context);
+  final confirmed = await showConfirmDialog(
+    context: context,
+    title: labels.emptyLibraryCleanupTitle,
+    subtitle: labels.emptyLibraryCleanupExplanation(preview.count),
+    yesLabel: labels.emptyLibraryCleanupRemove,
+    noLabel: labels.emptyLibraryCleanupKeep,
+  );
+  if (confirmed != true || !stillOpen()) return true;
+  try {
+    final result = await manager.requestEmptyLibraryCleanup(
+      recordId,
+      confirmation: preview,
+    );
+    if (!result.removed && context.mounted && stillOpen()) {
+      await showErrorDialog(
+        context: context,
+        title: labels.emptyLibraryCleanupTitle,
+        errorMessage: labels.emptyLibraryCleanupChanged,
+      );
+    }
+  } on TimeoutException {
+    if (!context.mounted || !stillOpen()) return true;
+    await showErrorDialog(
+      context: context,
+      title: labels.emptyLibraryCleanupTitle,
+      errorMessage: labels.emptyLibraryCleanupOutcomeUnknown,
+    );
+  } on RequestFailure catch (failure) {
+    if (!context.mounted || !stillOpen()) return true;
+    await showErrorDialog(
+      context: context,
+      title: labels.emptyLibraryCleanupTitle,
+      errorMessage: requestFailureMessage(labels, failure),
+    );
+  }
+  return true;
 }
 
 /// The share of a library task that is done, for its progress ring. A task reports a total of
