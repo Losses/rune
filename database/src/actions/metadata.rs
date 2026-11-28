@@ -1109,13 +1109,12 @@ async fn clean_up_database(
                     remove_track(&tx, store, file.id).await?;
 
                     // A file can return while cleanup waits for the database. Confirm
-                    // absence before the catalog and sync removals become visible.
+                    // absence before committing. Cancellation stops the next removal.
                     let fsio = fsio.clone();
                     let path = root_path.join(&file.directory).join(&file.file_name);
-                    let still_missing =
-                        task::spawn_blocking(move || matches!(fsio.exists(&path), Ok(false)))
-                            .await?;
-                    Ok(still_missing && !cancel_token.is_some_and(CancellationToken::is_cancelled))
+                    task::spawn_blocking(move || matches!(fsio.exists(&path), Ok(false)))
+                        .await
+                        .context("Unable to recheck missing file")
                 }
                 .await;
                 match removal {
