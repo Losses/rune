@@ -153,7 +153,6 @@ Future<_LibraryManager> _pumpTaskButtons(
   bool analysisRunning = false,
   (int, int) analysisCounts = (25, 100),
   (int, int)? deduplicationCounts,
-  Future<String?> Function(BuildContext)? pickDirectory,
 }) async {
   final (openState, registry) = await _openState(record);
   final manager = _LibraryManager()
@@ -171,10 +170,7 @@ Future<_LibraryManager> _pumpTaskButtons(
           value: openState,
         ),
         ChangeNotifierProvider<LibraryManagerProvider>.value(value: manager),
-        Provider(
-          create: (_) =>
-              LocalFolderPickerProvider(pickDirectory: pickDirectory),
-        ),
+        Provider(create: (_) => LocalFolderPickerProvider()),
       ],
       child: FluentApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -213,14 +209,23 @@ void main() {
       'a failed document scan retries only the original folder ($selected)',
       (tester) async {
         var picks = 0;
-        final manager = await _pumpTaskButtons(
-          tester,
-          record: safRecord,
-          pickDirectory: (_) async {
-            picks++;
-            return selected;
-          },
-        );
+        var persisted = 0;
+        final manager = await _pumpTaskButtons(tester, record: safRecord);
+        final context = tester.element(find.byType(ScanLibraryButton));
+        context
+            .read<LocalFolderPickerProvider>()
+            .pickRecoveryFolder = (_, uri) async {
+          expect(uri, folder);
+          picks++;
+          return selected == null
+              ? null
+              : RecoveryFolder(
+                  selected,
+                  persistAccess: () async {
+                    persisted++;
+                  },
+                );
+        };
         manager.scanProgress = ScanTaskProgress(recordId: safRecord.recordId)
           ..scanFailure = ScanFailure.documentFolderUnavailable;
         final firstScan = Completer<TaskStatus>();
@@ -232,6 +237,7 @@ void main() {
         await tester.tap(find.text('Pick Directory'));
         await tester.pumpAndSettle();
         expect(picks, 1);
+        expect(persisted, retry ? 1 : 0);
         expect(manager.scanForces, retry ? [false, false] : [false]);
         expect(manager.cleanupConfirmations, isEmpty);
         if (selected != null && !retry) {
@@ -243,6 +249,37 @@ void main() {
       },
     );
   }
+
+  testWidgets('closing the library during the picker leaves access temporary', (
+    tester,
+  ) async {
+    var persisted = false;
+    final selection = Completer<RecoveryFolder?>();
+    final manager = await _pumpTaskButtons(tester, record: safRecord);
+    final context = tester.element(find.byType(ScanLibraryButton));
+    context.read<LocalFolderPickerProvider>().pickRecoveryFolder = (_, _) =>
+        selection.future;
+    manager.scanProgress = ScanTaskProgress(recordId: safRecord.recordId)
+      ..scanFailure = ScanFailure.documentFolderUnavailable;
+    manager.scanCompletion = Completer<TaskStatus>();
+    await tester.tap(find.text('Scan'));
+    manager.scanCompletion!.complete(TaskStatus.failed);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick Directory'));
+    await tester.pumpAndSettle();
+    context.read<LibraryOpenStateProvider>().registry.onClosed();
+    selection.complete(
+      RecoveryFolder(
+        folder,
+        persistAccess: () async {
+          persisted = true;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(persisted, isFalse);
+    expect(manager.scanForces, [false]);
+  });
 
   for (final confirmationTimedOut in [false, true]) {
     testWidgets(

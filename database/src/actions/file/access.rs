@@ -1,7 +1,7 @@
 //! Read-only local access state for catalog files.
 use crate::entities::{media_files, sync_download_jobs};
 use anyhow::{Result, ensure};
-use fsio::{FsIo, is_document_provider_error};
+use fsio::{FileIoError, FsIo, is_document_provider_error, is_document_root_unavailable};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use std::path::Component;
 use std::{
@@ -64,10 +64,14 @@ fn row_path(fsio: &FsIo, root: &Path, row: &media_files::Model) -> Result<Option
             "local path escapes library root"
         );
     }
-    if !fsio.exists(&path)? || !fsio.canonicalize(&path)?.is_file {
+    if !fsio.exists(&path)? {
         return Ok(None);
     }
-    Ok(Some(path))
+    match fsio.canonicalize(&path) {
+        Ok(node) => Ok(node.is_file.then_some(path)),
+        Err(FileIoError::PathNotFound(_)) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub async fn materialized_path<C: ConnectionTrait>(
@@ -105,14 +109,22 @@ pub async fn audio_availability<C: ConnectionTrait>(
     let fsio = fsio.clone();
     let root = root.to_path_buf();
     task::spawn_blocking(move || {
+        let mut root_unavailable = false;
         rows.into_iter()
             .map(|row| {
                 // A provider can lose its grant while the catalog is open.
                 // Keep the row visible with its remaining sources of audio.
-                let has_local_audio = match row_path(&fsio, &root, &row) {
-                    Ok(path) => path.is_some(),
-                    Err(error) if is_document_provider_error(&error) => false,
-                    Err(error) => return Err(error),
+                let has_local_audio = if root_unavailable {
+                    false
+                } else {
+                    match row_path(&fsio, &root, &row) {
+                        Ok(path) => path.is_some(),
+                        Err(error) if is_document_provider_error(&error) => {
+                            root_unavailable = is_document_root_unavailable(&error);
+                            false
+                        }
+                        Err(error) => return Err(error),
+                    }
                 };
                 let state = if has_local_audio {
                     AudioAvailability::Local

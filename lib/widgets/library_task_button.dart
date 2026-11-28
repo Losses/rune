@@ -253,6 +253,13 @@ Future<bool> _restoreDocumentFolder(
   String path,
 ) async {
   final labels = S.of(context);
+  final registry = context.read<LibraryOpenStateProvider>().registry;
+  final generation = registry.openGeneration;
+  bool stillOpen() =>
+      context.mounted &&
+      !registry.isOpening &&
+      registry.openRecordId == recordId &&
+      registry.openGeneration == generation;
   final pick = await showConfirmDialog(
     context: context,
     title: labels.scanLibrary,
@@ -260,19 +267,16 @@ Future<bool> _restoreDocumentFolder(
     yesLabel: labels.pickDirectory,
     noLabel: labels.close,
   );
-  bool stillOpen() =>
-      context.mounted &&
-      context.read<LibraryOpenStateProvider>().openRecord?.recordId == recordId;
   if (pick != true || !context.mounted || !stillOpen()) return false;
   try {
     final selected = await context
         .read<LocalFolderPickerProvider>()
-        .pickDirectory(context);
+        .pickRecoveryFolder(context, path);
     if (selected == null || !context.mounted || !stillOpen()) return false;
     final folder = _documentTreeRoot(path);
-    if (selected == path ||
-        (folder != null && folder == _documentTreeRoot(selected))) {
-      return true;
+    if (folder != null && folder == _documentTreeRoot(selected.uri)) {
+      await selected.persistAccess?.call();
+      return stillOpen();
     }
     await showErrorDialog(
       context: context,

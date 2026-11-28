@@ -38,7 +38,7 @@ async fn insert_file(
 async fn unavailable_document_preserves_catalog_availability_for_other_tracks() -> Result<()> {
     use database::actions::file::{AudioAvailability, audio_availability, materialized_path};
     use fsio::failing_read::{DocumentOperation, unavailable_document};
-    use sea_orm::{ConnectionTrait, TransactionTrait};
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, TransactionTrait};
     use std::collections::HashMap;
 
     let library = support::SqlLibrary::new(Uuid::new_v4(), Uuid::new_v4()).await?;
@@ -48,6 +48,14 @@ async fn unavailable_document_preserves_catalog_availability_for_other_tracks() 
     std::fs::write(root.join("second.flac"), b"second")?;
     let first = insert_file(&library.db, Uuid::new_v4(), "", "first.flac", true).await?;
     let second = insert_file(&library.db, Uuid::new_v4(), "", "second.flac", true).await?;
+    let mut referenced: media_files::ActiveModel = media_files::Entity::find_by_id(second)
+        .one(&library.db)
+        .await?
+        .unwrap()
+        .into();
+    referenced.content_hash = Set(Some("a".repeat(64)));
+    referenced.content_size = Set(Some(6));
+    referenced.update(&library.db).await?;
     let fs = unavailable_document(&denied_path, DocumentOperation::Exists);
 
     let tx = library.db.begin().await?;
@@ -63,6 +71,35 @@ async fn unavailable_document_preserves_catalog_availability_for_other_tracks() 
         .await
         .expect_err("opening the document still reports the provider error");
     assert!(fsio::is_document_provider_error(&error));
+    // A cached positive existence result can precede a definitive live miss.
+    let missing = fsio::failing_read::document_failure_after(
+        &denied_path,
+        DocumentOperation::Canonicalize,
+        0,
+        || fsio::FileIoError::PathNotFound("removed document".into()),
+    );
+    assert_eq!(materialized_path(&tx, &missing, root, first).await?, None);
+    assert_eq!(
+        audio_availability(&tx, &missing, root, &[first, second]).await?,
+        HashMap::from([
+            (first, AudioAvailability::Unavailable),
+            (second, AudioAvailability::Local)
+        ])
+    );
+    // Only the first probe fails; a second probe would report a local file.
+    let revoked = fsio::failing_read::document_failure_after(
+        &denied_path,
+        DocumentOperation::Exists,
+        0,
+        || fsio::FileIoError::DocumentRootUnavailable("tree revoked".into()),
+    );
+    assert_eq!(
+        audio_availability(&tx, &revoked, root, &[first, second]).await?,
+        HashMap::from([
+            (first, AudioAvailability::Unavailable),
+            (second, AudioAvailability::RemoteOnly)
+        ])
+    );
     let restored = audio_availability(&tx, &FsIo::new(), root, &[first]).await?;
     assert_eq!(restored.get(&first), Some(&AudioAvailability::Local));
     tx.execute_unprepared("PRAGMA query_only = OFF").await?;

@@ -3,7 +3,7 @@ use database::actions::metadata::{
     EmptyLibraryCleanupDeferred, MissingHostFilePolicy, ScanOptions, confirm_empty_library_cleanup,
     preview_empty_library_cleanup,
 };
-use fsio::is_document_provider_error;
+use fsio::is_document_root_unavailable;
 use std::time::Instant;
 use std::{
     path::Path,
@@ -270,7 +270,7 @@ impl Signal for ScanAudioLibraryRequest {
                 Ok(Ok(count)) => (ScanOutcome::Finished, count as i32, count as i32),
                 Ok(Err(error)) => {
                     warn!("Scan failed for library record {worker_record_id}: {error:#}");
-                    let failure = if is_document_provider_error(&error) {
+                    let failure = if is_document_root_unavailable(&error) {
                         ScanFailure::DocumentFolderUnavailable
                     } else {
                         ScanFailure::ScanFailed

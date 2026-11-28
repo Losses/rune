@@ -68,9 +68,11 @@ def confirm_folder(folder, app_package):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("folder")
+    parser.add_argument("folders", nargs="+", help="fixture folders in picker order")
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--package", default="ci.not.rune")
     args = parser.parse_args()
     for _ in range(args.count):
-        confirm_folder(args.folder, args.package)
+        for index, folder in enumerate(args.folders, start=1):
+            confirm_folder(folder, args.package)
+            print(f"Confirmed DocumentsUI selection {index}/{len(args.folders)}", flush=True)

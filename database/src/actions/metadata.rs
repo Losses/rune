@@ -32,7 +32,10 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use ::fsio::{FileIoError, FsIo, FsNode, OpenMode, StorageLocation, is_document_provider_error};
+use ::fsio::{
+    FsIo, FsNode, OpenMode, StorageLocation, is_document_provider_error,
+    is_document_scan_interrupted,
+};
 use ::metadata::{
     describe::{FileDescription, describe_file},
     reader::get_metadata,
@@ -192,8 +195,12 @@ pub async fn sync_file_descriptions(
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<()> {
     let mut work = descriptions.to_vec();
+    let mut scan = ScanPass {
+        force,
+        ..Default::default()
+    };
     let outcome =
-        sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, force, None, store).await?;
+        sync_file_descriptions_inner(fsio, main_db, node_id, &mut work, &mut scan, store).await?;
     resolved_metadata::reconcile_releases(main_db, store, None).await?;
     for (original, result) in descriptions.iter_mut().zip(work) {
         if result.is_some() {
@@ -212,15 +219,40 @@ struct ScanOutcome {
     failed: usize,
 }
 
+#[derive(Default)]
+struct ScanPass<'a> {
+    options: Option<&'a ScanOptions>,
+    force: bool,
+    incomplete_walk: bool,
+    unreadable: HashSet<PathBuf>,
+}
+
+impl ScanPass<'_> {
+    // A file that could not be read must not be removed or mistaken for a move.
+    fn note_read_failure(&mut self, path: &Path, error: &anyhow::Error) {
+        if is_document_provider_error(error) {
+            self.unreadable.insert(path.to_path_buf());
+        }
+    }
+
+    fn known_missing(&self, fsio: &FsIo, path: &Path) -> Result<bool> {
+        if self.incomplete_walk || self.unreadable.contains(path) {
+            return Ok(false);
+        }
+        known_missing(fsio, path)
+    }
+}
+
 async fn sync_file_descriptions_inner(
     fsio: &FsIo,
     main_db: &DatabaseConnection,
     node_id: &str,
     descriptions: &mut [Option<FileDescription>],
-    force: bool,
-    scan: Option<&ScanOptions>,
+    pass: &mut ScanPass<'_>,
     store: &crate::sync::SeaOrmSyncStore,
 ) -> Result<ScanOutcome> {
+    let force = pass.force;
+    let scan = pass.options;
     // Read file contents before taking the write lock. Savepoints isolate bad files.
     const WRITE_BATCH_SIZE: usize = 16;
     let mut outcome = ScanOutcome::default();
@@ -234,9 +266,10 @@ async fn sync_file_descriptions_inner(
                 if let Err(error) =
                     super::file::index_cached_download(main_db, store, fsio, description).await
                 {
-                    if is_document_provider_error(&error) {
+                    if is_document_scan_interrupted(&error) {
                         return Err(error);
                     }
+                    pass.note_read_failure(&description.raw_node.path, &error);
                     warn!(
                         "Cannot index cached download {}: {error:#}",
                         description.file_name
@@ -322,8 +355,9 @@ async fn sync_file_descriptions_inner(
             .context("Metadata worker failed")?;
             let (prepared, mut metadata, digest, size) = match prepared {
                 Ok(value) => value,
-                Err(e) if is_document_provider_error(&e) => return Err(e),
+                Err(e) if is_document_scan_interrupted(&e) => return Err(e),
                 Err(e) => {
+                    pass.note_read_failure(&description.raw_node.path, &e);
                     error!("Failed to prepare {}: {e:#}", description.file_name);
                     outcome.failed += 1;
                     rejected.insert((description.directory.clone(), description.file_name.clone()));
@@ -354,7 +388,8 @@ async fn sync_file_descriptions_inner(
             });
             if existing.is_none()
                 && let Some((moved, previous_album)) =
-                    find_moved_file(fsio, main_db, &prepared, &digest, size, release_track).await?
+                    find_moved_file(pass, fsio, main_db, &prepared, &digest, size, release_track)
+                        .await?
             {
                 existing = Some(moved);
                 moved_from = previous_album;
@@ -394,7 +429,7 @@ async fn sync_file_descriptions_inner(
                     !old.local_available && old.directory.is_empty() && old.file_name.is_empty();
                 let still_absent = match description.lib_path.as_deref() {
                     Some(root) => {
-                        known_missing(fsio, &root.join(&old.directory).join(&old.file_name))?
+                        pass.known_missing(fsio, &root.join(&old.directory).join(&old.file_name))?
                     }
                     None => false,
                 };
@@ -499,12 +534,13 @@ async fn sync_file_descriptions_inner(
                         return Ok(outcome);
                     }
                     error!("Failed to save {}: {e:#}", description.file_name);
-                    if is_fatal_scan_error(&e) || is_document_provider_error(&e) {
+                    if is_fatal_scan_error(&e) || is_document_scan_interrupted(&e) {
                         batch_txn.rollback().await.with_context(|| {
                             format!("Failed to roll back metadata batch after {e:#}")
                         })?;
                         return Err(e);
                     }
+                    pass.note_read_failure(&description.raw_node.path, &e);
                     outcome.failed += 1;
                     rejected.insert((description.directory.clone(), description.file_name.clone()));
                 }
@@ -528,6 +564,7 @@ async fn sync_file_descriptions_inner(
 }
 
 async fn find_moved_file(
+    pass: &ScanPass<'_>,
     fsio: &FsIo,
     db: &DatabaseConnection,
     description: &FileDescription,
@@ -585,6 +622,9 @@ async fn find_moved_file(
         return Ok(None);
     }
     let old_path = root.join(&old.directory).join(&old.file_name);
+    if pass.incomplete_walk || pass.unreadable.contains(&old_path) {
+        return Ok(None);
+    }
     let album_dir = resolved_metadata::track_album_directory(db, old.id)
         .await?
         .filter(|path| Path::new(path).starts_with(root));
@@ -595,7 +635,7 @@ async fn find_moved_file(
             Some(path) if absent && known_missing(&fsio, Path::new(&path))? => Some(path),
             _ => None,
         };
-        Ok::<_, FileIoError>((absent, absent_album))
+        Ok::<_, anyhow::Error>((absent, absent_album))
     })
     .await??;
     Ok(absent.then(|| (old.clone(), absent_album)))
@@ -1031,12 +1071,19 @@ pub async fn confirm_empty_library_cleanup(
     Ok(true)
 }
 
-// Missing-file cleanup and move detection both require an affirmative answer.
-// A SAF error means access was lost, so the scan must stop before removing rows.
-fn known_missing(fsio: &FsIo, path: &Path) -> Result<bool, FileIoError> {
+// Move detection and cleanup require positive evidence of absence. A failed
+// query for one item cannot establish its absence. A failed listing or a lost
+// root makes even the remaining queries unreliable.
+fn known_missing(fsio: &FsIo, path: &Path) -> Result<bool> {
     match fsio.exists(path) {
-        Err(error @ FileIoError::Saf(_)) => Err(error),
-        result => Ok(matches!(result, Ok(false))),
+        Ok(exists) => Ok(!exists),
+        Err(error) => {
+            let error = anyhow::Error::new(error);
+            if is_document_scan_interrupted(&error) {
+                return Err(error);
+            }
+            Ok(false)
+        }
     }
 }
 
@@ -1047,6 +1094,7 @@ async fn clean_up_database(
     policy: MissingHostFilePolicy,
     store: &crate::sync::SeaOrmSyncStore,
     cancel_token: Option<&CancellationToken>,
+    unreadable: HashSet<PathBuf>,
 ) -> Result<()> {
     let files = media_files::Entity::find()
         .filter(media_files::Column::LocalAvailable.eq(true))
@@ -1068,14 +1116,12 @@ async fn clean_up_database(
             {
                 break;
             }
-            if known_missing(
-                &fsio_for_missing,
-                &root_for_missing.join(&file.directory).join(&file.file_name),
-            )? {
+            let path = root_for_missing.join(&file.directory).join(&file.file_name);
+            if !unreadable.contains(&path) && known_missing(&fsio_for_missing, &path)? {
                 missing.push(file);
             }
         }
-        Ok::<_, FileIoError>(missing)
+        Ok::<_, anyhow::Error>(missing)
     })
     .await??;
     if cancel_token.is_some_and(CancellationToken::is_cancelled) {
@@ -1090,9 +1136,6 @@ async fn clean_up_database(
         log::warn!("Skipping missing host file removals because the library looks unmounted");
     }
     let root_listing = fsio.read_dir(root_path).await;
-    if let Err(error @ FileIoError::Saf(_)) = root_listing {
-        return Err(error.into());
-    }
     let root_listable = root_listing.is_ok();
     let empty_root = root_listing.is_ok_and(|entries| root_has_only_index_entries(&entries));
     let defer_host_cleanup = empty_root
@@ -1217,8 +1260,10 @@ pub async fn scan_audio_file(
         main_db,
         node_id,
         &mut descriptions,
-        false,
-        Some(&options),
+        &mut ScanPass {
+            options: Some(&options),
+            ..Default::default()
+        },
         store,
     )
     .await?;
@@ -1297,6 +1342,12 @@ where
     // then. Marking them unavailable instead would hide them from later
     // cleanups, which only check available tracks.
     let walk_complete = scanner.skipped().is_empty();
+    let mut pass = ScanPass {
+        options: Some(&options),
+        force,
+        incomplete_walk: !walk_complete,
+        ..Default::default()
+    };
     if cleanup && !walk_complete {
         warn!("Leaving cleanup for a scan that can read every path");
     }
@@ -1329,7 +1380,8 @@ where
         }
 
         let mut descriptions: Vec<Option<FileDescription>> = Vec::with_capacity(files.len());
-        for file in files.clone() {
+        for node in &files {
+            let file = node.clone();
             let fsio_for_describe = fsio.clone();
             let root_for_describe = lib_path.to_path_buf();
             let description = task::spawn_blocking(move || {
@@ -1341,8 +1393,9 @@ where
                     scanned_directories.insert(value.directory.clone());
                     descriptions.push(Some(value));
                 }
-                Err(error) if is_document_provider_error(&error) => return Err(error),
+                Err(error) if is_document_scan_interrupted(&error) => return Err(error),
                 Err(error) => {
+                    pass.note_read_failure(&node.path, &error);
                     error!("Failed to describe audio file: {error:#}");
                     descriptions.push(None);
                 }
@@ -1393,8 +1446,7 @@ where
             main_db,
             node_id,
             &mut descriptions,
-            force,
-            Some(&options),
+            &mut pass,
             store,
         )
         .await
@@ -1435,12 +1487,13 @@ where
             policy,
             store,
             cancel_token.as_ref(),
+            pass.unreadable,
         )
         .await
         .with_context(|| "Unable to cleanup database")
         {
             Ok(_) => info!("Cleanup completed successfully."),
-            Err(e) if e.is::<EmptyLibraryCleanupDeferred>() || is_document_provider_error(&e) => {
+            Err(e) if e.is::<EmptyLibraryCleanupDeferred>() || is_document_scan_interrupted(&e) => {
                 return Err(e);
             }
             Err(e) => error!("{e:#?}"),

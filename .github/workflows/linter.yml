@@ -58,6 +58,11 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy -- -D warnings
 
+      - name: Test Android document provider exceptions on the JVM
+        run: |
+          cargo build --locked -p fsio --features jni-guard-tests --example document_provider_jni
+          java -Xcheck:jni fsio/tests/jni/DocumentProviderJni.java "${CARGO_TARGET_DIR:-target}/debug/examples"
+
       - name: Run Rust behavior tests
         # Runs every workspace test that currently builds and passes on a
         # GPU-less Ubuntu runner. Three pre-existing problems are excluded:

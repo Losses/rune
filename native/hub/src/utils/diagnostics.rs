@@ -54,8 +54,7 @@ async fn run_self_test(path: &str) -> Vec<FsSelfTestLayerResult> {
                     ok: true,
                     skipped: false,
                     elapsed_ms: start.elapsed().as_millis() as u64,
-                    detail: "SAF tree accessible; ndk-saf initialized and cache refreshed"
-                        .to_string(),
+                    detail: "Initialized the SAF library and opened its filesystem cache".into(),
                 };
                 emit_progress(&result);
                 results.push(result);

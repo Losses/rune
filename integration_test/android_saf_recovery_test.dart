@@ -35,18 +35,25 @@ void main() {
     expect(name, matches(RegExp(r'^rune-saf-recovery-[a-f0-9]{32}$')));
     final root = Directory('/sdcard/Music/$name');
     final moved = Directory('${root.path}.moved');
+    final existing = Directory('${root.path}-existing');
+    final ungranted = Directory('${root.path}-new');
     final library = await openGrantedFixture(
       tester,
       'primary:Music/$name',
       prepareFixture: () async {
         expect(await root.exists(), isFalse);
         expect(await moved.exists(), isFalse);
-        await root.create(recursive: true);
+        for (final dir in [existing, ungranted]) {
+          expect(await dir.exists(), isFalse);
+        }
         addTearDown(() async {
-          for (final dir in [root, moved]) {
+          for (final dir in [root, moved, existing, ungranted]) {
             if (await dir.exists()) await dir.delete(recursive: true);
           }
         });
+        for (final dir in [root, existing, ungranted]) {
+          await dir.create(recursive: true);
+        }
         await _writeTrack(root, 'startup_0.ogg');
       },
     );
@@ -60,6 +67,19 @@ void main() {
     expect(original.track, isNotEmpty);
 
     final saf = SafUtil();
+    // Start with read-only access to another folder and no grant for a third.
+    final existingGrant = await saf.pickDirectory(
+      initialUri: _fixtureUri('$name-existing').toString(),
+      persistablePermission: true,
+      writePermission: false,
+    );
+    final existingUri = existingGrant!.uri;
+    final newUri = _fixtureUri('$name-new', withinTree: true).toString();
+    final expectedExisting = _fixtureUri('$name-existing', withinTree: true);
+    expect(Uri.parse(existingUri).authority, expectedExisting.authority);
+    expect(Uri.parse(existingUri).pathSegments, expectedExisting.pathSegments);
+    expect(await _persistedAccess(saf, existingUri), (true, false));
+    expect(await _persistedAccess(saf, newUri), isNull);
     final playlistFile = File('${root.path}/fixture.m3u8');
     const playlist = '#EXTM3U\nstartup_0.ogg\n';
     await playlistFile.writeAsString(playlist);
@@ -98,13 +118,11 @@ void main() {
     final manager = context.read<LibraryManagerProvider>();
     final labels = S.of(context);
     await tapWhenReady(tester, find.text(localFolderName(uri)));
-    await tapWhenReady(
-      tester,
-      find.descendant(
-        of: find.byType(ScanLibraryButton),
-        matching: find.byType(Button),
-      ),
+    final scanButton = find.descendant(
+      of: find.byType(ScanLibraryButton),
+      matching: find.byType(Button),
     );
+    await tapWhenReady(tester, scanButton);
     final choose = find.text(labels.pickDirectory);
     await lifecycle.expectVisible(tester, choose);
     expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.failed);
@@ -121,25 +139,77 @@ void main() {
     expect(pid, process);
 
     final picker = context.read<LocalFolderPickerProvider>();
-    final pickDirectory = picker.pickDirectory;
-    final selection = Completer<String?>();
-    picker.pickDirectory = (context) {
-      picker.pickDirectory = pickDirectory;
-      final result = pickDirectory(context);
-      selection.complete(result);
-      return result;
-    };
-    await tapWhenReady(tester, choose);
-    if (!selection.isCompleted) await tester.pump();
-    // DocumentsUI owns the window until the host confirms this selection.
-    expect(await selection.future.timeout(const Duration(seconds: 60)), uri);
+    final pickRecoveryFolder = picker.pickRecoveryFolder;
+    Future<String> chooseFolder(String targetName) async {
+      final selection = Completer<RecoveryFolder?>();
+      picker.pickRecoveryFolder = (context, currentPath) {
+        picker.pickRecoveryFolder = pickRecoveryFolder;
+        expect(currentPath, uri);
+        // Only the starting location changes. Use the production picker and
+        // its actual Android result flags for both accepted and rejected trees.
+        final result = pickRecoveryFolder(
+          context,
+          _fixtureUri(targetName).toString(),
+        );
+        selection.complete(result);
+        return result;
+      };
+      await tapWhenReady(tester, choose);
+      if (!selection.isCompleted) await tester.pump();
+      final result = await selection.future.timeout(
+        const Duration(seconds: 60),
+      );
+      final tree = Uri.parse(result!.uri);
+      expect(tree.authority, _fixtureUri(targetName).authority);
+      expect(tree.pathSegments, ['tree', 'primary:Music/$targetName']);
+      // saf_util takes a root document URI and matches its document ID against
+      // Android's persisted tree IDs. Derive it from the actual picker result.
+      return tree
+          .replace(
+            pathSegments: [
+              ...tree.pathSegments,
+              'document',
+              tree.pathSegments.last,
+            ],
+          )
+          .toString();
+    }
+
+    for (final kind in ['new', 'existing']) {
+      final selectedUri = await chooseFolder('$name-$kind');
+      await lifecycle.expectVisible(
+        tester,
+        find.text(labels.selectOriginalLibraryFolder),
+      );
+      final newAccess = await _persistedAccess(
+        saf,
+        kind == 'new' ? selectedUri : newUri,
+      );
+      final existingAccess = await _persistedAccess(
+        saf,
+        kind == 'existing' ? selectedUri : existingUri,
+      );
+      final originalAccess = await _persistedAccess(saf, uri);
+      expect(newAccess, isNull);
+      expect(existingAccess, (true, false));
+      expect(originalAccess, isNull);
+      debugPrint(
+        'Verified rejected SAF folder ($kind), persisted (read, write): '
+        'new=$newAccess existing=$existingAccess original=$originalAccess',
+      );
+      expect(manager.getScanTaskProgress(recordId)?.status, TaskStatus.failed);
+      await tapWhenReady(tester, find.text(labels.close));
+      await tapWhenReady(tester, scanButton);
+      await lifecycle.expectVisible(tester, choose);
+    }
+    final restoredUri = await chooseFolder(name);
     await lifecycle.waitFor(
       tester,
       () =>
           manager.getScanTaskProgress(recordId)?.status == TaskStatus.finished,
       description: 'the scan after regrant to finish',
     );
-    expect(await saf.hasPersistedPermission(uri), isTrue);
+    expect(await _persistedAccess(saf, restoredUri), (true, true));
     expect(library.openRecord?.recordId, recordId);
     final after = await _catalog();
     expect(after.keys, unorderedEquals(['startup_0.ogg', 'startup_1.ogg']));
@@ -158,6 +228,35 @@ void main() {
       'retained=${original.track} added=${added.track}',
     );
   }, timeout: const Timeout(Duration(minutes: 4)));
+}
+
+Future<(bool, bool)?> _persistedAccess(SafUtil saf, String uri) async {
+  // With both flags disabled, saf_util reports any persisted entry, including
+  // one with only write access. Read and write are then queried separately.
+  if (!await saf.hasPersistedPermission(
+    uri,
+    checkRead: false,
+    checkWrite: false,
+  )) {
+    return null;
+  }
+  return (
+    await saf.hasPersistedPermission(uri),
+    await saf.hasPersistedPermission(uri, checkRead: false, checkWrite: true),
+  );
+}
+
+Uri _fixtureUri(String name, {bool withinTree = false}) {
+  final id = 'primary:Music/$name';
+  return Uri(
+    scheme: 'content',
+    host: 'com.android.externalstorage.documents',
+    pathSegments: [
+      if (withinTree) ...['tree', id],
+      'document',
+      id,
+    ],
+  );
 }
 
 Future<void> _writeTrack(Directory root, String name) async {

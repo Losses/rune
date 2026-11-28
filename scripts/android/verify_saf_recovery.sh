@@ -24,7 +24,8 @@ flutter gen-l10n
 (
     until adb shell pidof -s "$pkg" >/dev/null 2>&1; do sleep 0.5; done
     adb shell appops set --user "$user_id" --uid "$pkg" MANAGE_EXTERNAL_STORAGE allow
-    exec python3 scripts/android/confirm_saf_tree.py "$name" --count 2 --package "$pkg"
+    exec python3 scripts/android/confirm_saf_tree.py \
+        "$name" "$name-existing" "$name-new" "$name-existing" "$name" --package "$pkg"
 ) &
 picker=$!
 cleanup() {
@@ -33,7 +34,7 @@ cleanup() {
     wait "$picker" 2>/dev/null || true
     # Dart normally removes both paths. A lost test process cannot run teardown.
     if (( status != 0 )); then
-        adb shell rm -rf "$path" "$path.moved" || echo "Could not remove $path on the test device." >&2
+        adb shell rm -rf "$path" "$path.moved" "$path-existing" "$path-new" || echo "Could not remove SAF test folders on the device." >&2
     fi
     if adb shell pm path --user "$user_id" "$pkg" | grep '^package:' >/dev/null; then
         if ! adb shell pm uninstall --user "$user_id" "$pkg" && (( status == 0 )); then

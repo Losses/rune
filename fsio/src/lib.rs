@@ -29,6 +29,12 @@ pub enum FileIoError {
     Database(String),
     #[error("Android SAF error: {0}")]
     Saf(String),
+    #[error("Android document tree unavailable: {0}")]
+    DocumentRootUnavailable(String),
+    #[error("Android document listing incomplete: {0}")]
+    DocumentListingIncomplete(String),
+    #[error("Android document runtime error: {0}")]
+    DocumentRuntime(String),
     #[error("operation not supported: {0}")]
     NotSupported(String),
     #[error("unknown error")]
@@ -37,11 +43,32 @@ pub enum FileIoError {
     Remote(String),
 }
 
-/// Whether Android's document provider failed to access a granted document or tree.
+/// A file, listing, root, or JNI failure while accessing Android documents.
+/// Catalog reads can mark the affected row unavailable for display.
 pub fn is_document_provider_error(error: &anyhow::Error) -> bool {
     matches!(
         error.downcast_ref::<FileIoError>(),
         Some(FileIoError::Saf(_))
+    ) || is_document_scan_interrupted(error)
+}
+
+/// The root document itself is missing or access to it was denied.
+pub fn is_document_root_unavailable(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<FileIoError>(),
+        Some(FileIoError::DocumentRootUnavailable(_))
+    )
+}
+
+/// The backend cannot safely finish this scan or infer which files were removed.
+pub fn is_document_scan_interrupted(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<FileIoError>(),
+        Some(
+            FileIoError::DocumentRootUnavailable(_)
+                | FileIoError::DocumentListingIncomplete(_)
+                | FileIoError::DocumentRuntime(_)
+        )
     )
 }
 

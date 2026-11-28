@@ -18,6 +18,7 @@ class MainActivity: FlutterActivity() {
     private var popChannel: MethodChannel? = null
     private var sceneChannel: MethodChannel? = null
     private var systemVolume: SystemVolume? = null
+    private var documentTreeRecovery: DocumentTreeRecovery? = null
 
     // Scene file paths received before Dart called takePending.
     private val pendingSceneFiles = mutableListOf<String>()
@@ -41,6 +42,7 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        documentTreeRecovery = DocumentTreeRecovery(this, flutterEngine.dartExecutor.binaryMessenger)
         // Apple Music, in a build that includes it.
         appleMusicPlugin()?.let { flutterEngine.plugins.add(it) }
         if (!attachFlutter(flutterEngine.renderer)) {
@@ -74,9 +76,19 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        documentTreeRecovery?.detach()
+        documentTreeRecovery = null
         systemVolume?.detach()
         systemVolume = null
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == DocumentTreeRecovery.REQUEST_CODE) {
+            documentTreeRecovery?.onResult(resultCode, data)
+        } else {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

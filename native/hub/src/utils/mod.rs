@@ -39,7 +39,7 @@ use std::{
 use crate::handlers::local_libraries::publish_library_records_changed;
 use crate::node::{NodeContext, NodeSlot};
 use anyhow::{Context, Result};
-use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalObjectStore, is_document_provider_error};
+use fsio::{FileIoError, FsIo, OpenDalConfig, OpenDalObjectStore, is_document_root_unavailable};
 use log::info;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
@@ -2700,7 +2700,7 @@ async fn open_catalog_record(
 pub(crate) fn local_open_failure(error: &anyhow::Error) -> OpenLibraryFailureKind {
     if error.downcast_ref::<MediaFolderMissing>().is_some() {
         OpenLibraryFailureKind::MediaFolderMissing
-    } else if is_document_provider_error(error) {
+    } else if is_document_root_unavailable(error) {
         OpenLibraryFailureKind::DocumentFolderUnavailable
     } else if error.downcast_ref::<NewerLibraryDatabase>().is_some() {
         OpenLibraryFailureKind::NewerVersion
@@ -3223,13 +3223,22 @@ mod local_open_failure_tests {
     }
 
     #[test]
-    fn document_provider_errors_keep_the_folder_recovery_action() {
-        let error = Error::new(fsio::FileIoError::Saf("folder is unavailable".into()))
+    fn only_an_unavailable_document_root_prompts_to_reselect_the_folder() {
+        use fsio::FileIoError;
+        let error = Error::new(FileIoError::DocumentRootUnavailable("grant revoked".into()))
             .context("Could not open library");
         assert_eq!(
             local_open_failure(&error),
             OpenLibraryFailureKind::DocumentFolderUnavailable
         );
+        for error in [
+            FileIoError::Saf("file unavailable".into()),
+            FileIoError::DocumentListingIncomplete("listing unavailable".into()),
+            FileIoError::DocumentRuntime("JNI unavailable".into()),
+        ] {
+            let error = Error::new(error).context("Could not open library");
+            assert_eq!(local_open_failure(&error), OpenLibraryFailureKind::Storage);
+        }
     }
 }
 

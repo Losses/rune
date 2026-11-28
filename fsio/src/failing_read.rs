@@ -3,7 +3,7 @@ use std::{
     io::{Error, ErrorKind, Read, Result as IoResult, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -114,16 +114,43 @@ pub enum DocumentOperation {
     ModifiedTime,
     Open,
     Exists,
+    Walk,
+    Canonicalize,
 }
 
 /// Lists the real directory, then returns a SAF error for one operation on this file.
 pub fn unavailable_document(path: &Path, operation: DocumentOperation) -> FsIo {
-    ReadFault::Document(path.to_owned(), operation).fs()
+    document_failure_after(path, operation, 0, || {
+        FileIoError::Saf("document unavailable".into())
+    })
+}
+
+/// Succeeds for the first requested probes, then reports the chosen provider error.
+pub fn document_failure_after(
+    path: &Path,
+    operation: DocumentOperation,
+    successes: usize,
+    error: fn() -> FileIoError,
+) -> FsIo {
+    ReadFault::Document {
+        path: path.to_owned(),
+        operation,
+        successes,
+        attempts: AtomicUsize::new(0),
+        error,
+    }
+    .fs()
 }
 
 enum ReadFault {
     Stream(OneFailingRead),
-    Document(PathBuf, DocumentOperation),
+    Document {
+        path: PathBuf,
+        operation: DocumentOperation,
+        successes: usize,
+        attempts: AtomicUsize,
+        error: fn() -> FileIoError,
+    },
 }
 
 impl ReadFault {
@@ -137,9 +164,21 @@ impl ReadFault {
     }
 
     fn check(&self, path: &Path, operation: DocumentOperation) -> Result<(), FileIoError> {
-        if matches!(self, Self::Document(document, step) if document == path && *step == operation)
+        let Self::Document {
+            path: target,
+            operation: step,
+            successes,
+            attempts,
+            error,
+        } = self
+        else {
+            return Ok(());
+        };
+        if target == path
+            && *step == operation
+            && attempts.fetch_add(1, Ordering::Relaxed) >= *successes
         {
-            return Err(FileIoError::Saf("document is unavailable".into()));
+            return Err(error());
         }
         Ok(())
     }
@@ -147,7 +186,7 @@ impl ReadFault {
     fn wrap(&self, stream: Box<dyn FileStream>, mode: OpenMode) -> Box<dyn FileStream> {
         match self {
             Self::Stream(failure) => failure.wrap(stream, mode),
-            Self::Document(..) => stream,
+            Self::Document { .. } => stream,
         }
     }
 }
@@ -224,6 +263,7 @@ impl FileIo for FailingReadIo {
     }
 
     fn walk_dir(&self, path: &Path, follow_links: bool) -> Result<DirWalk, FileIoError> {
+        self.fault.check(path, DocumentOperation::Walk)?;
         self.inner.walk_dir(path, follow_links)
     }
 
@@ -253,6 +293,7 @@ impl FileIo for FailingReadIo {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<FsNode, FileIoError> {
+        self.fault.check(path, DocumentOperation::Canonicalize)?;
         self.inner.canonicalize(path)
     }
 

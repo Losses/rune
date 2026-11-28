@@ -407,29 +407,39 @@ async fn missing_library_root_fails_the_scan_and_keeps_its_tracks() -> Result<()
     Ok(())
 }
 
-/// A successful walk can be followed by a provider failure while reading a track
-/// or checking which rows to remove. Neither failure makes missing rows deletable.
-#[tokio::test]
-async fn a_document_provider_error_after_the_walk_keeps_previously_indexed_tracks() -> Result<()> {
-    use database::actions::metadata::{ScanOptions, scan_audio_library};
-    use fsio::failing_read::{DocumentOperation, unavailable_document};
+struct DocumentScan {
+    root: tempfile::TempDir,
+    db: sea_orm::DatabaseConnection,
+    actor: String,
+    store: SeaOrmSyncStore,
+}
 
-    let node = Uuid::new_v4();
-    let actor = node.to_string();
-    let db = Database::connect("sqlite::memory:").await?;
-    migration::up_with_actor(&db, Some(&actor), None).await?;
-    let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
-    let root = tempfile::tempdir()?;
-    let removed = root.path().join("removed.ogg");
-    let inaccessible = root.path().join("unavailable.ogg");
-    fs::copy(fixtures::audio_fixture(), &removed)?;
-    fs::copy(fixtures::audio_fixture(), &inaccessible)?;
-    let scan = async |fs: FsIo, force| {
+impl DocumentScan {
+    async fn new() -> Result<Self> {
+        let node = Uuid::new_v4();
+        let db = fixtures::memory_database(node).await?;
+        let store = SeaOrmSyncStore::create_empty(db.clone(), Uuid::new_v4(), node).await?;
+        Ok(Self {
+            root: tempfile::tempdir()?,
+            db,
+            actor: node.to_string(),
+            store,
+        })
+    }
+
+    fn add(&self, name: &str, audio: usize) -> Result<std::path::PathBuf> {
+        let path = self.root.path().join(name);
+        fs::copy(fixtures::audio_fixture_at(audio), &path)?;
+        Ok(path)
+    }
+
+    async fn scan(&self, fs: &FsIo, force: bool) -> Result<usize> {
+        use database::actions::metadata::{ScanOptions, scan_audio_library};
         scan_audio_library(
-            &fs,
-            &db,
-            &actor,
-            root.path(),
+            fs,
+            &self.db,
+            &self.actor,
+            self.root.path(),
             ScanOptions {
                 cleanup: true,
                 force,
@@ -437,37 +447,211 @@ async fn a_document_provider_error_after_the_walk_keeps_previously_indexed_track
                 cancel_token: None,
             },
             |_| {},
-            &store,
+            &self.store,
         )
         .await
-    };
-    assert_eq!(scan(FsIo::new(), false).await?, 2);
-    let indexed = media_files::Entity::find().all(&db).await?;
-    fs::remove_file(&removed)?;
+    }
 
+    async fn row(&self, name: &str) -> Result<media_files::Model> {
+        use anyhow::Context;
+        media_files::Entity::find()
+            .filter(media_files::Column::FileName.eq(name))
+            .one(&self.db)
+            .await?
+            .with_context(|| format!("missing {name}"))
+    }
+}
+
+#[tokio::test]
+async fn an_unreadable_document_keeps_its_row_and_allows_other_tracks_to_be_scanned() -> Result<()>
+{
+    use fsio::failing_read::{DocumentOperation, unavailable_document};
     for operation in [
         DocumentOperation::ModifiedTime,
         DocumentOperation::Open,
         DocumentOperation::Exists,
     ] {
-        let fs = unavailable_document(&inaccessible, operation);
-        let error = scan(fs, operation == DocumentOperation::Open)
+        let library = DocumentScan::new().await?;
+        let inaccessible = library.add("unavailable.ogg", 0)?;
+        let removed = library.add("removed.ogg", 1)?;
+        library.scan(&FsIo::new(), false).await?;
+        let original = library.row("unavailable.ogg").await?;
+        fs::remove_file(removed)?;
+        // The new file has the same bytes: an unreadable source is not a move.
+        library.add("copy.ogg", 0)?;
+        library
+            .scan(
+                &unavailable_document(&inaccessible, operation),
+                operation == DocumentOperation::Open,
+            )
+            .await?;
+        assert_eq!(library.row("unavailable.ogg").await?, original);
+        assert_ne!(
+            library.row("copy.ogg").await?.source_uuid,
+            original.source_uuid
+        );
+        assert_eq!(media_files::Entity::find().count(&library.db).await?, 2);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn tree_loss_or_incomplete_enumeration_preserves_the_catalog_before_cleanup() -> Result<()> {
+    use fsio::{
+        FileIoError,
+        failing_read::{DocumentOperation, document_failure_after},
+    };
+    let library = DocumentScan::new().await?;
+    let inaccessible = library.add("unavailable.ogg", 0)?;
+    let removed = library.add("removed.ogg", 1)?;
+    library.scan(&FsIo::new(), false).await?;
+    let before = media_files::Entity::find().all(&library.db).await?;
+    fs::remove_file(removed)?;
+    let typed: fn() -> FileIoError = || FileIoError::DocumentRootUnavailable("tree revoked".into());
+    for (path, operation, error) in [
+        (
+            library.root.path(),
+            DocumentOperation::Walk,
+            (|| FileIoError::DocumentListingIncomplete("incomplete directory cursor".into()))
+                as fn() -> FileIoError,
+        ),
+        (
+            inaccessible.as_path(),
+            DocumentOperation::ModifiedTime,
+            typed,
+        ),
+        (inaccessible.as_path(), DocumentOperation::Open, typed),
+        (inaccessible.as_path(), DocumentOperation::Exists, typed),
+    ] {
+        let fs = document_failure_after(path, operation, 0, error);
+        let error = library
+            .scan(&fs, operation == DocumentOperation::Open)
             .await
-            .expect_err("scan should report unavailable folder");
+            .unwrap_err();
         assert!(
-            fsio::is_document_provider_error(&error),
+            fsio::is_document_scan_interrupted(&error),
             "{operation:?}: {error:#}"
         );
+        assert_eq!(media_files::Entity::find().all(&library.db).await?, before);
+    }
+    library.scan(&FsIo::new(), false).await?;
+    assert_eq!(media_files::Entity::find().count(&library.db).await?, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn losing_tree_access_after_a_committed_batch_resumes_without_duplicating_tracks()
+-> Result<()> {
+    use fsio::{
+        FileIoError,
+        failing_read::{DocumentOperation, document_failure_after},
+    };
+    let library = DocumentScan::new().await?;
+    for i in 0..17 {
+        library.add(&format!("{i}.ogg"), 0)?;
+    }
+    let ordinary = FsIo::new();
+    // Follow the walk order on the current filesystem without assuming lexical order.
+    let files =
+        metadata::scanner::AudioScanner::new(&ordinary, &library.root.path())?.read_files(17);
+    let last = &files[16];
+    let lost = document_failure_after(&last.path, DocumentOperation::Open, 0, || {
+        FileIoError::DocumentRootUnavailable("tree revoked".into())
+    });
+    let error = library.scan(&lost, false).await.unwrap_err();
+    assert!(fsio::is_document_root_unavailable(&error));
+    let committed = media_files::Entity::find().all(&library.db).await?;
+    assert_eq!(committed.len(), 16);
+    assert!(committed.iter().all(|f| f.file_name != last.filename));
+    library.scan(&ordinary, false).await?;
+    assert_eq!(media_files::Entity::find().count(&library.db).await?, 17);
+    for file in committed {
         assert_eq!(
-            media_files::Entity::find().all(&db).await?,
-            indexed,
-            "{operation:?} changed existing rows"
+            library.row(&file.file_name).await?.source_uuid,
+            file.source_uuid
         );
     }
-    scan(FsIo::new(), false).await?;
-    let remaining = media_files::Entity::find().all(&db).await?;
-    assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].file_name, "unavailable.ogg");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_managed_file_error_is_scoped_to_its_document_unless_the_tree_is_lost() -> Result<()> {
+    use database::actions::file::MANAGED_AUDIO_DIRECTORY;
+    use fsio::{
+        FileIoError,
+        failing_read::{DocumentOperation, document_failure_after},
+    };
+    use sea_orm::{ActiveModelTrait, Set};
+    let library = DocumentScan::new().await?;
+    let old_path = library.add("cached.ogg", 0)?;
+    library.scan(&FsIo::new(), false).await?;
+    let mut managed: media_files::ActiveModel = library.row("cached.ogg").await?.into();
+    let folder = library.root.path().join(MANAGED_AUDIO_DIRECTORY);
+    fs::create_dir(&folder)?;
+    let path = folder.join("cached.ogg");
+    fs::rename(old_path, &path)?;
+    managed.directory = Set(MANAGED_AUDIO_DIRECTORY.into());
+    let managed = managed.update(&library.db).await?;
+    // Already attached managed audio without a rich index is backfilled on scan.
+    library
+        .db
+        .execute_unprepared("DELETE FROM music_metadata_audio")
+        .await?;
+    let index_row = async || {
+        library
+            .db
+            .query_one_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DbBackend::Sqlite,
+                "SELECT 1 FROM music_metadata_audio WHERE file_id = ?",
+                [managed.id.into()],
+            ))
+            .await
+    };
+    // First open verifies the blob; the subsequent metadata read loses the tree.
+    let lost = document_failure_after(&path, DocumentOperation::Open, 1, || {
+        FileIoError::DocumentRootUnavailable("tree revoked".into())
+    });
+    let error = library.scan(&lost, false).await.unwrap_err();
+    assert!(fsio::is_document_root_unavailable(&error));
+    library.add("sibling.ogg", 1)?;
+    let leaf = document_failure_after(&path, DocumentOperation::Open, 1, || {
+        FileIoError::Saf("cannot open document".into())
+    });
+    library.scan(&leaf, false).await?;
+    assert_eq!(library.row("cached.ogg").await?, managed);
+    assert!(index_row().await?.is_none());
+    library.row("sibling.ogg").await?;
+    library.scan(&FsIo::new(), false).await?;
+    assert!(index_row().await?.is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn uncertain_move_recheck_keeps_the_original_identity_until_a_clean_retry() -> Result<()> {
+    use fsio::{
+        FileIoError,
+        failing_read::{DocumentOperation, document_failure_after},
+    };
+    let library = DocumentScan::new().await?;
+    let old_path = library.add("old.ogg", 0)?;
+    library.scan(&FsIo::new(), false).await?;
+    let old = library.row("old.ogg").await?;
+    fs::rename(&old_path, library.root.path().join("renamed.ogg"))?;
+    library.add("sibling.ogg", 1)?;
+    // The first lookup detects the apparent move; its in-transaction recheck
+    // cannot confirm it, while the unrelated sibling still commits.
+    let fs = document_failure_after(&old_path, DocumentOperation::Exists, 1, || {
+        FileIoError::Saf("cannot recheck old path".into())
+    });
+    library.scan(&fs, false).await?;
+    assert_eq!(library.row("old.ogg").await?, old);
+    library.row("sibling.ogg").await?;
+    library.scan(&FsIo::new(), false).await?;
+    assert_eq!(
+        library.row("renamed.ogg").await?.source_uuid,
+        old.source_uuid
+    );
+    assert_eq!(media_files::Entity::find().count(&library.db).await?, 2);
     Ok(())
 }
 
