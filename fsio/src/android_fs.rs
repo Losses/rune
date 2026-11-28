@@ -374,6 +374,10 @@ impl FileIo for AndroidFsIo {
         StorageLocation::Local
     }
 
+    fn library_path_prefix<'a>(&self, _root: &'a Path) -> Option<&'a Path> {
+        None
+    }
+
     fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError> {
         self.open_sync(path, open_mode)
     }

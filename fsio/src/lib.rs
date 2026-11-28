@@ -199,6 +199,11 @@ pub trait FileIo: Send + Sync {
     /// A name for logs and messages, not for deciding anything.
     fn name(&self) -> &'static str;
     fn storage(&self) -> StorageLocation;
+    /// The path to prepend to a catalog file in this library. A document
+    /// provider already addresses files relative to its granted tree.
+    fn library_path_prefix<'a>(&self, root: &'a Path) -> Option<&'a Path> {
+        Some(root)
+    }
     fn open(&self, path: &Path, open_mode: OpenMode) -> Result<Box<dyn FileStream>, FileIoError>;
     async fn open_async(
         &self,
