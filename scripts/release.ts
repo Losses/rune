@@ -629,7 +629,47 @@ function updateAndroidLocalProperties(info: VersionInfo, dryRun: boolean): strin
   return localPropsPath;
 }
 
-function buildGitHubReleaseNotes(info: VersionInfo, categories: ReleaseCategory[], prevTag: string): string {
+function getGitHubRepoSlug(): string {
+  try {
+    const url = runCommand("git remote get-url origin", { silent: true });
+    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/i);
+    if (match) return match[1];
+  } catch {}
+  return "Losses/rune";
+}
+
+function fetchNewContributors(tagVersion: string, prevTag: string): string[] {
+  if (!prevTag) return [];
+  const repoSlug = getGitHubRepoSlug();
+  const args = [
+    "api",
+    `repos/${repoSlug}/releases/generate-notes`,
+    "-f",
+    `tag_name=${tagVersion}`,
+    "-f",
+    `previous_tag_name=${prevTag}`,
+    "-q",
+    ".body",
+  ];
+  try {
+    const body = runFile("gh", args, { silent: true });
+    const match = body.match(/## New Contributors\s*\n([\s\S]*?)(?:\n\*\*Full Changelog\*\*|\nFull Changelog:|$)/);
+    if (!match) return [];
+    return match[1]
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => /^[-*•]\s+@/.test(line));
+  } catch {
+    return [];
+  }
+}
+
+function buildGitHubReleaseNotes(
+  info: VersionInfo,
+  categories: ReleaseCategory[],
+  prevTag: string,
+  newContributors: string[] = [],
+): string {
   const parts: string[] = [];
 
   if (info.isPrerelease) {
@@ -647,8 +687,18 @@ function buildGitHubReleaseNotes(info: VersionInfo, categories: ReleaseCategory[
     parts.push("");
   }
 
+  if (newContributors.length > 0) {
+    parts.push(`## New Contributors`);
+    parts.push("");
+    for (const contributor of newContributors) {
+      parts.push(contributor);
+    }
+    parts.push("");
+  }
+
   if (prevTag) {
-    parts.push(`Full Changelog: https://github.com/Losses/rune/compare/${prevTag}...${info.tagVersion}`);
+    const repoSlug = getGitHubRepoSlug();
+    parts.push(`Full Changelog: https://github.com/${repoSlug}/compare/${prevTag}...${info.tagVersion}`);
   }
 
   return parts.join("\n").trimEnd() + "\n";
@@ -716,7 +766,10 @@ async function main() {
   updateAndroidLocalProperties(info, options.dryRun);
 
   // 6. Build GitHub release body
-  const releaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag);
+  const newContributors = options.dryRun || options.skipGit || options.noPush
+    ? []
+    : fetchNewContributors(info.tagVersion, prevTag);
+  const releaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag, newContributors);
 
   if (options.dryRun || options.skipGit) {
     console.log("\n=== Generated GitHub Release Notes Preview ===");
@@ -769,8 +822,10 @@ async function main() {
   runFile("git", ["push", "origin", info.tagVersion]);
 
   console.log("[gh] Creating GitHub release...");
+  const finalNewContributors = fetchNewContributors(info.tagVersion, prevTag);
+  const finalReleaseBody = buildGitHubReleaseNotes(info, parsed.categories, prevTag, finalNewContributors);
   const tempNotesPath = path.join(ROOT_DIR, `.release_notes_tmp_${Date.now()}.md`);
-  fs.writeFileSync(tempNotesPath, releaseBody, "utf-8");
+  fs.writeFileSync(tempNotesPath, finalReleaseBody, "utf-8");
 
   try {
     const prereleaseFlag = info.isPrerelease ? "--prerelease" : "--latest";
