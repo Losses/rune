@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check Rune's system media controls on a connected Android device.
+"""Check Rune's system media controls on an isolated Android test device.
 
-Start the first of two tracks with distinct titles in Rune's sequential queue.
-Use tracks long enough to keep playing during the test. Pass both titles in
-queue order. The test sends Android media buttons and ends by stopping Rune.
+Start the first of two long tracks in Rune's sequential queue. Pass both
+titles in queue order and supply the artist and album of each track.
+Keep other media apps closed because Android dispatches these buttons globally.
 """
 
 from __future__ import annotations
@@ -13,9 +13,11 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 BUTTON_TARGET = "Media button session is "
+PACKAGE = "ci.not.rune"
 RUNE_SESSION = re.compile(
     r"^[ \t]*PlaybackService (ci\.not\.rune/PlaybackService(?:/\S+)? \(userId=\d+\))$"
 )
@@ -24,6 +26,7 @@ PLAYBACK_STATE = re.compile(
     r"position=(-?\d+), buffered position=-?\d+, speed=([-+0-9.eE]+)"
 )
 DESCRIPTION = re.compile(r"metadata: .*description=(.*)")
+STOPPED_LOG = "playback::internal: Playback stopped"
 
 
 @dataclass(frozen=True)
@@ -35,19 +38,19 @@ class Session:
     speed: float | None
     description: str | None
 
-    def shows(self, title):
-        return self.description is not None and (
-            self.description == title or self.description.startswith(f"{title}, ")
+    def playing(self, description: str) -> bool:
+        return (
+            self.state == 3
+            and self.speed is not None
+            and self.speed > 0
+            and self.description == description
         )
 
-    def playing(self, title):
-        return self.state == 3 and self.speed > 0 and self.shows(title)
-
-    def paused(self, title):
-        return self.state == 2 and self.speed == 0 and self.shows(title)
+    def paused(self, description: str) -> bool:
+        return self.state == 2 and self.speed == 0 and self.description == description
 
 
-def parse_sessions(dump):
+def parse_sessions(dump: str) -> list[Session]:
     lines = dump.splitlines()
     targets = {
         line.strip().removeprefix(BUTTON_TARGET)
@@ -83,25 +86,50 @@ def parse_sessions(dump):
 
 
 class Device:
-    def __init__(self, serial):
+    def __init__(self, serial: str | None) -> None:
         self.adb = ["adb", "-s", serial] if serial else ["adb"]
 
-    def shell(self, *args):
+    def shell(self, *args: str) -> str:
         return subprocess.run(
             [*self.adb, "shell", *args],
             check=True, capture_output=True, text=True, timeout=5,
         ).stdout
 
-    def sessions(self):
+    def sessions(self) -> list[Session]:
         return parse_sessions(self.shell("dumpsys", "media_session"))
 
-    def dispatch(self, command):
+    def dispatch(self, command: str, handle: str) -> None:
         sessions = self.sessions()
-        if len(sessions) != 1 or not sessions[0].receives_buttons:
+        if (
+            len(sessions) != 1
+            or sessions[0].handle != handle
+            or not sessions[0].receives_buttons
+        ):
             raise RuntimeError(f"Rune is not the media button target for {command}: {sessions}")
         self.shell("cmd", "media_session", "dispatch", command)
 
-    def wait_for(self, expected, condition):
+    def stop_events(self, pid: str) -> set[str]:
+        log = self.shell(
+            "logcat", "-d", "-b", "main", f"--pid={pid}",
+            "-v", "threadtime", "-v", "usec", "-s", "playback:I",
+        )
+        return {line for line in log.splitlines() if line.endswith(STOPPED_LOG)}
+
+    def stop(self, handle: str) -> None:
+        pid = self.shell("pidof", PACKAGE).strip()
+        if not re.fullmatch(r"[1-9][0-9]*", pid):
+            raise RuntimeError(f"Expected one Rune process, observed {pid!r}")
+        # A released MediaSession alone can hide a player that kept running.
+        earlier = self.stop_events(pid)
+        self.dispatch("stop", handle)
+        self.wait_for(
+            "Rune stopped native playback and released its media session after Stop",
+            lambda sessions: not sessions and bool(self.stop_events(pid) - earlier),
+        )
+
+    def wait_for(
+        self, expected: str, condition: Callable[[list[Session]], bool]
+    ) -> list[Session]:
         deadline = time.monotonic() + 10
         while True:
             sessions = self.sessions()
@@ -112,30 +140,63 @@ class Device:
                 raise RuntimeError(f"Expected {expected}; observed {sessions}")
             time.sleep(0.2)
 
-    def hold(self, expected, condition):
-        # Check the state over an interval so a single pause report cannot hide moving progress.
-        deadline = time.monotonic() + 1
+    def hold(self, expected: str, condition: Callable[[list[Session]], bool]) -> None:
+        # Bracket the hold interval between two ADB queries so a slow response
+        # cannot count as time spent holding the state.
+        deadline = None
         while True:
+            probe_started = time.monotonic()
             sessions = self.sessions()
             if not condition(sessions):
                 raise RuntimeError(f"Expected {expected}; observed {sessions}")
-            if time.monotonic() >= deadline:
+            if deadline is None:
+                deadline = time.monotonic() + 1
+            elif probe_started >= deadline:
                 print(f"{expected}: {sessions}", flush=True)
                 return
             time.sleep(0.2)
 
 
-def routed(predicate):
-    return lambda sessions: (
-        len(sessions) == 1 and sessions[0].receives_buttons and predicate(sessions[0])
+def verify(device: Device, first: str, second: str) -> None:
+    sessions = device.wait_for(
+        "Rune as the media button target",
+        lambda current: len(current) == 1 and current[0].receives_buttons,
     )
+    handle = sessions[0].handle
+    try:
+        verify_controls(device, handle, first, second)
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        try:
+            # A different app or a replacement session can take the media keys.
+            sessions = device.sessions()
+            if (
+                len(sessions) == 1
+                and sessions[0].handle == handle
+                and sessions[0].receives_buttons
+            ):
+                device.dispatch("stop", handle)
+                device.wait_for(
+                    "Rune released the test session after failure",
+                    lambda current: all(session.handle != handle for session in current),
+                )
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            print(f"Could not stop Rune after verification failed: {error}", file=sys.stderr)
+        raise
 
 
-def verify(device, first, second):
+def verify_controls(device: Device, handle: str, first: str, second: str) -> None:
+    def routed(predicate: Callable[[Session], bool]) -> Callable[[list[Session]], bool]:
+        return lambda sessions: (
+            len(sessions) == 1
+            and sessions[0].handle == handle
+            and sessions[0].receives_buttons
+            and predicate(sessions[0])
+        )
+
     playing_first = routed(lambda session: session.playing(first))
     device.wait_for(f"Rune playing {first!r}", playing_first)
     device.hold(f"{first!r} still playing", playing_first)
-    device.dispatch("pause")
+    device.dispatch("pause", handle)
     paused = device.wait_for(
         f"Rune paused on {first!r} after playback advanced",
         routed(lambda session: session.paused(first) and session.position > 0),
@@ -145,40 +206,49 @@ def verify(device, first, second):
         routed(lambda session: session.paused(first) and session.position == paused.position),
     )
 
-    device.dispatch("play")
+    device.dispatch("play", handle)
     device.wait_for(
         f"Rune resumed {first!r} from the pause position",
         routed(lambda session: session.playing(first) and session.position >= paused.position),
     )
     device.hold(f"{first!r} still playing", playing_first)
-    device.dispatch("pause")
+    device.dispatch("pause", handle)
     device.wait_for(
         "Rune paused at a later position after resuming",
         routed(lambda session: session.paused(first) and session.position > paused.position),
     )
-    device.dispatch("play")
+    device.dispatch("play", handle)
     device.wait_for(f"Rune playing {first!r} again", playing_first)
 
-    device.dispatch("next")
+    device.dispatch("next", handle)
     device.wait_for(
         f"Rune playing {second!r} after Next", routed(lambda session: session.playing(second))
     )
-    device.dispatch("previous")
+    device.dispatch("previous", handle)
     device.wait_for(f"Rune playing {first!r} after Previous", playing_first)
-    device.dispatch("stop")
-    device.wait_for("Rune released its media session after Stop", lambda sessions: not sessions)
+    device.stop(handle)
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", help="adb serial. Defaults to the current adb device.")
+    parser.add_argument("--first-metadata", required=True, nargs=2, metavar=("ARTIST", "ALBUM"))
+    parser.add_argument("--second-metadata", required=True, nargs=2, metavar=("ARTIST", "ALBUM"))
     parser.add_argument("first_title")
     parser.add_argument("second_title")
     args = parser.parse_args()
-    if not args.first_title or not args.second_title or args.first_title == args.second_title:
-        parser.error("Supply two distinct nonempty track titles.")
+    first = (args.first_title, *args.first_metadata)
+    second = (args.second_title, *args.second_metadata)
+    if not all(field.strip() for field in (*first, *second)):
+        parser.error("Supply a nonempty title, artist and album for each track.")
+    # Android dumps one combined description. Match it as a whole because
+    # each metadata field can contain commas.
+    first_description = ", ".join(first)
+    second_description = ", ".join(second)
+    if first_description == second_description:
+        parser.error("Supply tracks with distinct Android media descriptions.")
     try:
-        verify(Device(args.serial), args.first_title, args.second_title)
+        verify(Device(args.serial), first_description, second_description)
     except subprocess.CalledProcessError as error:
         print(error.stderr.strip() or str(error), file=sys.stderr)
         return 1
