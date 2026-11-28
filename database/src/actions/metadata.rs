@@ -1095,7 +1095,7 @@ async fn clean_up_database(
                 && !mass_missing
             {
                 let tx = main_db.begin().await?;
-                let removal: Result<()> = async {
+                let removal: Result<bool> = async {
                     store.lock(&tx).await?;
                     let current = media_files::Entity::find_by_id(file.id).one(&tx).await?;
                     let unchanged = current.as_ref().is_some_and(|row| {
@@ -1103,14 +1103,23 @@ async fn clean_up_database(
                             && row.directory == file.directory
                             && row.file_name == file.file_name
                     });
-                    if unchanged && !cancel_token.is_some_and(CancellationToken::is_cancelled) {
-                        remove_track(&tx, store, file.id).await?;
+                    if !unchanged || cancel_token.is_some_and(CancellationToken::is_cancelled) {
+                        return Ok(false);
                     }
-                    Ok(())
+                    remove_track(&tx, store, file.id).await?;
+
+                    // A file can return while cleanup waits for the database. Confirm
+                    // absence before committing. Cancellation stops the next removal.
+                    let fsio = fsio.clone();
+                    let path = root_path.join(&file.directory).join(&file.file_name);
+                    task::spawn_blocking(move || matches!(fsio.exists(&path), Ok(false)))
+                        .await
+                        .context("Unable to recheck missing file")
                 }
                 .await;
                 match removal {
-                    Ok(()) => tx.commit().await?,
+                    Ok(true) => tx.commit().await?,
+                    Ok(false) => tx.rollback().await?,
                     Err(error) => {
                         if let Err(rollback_error) = tx.rollback().await {
                             return Err(error.context(format!(
